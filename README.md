@@ -6,7 +6,7 @@
 A bass multi-effects VST3 plugin built around [Neural Amp Modeler](https://github.com/sdatkinson/NeuralAmpModelerCore)
 (`.nam`) amp captures, with a cabinet IR loader and built-in effects. Built with [JUCE](https://juce.com).
 
-Paragon PR7-B is the bass version of [Paragon PR7-G](https://github.com/ARYEZ/Paragon-X1), the guitar processor, and
+Paragon PR7-B is the bass version of [Paragon PR7-G](https://github.com/ARYEZ/Paragon-PR7-G), the guitar processor, and
 starts from its 0.28.0 release. It installs alongside PR7-G and keeps its own rigs. Voicing it for bass is in progress,
 so the guide below still describes the guitar version's effects.
 

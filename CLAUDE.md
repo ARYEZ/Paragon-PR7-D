@@ -1,6 +1,6 @@
 # Paragon PR7-E: notes for Claude
 
-This repository starts as a copy of **Paragon PR7-B** (the bass processor, repo `ARYEZ/Paragon-PR7-B`) at PR7-B **0.11.0**, full history included, to become **Paragon PR7-E**, the **utility** processor of the PR7 family. Its siblings: **PR7-G** (guitar, repo `ARYEZ/Paragon-X1`), **PR7-B** (bass), **PR7-V** (vocal, `ARYEZ/Paragon-PR7-V`) and **PR7-C** (`ARYEZ/Paragon-PR7-C`). Everything below describes how the project is built, tested and released, and how the owner likes to work.
+This repository starts as a copy of **Paragon PR7-B** (the bass processor, repo `ARYEZ/Paragon-PR7-B`) at PR7-B **0.11.0**, full history included, to become **Paragon PR7-E**, the **utility** processor of the PR7 family. Its siblings: **PR7-G** (guitar, repo `ARYEZ/Paragon-PR7-G`), **PR7-B** (bass), **PR7-V** (vocal, `ARYEZ/Paragon-PR7-V`) and **PR7-C** (`ARYEZ/Paragon-PR7-C`). Everything below describes how the project is built, tested and released, and how the owner likes to work.
 
 ## First: make it its own plugin (do this before anything else)
 
