@@ -2,6 +2,16 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.9.0
+
+- **The COMP stomp (2): PR7-C's compressor, ported.** Stomp 2 was the open slot; it's now a full channel compressor, the same as on PR7-C (its code and tests), so it behaves the same. Press stomp 2 to switch it on; click its name for its knobs in the dock.
+  - **CHARACTER:** **VCA**, clean and precise (follows loudness, near-hard knee); **OPTO**, smooth, a wide soft knee, gentler attack and a release that stretches the longer it works; **FET**, fast and aggressive (catches every transient), with a touch of grit that grows as it works harder.
+  - **THRESHOLD** (-50 to 0 dB), **RATIO** (Soft, then 1.5:1 up to infinite; **Soft** is a curve whose ratio rises with level: about 3:1 at 8 dB over, 6:1 at 20 dB over), **ATTACK** (0.1 to 30 ms), **RELEASE** (50 ms to 3 s), **AUTO** release (quick after a short peak, slower after long compression, so it doesn't pump), **MAKE UP** (up to 20 dB) and **LINK** (both sides together, so the stereo picture stays put).
+  - The panel's **GAIN REDUCTION** meter shows how much it's turning down.
+- **It comes after the EQ**, so what the EQ cuts doesn't drive it (and a boost does); then OUTPUT and the LIMITER. The signal chain at the bottom now shows EQ, COMP, LIMITER. It listens to the sound itself: PR7-C's sidechain filters aren't part of PR7-E.
+- **Factory rigs with COMP:** Lead Vocal (OPTO), Rap Vocal (VCA), Drum Bus (VCA, slow attack, AUTO release) and Mix Bus Polish (VCA, 1.5:1). Their thresholds suit recordings peaking around -10 dBFS: move THRESHOLD for louder or quieter tracks.
+- No delay: still zero latency.
+
 ## 0.8.0
 
 - **The LIMITER stomp (7): PR7-C's limiter and output trim, ported.** The same limiter as on PR7-C, code and tests, so it behaves the same. Press stomp 7 to switch it on; click its name for its knobs in the dock.

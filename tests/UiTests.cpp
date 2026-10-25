@@ -186,7 +186,7 @@ TEST_CASE ("Seven stomps, three over four, labelled from the plan", "[ui]")
     findAll (*editor, stomps);
     REQUIRE (stomps.size() == 7);
 
-    const juce::StringArray names { "TUNER", "OPEN", "INSERTS", "EQ", "RESONANCE", "AUTO EQ", "LIMITER" };
+    const juce::StringArray names { "TUNER", "COMP", "INSERTS", "EQ", "RESONANCE", "AUTO EQ", "LIMITER" };
     for (size_t i = 0; i < stomps.size(); ++i)
         CHECK (stomps[i]->getTitle() == names[(int) i] + " footswitch");
 
@@ -213,7 +213,7 @@ TEST_CASE ("Seven stomps, three over four, labelled from the plan", "[ui]")
     stomps[3]->onSelect();
     CHECK_FALSE (tunerPanels[0]->isVisible());
 
-    // TUNER, EQ and LIMITER switch what PR7-E already has.
+    // TUNER, COMP, EQ and LIMITER switch what PR7-E already has.
     const auto isOn = [&] (const char* id) { return processor.getParameters().getRawParameterValue (id)->load() > 0.5f; };
     REQUIRE_FALSE (isOn (ParamIDs::tunerOn));
     stomps[0]->toggle();
@@ -222,9 +222,11 @@ TEST_CASE ("Seven stomps, three over four, labelled from the plan", "[ui]")
     CHECK (isOn (ParamIDs::eqOn));
     stomps[6]->toggle();
     CHECK (isOn (ParamIDs::limitOn));
+    stomps[1]->toggle();
+    CHECK (isOn (ParamIDs::compOn));
 
     // The rest aren't built yet: their pads change nothing and their names open nothing.
-    for (const auto i : { 1, 2, 4, 5 })
+    for (const auto i : { 2, 4, 5 })
     {
         INFO (names[i]);
         auto& stomp = *stomps[(size_t) i];

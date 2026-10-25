@@ -125,12 +125,17 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
       eqPanel (processorToShow),
       tunerPanel (processorToShow),
       // The blocks that shape the sound, in order; it grows as the stomps are built.
+      compPanel (processorToShow.getParameters(),
+                 { { "COMP", { { ParamIDs::compOn, "ON" }, { ParamIDs::compThreshold, "THRESHOLD" }, { ParamIDs::compRatio, "RATIO" },
+                               { ParamIDs::compAttack, "ATTACK" }, { ParamIDs::compRelease, "RELEASE" }, { ParamIDs::compAuto, "AUTO" },
+                               { ParamIDs::compMakeUp, "MAKE UP" }, { ParamIDs::compCharacter, "CHARACTER" }, { ParamIDs::compLink, "LINK" } } } }),
       limiterPanel (processorToShow.getParameters(),
                     { { "LIMIT", { { ParamIDs::limitOn, "ON" }, { ParamIDs::limitThreshold, "THRESHOLD" }, { ParamIDs::limitMakeUp, "MAKE UP" },
                                    { ParamIDs::limitMode, "MODE" }, { ParamIDs::limitMix, "MIX" }, { ParamIDs::limitLink, "LINK" } } },
                       { "OUTPUT", { { ParamIDs::limitTrim, "OUTPUT TRIM" } } } }),
       signalChain (processorToShow.getParameters(), {
           { "EQ", Icons::Type::eq, ParagonColours::eq, ParamIDs::eqOn },
+          { "COMP", Icons::Type::comp, ParagonColours::delay, ParamIDs::compOn },
           { "LIMITER", Icons::Type::comp, ParagonColours::comp, ParamIDs::limitOn } }),
       rigBrowser (processorToShow),
       settingsPage (processorToShow),
@@ -261,7 +266,11 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
             text << "  Average " << (average->cents >= 0.5 ? "+" : "") << juce::roundToInt (average->cents) << " cents";
         return text;
     });
-    addStomp (2, "OPEN", {}, noBlock, planned ("To plan"));
+    // COMP: PR7-C's compressor, after the EQ; its name opens its knobs.
+    addStomp (2, "COMP", { ParamIDs::compOn }, compBlock, [this]
+    {
+        return valueText (ParamIDs::compCharacter) + "  " + valueText (ParamIDs::compThreshold) + "  " + valueText (ParamIDs::compRatio);
+    });
     addStomp (3, "INSERTS", {}, noBlock, planned ("Plugin slots: to plan"));
 
     // Bottom row. EQ (inspired by FabFilter Pro-Q 4): its name opens its own page.
@@ -295,6 +304,12 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
 
     addChildComponent (eqPanel);
     addChildComponent (tunerPanel);
+    addChildComponent (compPanel);
+    compPanel.setHeader (Icons::Type::comp, ParagonColours::delay, "COMP");
+    compPanel.setMeter ([this]
+    {
+        return -juce::jmax (audioProcessor.getCompressorReductionDb (0), audioProcessor.getCompressorReductionDb (1));
+    });
     addChildComponent (limiterPanel);
     limiterPanel.setHeader (Icons::Type::comp, ParagonColours::comp, "LIMITER");
     limiterPanel.setMeter ([this]
@@ -362,12 +377,13 @@ void MainView::selectBlock (int block)
     const auto onProcessorPage = page == Page::processor;
     eqPanel.setVisible (block == eqBlock && onProcessorPage);
     tunerPanel.setVisible (block == tunerBlock && onProcessorPage);
+    compPanel.setVisible (block == compBlock && onProcessorPage);
     limiterPanel.setVisible (block == limiterBlock && onProcessorPage);
     closePanel.setVisible (block != eqBlock && onProcessorPage);
     if (block != eqBlock)
         closePanel.toFront (false);
 
-    const int footswitchBlocks[] = { tunerBlock, noBlock, noBlock, eqBlock, noBlock, noBlock, limiterBlock };
+    const int footswitchBlocks[] = { tunerBlock, compBlock, noBlock, eqBlock, noBlock, noBlock, limiterBlock };
     static_assert (std::size (footswitchBlocks) == std::tuple_size_v<decltype (footswitches)>);
     for (size_t i = 0; i < footswitches.size(); ++i)
         footswitches[i]->setSelected (footswitchBlocks[i] == block);
@@ -657,6 +673,7 @@ void MainView::resized()
     const auto summaryArea = mock (662, 568, 1334, 822);
     eqPanel.setBounds (summaryArea);
     tunerPanel.setBounds (summaryArea);
+    compPanel.setBounds (summaryArea);
     limiterPanel.setBounds (summaryArea);
     closePanel.setBounds (summaryArea.withSizeKeepingCentre (0, 0).withX (summaryArea.getRight() - 130).withY (summaryArea.getY() + 10)
                               .withSize (118, 24));

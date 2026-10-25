@@ -11,7 +11,8 @@ namespace
     // 30: PR7-E 0.3.0, when the expression pedal's effect targets went.
     // 31: PR7-E 0.5.0, the dynamic EQ (nothing to migrate: new bands' defaults are static).
     // 32: PR7-E 0.8.0, the LIMITER (off by default: nothing to migrate).
-    constexpr int parameterVersion = 32;
+    // 33: PR7-E 0.9.0, COMP (off by default: nothing to migrate).
+    constexpr int parameterVersion = 33;
 
     const juce::Identifier rigTag { "ParagonRig" };
     const juce::Identifier parameterTag { "Param" };

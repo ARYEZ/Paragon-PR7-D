@@ -223,6 +223,30 @@ std::vector<Rig> makeFactoryRigs()
     rigs.push_back (makeRig ("Master Bright Tilt", mastering, 6, { "Mastering", "Tilt", "Bright" },
         "A gentle brighter tilt for a dull master: 0.3 dB an octave.", { tilt (3.0) }));
 
+    // COMP (0.9.0) on the rigs that would usually have one: gentle settings,
+    // thresholds for recordings peaking around -10 dBFS (a guess: louder or
+    // quieter tracks want the THRESHOLD moved).
+    struct CompSpec { const char* rig; int character; float threshold, ratio, attack, release; bool autoRelease; const char* note; };
+    const CompSpec comps[] = {
+        { "Lead Vocal",     1, -20.0f, 3.0f, 10.0f, 300.0f, false, " COMP (OPTO) evens out the level smoothly." },
+        { "Rap Vocal",      0, -18.0f, 4.0f,  5.0f, 150.0f, false, " COMP (VCA) keeps the delivery tight and upfront." },
+        { "Drum Bus",       0, -20.0f, 4.0f, 30.0f, 300.0f, true,  " COMP (VCA, slow attack so hits keep their punch, AUTO release) glues the kit." },
+        { "Mix Bus Polish", 0, -16.0f, 1.5f, 30.0f, 300.0f, true,  " COMP (VCA, 1.5:1) adds a light glue." },
+    };
+    for (const auto& c : comps)
+        for (auto& rig : rigs)
+            if (rig.name == c.rig)
+            {
+                rig.parameters[ParamIDs::compOn] = 1.0f;
+                rig.parameters[ParamIDs::compCharacter] = (float) c.character;
+                rig.parameters[ParamIDs::compThreshold] = c.threshold;
+                rig.parameters[ParamIDs::compRatio] = c.ratio;
+                rig.parameters[ParamIDs::compAttack] = c.attack;
+                rig.parameters[ParamIDs::compRelease] = c.release;
+                rig.parameters[ParamIDs::compAuto] = c.autoRelease ? 1.0f : 0.0f;
+                rig.notes << c.note;
+            }
+
     // The mastering rigs end with the LIMITER (0.8.0): BRICK, a -1 dB ceiling,
     // as a safety net against overs rather than to make it louder.
     for (auto& rig : rigs)

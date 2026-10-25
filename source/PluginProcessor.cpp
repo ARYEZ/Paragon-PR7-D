@@ -18,7 +18,7 @@ namespace
     // Which version's parameters a project was saved with, as for rigs (see
     // Rig.cpp). Projects from before 0.3.0 don't say: 0.
     const juce::Identifier parameterVersionKey { "parameterVersion" };
-    constexpr int parameterVersion = 32;
+    constexpr int parameterVersion = 33;
 
 }
 
@@ -81,6 +81,8 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     bypassAmount.reset (sampleRate, gainRampSeconds);
     bypassAmount.setCurrentAndTargetValue (isOn (ParamIDs::bypass) ? 1.0f : 0.0f);
     parametricEq.prepare (sampleRate, preparedBlockSize);
+    compressor.prepare (sampleRate, preparedBlockSize);
+    compSidechain.setSize (2, preparedBlockSize);
     limiter.prepare (sampleRate, preparedBlockSize);
     limitTrim.reset (sampleRate, gainRampSeconds);
     limitTrimFresh = true;
@@ -282,6 +284,26 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, in
     writeTap (eqInputTap);
     parametricEq.process (block, getEqSettings());
     writeTap (eqOutputTap);
+
+    // Stomp 2, COMP (PR7-C's), after the EQ, so what the EQ cuts doesn't
+    // drive it. It takes whole buffers, so it gets this piece's channels as
+    // one, and the same audio to listen to (PR7-E has no sidechain filters).
+    {
+        float* channels[effects::maxChannels] {};
+        for (int channel = 0; channel < numOutputChannels; ++channel)
+        {
+            channels[channel] = block.getChannelPointer ((size_t) channel);
+            compSidechain.copyFrom (channel, 0, channels[channel], numSamples);
+        }
+        juce::AudioBuffer<float> audio (channels, numOutputChannels, numSamples);
+        const juce::AudioBuffer<float> detector (compSidechain.getArrayOfWritePointers(), numOutputChannels, numSamples);
+        compressor.process (audio, detector, numSamples,
+                            { isOn (ParamIDs::compOn), param (ParamIDs::compThreshold), param (ParamIDs::compRatio),
+                              param (ParamIDs::compAttack), param (ParamIDs::compRelease), isOn (ParamIDs::compAuto),
+                              param (ParamIDs::compMakeUp),
+                              (effects::Compressor::Character) juce::jlimit (0, 2, juce::roundToInt (param (ParamIDs::compCharacter))),
+                              isOn (ParamIDs::compLink) });
+    }
 
     // PRESENCE on the face.
     for (size_t channel = 0; channel < block.getNumChannels(); ++channel)

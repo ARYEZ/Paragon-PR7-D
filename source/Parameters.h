@@ -42,6 +42,17 @@ namespace ParamIDs
     inline constexpr const char* eqBandSettings[] = { "Used", "On", "Shape", "Freq", "Gain", "Q", "Slope", "Place",
                                                       "Dyn", "DynAuto", "Thresh", "Attack", "Release" };
 
+    // Stomp 2, COMP (0.9.0): PR7-C's compressor, ported. After the EQ.
+    inline constexpr auto compOn        = "compOn";
+    inline constexpr auto compThreshold = "compThreshold";   // dBFS
+    inline constexpr auto compRatio     = "compRatio";       // 1 = SOFT, 30 = infinite
+    inline constexpr auto compAttack    = "compAttack";      // ms
+    inline constexpr auto compRelease   = "compRelease";     // ms
+    inline constexpr auto compAuto      = "compAuto";        // AUTO release
+    inline constexpr auto compMakeUp    = "compMakeUp";      // dB
+    inline constexpr auto compCharacter = "compCharacter";   // choice: VCA, OPTO, FET
+    inline constexpr auto compLink      = "compLink";        // both channels together
+
     // Stomp 7, the LIMITER (0.8.0): PR7-C's limiter and output trim, ported.
     // The last thing in the chain, after OUTPUT, RIG LEVEL and the volume pedal.
     inline constexpr auto limitOn        = "limitOn";
@@ -70,6 +81,14 @@ namespace ExpressionTargets
 
 namespace ParamRanges
 {
+    // COMP's, as on PR7-C.
+    inline constexpr float compThresholdMin = -50.0f, compThresholdMax = 0.0f;
+    inline constexpr float compAttackMin = 0.1f, compAttackMax = 30.0f;          // ms
+    inline constexpr float compReleaseMin = 50.0f, compReleaseMax = 3000.0f;     // ms
+    inline constexpr float compMakeUpMax = 20.0f;
+    inline const juce::StringArray compCharacters { "VCA", "OPTO", "FET" };    // saved by index: only append
+    inline constexpr float compRatioMarks[] = { 1.0f, 1.5f, 2.0f, 4.0f, 10.0f, 30.0f };   // SOFT, then to infinite
+
     // The LIMITER's, as on PR7-C.
     inline constexpr float limitThresholdMin = -20.0f, limitMakeUpMax = 12.0f;
     inline constexpr float limitTrimMin = -12.0f, limitTrimMax = 12.0f;

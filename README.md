@@ -23,7 +23,7 @@ stomps are still being planned, one at a time with the owner.
 | Stomp | Plan | Now |
 |---|---|---|
 | **1 Tuner** | Checks the pitch of recorded parts (a vocal, a bass line) | Works: note, 30-second trace, average |
-| **2 Open** | To plan: ideas so far are loudness/analysis, a channel utility, an A/B reference player | Placeholder |
+| **2 Comp** | PR7-C's compressor, ported (a multiband version inspired by FabFilter Pro-MB is a possible later step) | Works: VCA, OPTO and FET; threshold, ratio, attack, release, auto, make up, link |
 | **3 Inserts** | Host other plugins in slots inside PR7-E and open their editors (a mini rack) | Placeholder |
 | **4 EQ** | An EQ inspired by FabFilter Pro-Q 4 (our own design) | Works: 24 bands on its own page, any of them dynamic, and EQ Match |
 | **5 Resonance** | Resonance suppression inspired by oeksound soothe (our own design) | Placeholder |
@@ -50,6 +50,9 @@ none of those products' names or branding go on the plugin.
   - **EQ Match** (MATCH, top of the page): listens to your track and a reference (another part of the song, a song
     file, or a saved reference), then proposes bands that make your track's tone like the reference's. DETAIL (a few
     broad bands or more, finer ones) and AMOUNT (how much of the difference), then ADD BANDS.
+- **COMP (stomp 2)**, PR7-C's compressor, after the EQ: CHARACTER (VCA clean, OPTO smooth, FET fast with a little grit),
+  THRESHOLD, RATIO (from Soft, a curve that firms up with level, to infinite), ATTACK, RELEASE, AUTO release, MAKE UP and
+  LINK. Its panel shows the gain reduction.
 - **LIMITER (stomp 7)**, PR7-C's limiter: THRESHOLD (the ceiling), MAKE UP, MIX, LINK, and MODE (Brick, Soft or Auto),
   then OUTPUT TRIM. It's last in the chain, after OUTPUT, so nothing can push a peak past it; no look-ahead, so no delay.
   Its panel shows the gain reduction.
@@ -59,7 +62,7 @@ none of those products' names or branding go on the plugin.
   flat the part sits overall. **RESET** (in the panel, or the key on the unit) starts the trace and average again. It
   keeps listening with the window closed. The reference pitch for A4 is in SETTINGS.
 - **Stereo throughout:** both channels pass through as they came in, apart from what the stomps do (a mono track plays on
-  both speakers). **Signal chain** (bottom strip): input → EQ → LIMITER → output, growing as the stomps are built.
+  both speakers). **Signal chain** (bottom strip): input → EQ → COMP → LIMITER → output, growing as the stomps are built.
 - **PRESENCE** cuts or boosts the top end (above about 3.5 kHz).
 - **Rigs:** SAVE in the header saves the current sound as a rig; **<** and **>** step through rigs; a `*` after the name
   means it's changed since loading. The **PRESETS** tab browses, files (banks A-E), tags and favourites rigs. The factory

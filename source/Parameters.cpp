@@ -26,6 +26,57 @@ namespace
                  [] (float start, float end, float value) { return juce::jlimit (start, end, value); } };
     }
 
+    // From PR7-C (Parameters.cpp), for COMP's RATIO: a knob whose printed
+    // marks sit evenly round it: between two marks the travel is even in log
+    // (or straight, from a mark of 0). `snap` tidies a value (the SOFT stretch).
+    Range markedRange (std::vector<float> marks, std::function<float (float)> snap = {})
+    {
+        const auto steps = (float) (marks.size() - 1);
+        auto between = [] (float low, float high, float t) { return low > 0.0f ? low * std::pow (high / low, t) : low + (high - low) * t; };
+        auto within = [] (float low, float high, float value) { return low > 0.0f ? std::log (value / low) / std::log (high / low) : (value - low) / (high - low); };
+        return { marks.front(), marks.back(),
+                 [marks, steps, between] (float, float, float proportion)
+                 {
+                     const auto position = juce::jlimit (0.0f, 1.0f, proportion) * steps;
+                     const auto below = juce::jmin ((int) position, (int) steps - 1);
+                     return between (marks[(size_t) below], marks[(size_t) below + 1], position - (float) below);
+                 },
+                 [marks, steps, within] (float, float, float value)
+                 {
+                     for (size_t i = 1; i < marks.size(); ++i)
+                         if (value <= marks[i])
+                             return ((float) (i - 1) + within (marks[i - 1], marks[i], juce::jmax (value, marks[i - 1]))) / steps;
+                     return 1.0f;
+                 },
+                 [marks, snap] (float, float, float value)
+                 {
+                     value = juce::jlimit (marks.front(), marks.back(), value);
+                     return snap ? snap (value) : value;
+                 } };
+    }
+
+    // RATIO: SOFT, then 1.5:1 to infinite. Below 1.25 is the SOFT position.
+    Range ratioRange()
+    {
+        using ParamRanges::compRatioMarks;
+        return markedRange ({ std::begin (compRatioMarks), std::end (compRatioMarks) },
+                            [] (float ratio) { return ratio < 1.25f ? 1.0f : ratio; });
+    }
+
+    const ToText asRatio = [] (float ratio, int)
+    {
+        if (ratio < 1.25f)
+            return juce::String ("Soft");
+        if (ratio >= 29.5f)
+            return juce::String ("Inf:1");
+        return juce::String (ratio, ratio < 10.0f ? 1 : 0) + ":1";
+    };
+
+    const ToText asMs = [] (float ms, int)
+    {
+        return ms < 1000.0f ? juce::String (ms, ms < 10.0f ? 1 : 0) + " ms" : juce::String (ms / 1000.0f, 2) + " s";
+    };
+
     std::unique_ptr<juce::AudioParameterFloat> makeFloat (const char* id, const juce::String& name, Range range,
                                                           float defaultValue, int versionHint, const ToText& toText)
     {
@@ -118,6 +169,21 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         layout.add (makeFloat (id ("Attack").toRawUTF8(), name ("Attack"), { 0.0f, 1.0f, 0.01f }, (float) defaults.attack, v31, asPercent));
         layout.add (makeFloat (id ("Release").toRawUTF8(), name ("Release"), { 0.0f, 1.0f, 0.01f }, (float) defaults.release, v31, asPercent));
     }
+    // Stomp 2, COMP (0.9.0): ranges and defaults as on PR7-C.
+    {
+        using namespace ParamRanges;
+        constexpr int v33 = 33;
+        layout.add (makeSwitch (ParamIDs::compOn, "Compressor", v33, false));
+        layout.add (makeFloat (ParamIDs::compThreshold, "Comp Threshold", { compThresholdMin, compThresholdMax, 0.1f }, -18.0f, v33, asDb));
+        layout.add (makeFloat (ParamIDs::compRatio, "Comp Ratio", ratioRange(), 4.0f, v33, asRatio));
+        layout.add (makeFloat (ParamIDs::compAttack, "Comp Attack", logRange (compAttackMin, compAttackMax), 10.0f, v33, asMs));
+        layout.add (makeFloat (ParamIDs::compRelease, "Comp Release", logRange (compReleaseMin, compReleaseMax), 300.0f, v33, asMs));
+        layout.add (makeSwitch (ParamIDs::compAuto, "Comp Auto Release", v33, false));
+        layout.add (makeFloat (ParamIDs::compMakeUp, "Comp Make Up", { 0.0f, compMakeUpMax, 0.1f }, 0.0f, v33, asDb));
+        layout.add (makeChoice (ParamIDs::compCharacter, "Comp Character", v33, compCharacters, 0));
+        layout.add (makeSwitch (ParamIDs::compLink, "Comp Link", v33, true));
+    }
+
     // Stomp 7, the LIMITER (0.8.0): ranges and defaults as on PR7-C.
     constexpr int v32 = 32;
     layout.add (makeSwitch (ParamIDs::limitOn, "Limiter", v32, false));
