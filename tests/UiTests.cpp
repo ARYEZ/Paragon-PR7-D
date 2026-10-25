@@ -8,6 +8,7 @@
 #include "ui/EqPresets.h"
 #include "ui/Finish.h"
 #include "ui/PerformanceControls.h"
+#include "ui/TunerPanel.h"
 
 using Catch::Matchers::WithinAbs;
 
@@ -223,6 +224,16 @@ TEST_CASE ("Seven stomps, three over four, labelled from the plan", "[ui]")
     }
     for (size_t bottom = 4; bottom < 7; ++bottom)
         CHECK (bounds (bottom).getY() == bounds (3).getY());
+
+    // TUNER's name opens its panel (the trace) in place of the graphic EQ.
+    std::vector<TunerPanel*> tunerPanels;
+    findAll (*editor, tunerPanels);
+    REQUIRE (tunerPanels.size() == 1);
+    CHECK_FALSE (tunerPanels[0]->isVisible());
+    stomps[0]->onSelect();
+    CHECK (tunerPanels[0]->isVisible());
+    stomps[3]->onSelect();
+    CHECK_FALSE (tunerPanels[0]->isVisible());
 
     // TUNER and EQ switch what PR7-E already has.
     const auto isOn = [&] (const char* id) { return processor.getParameters().getRawParameterValue (id)->load() > 0.5f; };

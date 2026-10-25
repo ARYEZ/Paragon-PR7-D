@@ -79,7 +79,7 @@ private:
 };
 
 //==============================================================================
-// SETTINGS: tuner reference pitch and mute, the expression pedal's MIDI
+// SETTINGS: the tuner's reference pitch, the expression pedal's MIDI
 // controller, the unit's finish, where rigs are kept, and what the plugin
 // is built from.
 class SettingsPage final : public juce::Component,
@@ -96,8 +96,6 @@ public:
 private:
     ParagonX1AudioProcessor& processor;
     juce::Slider reference { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
-    juce::ToggleButton muteWhileTuning { "Mute the output while the tuner is on" };
-    juce::AudioProcessorValueTreeState::ButtonAttachment muteAttachment;
     juce::ComboBox ccBox;
     juce::TextButton openFolder { "OPEN RIGS FOLDER" };
     juce::TextButton pearlWhite { "PEARL WHITE" }, pearlWhiteNeon { "WHITE + NEON" }, pearlBlack { "PEARL BLACK" };

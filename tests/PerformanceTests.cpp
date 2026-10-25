@@ -195,24 +195,57 @@ TEST_CASE ("Tapped tempo replaces the DAW's until cleared, and is saved", "[tap]
     CHECK_THAT (rig.processor.getTappedBpm(), WithinAbs (tapped, 1.0e-9));
 }
 
-TEST_CASE ("The tuner mutes the output, unless told not to", "[tuner]")
+TEST_CASE ("The tuner never changes the sound: no mute, so you hear the recording you're checking", "[tuner]")
 {
+    // The same tone, played through two plugins, one with the tuner on:
+    // every sample comes out the same.
+    TestRig off, on;
+    on.turn (ParamIDs::tunerOn, 1.0f);
+
+    juce::AudioBuffer<float> a (2, blockSize), b (2, blockSize);
+    juce::MidiBuffer midi;
+    for (int block = 0; block < 40; ++block)
+    {
+        for (auto* buffer : { &a, &b })
+        {
+            buffer->clear();
+            for (int i = 0; i < blockSize; ++i)
+                buffer->setSample (0, i, 0.3f * (float) std::sin (juce::MathConstants<double>::twoPi * 220.0 * (block * blockSize + i) / sampleRate));
+        }
+        off.processor.processBlock (a, midi);
+        on.processor.processBlock (b, midi);
+        on.processor.updateTuner();
+        for (int channel = 0; channel < 2; ++channel)
+            for (int i = 0; i < blockSize; ++i)
+                REQUIRE (a.getSample (channel, i) == b.getSample (channel, i));
+    }
+    CHECK (b.getMagnitude (0, 0, blockSize) > 0.25f);
+    CHECK (on.processor.getTuner().getReading().hasNote);   // and it was listening
+}
+
+TEST_CASE ("A 0.1.0 project saved with the tuner on and muting plays out loud", "[tuner][state]")
+{
+    // 0.1.0 had a MUTE for the tuner, on by default. A project saved with it
+    // (and the tuner left on) must not come back silent.
+    juce::MemoryBlock saved;
+    {
+        TestRig old;
+        old.turn (ParamIDs::tunerOn, 1.0f);
+        old.processor.getStateInformation (saved);
+    }
+    auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
+    REQUIRE (xml != nullptr);
+    auto* mute = xml->createNewChildElement ("PARAM");
+    mute->setAttribute ("id", "tunerMute");
+    mute->setAttribute ("value", 1.0);
+    juce::MemoryBlock oldProject;
+    juce::AudioProcessor::copyXmlToBinary (*xml, oldProject);
+
     TestRig rig;
     const auto normal = rig.play (0.3);
-    REQUIRE (normal > 0.05f);
-
-    rig.turn (ParamIDs::tunerOn, 1.0f);
-    CHECK (rig.play (0.1) == 0.0f);
-
-    rig.turn (ParamIDs::tunerMute, 0.0f);
-    CHECK_THAT (rig.play (0.1), WithinAbs (normal, 0.01));
-
-    // And the tuner can hear the guitar while muted.
-    rig.turn (ParamIDs::tunerMute, 1.0f);
-    rig.play (0.3);
-    std::vector<float> heard (8192);
-    rig.processor.getInputTap().readLatest (heard.data(), (int) heard.size());
-    CHECK (*std::max_element (heard.begin(), heard.end()) > 0.2f);
+    rig.processor.setStateInformation (oldProject.getData(), (int) oldProject.getSize());
+    CHECK (rig.processor.getParameters().getRawParameterValue (ParamIDs::tunerOn)->load() > 0.5f);
+    CHECK_THAT (rig.play (0.3), WithinAbs (normal, 0.01));
 }
 
 TEST_CASE ("Expression pedal as a volume pedal, within its MIN and MAX", "[expression]")

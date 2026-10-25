@@ -27,10 +27,10 @@ All of this was done in 0.1.0; it's kept as the record of what makes PR7-E its o
 
 The owner's layout is PR7-V's: **three stomps on the top row, four on the bottom**. Done in 0.1.0: the face came from PR7-V, and the bass-specific blocks (NAM amp, cab IR, Obsidian, Gotham, the bass rigs) are gone; one factory rig, Init, remains. AEON and the `Circuit` solver came along from PR7-B and may be useful later. PR7-B's general effects (pitch, comp / gate, filter / pitch, glitch, modulation, delay, reverb, lo-fi) are still in the signal chain, with no stomps: whether they stay is for the owner.
 
-Stomps not built yet are placeholders: a `Footswitch` with no parameter IDs (dark LED, the pad does nothing, the name opens nothing; see `addStomp` in `MainView.cpp`). Give a stomp its parameters only when it's built: once released, IDs are saved forever. Stomp 4 (EQ) switches the graphic EQ until the planned EQ replaces it. Planning order: the tuner first, then one stomp at a time.
+Stomps not built yet are placeholders: a `Footswitch` with no parameter IDs (dark LED, the pad does nothing, the name opens nothing; see `addStomp` in `MainView.cpp`). Give a stomp its parameters only when it's built: once released, IDs are saved forever. Stomp 4 (EQ) switches the graphic EQ until the planned EQ replaces it. Planning order: one stomp at a time, with the owner.
 
 - **Top row**
-  1. **Tuner.**
+  1. **Tuner.** Done in 0.2.0, for **checking the pitch of recorded parts** (the owner's main use), not tuning an instrument: single parts (vocals, bass lines) up to 1,500 Hz, both channels, no mute (it never changes the sound), a 30-second trace and an average in cents (`dsp/Tuner.*`, `ui/TunerPanel.*`). The processor runs it from its timer, so it keeps listening with the window closed. Not built (offered, not asked for): chords or full mixes.
   2. **Open: to plan with the owner.** Ideas offered so far: a loudness/analysis stomp (LUFS, spectrum, stereo correlation), a channel utility (gain, polarity, mono/width, mid-side, swap), an A/B reference player.
   3. **Insert launcher.** A plugin can't open the other plugins on the DAW's track: hosts don't allow it. What it *can* do is host plugins itself (JUCE `AudioPluginFormatManager` / `KnownPluginList`, VST3 on Windows): load plugins into slots inside PR7-E and open their editors from the stomp, a mini rack. Confirm with the owner which platform it's for: the owner works in BeatMaker, and on iPad plugins are AUv3, which works differently.
 - **Bottom row**

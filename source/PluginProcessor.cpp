@@ -90,8 +90,6 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
 
     expressionVolume.reset (sampleRate, gainRampSeconds);
     expressionVolume.setCurrentAndTargetValue (1.0f);
-    tunerOpen.reset (sampleRate, gainRampSeconds);
-    tunerOpen.setCurrentAndTargetValue (isOn (ParamIDs::tunerOn) && isOn (ParamIDs::tunerMute) ? 0.0f : 1.0f);
     setLatencySamples (0);   // nothing in the chain looks ahead (the NAM amp, which did, went with PR7-B's bass blocks)
 }
 
@@ -223,8 +221,12 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, in
         dry[i] = bypassDelay.popSample (0, latency);
     }
 
-    // The tuner listens to the guitar itself, before anything changes it.
-    inputTap.write (mono, numSamples);
+    // The tuner listens to what comes in, before anything changes it: both
+    // channels of a stereo track (their middle), so a part panned anywhere is heard.
+    if (getTotalNumInputChannels() > 1 && buffer.getNumChannels() > 1)
+        inputTap.write (mono, buffer.getReadPointer (1, start), numSamples);
+    else
+        inputTap.write (mono, numSamples);
 
     inputGain.setTargetValue (juce::Decibels::decibelsToGain (inputGainDb->load()));
     inputGain.applyGain (mono, numSamples);
@@ -363,19 +365,6 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, in
         }
     }
 
-    // The tuner mutes everything (bypassed or not), as a pedal tuner does,
-    // so you can tune on stage silently. Faded to avoid a click.
-    tunerOpen.setTargetValue (isOn (ParamIDs::tunerOn) && isOn (ParamIDs::tunerMute) ? 0.0f : 1.0f);
-    if (tunerOpen.isSmoothing() || tunerOpen.getTargetValue() < 0.5f)
-    {
-        for (int i = 0; i < numSamples; ++i)
-        {
-            const auto open = tunerOpen.getNextValue();
-            for (size_t channel = 0; channel < stereoBlock.getNumChannels(); ++channel)
-                stereoBlock.getChannelPointer (channel)[i] *= open;
-        }
-    }
-
     for (size_t channel = 0; channel < stereoBlock.getNumChannels(); ++channel)
         outputMeter.pushSamples (stereoBlock.getChannelPointer (channel), numSamples);
 }
@@ -383,8 +372,18 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, in
 //==============================================================================
 void ParagonX1AudioProcessor::timerCallback()
 {
+    updateTuner();
     syncMidiExpressionToParameter();
     recordCheckpointIfReady();
+}
+
+void ParagonX1AudioProcessor::updateTuner()
+{
+    // The tuner only listens while it's on. It never touches the sound.
+    if (isOn (ParamIDs::tunerOn))
+        tuner.update (inputTap, tunerReferenceHz.load(), juce::Time::getMillisecondCounter());
+    else
+        tuner.stop();
 }
 
 //==============================================================================

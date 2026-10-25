@@ -71,8 +71,10 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         if (const auto* entry = processor.getRigLibrary().findFactory (factory))
             processor.loadRig (*entry);
 
-    // PARAGON_SNAPSHOT_TUNER=1: the tuner on, hearing an A string 4 cents
-    // sharp, and the expression pedal assigned to the wah.
+    // PARAGON_SNAPSHOT_TUNER=1: the tuner on, after hearing a short sung
+    // phrase (some notes sharp, some flat, some with vibrato) that ends on a
+    // held A3 4 cents sharp, and the expression pedal assigned to the wah.
+    // With PARAGON_SNAPSHOT_BLOCK=9 the TUNER panel shows its trace.
     const auto showTuner = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_TUNER", {}) == "1";
     if (showTuner)
     {
@@ -86,15 +88,32 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         set ("expression", 0.6f);
         set ("expressionMin", 0.2f);
 
+        struct SungNote { double hz, cents, seconds, vibratoCents; };   // hz 0: a breath
+        const SungNote phrase[] = { { 220.0, 6, 1.2, 0 }, { 0, 0, 0.25, 0 }, { 261.63, 14, 1.5, 20 }, { 0, 0, 0.2, 0 },
+                                    { 293.66, -4, 1.0, 0 }, { 329.63, 22, 0.8, 0 }, { 293.66, -8, 1.6, 25 }, { 0, 0, 0.4, 0 },
+                                    { 261.63, 10, 1.0, 0 }, { 220.0, 3, 2.0, 15 }, { 0, 0, 0.3, 0 }, { 196.0, -12, 1.2, 0 },
+                                    { 220.0, 4, 2.5, 10 } };
         juce::AudioBuffer<float> buffer (2, 256);
         juce::MidiBuffer midi;
-        const auto frequency = 110.0 * std::pow (2.0, 4.0 / 1200.0);
-        for (int b = 0, n = 0; b < 100; ++b)
+        double phase = 0.0;
+        int block = 0;
+        for (const auto& sung : phrase)
         {
-            buffer.clear();
-            for (int i = 0; i < 256; ++i, ++n)
-                buffer.setSample (0, i, 0.3f * (float) std::sin (juce::MathConstants<double>::twoPi * frequency * n / 48000.0));
-            processor.processBlock (buffer, midi);
+            for (int b = 0; b < (int) (sung.seconds * 48000.0 / 256.0); ++b, ++block)
+            {
+                buffer.clear();
+                for (int i = 0; i < 256; ++i)
+                {
+                    const auto t = (double) (block * 256 + i) / 48000.0;
+                    const auto cents = sung.cents + sung.vibratoCents * std::sin (juce::MathConstants<double>::twoPi * 5.5 * t);
+                    phase += juce::MathConstants<double>::twoPi * sung.hz * std::pow (2.0, cents / 1200.0) / 48000.0;
+                    if (sung.hz > 0.0)
+                        buffer.setSample (0, i, (float) (0.25 * std::sin (phase) + 0.1 * std::sin (2.0 * phase)));
+                }
+                processor.processBlock (buffer, midi);
+                if (block % 6 == 5)
+                    processor.updateTuner();   // about 30 times a second, as its timer does
+            }
         }
     }
 
@@ -132,7 +151,7 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
     if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_PAGE", {}) == "settings")
         if (auto* tab = dynamic_cast<juce::Button*> (findById (*editor, "settingsTab")))
             tab->onClick();
-    // PARAGON_SNAPSHOT_BLOCK=n opens block n's knobs (0 = pitch, 1 = comp ... 7 = glitch ... 11 = lo-fi) in place of the graphic EQ.
+    // PARAGON_SNAPSHOT_BLOCK=n opens block n's knobs (0 = pitch, 1 = comp ... 8 = lo-fi, 9 = the TUNER panel) in place of the graphic EQ.
     if (const auto block = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_BLOCK", {}); block.isNotEmpty())
         if (auto* chain = findType<SignalChain> (*editor))
             chain->onSelect (block.getIntValue());

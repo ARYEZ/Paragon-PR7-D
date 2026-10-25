@@ -51,7 +51,8 @@ namespace ParamIDs
 
     // Phase 6
     inline constexpr auto tunerOn          = "tunerOn";
-    inline constexpr auto tunerMute        = "tunerMute";
+    // (0.1.0's "tunerMute", the tuner's MUTE, went in 0.2.0: the tuner checks
+    // recordings, which you want to hear. Don't reuse the ID.)
     inline constexpr auto expression       = "expression";        // the pedal's position, 0 heel to 1 toe
     inline constexpr auto expressionTarget = "expressionTarget";  // what the pedal controls
     inline constexpr auto expressionMin    = "expressionMin";     // the target's setting at the heel...
@@ -135,7 +136,7 @@ namespace ParamIDs
     // The expression pedal's position is global for the same reason a real
     // pedal's is: it's where your foot is, not part of the sound. What the
     // pedal is assigned to, and its range, are saved with each rig.
-    inline const juce::StringArray notInRigs { inputGain, outputGain, bypass, tunerOn, tunerMute, expression };
+    inline const juce::StringArray notInRigs { inputGain, outputGain, bypass, tunerOn, expression };
 }
 
 namespace ExpressionTargets

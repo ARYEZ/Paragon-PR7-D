@@ -22,7 +22,7 @@ stomps are still being planned, one at a time with the owner.
 
 | Stomp | Plan | Now |
 |---|---|---|
-| **1 Tuner** | A tuner | Works (PR7-B's tuner) |
+| **1 Tuner** | Checks the pitch of recorded parts (a vocal, a bass line) | Works: note, 30-second trace, average |
 | **2 Open** | To plan: ideas so far are loudness/analysis, a channel utility, an A/B reference player | Placeholder |
 | **3 Inserts** | Host other plugins in slots inside PR7-E and open their editors (a mini rack) | Placeholder |
 | **4 EQ** | An EQ inspired by FabFilter Pro-Q 4 (our own design) | Switches the 9-band graphic EQ for now |
@@ -36,7 +36,12 @@ none of those products' names or branding go on the plugin.
 ## Using it
 
 - **Stomps 1-7:** three on the top row, four below. Press a pad to switch it on or off; click its name to show its knobs
-  in the dock (EQ opens the graphic EQ).
+  in the dock (TUNER opens its trace, EQ the graphic EQ).
+- **Tuner (stomp 1):** for checking the pitch of a recorded part as it plays, one note at a time, up to 1,500 Hz. It
+  hears both channels and never changes the sound. Its panel shows the current note and cents, the pitch over the last
+  30 seconds against the notes (green within 5 cents, orange within 15, red beyond), and the **average**: how sharp or
+  flat the part sits overall. **RESET** (in the panel, or the key on the unit) starts the trace and average again. It
+  keeps listening with the window closed. The reference pitch for A4 is in SETTINGS.
 - **Signal chain** (bottom strip; click a block for its knobs): pitch → comp / gate → filter / pitch → graphic EQ →
   glitch → modulation → delay → reverb → lo-fi. These are the general effects that came from PR7-B; they have no stomps
   of their own. Whether they stay in a utility processor is still to decide.
@@ -46,7 +51,6 @@ none of those products' names or branding go on the plugin.
   factory rig, **Init** (everything off), until the stomps are built. INPUT and OUTPUT stay put when you switch rigs;
   each rig has its own **RIG LEVEL**, which adds to OUTPUT.
 - **TAP** (header or pedal) sets the tempo for the delay and synced effects; click the BPM to follow your DAW again.
-- **Tuner:** stomp 1, the TUNER key, or hold TAP. MUTE silences the output while tuning.
 - **Undo / redo:** the header arrows, UNDO / REDO on the pedal, or Ctrl+Z / Ctrl+Shift+Z (Cmd on a Mac).
 - **Expression pedal** (right of the unit): drag it, use the mouse wheel, or send MIDI CC 11 (or the CC chosen in
   SETTINGS). Assign it on the EXPRESSION ASSIGN screen in the dock.

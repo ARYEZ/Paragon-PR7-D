@@ -831,57 +831,20 @@ void TunerReader::setActive (bool shouldBeActive)
         return;
 
     if (shouldBeActive)
-    {
-        smoothedNote = -1.0;
         startTimerHz (30);
-    }
     else
-    {
         stopTimer();
-    }
 }
 
 void TunerReader::timerCallback()
 {
-    const auto sampleRate = processor.getInputTap().getSampleRate();
-    if (sampleRate <= 0.0)
-        return;
-
-    if (! juce::exactlyEqual (sampleRate, preparedRate))
-    {
-        detector.prepare (sampleRate);
-        preparedRate = sampleRate;
-        window.resize ((size_t) juce::jmin (detector.windowSizeAtHostRate(), processor.getInputTap().capacity()));
-    }
-
-    processor.getInputTap().readLatest (window.data(), (int) window.size());
-    const auto now = juce::Time::getMillisecondCounter();
-
-    if (const auto result = detector.detect (window.data(), (int) window.size()))
-    {
-        const auto note = 69.0 + 12.0 * std::log2 (result->frequency / 440.0);
-
-        // Steady the needle: ease towards small changes, but jump straight
-        // to a new string rather than sliding across to it.
-        if (smoothedNote < 0.0 || std::abs (note - smoothedNote) > 0.5)
-            smoothedNote = note;
-        else
-            smoothedNote += (note - smoothedNote) * 0.35;
-        lastHeard = now;
-    }
-    else if (now - lastHeard > 600)
-    {
-        smoothedNote = -1.0;   // the note has died away
-    }
-
+    // The processor does the listening (so the trace keeps going with the
+    // window closed); this just passes its reading on.
+    const auto& tuner = processor.getTuner().getReading();
     Reading reading;
-    if (smoothedNote >= 0.0)
-    {
-        reading.hasNote = true;
-        reading.frequency = 440.0 * std::pow (2.0, (smoothedNote - 69.0) / 12.0);
-        reading.note = PitchDetector::toNote (reading.frequency, processor.getTunerReferenceHz());
-    }
-
+    reading.hasNote = tuner.hasNote;
+    reading.note = tuner.note;
+    reading.frequency = tuner.frequency;
     if (onReading)
         onReading (reading);
 }

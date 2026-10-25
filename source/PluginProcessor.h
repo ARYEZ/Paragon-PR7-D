@@ -5,6 +5,7 @@
 #include "LevelMeterSource.h"
 #include "dsp/InputTap.h"
 #include "dsp/TapTempo.h"
+#include "dsp/Tuner.h"
 #include "dsp/effects/CompGate.h"
 #include "dsp/effects/Delay.h"
 #include "dsp/effects/FilterPitch.h"
@@ -130,8 +131,12 @@ public:
     double getTempoBpm() const noexcept;                                 // whichever is in use
 
     //==========================================================================
-    // Tuner: the guitar signal, for the editor's tuner to measure.
+    // Tuner: what's coming in, and the TUNER stomp's reading, trace and
+    // average (message thread). It updates itself while it's on; RESET empties the trace.
     const InputTap& getInputTap() const noexcept { return inputTap; }
+    const Tuner& getTuner() const noexcept { return tuner; }
+    void resetTuner() noexcept { tuner.clear(); }
+    void updateTuner();   // the timer calls this; tests call it to step the tuner
 
     // The expression pedal's position after MIDI (0 heel to 1 toe), for the UI.
     float getExpressionPosition() const noexcept;
@@ -226,7 +231,7 @@ private:
     juce::SmoothedValue<float> bypassAmount;
 
     // The expression pedal's VOLUME, and the tuner's mute.
-    juce::SmoothedValue<float> expressionVolume, tunerOpen;
+    juce::SmoothedValue<float> expressionVolume;
 
     // The last MIDI expression value not yet copied into the expression parameter (-1 = none).
     std::atomic<float> pendingMidiExpression { -1.0f };
@@ -234,6 +239,7 @@ private:
     std::atomic<double> tunerReferenceHz { 440.0 };
 
     InputTap inputTap { 32768 };   // enough for the tuner's window at 192 kHz
+    Tuner tuner;
 
     UndoHistory<Snapshot> history;
     std::atomic<int> activeGestures { 0 };

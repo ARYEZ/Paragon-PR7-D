@@ -130,9 +130,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     layout.add (makeSwitch (ParamIDs::bypass, "Bypass", 5, false));
 
     // Added in plugin version 6 (Phase 6): the tuner and the expression pedal.
+    // (Its MUTE went in PR7-E 0.2.0.)
     constexpr int v6 = 6;
     layout.add (makeSwitch (ParamIDs::tunerOn, "Tuner", v6, false));
-    layout.add (makeSwitch (ParamIDs::tunerMute, "Tuner Mutes Output", v6, true));
     // Heel down (0%) by default, where a real pedal rests: every target starts
     // at its "off" end (MORPH dry, WAH at the heel, PITCH unshifted, LO-FI full
     // band). Assigned to VOLUME it's silent until rocked forward, as a real

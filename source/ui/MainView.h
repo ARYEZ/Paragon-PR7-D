@@ -15,6 +15,7 @@
 #include "ui/PerformanceControls.h"
 #include "ui/RigBrowser.h"
 #include "ui/SignalChain.h"
+#include "ui/TunerPanel.h"
 
 // A side strip from the mockup: a title, a gain knob with its value
 // underneath, and a level meter.
@@ -75,7 +76,9 @@ public:
 private:
     // The blocks in signal-chain order; footswitches, the chain strip and
     // the summary cards select these to show their knobs.
-    enum Block { pitchBlock, compBlock, filterPitchBlock, eqBlock, glitchBlock, modBlock, delayBlock, reverbBlock, loFiBlock, numBlocks };
+    // tunerBlock isn't in the chain (the tuner only listens): it's the TUNER stomp's panel.
+    enum Block { pitchBlock, compBlock, filterPitchBlock, eqBlock, glitchBlock, modBlock, delayBlock, reverbBlock, loFiBlock, numBlocks,
+                 tunerBlock = numBlocks };
 
     enum class Page { processor, presets, settings };
 
@@ -116,11 +119,11 @@ private:
     juce::TextButton pedalSave { "SAVE" }, pedalSaveAs { "SAVE AS..." }, bypassButton;
     juce::AudioProcessorValueTreeState::ButtonAttachment bypassAttachment;
 
-    // The 2 x 3 button cluster: UNDO REDO BYPASS / TUNER MUTE TAP
-    juce::TextButton undoPedal, redoPedal, tunerPedal, mutePedal, tapPedal;
-    juce::AudioProcessorValueTreeState::ButtonAttachment tunerAttachment, muteAttachment;
+    // The 2 x 3 button cluster: UNDO REDO BYPASS / TUNER RESET TAP
+    juce::TextButton undoPedal, redoPedal, tunerPedal, resetPedal, tapPedal;
+    juce::AudioProcessorValueTreeState::ButtonAttachment tunerAttachment;
     juce::Label undoLabel { {}, "UNDO" }, redoLabel { {}, "REDO" }, bypassLabel { {}, "BYPASS" },
-                tunerLabel { {}, "TUNER" }, muteLabel { {}, "MUTE" }, tapLabel { {}, "TAP" }, holdLabel { {}, "HOLD TO TUNER" };
+                tunerLabel { {}, "TUNER" }, resetLabel { {}, "RESET" }, tapLabel { {}, "TAP" }, holdLabel { {}, "HOLD TO TUNER" };
 
     juce::Slider rigLevelKnob { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox },
                  presenceKnob { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox };
@@ -141,6 +144,7 @@ private:
     ExpressionPanel expressionPanel;
     std::array<std::unique_ptr<EffectPanel>, numBlocks> panels;   // empty at eqBlock: the EQ has its own panel
     GraphicEqPanel eqPanel;
+    TunerPanel tunerPanel;
     juce::TextButton closePanel { "GRAPHIC EQ" };   // back to the EQ, the dock's default
     SignalChain signalChain;
     int selectedBlock = eqBlock;

@@ -118,7 +118,6 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
       outputColumn ("OUTPUT", processorToShow.getParameters(), ParamIDs::outputGain, processorToShow.getOutputMeter()),
       bypassAttachment (processorToShow.getParameters(), ParamIDs::bypass, bypassButton),
       tunerAttachment (processorToShow.getParameters(), ParamIDs::tunerOn, tunerPedal),
-      muteAttachment (processorToShow.getParameters(), ParamIDs::tunerMute, mutePedal),
       rigLevelAttachment (processorToShow.getParameters(), ParamIDs::rigLevel, rigLevelKnob),
       presenceAttachment (processorToShow.getParameters(), ParamIDs::presence, presenceKnob),
       expressionPedal (processorToShow),
@@ -126,6 +125,7 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
       selectedRig (processorToShow),
       expressionPanel (processorToShow.getParameters()),
       eqPanel (processorToShow.getParameters()),
+      tunerPanel (processorToShow),
       signalChain (processorToShow.getParameters(), {
           { "PITCH", Icons::Type::pitch, ParagonColours::pitch, juce::String (ParamIDs::octOn) + "," + ParamIDs::freezeOn },
           { "COMP / GATE", Icons::Type::comp, ParagonColours::comp, ParamIDs::compOn },
@@ -187,7 +187,7 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     rigUp.onClick = [this] { audioProcessor.stepRig (-1); };
     rigDown.onClick = [this] { audioProcessor.stepRig (1); };
 
-    for (auto* button : { &pedalSave, &pedalSaveAs, &bypassButton, &undoPedal, &redoPedal, &tunerPedal, &mutePedal, &tapPedal })
+    for (auto* button : { &pedalSave, &pedalSaveAs, &bypassButton, &undoPedal, &redoPedal, &tunerPedal, &resetPedal, &tapPedal })
         button->getProperties().set (ParagonLookAndFeel::pedalButtonProperty, true);
     pedalSave.onClick = [this] { saveRig(); };
     pedalSaveAs.onClick = [this] { rigBrowser.promptSaveAs(); };
@@ -199,16 +199,16 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     undoPedal.onClick = [this] { audioProcessor.undo(); };
     redoPedal.onClick = [this] { audioProcessor.redo(); };
     tunerPedal.setClickingTogglesState (true);
-    tunerPedal.setTooltip ("Tuner: shows the note you're playing on the screen");
-    mutePedal.setClickingTogglesState (true);
-    mutePedal.setTooltip ("Mute the output while the tuner is on, so you can tune silently");
+    tunerPedal.setTooltip ("Tuner: shows the pitch of what's playing on the screen, and its trace in the TUNER panel");
+    resetPedal.setTooltip ("Empty the tuner's trace and start its average again");
+    resetPedal.onClick = [this] { audioProcessor.resetTuner(); };
     tapPedal.setTooltip ("Tap the tempo for the delay (its light flashes in time). Hold to open the tuner.");
     tapPedal.onClick = [this] { if (! pedalTapHold.consumeHold()) tap(); };
     tapPedal.addMouseListener (&pedalTapHold, false);
     pedalTapHold.onHold = [this] { toggleTuner(); };
 
     // The cluster's labels are printed in red, as in the mockup.
-    for (auto* label : { &undoLabel, &redoLabel, &bypassLabel, &tunerLabel, &muteLabel, &tapLabel })
+    for (auto* label : { &undoLabel, &redoLabel, &bypassLabel, &tunerLabel, &resetLabel, &tapLabel })
     {
         styleInkLabel (*label, 9.5f);
         label->setColour (juce::Label::textColourId, ParagonColours::glow.darker (0.15f));
@@ -254,12 +254,15 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     };
     const auto planned = [] (const char* what) { return [what] { return juce::String (what); }; };
 
-    // Top row. TUNER is the tuner PR7-B already had (the TUNER key and
-    // holding TAP switch it too); it has no knobs, so its name opens nothing.
-    addStomp (1, "TUNER", { ParamIDs::tunerOn }, noBlock, [this]
+    // Top row. TUNER checks the pitch of recorded parts (the TUNER key and
+    // holding TAP switch it too); its name opens its panel: the trace and the average.
+    addStomp (1, "TUNER", { ParamIDs::tunerOn }, tunerBlock, [this]
     {
-        return "A4 = " + juce::String (audioProcessor.getTunerReferenceHz(), 1) + " Hz"
-             + (rawValue (ParamIDs::tunerMute) > 0.5f ? "  Mutes the output" : "  Listens only");
+        const auto reference = audioProcessor.getTunerReferenceHz();
+        auto text = "A4 = " + juce::String (reference, 1) + " Hz";
+        if (const auto average = audioProcessor.getTuner().getAverage (reference))
+            text << "  Average " << (average->cents >= 0.5 ? "+" : "") << juce::roundToInt (average->cents) << " cents";
+        return text;
     });
     addStomp (2, "OPEN", {}, noBlock, planned ("To plan"));
     addStomp (3, "INSERTS", {}, noBlock, planned ("Plugin slots: to plan"));
@@ -276,8 +279,8 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
 
     addAndMakeVisible (pedal);   // first, so everything on the pedal sits on top of it
     processorPage = { &pedal, &display, &rigUp, &rigDown, &pedalSave, &pedalSaveAs, &bypassButton,
-                      &undoPedal, &redoPedal, &tunerPedal, &mutePedal, &tapPedal,
-                      &undoLabel, &redoLabel, &bypassLabel, &tunerLabel, &muteLabel, &tapLabel, &holdLabel,
+                      &undoPedal, &redoPedal, &tunerPedal, &resetPedal, &tapPedal,
+                      &undoLabel, &redoLabel, &bypassLabel, &tunerLabel, &resetLabel, &tapLabel, &holdLabel,
                       &rigLevelKnob, &presenceKnob, &rigLevelLabel, &presenceLabel,
                       &expressionPedal,
                       &rigNavigator, &selectedRig, &expressionPanel };
@@ -369,6 +372,7 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
         addChildComponent (*panels[i]);
     }
     addChildComponent (eqPanel);
+    addChildComponent (tunerPanel);
 
     closePanel.setTooltip ("Back to the graphic EQ");
     closePanel.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff151217));
@@ -428,11 +432,12 @@ void MainView::selectBlock (int block)
         if (panels[i] != nullptr)
             panels[i]->setVisible ((int) i == block && onProcessorPage);
     eqPanel.setVisible (block == eqBlock && onProcessorPage);
+    tunerPanel.setVisible (block == tunerBlock && onProcessorPage);
     closePanel.setVisible (block != eqBlock && onProcessorPage);
     if (block != eqBlock)
         closePanel.toFront (false);
 
-    const int footswitchBlocks[] = { noBlock, noBlock, noBlock, eqBlock, noBlock, noBlock, noBlock };
+    const int footswitchBlocks[] = { tunerBlock, noBlock, noBlock, eqBlock, noBlock, noBlock, noBlock };
     static_assert (std::size (footswitchBlocks) == std::tuple_size_v<decltype (footswitches)>);
     for (size_t i = 0; i < footswitches.size(); ++i)
         footswitches[i]->setSelected (footswitchBlocks[i] == block);
@@ -503,12 +508,10 @@ void MainView::refreshPerformance()
     // The tuner runs only while it's switched on.
     auto& parameters = audioProcessor.getParameters();
     const auto tunerOn = parameters.getRawParameterValue (ParamIDs::tunerOn)->load() > 0.5f;
-    const auto muted = parameters.getRawParameterValue (ParamIDs::tunerMute)->load() > 0.5f;
     tunerReader.setActive (tunerOn);
-    if (tunerState.active != tunerOn || tunerState.muted != muted)
+    if (tunerState.active != tunerOn)
     {
         tunerState.active = tunerOn;
-        tunerState.muted = muted;
         if (! tunerOn)
             tunerState.hasNote = false;
         refreshRig();
@@ -572,7 +575,7 @@ void MainView::applyFinish()
     // The cluster's names: red over black keys; over neon keys red was
     // hard to read, so they're printed in the unit's ink (white on pearl
     // black, dark on pearl white). HOLD TO TUNER stays red.
-    for (auto* label : { &undoLabel, &redoLabel, &bypassLabel, &tunerLabel, &muteLabel, &tapLabel })
+    for (auto* label : { &undoLabel, &redoLabel, &bypassLabel, &tunerLabel, &resetLabel, &tapLabel })
         label->setColour (juce::Label::textColourId, Finish::neonKeys() ? Finish::ink() : Finish::printedRed());
     holdLabel.setColour (juce::Label::textColourId, Finish::printedRed());
     pedal.refinish();
@@ -670,7 +673,7 @@ void MainView::resized()
     geometry.badge = local (mockF (212, 117, 410, 207));
 
     // Printed lines: SAVE ... SAVE AS, and the bracket tying TUNER and
-    // MUTE to "HOLD TO TUNER", like the mockup's BACK / CTRL bracket.
+    // RESET to "HOLD TO TUNER", like the mockup's BACK / CTRL bracket.
     geometry.printedInk.startNewSubPath (mockPoint (551, 218) - origin);
     geometry.printedInk.lineTo (mockPoint (637, 218) - origin);
     geometry.printedRed.startNewSubPath (mockPoint (clusterX[0], 199) - origin);
@@ -698,7 +701,7 @@ void MainView::resized()
     placeInCluster (redoLabel, redoPedal, 1, 0);
     placeInCluster (bypassLabel, bypassButton, 2, 0);
     placeInCluster (tunerLabel, tunerPedal, 0, 1);
-    placeInCluster (muteLabel, mutePedal, 1, 1);
+    placeInCluster (resetLabel, resetPedal, 1, 1);
     placeInCluster (tapLabel, tapPedal, 2, 1);
     holdLabel.setBounds (mock (996, 207, 1070, 220));
 
@@ -722,6 +725,7 @@ void MainView::resized()
         if (panel != nullptr)
             panel->setBounds (summaryArea);
     eqPanel.setBounds (summaryArea);
+    tunerPanel.setBounds (summaryArea);
     closePanel.setBounds (summaryArea.withSizeKeepingCentre (0, 0).withX (summaryArea.getRight() - 130).withY (summaryArea.getY() + 10)
                               .withSize (118, 24));
     expressionPanel.setBounds (mock (1344, 568, 1662, 822));
