@@ -860,7 +860,7 @@ TEST_CASE ("Dynamic EQ display and page: Alt+double-click, the range handle, Alt
     bands.create (eq::Shape::bell, 500.0, 0.0, -9.0);
     bands.remove (0);
     REQUIRE (bands.create (eq::Shape::bell, 500.0, 3.0) == 0);
-    CHECK (bands.get (0, "Dyn") == 0.0f);
+    CHECK_THAT (bands.get (0, "Dyn"), WithinAbs (0.0, 1.0e-4));   // 0 dB can come back a hair off (it's stored as 0 to 1)
     bands.remove (0);
 
     // Alt+double-click: a flat bell whose range goes to where you clicked.
