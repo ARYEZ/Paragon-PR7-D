@@ -3,13 +3,10 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "LevelMeterSource.h"
-#include "dsp/AmpStage.h"
-#include "dsp/CabStage.h"
 #include "dsp/InputTap.h"
 #include "dsp/TapTempo.h"
 #include "dsp/effects/CompGate.h"
 #include "dsp/effects/Delay.h"
-#include "dsp/effects/Drive.h"
 #include "dsp/effects/FilterPitch.h"
 #include "dsp/effects/GraphicEq.h"
 #include "dsp/effects/LoFi.h"
@@ -22,15 +19,6 @@
 #include "dsp/effects/Wah.h"
 #include "rigs/RigLibrary.h"
 #include "rigs/UndoHistory.h"
-
-// What the editor shows for the amp or cabinet slot.
-struct SlotStatus
-{
-    juce::File file;        // the file in use (or that a saved project asked for)
-    juce::String detail;    // e.g. "48 kHz, resampled" or the IR length
-    juce::String error;     // why the last load failed; empty if it didn't
-    bool loading = false;
-};
 
 // Which rig is loaded, for the header display and the Save button.
 struct CurrentRig
@@ -83,20 +71,6 @@ public:
 
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
-
-    // Loading happens on a background thread; these return immediately.
-    // Listen to statusBroadcaster to hear when a load finishes.
-    void loadAmpModel (const juce::File& file);
-    void clearAmpModel();
-    void loadCabinetIR (const juce::File& file);
-    void clearCabinetIR();
-
-    SlotStatus getAmpStatus() const;
-    SlotStatus getCabStatus() const;
-    juce::ChangeBroadcaster statusBroadcaster;
-
-    // Blocks until queued loads finish. For tests.
-    bool waitForLoads (int timeoutMs);
 
     //==========================================================================
     // Rigs (message thread only)
@@ -186,7 +160,6 @@ private:
     bool isOn (const char* id) const { return param (id) > 0.5f; }
 
     void timerCallback() override;
-    void setStatus (SlotStatus& slot, SlotStatus newStatus);
     void parameterChanged (const juce::String& parameterId, float newValue) override;
     void markModified() noexcept;
     void applyRig (const Rig& rig);
@@ -200,8 +173,7 @@ private:
 
         bool operator== (const Snapshot& other) const
         {
-            return rig.parameters == other.rig.parameters && rig.ampModelPath == other.rig.ampModelPath
-                && rig.cabIrPath == other.rig.cabIrPath && current == other.current;
+            return rig.parameters == other.rig.parameters && current == other.current;
         }
     };
     Snapshot takeSnapshot() const;
@@ -221,22 +193,15 @@ private:
     juce::AudioProcessorValueTreeState parameters;
     std::atomic<float>* inputGainDb = nullptr;
     std::atomic<float>* outputGainDb = nullptr;
-    std::atomic<float>* ampOn = nullptr;
-    std::atomic<float>* ampNormalise = nullptr;
-    std::atomic<float>* cabOn = nullptr;
 
     // Smoothing stops zipper noise when a gain knob moves.
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> inputGain, outputGain;
 
-    AmpStage amp;
-    CabStage cab;
-
-    // Signal chain, in order: wah -> compGate -> drive -> amp -> cab -> presence
-    // -> graphic EQ -> modulation -> delay -> reverb. Up to the cab it's mono; from
-    // modulation on it's stereo when the track is.
+    // Signal chain, in order: pitch -> wah -> compGate -> filter / pitch -> presence
+    // -> talk box -> graphic EQ -> modulation -> delay -> reverb -> lo-fi (glitch pre
+    // or post). Up to the EQ it's mono; from modulation on it's stereo when the track is.
     effects::CompGate compGate;
-    effects::FilterPitch filterPitch;   // after the compressor, before the drive
-    effects::Drive drive;
+    effects::FilterPitch filterPitch;   // after the compressor
     effects::Presence presence;
     effects::Modulation modulation;
     effects::Delay delay;
@@ -246,7 +211,7 @@ private:
     effects::PitchBlock pitchBlock;
     effects::TalkBox talkBox;   // FILTER / PITCH's Talk Box type, after the cab   // first: TUNING, OCTAVER and FREEZE, before the wah   // after the EQ (POST), or after FILTER / PITCH (PRE)
     effects::Wah wah;
-    effects::GraphicEq graphicEq;   // after the cabinet and presence, before modulation
+    effects::GraphicEq graphicEq;   // after presence, before modulation
     std::array<std::atomic<float>*, effects::GraphicEq::numBands> eqGainDb {};   // the expression pedal's WAH, first in the chain as on a pedalboard
 
     std::unique_ptr<RigLibrary> rigLibrary;
@@ -279,13 +244,7 @@ private:
     double songBeatsAtBlock = -1.0;   // the song position at this block's start, in beats; -1 when not playing (audio thread only)
     TapTempo tapCounter;
 
-    juce::CriticalSection statusLock;
-    SlotStatus ampStatus, cabStatus;
-
     LevelMeterSource inputMeter, outputMeter;
-
-    // Declared last so it is destroyed first: its jobs use the members above.
-    juce::ThreadPool loader { juce::ThreadPoolOptions{}.withThreadName ("Paragon PR7-B loader").withNumberOfThreads (1) };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParagonX1AudioProcessor)
 };

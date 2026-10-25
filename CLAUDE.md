@@ -2,9 +2,9 @@
 
 This repository starts as a copy of **Paragon PR7-B** (the bass processor, repo `ARYEZ/Paragon-PR7-B`) at PR7-B **0.11.0**, full history included, to become **Paragon PR7-E**, the **utility** processor of the PR7 family. Its siblings: **PR7-G** (guitar, repo `ARYEZ/Paragon-PR7-G`), **PR7-B** (bass), **PR7-V** (vocal, `ARYEZ/Paragon-PR7-V`) and **PR7-C** (`ARYEZ/Paragon-PR7-C`). Everything below describes how the project is built, tested and released, and how the owner likes to work.
 
-## First: make it its own plugin (do this before anything else)
+## First: make it its own plugin (done in 0.1.0)
 
-Until these are done, PR7-E *is* PR7-B as far as a DAW is concerned. The two would replace each other and share rigs and settings.
+All of this was done in 0.1.0; it's kept as the record of what makes PR7-E its own plugin. (The loader thread named in item 5 went with the NAM amp, so there's no thread to rename.)
 
 1. **CMakeLists.txt** (`juce_add_plugin`):
    - `PRODUCT_NAME` becomes "Paragon PR7-E".
@@ -25,7 +25,9 @@ Until these are done, PR7-E *is* PR7-B as far as a DAW is concerned. The two wou
 
 ## The plan: seven stomps, each modelled on a specific plugin
 
-The owner's layout is PR7-V's: **three stomps on the top row, four on the bottom**. PR7-B has four stomps plus the AMP, CABINET and RIG keys, so take the seven-stomp face from PR7-V (`ARYEZ/Paragon-PR7-V`, `source/ui/MainView.cpp`, `PedalBody`) rather than inventing a new one. The bass-specific blocks (NAM amp, cab IR, Obsidian, Gotham, the bass rigs) are not part of this plugin: strip them once the plan is agreed. AEON and the `Circuit` solver came along from PR7-B and may be useful later.
+The owner's layout is PR7-V's: **three stomps on the top row, four on the bottom**. Done in 0.1.0: the face came from PR7-V, and the bass-specific blocks (NAM amp, cab IR, Obsidian, Gotham, the bass rigs) are gone; one factory rig, Init, remains. AEON and the `Circuit` solver came along from PR7-B and may be useful later. PR7-B's general effects (pitch, comp / gate, filter / pitch, glitch, modulation, delay, reverb, lo-fi) are still in the signal chain, with no stomps: whether they stay is for the owner.
+
+Stomps not built yet are placeholders: a `Footswitch` with no parameter IDs (dark LED, the pad does nothing, the name opens nothing; see `addStomp` in `MainView.cpp`). Give a stomp its parameters only when it's built: once released, IDs are saved forever. Stomp 4 (EQ) switches the graphic EQ until the planned EQ replaces it. Planning order: the tuner first, then one stomp at a time.
 
 - **Top row**
   1. **Tuner.**

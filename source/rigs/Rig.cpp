@@ -7,8 +7,7 @@ namespace
 
     // Which plugin version's parameters the rig was saved with, for the
     // occasional parameter whose default changed (older plugins ignore it).
-    // 10: PR7-G's drive MODEL (its guitar drives are gone from PR7-B).
-    // 15: the reverb's TYPE, defaulting to HALL.
+    // 15: the reverb's TYPE, defaulting to HALL (from PR7-G, via PR7-B).
     constexpr int parameterVersion = 15;
 
     const juce::Identifier rigTag { "ParagonRig" };
@@ -35,12 +34,8 @@ std::unique_ptr<juce::XmlElement> Rig::toXml() const
     xml->setAttribute ("number", number);
     xml->setAttribute ("favourite", favourite);
     xml->setAttribute ("tags", tags.joinIntoString (","));
-    xml->setAttribute ("ampModel", ampModelPath);
-    xml->setAttribute ("cabIr", cabIrPath);
     if (notes.isNotEmpty())
         xml->setAttribute ("notes", notes);
-    if (keepAmpAndCab)
-        xml->setAttribute ("keepAmpAndCab", true);
 
     for (const auto& [id, value] : parameters)
     {
@@ -68,9 +63,6 @@ std::optional<Rig> Rig::fromXml (const juce::XmlElement& xml)
     rig.tags = juce::StringArray::fromTokens (xml.getStringAttribute ("tags"), ",", {});
     rig.tags.trim();
     rig.tags.removeEmptyStrings();
-    rig.ampModelPath = xml.getStringAttribute ("ampModel");
-    rig.cabIrPath = xml.getStringAttribute ("cabIr");
-    rig.keepAmpAndCab = xml.getBoolAttribute ("keepAmpAndCab");
     rig.notes = xml.getStringAttribute ("notes");
 
     for (const auto* parameter : xml.getChildWithTagNameIterator (parameterTag))

@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.24)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "macOS architectures")
 
-project(ParagonX1 VERSION 0.11.0 LANGUAGES C CXX)
+project(ParagonX1 VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,17 +20,17 @@ option(PARAGON_BUILD_TESTS "Build the unit tests" ON)
 include(cmake/Dependencies.cmake)
 
 juce_add_plugin(ParagonX1
-    PRODUCT_NAME             "Paragon PR7-B" # the bass version of Paragon PR7-G: its own name, bundle ID and plugin code, so the two install side by side
+    PRODUCT_NAME             "Paragon PR7-E" # the utility processor of the PR7 family: its own name, bundle ID and plugin code, so it installs beside the others
     COMPANY_NAME             "Paragon"
-    BUNDLE_ID                "com.paragon.paragonpr7b"
+    BUNDLE_ID                "com.paragon.paragonpr7e"
     PLUGIN_MANUFACTURER_CODE Prgn     # four characters, at least one upper case
-    PLUGIN_CODE              Pr7b     # four characters, exactly one upper case; never PR7-G's Px1a
+    PLUGIN_CODE              Pr7e     # four characters, exactly one upper case; never PR7-G's Px1a, PR7-B's Pr7b, PR7-V's Pr7v or PR7-C's Pr7c
     FORMATS                  VST3
     IS_SYNTH                 FALSE
     NEEDS_MIDI_INPUT         TRUE    # MIDI CC 11 for the expression pedal
     NEEDS_MIDI_OUTPUT        FALSE
     IS_MIDI_EFFECT           FALSE
-    VST3_CATEGORIES          Fx Distortion
+    VST3_CATEGORIES          Fx Tools   # a utility, so DAWs file it with the tools
     COPY_PLUGIN_AFTER_BUILD  FALSE)
 
 # Inter (SIL Open Font License, see resources/fonts/OFL-LICENSE.txt), built
@@ -48,16 +48,10 @@ target_sources(ParagonX1
         source/Parameters.cpp
         source/PluginProcessor.cpp
         source/PluginEditor.cpp
-        source/dsp/AmpModel.cpp
-        source/dsp/AmpStage.cpp
-        source/dsp/CabStage.cpp
         source/dsp/PitchDetector.cpp
         source/dsp/effects/CompGate.cpp
         source/dsp/effects/Delay.cpp
-        source/dsp/effects/Drive.cpp
         source/dsp/effects/Aeon.cpp
-        source/dsp/effects/Gotham.cpp
-        source/dsp/effects/Obsidian.cpp
         source/dsp/effects/FilterPitch.cpp
         source/dsp/effects/GraphicEq.cpp
         source/dsp/effects/LoFi.cpp
@@ -73,7 +67,6 @@ target_sources(ParagonX1
         source/rigs/RigLibrary.cpp
         source/ui/LevelMeter.cpp
         source/ui/Logo.cpp
-        source/ui/ModelSlot.cpp
         source/ui/Footswitch.cpp
         source/ui/EffectPanel.cpp
         source/ui/RigBrowser.cpp
@@ -81,7 +74,6 @@ target_sources(ParagonX1
         source/ui/PedalBody.cpp
         source/ui/LedDisplay.cpp
         source/ui/SlotWindow.cpp
-        source/ui/RigSlot.cpp
         source/ui/SignalChain.cpp
         source/ui/DockPanels.cpp
         source/ui/GraphicEqPanel.cpp
@@ -105,12 +97,6 @@ target_link_libraries(ParagonX1
         juce::juce_dsp
         juce::juce_recommended_warning_flags   # strict warnings for our code only
     PUBLIC
-        # NAM registers each model architecture (WaveNet, LSTM, ...) from a
-        # static initialiser that nothing references directly. A normal static
-        # link drops those objects and NAM then can't load any model, so the
-        # whole library must be linked in.
-        $<LINK_LIBRARY:WHOLE_ARCHIVE,nam_core>
-        nam_headers
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags)
 

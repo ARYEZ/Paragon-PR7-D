@@ -278,7 +278,7 @@ void PedalBody::drawSatin (juce::Graphics& g) const
 
 void PedalBody::paintBadge (juce::Graphics& g) const
 {
-    // Heavy italic PARAGON, as "CYBER RPX" in the mockup, over the PR7-B mark.
+    // Heavy italic PARAGON, as "CYBER RPX" in the mockup, over the PR7-E mark.
     if (geometry.badge.isEmpty())
         return;
 
@@ -298,7 +298,7 @@ void PedalBody::paintBadge (juce::Graphics& g) const
     g.setFont (font);
     drawStamped ("PARAGON", area.removeFromTop (lineHeight), Finish::ink());
 
-    // The PR7-B mark under it, as tall as the lettering's capitals, starting
+    // The PR7-E mark under it, as tall as the lettering's capitals, starting
     // where they do (the slant makes the P's foot sit under PARAGON's P).
     auto secondLine = area.removeFromTop (lineHeight);
     Logo::drawMark (g, secondLine.withSizeKeepingCentre (secondLine.getWidth(), lineHeight * 0.82f).withTrimmedLeft (lineHeight * 0.04f),
@@ -307,6 +307,6 @@ void PedalBody::paintBadge (juce::Graphics& g) const
 
     g.setFont (juce::FontOptions (lineHeight * 0.27f, juce::Font::bold));
     g.setColour (Finish::printedRed());
-    g.drawText ("NEURAL MULTI-FX PROCESSOR", area.withTrimmedTop (4.0f).withHeight (lineHeight * 0.4f),
+    g.drawText ("UTILITY PROCESSOR", area.withTrimmedTop (4.0f).withHeight (lineHeight * 0.4f),
                 juce::Justification::centredLeft, false);
 }

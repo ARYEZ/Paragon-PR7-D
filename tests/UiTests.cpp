@@ -141,16 +141,16 @@ TEST_CASE ("The chain and footswitches pick which block's knobs show; the graphi
     ParagonX1AudioProcessor processor;
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
 
-    // The knob panels in signal-chain order: eleven EffectPanels, with the
-    // graphic EQ's own panel as block 6 (after the cabinet).
+    // The knob panels in signal-chain order: eight EffectPanels, with the
+    // graphic EQ's own panel as block 3 (after FILTER / PITCH).
     std::vector<EffectPanel*> effectPanels;
     findAll (*editor, effectPanels);
-    REQUIRE (effectPanels.size() == 11);
+    REQUIRE (effectPanels.size() == 8);
     std::vector<GraphicEqPanel*> eqPanels;
     findAll (*editor, eqPanels);
     REQUIRE (eqPanels.size() == 1);
     std::vector<juce::Component*> panels (effectPanels.begin(), effectPanels.end());
-    panels.insert (panels.begin() + 6, eqPanels[0]);
+    panels.insert (panels.begin() + 3, eqPanels[0]);
 
     const auto visiblePanel = [&]
     {
@@ -166,25 +166,25 @@ TEST_CASE ("The chain and footswitches pick which block's knobs show; the graphi
     };
 
     // To start with the dock shows the graphic EQ.
-    CHECK (visiblePanel() == 6);
+    CHECK (visiblePanel() == 3);
 
     std::vector<SignalChain*> chains;
     findAll (*editor, chains);
     REQUIRE (chains.size() == 1);
-    for (int block = 0; block < 12; ++block)
+    for (int block = 0; block < 9; ++block)
     {
         chains[0]->onSelect (block);
         CHECK (visiblePanel() == block);
     }
 
-    // Footswitch 3's name shows modulation (block 8); footswitch 4's shows delay (block 9).
+    // Stomp 4's name (EQ) shows the graphic EQ, from another block's panel.
+    chains[0]->onSelect (5);
     std::vector<Footswitch*> footswitches;
     findAll (*editor, footswitches);
-    REQUIRE (footswitches.size() == 4);
-    footswitches[2]->onSelect();
-    CHECK (visiblePanel() == 8);
+    REQUIRE (footswitches.size() == 7);
     footswitches[3]->onSelect();
-    CHECK (visiblePanel() == 9);
+    CHECK (visiblePanel() == 3);
+    chains[0]->onSelect (5);
 
     // The GRAPHIC EQ button on any other block's panel goes back to the EQ.
     std::vector<juce::TextButton*> buttons;
@@ -193,8 +193,57 @@ TEST_CASE ("The chain and footswitches pick which block's knobs show; the graphi
     REQUIRE (back != buttons.end());
     CHECK ((*back)->isVisible());
     (*back)->onClick();
-    CHECK (visiblePanel() == 6);
+    CHECK (visiblePanel() == 3);
     CHECK_FALSE ((*back)->isVisible());
+}
+
+TEST_CASE ("Seven stomps, three over four, labelled from the plan", "[ui]")
+{
+    ParagonX1AudioProcessor processor;
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+    editor->setSize (1600, 900);
+
+    std::vector<Footswitch*> stomps;
+    findAll (*editor, stomps);
+    REQUIRE (stomps.size() == 7);
+
+    const juce::StringArray names { "TUNER", "OPEN", "INSERTS", "EQ", "RESONANCE", "AUTO EQ", "LIMITER" };
+    for (size_t i = 0; i < stomps.size(); ++i)
+        CHECK (stomps[i]->getTitle() == names[(int) i] + " footswitch");
+
+    // 1-3 on a row above 4-7, each top stomp in a gap between two below it,
+    // so a foot on one can't catch another.
+    const auto bounds = [&] (size_t i) { return stomps[i]->getBoundsInParent(); };
+    for (size_t top = 0; top < 3; ++top)
+    {
+        INFO ("Stomp " << top + 1);
+        CHECK (bounds (top).getY() < bounds (3).getY());
+        CHECK (bounds (top).getCentreX() > bounds (top + 3).getCentreX());
+        CHECK (bounds (top).getCentreX() < bounds (top + 4).getCentreX());
+    }
+    for (size_t bottom = 4; bottom < 7; ++bottom)
+        CHECK (bounds (bottom).getY() == bounds (3).getY());
+
+    // TUNER and EQ switch what PR7-E already has.
+    const auto isOn = [&] (const char* id) { return processor.getParameters().getRawParameterValue (id)->load() > 0.5f; };
+    REQUIRE_FALSE (isOn (ParamIDs::tunerOn));
+    stomps[0]->toggle();
+    CHECK (isOn (ParamIDs::tunerOn));
+    stomps[3]->toggle();
+    CHECK (isOn (ParamIDs::eqOn));
+
+    // The rest aren't built yet: their pads change nothing and their names open nothing.
+    for (const auto i : { 1, 2, 4, 5, 6 })
+    {
+        INFO (names[i]);
+        auto& stomp = *stomps[(size_t) i];
+        CHECK (stomp.isPlaceholder());
+        CHECK_FALSE (stomp.onSelect);
+        const auto before = processor.captureRig().parameters;
+        stomp.toggle();
+        CHECK_FALSE (stomp.isAnyOn());
+        CHECK (processor.captureRig().parameters == before);
+    }
 }
 
 TEST_CASE ("BYPASS passes the clean guitar, on both channels", "[ui][bypass]")
@@ -204,8 +253,8 @@ TEST_CASE ("BYPASS passes the clean guitar, on both channels", "[ui][bypass]")
     processor.prepareToPlay (48000.0, 512);
 
     // Make the processed sound very different from the input...
-    set (processor, ParamIDs::driveOn, 1.0f);
-    set (processor, ParamIDs::driveGain, 10.0f);
+    set (processor, ParamIDs::compOn, 1.0f);
+    set (processor, ParamIDs::compLevel, 24.0f);
     set (processor, ParamIDs::inputGain, 12.0f);
     set (processor, ParamIDs::bypass, 1.0f);
 
@@ -222,29 +271,28 @@ TEST_CASE ("BYPASS passes the clean guitar, on both channels", "[ui][bypass]")
     CHECK (processor.getBypassParameter() == processor.getParameters().getParameter (ParamIDs::bypass));
 }
 
-TEST_CASE ("BYPASS stays in time when the amp adds latency", "[ui][bypass]")
+TEST_CASE ("No latency: BYPASS and the processed sound line up with the input", "[ui][bypass]")
 {
-    // At 44.1 kHz a 48 kHz model is resampled, which adds latency. The
-    // bypassed signal must be delayed by the same amount, or toggling bypass
-    // would shift the guitar against the rest of the mix.
+    // Nothing in PR7-E's chain looks ahead (the NAM amp, which did, went with
+    // PR7-B's bass blocks), so the DAW needn't compensate and bypassing
+    // can't shift the sound in time.
     ParagonX1AudioProcessor processor;
     processor.setPlayConfigDetails (1, 2, 44100.0, 512);
     processor.prepareToPlay (44100.0, 512);
-    processor.loadAmpModel (juce::File (PARAGON_NAM_EXAMPLE_MODELS).getChildFile ("wavenet.nam"));
-    REQUIRE (processor.waitForLoads (20000));
-    processor.prepareToPlay (44100.0, 512);
-    const auto latency = processor.getLatencySamples();
-    REQUIRE (latency > 0);
-
-    set (processor, ParamIDs::bypass, 1.0f);
-    for (int block = 0; block < 4; ++block)
-        playThrough (processor, std::vector<float> (512, 0.0f));   // let the bypass fade finish
+    CHECK (processor.getLatencySamples() == 0);
 
     std::vector<float> click (512, 0.0f);
     click[10] = 0.5f;
-    const auto output = playThrough (processor, click);
-    CHECK_THAT (output[(size_t) (10 + latency)], WithinAbs (0.5, 1.0e-6));
-    CHECK_THAT (output[10], WithinAbs (0.0, 1.0e-6));
+    for (const auto bypassed : { false, true })
+    {
+        INFO ("Bypassed: " << (bypassed ? "yes" : "no"));
+        set (processor, ParamIDs::bypass, bypassed ? 1.0f : 0.0f);
+        for (int block = 0; block < 4; ++block)
+            playThrough (processor, std::vector<float> (512, 0.0f));   // let the bypass fade finish
+        const auto output = playThrough (processor, click);
+        CHECK_THAT (output[10], WithinAbs (0.5, 1.0e-6));
+        CHECK_THAT (output[11], WithinAbs (0.0, 1.0e-6));
+    }
 }
 
 TEST_CASE ("BYPASS is global: rigs don't change it and it doesn't mark them modified", "[ui][bypass]")
@@ -253,11 +301,16 @@ TEST_CASE ("BYPASS is global: rigs don't change it and it doesn't mark them modi
     const auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ParagonX1UiTests").getChildFile (juce::Uuid().toString());
     processor.useRigFolder (folder);
 
-    processor.loadRig (*processor.getRigLibrary().findFactory ("Studio Bass"));
+    processor.loadRig (*processor.getRigLibrary().findFactory ("Init"));
+    set (processor, ParamIDs::reverbOn, 1.0f);
+    REQUIRE (processor.saveCurrentRigAs ("Reverb Rig"));
+    const auto reverbRig = processor.getCurrentRig().file;
+    processor.loadRig (*processor.getRigLibrary().findFactory ("Init"));
     set (processor, ParamIDs::bypass, 1.0f);
     CHECK_FALSE (processor.isRigModified());
 
-    processor.loadRig (*processor.getRigLibrary().findFactory ("Dub Delay"));
+    processor.loadRig (*processor.getRigLibrary().find (reverbRig));
+    CHECK (processor.getParameters().getRawParameterValue (ParamIDs::reverbOn)->load() > 0.5f);   // the rig did load
     CHECK (processor.getParameters().getRawParameterValue (ParamIDs::bypass)->load() > 0.5f);
     folder.deleteRecursively();
 }

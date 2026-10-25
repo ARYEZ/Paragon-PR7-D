@@ -8,9 +8,9 @@ namespace ParamIDs
 {
     inline constexpr auto inputGain    = "inputGain";
     inline constexpr auto outputGain   = "outputGain";
-    inline constexpr auto ampOn        = "ampOn";
-    inline constexpr auto ampNormalise = "ampNormalise";
-    inline constexpr auto cabOn        = "cabOn";
+    // (PR7-B's ampOn, ampNormalise and cabOn, and its OD / DISTORTION block's
+    // drive*, gotham* and dual* IDs, went with the NAM amp, the cabinet IR and
+    // the bass drives before PR7-E 0.1.0 shipped. Don't reuse those IDs.)
 
     // Phase 3
     inline constexpr auto presence       = "presence";
@@ -20,33 +20,6 @@ namespace ParamIDs
     inline constexpr auto compRatio      = "compRatio";
     inline constexpr auto compLevel      = "compLevel";
     inline constexpr auto gateThreshold  = "gateThreshold";
-
-    inline constexpr auto driveOn        = "driveOn";
-    inline constexpr auto driveGain      = "driveGain";
-    inline constexpr auto driveLevel     = "driveLevel";
-
-    // The OBSIDIAN's other knobs (its DRIVE is driveGain, and driveLevel is its OUTPUT trim).
-    // "dual" is from its first name, DUAL ENGINE (0.4.0): IDs are saved, so they stay.
-    // driveType chooses the model: OBSIDIAN or GOTHAM, whose knobs follow.
-    inline constexpr auto driveType       = "driveType";
-    inline constexpr auto gothamLevel     = "gothamLevel";
-    inline constexpr auto gothamBlend     = "gothamBlend";
-    inline constexpr auto gothamTreble    = "gothamTreble";
-    inline constexpr auto gothamBass      = "gothamBass";
-    inline constexpr auto gothamDrive     = "gothamDrive";
-    inline constexpr auto gothamPresence  = "gothamPresence";
-    // SPLIT: the lows go around the drive, clean (both models).
-    inline constexpr auto driveSplit      = "driveSplit";
-    inline constexpr auto driveSplitHz    = "driveSplitHz";
-    inline constexpr auto driveSplitLows  = "driveSplitLows";
-    inline constexpr auto dualMod    = "dualMod";
-    inline constexpr auto dualLevel  = "dualLevel";
-    inline constexpr auto dualBlend  = "dualBlend";
-    inline constexpr auto dualBass   = "dualBass";
-    inline constexpr auto dualMid    = "dualMid";
-    inline constexpr auto dualTreble = "dualTreble";
-    inline constexpr auto dualGrowl  = "dualGrowl";
-    inline constexpr auto dualBite   = "dualBite";
 
     inline constexpr auto modOn          = "modOn";
     inline constexpr auto modType        = "modType";
@@ -87,7 +60,7 @@ namespace ParamIDs
     // Phase 8: the 9-band graphic EQ, one band per octave.
     inline constexpr auto eqOn    = "eqOn";
     inline constexpr auto eqLevel = "eqLevel";
-    // The bass EQ's bands (PR7-G's were 63 Hz to 16 kHz, with their own IDs).
+    // The bands of PR7-B's bass EQ (PR7-G's were 63 Hz to 16 kHz, with their own IDs).
     inline const juce::StringArray eqBands { "eq33", "eq80", "eq150", "eq300", "eq500", "eq900", "eq2k", "eq5k", "eq9k" };
     inline const juce::StringArray eqBandNames { "33", "80", "150", "300", "500", "900", "2K", "5K", "9K" };
     inline constexpr auto eqUltraLo = "eqUltraLo";

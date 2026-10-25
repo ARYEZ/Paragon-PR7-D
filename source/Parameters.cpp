@@ -2,7 +2,6 @@
 
 #include "dsp/effects/CompGate.h"
 #include "dsp/effects/Delay.h"
-#include "dsp/effects/Drive.h"
 #include "dsp/effects/FilterPitch.h"
 #include "dsp/effects/LoFi.h"
 #include "dsp/effects/Glitch.h"
@@ -90,11 +89,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     layout.add (makeGainParameter (ParamIDs::inputGain, "Input"));
     layout.add (makeGainParameter (ParamIDs::outputGain, "Output"));
 
-    // Added in plugin version 2 (Phase 2).
-    layout.add (makeSwitch (ParamIDs::ampOn, "Amp On", 2));
-    layout.add (makeSwitch (ParamIDs::ampNormalise, "Amp Normalise", 2));
-    layout.add (makeSwitch (ParamIDs::cabOn, "Cab On", 2));
-
     // Added in plugin version 3 (Phase 3). Effects default to off, so
     // projects saved with earlier versions sound exactly the same.
     constexpr int v3 = 3;
@@ -106,10 +100,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     layout.add (makeFloat (ParamIDs::compLevel, "Comp Level", { -12.0f, 24.0f, 0.1f }, 0.0f, v3, asDb));
     layout.add (makeFloat (ParamIDs::gateThreshold, "Gate Threshold", { effects::CompGate::gateOffDb, -20.0f, 1.0f },
                            effects::CompGate::gateOffDb, v3, asGate));
-
-    layout.add (makeSwitch (ParamIDs::driveOn, "Drive On", v3, false));
-    layout.add (makeFloat (ParamIDs::driveGain, "Drive", { 0.0f, 10.0f, 0.1f }, 5.0f, v3, asKnob));
-    layout.add (makeFloat (ParamIDs::driveLevel, "Drive Level", { -24.0f, 12.0f, 0.1f }, 0.0f, v3, asDb));
 
     layout.add (makeSwitch (ParamIDs::modOn, "Mod On", v3, false));
     layout.add (makeChoice (ParamIDs::modType, "Mod Type", v3, effects::Modulation::typeNames, 0));
@@ -240,36 +230,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     // Added in PR7-B 0.2.0: the bass EQ's ULTRA LO and ULTRA HI switches. Off by default.
     layout.add (makeSwitch (ParamIDs::eqUltraLo, "EQ Ultra Lo", v25, false));
     layout.add (makeSwitch (ParamIDs::eqUltraHi, "EQ Ultra Hi", v25, false));
-
-    // Added in PR7-B 0.4.0: the OBSIDIAN's knobs, as on the pedal it's
-    // modelled on (0 to 10, EQ flat at 5).
-    constexpr int v26 = 26;
-    layout.add (makeFloat (ParamIDs::dualMod, "Obsidian Mod", { 0.0f, 10.0f, 0.1f }, 5.0f, v26, asKnob));
-    layout.add (makeFloat (ParamIDs::dualLevel, "Obsidian Level", { 0.0f, 10.0f, 0.1f }, 5.0f, v26, asKnob));
-    layout.add (makeFloat (ParamIDs::dualBlend, "Obsidian Blend", { 0.0f, 10.0f, 0.1f }, 5.0f, v26, asKnob));
-    layout.add (makeFloat (ParamIDs::dualBass, "Obsidian Bass", { 0.0f, 10.0f, 0.1f }, 5.0f, v26, asKnob));
-    layout.add (makeFloat (ParamIDs::dualMid, "Obsidian Mid", { 0.0f, 10.0f, 0.1f }, 5.0f, v26, asKnob));
-    layout.add (makeFloat (ParamIDs::dualTreble, "Obsidian Treble", { 0.0f, 10.0f, 0.1f }, 5.0f, v26, asKnob));
-    layout.add (makeSwitch (ParamIDs::dualGrowl, "Obsidian Growl", v26, false));
-    layout.add (makeSwitch (ParamIDs::dualBite, "Obsidian Bite", v26, false));
-
-    // Added in PR7-B 0.5.0: the drive's MODEL (OBSIDIAN first, so projects
-    // and rigs from 0.4.0 keep it) and the GOTHAM's knobs (0 to 10, EQ flat at 5).
-    constexpr int v27 = 27;
-    layout.add (makeChoice (ParamIDs::driveType, "Drive Model", v27, effects::Drive::modelNames, (int) effects::Drive::Model::obsidian));
-    layout.add (makeFloat (ParamIDs::gothamLevel, "Gotham Level", { 0.0f, 10.0f, 0.1f }, 5.0f, v27, asKnob));
-    layout.add (makeFloat (ParamIDs::gothamBlend, "Gotham Blend", { 0.0f, 10.0f, 0.1f }, 5.0f, v27, asKnob));
-    layout.add (makeFloat (ParamIDs::gothamTreble, "Gotham Treble", { 0.0f, 10.0f, 0.1f }, 5.0f, v27, asKnob));
-    layout.add (makeFloat (ParamIDs::gothamBass, "Gotham Bass", { 0.0f, 10.0f, 0.1f }, 5.0f, v27, asKnob));
-    layout.add (makeFloat (ParamIDs::gothamDrive, "Gotham Drive", { 0.0f, 10.0f, 0.1f }, 5.0f, v27, asKnob));
-    layout.add (makeFloat (ParamIDs::gothamPresence, "Gotham Presence", { 0.0f, 10.0f, 0.1f }, 5.0f, v27, asKnob));
-
-    // Added in PR7-B 0.10.0: the drive's SPLIT (off by default, so earlier
-    // projects and rigs sound the same), its crossover and the clean lows' level.
-    constexpr int v28 = 28;
-    layout.add (makeSwitch (ParamIDs::driveSplit, "Drive Split", v28, false));
-    layout.add (makeFloat (ParamIDs::driveSplitHz, "Drive Split Hz", skewed (80.0f, 600.0f, 275.0f, 1.0f), 275.0f, v28, asHz));
-    layout.add (makeFloat (ParamIDs::driveSplitLows, "Drive Split Lows", { -12.0f, 12.0f, 0.1f }, 0.0f, v28, asDb));
 
     // Added in PR7-B 0.11.0: AEON's MANUAL and RES knobs (0 to 10), as on the
     // pedal it's modelled on. AEON took the old flanger's place in the list.

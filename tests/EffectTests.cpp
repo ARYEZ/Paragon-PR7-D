@@ -5,15 +5,12 @@
 #include "Parameters.h"
 #include "PluginProcessor.h"
 #include "dsp/effects/Circuit.h"
-#include "dsp/effects/Drive.h"
-#include "dsp/effects/Gotham.h"
 #include "dsp/effects/Modulation.h"
 #include "dsp/effects/Delay.h"
 #include "dsp/effects/Reverb.h"
 #include "dsp/effects/Glitch.h"
 #include "dsp/effects/TalkBox.h"
 #include "ui/EqPresets.h"
-#include "rigs/FactoryRigs.h"
 
 using Catch::Matchers::WithinAbs;
 
@@ -391,7 +388,7 @@ TEST_CASE ("GLITCH: each mode chops, repeats or smears the guitar as it says", "
     }
 }
 
-TEST_CASE ("The circuit solver behaves like the circuit: an RC low-pass", "[effects][drive]")
+TEST_CASE ("The circuit solver behaves like the circuit: an RC low-pass", "[effects][circuit]")
 {
     // 1k and 1 uF: the corner is at 159 Hz, falling 6 dB per octave.
     effects::Circuit c;
@@ -413,262 +410,6 @@ TEST_CASE ("The circuit solver behaves like the circuit: an RC low-pass", "[effe
     CHECK_THAT (gainAt (159.15), WithinAbs (-3.01, 0.1));
     CHECK_THAT (gainAt (1591.5), WithinAbs (-20.04, 0.2));
     CHECK_THAT (gainAt (20.0), WithinAbs (0.0, 0.1));
-}
-
-TEST_CASE ("OBSIDIAN: the bass distortion follows the pedal's circuit", "[effects][drive]")
-{
-    // The level of a tone at `hz` through the plugin, relative to its input,
-    // with the drive on and set up by `setUp`. At the default -80 dBFS
-    // nothing clips, so the circuit's filters can be measured directly.
-    const auto gainAt = [] (double hz, const std::function<void (EffectRig&)>& setUp, float amplitude = 1.0e-4f)
-    {
-        EffectRig rig;
-        rig.set (ParamIDs::driveOn, 1.0f);
-        setUp (rig);
-        const auto input = sine (hz, amplitude, 0.6);
-        const auto output = rig.runMono (input);
-        REQUIRE (allFinite (output));
-        return dB (levelAt (output, hz, 0.3) / levelAt (input, hz, 0.3));
-    };
-    const auto wet = [] (EffectRig& rig) { rig.set (ParamIDs::dualBlend, 10.0f); };
-    const auto clean = [] (EffectRig& rig) { rig.set (ParamIDs::dualBlend, 0.0f); };
-
-    SECTION ("BLEND all the way clean: the bass at its own level, but for the circuit's 1.85 kHz notch")
-    {
-        CHECK_THAT (gainAt (100.0, clean), WithinAbs (0.0, 0.7));
-        CHECK_THAT (gainAt (5000.0, clean), WithinAbs (0.0, 0.7));
-        CHECK (gainAt (1854.0, clean) < -9.0f);
-    }
-
-    SECTION ("It distorts: a loud low note comes out full of harmonics")
-    {
-        EffectRig rig;
-        rig.set (ParamIDs::driveOn, 1.0f);
-        rig.set (ParamIDs::dualBlend, 10.0f);
-        rig.set (ParamIDs::driveGain, 8.0f);
-        rig.set (ParamIDs::dualMod, 10.0f);
-        const auto output = rig.runMono (sine (110.0, 0.3f, 0.6));
-        REQUIRE (allFinite (output));
-        CHECK (dB (levelAt (output, 330.0, 0.3) / levelAt (output, 110.0, 0.3)) > -20.0f);
-    }
-
-    SECTION ("DRIVE: about 10 dB more gain from 5 to 10, 25 or so from 0 (at 1 kHz, before clipping)")
-    {
-        // (At DRIVE 0 the little clean signal that BLEND's track leaks into
-        // the wet side, as on the pedal, is no longer negligible.)
-        const auto at = [&] (float drive) { return gainAt (1000.0, [&] (EffectRig& r) { wet (r); r.set (ParamIDs::driveGain, drive); }); };
-        CHECK_THAT (at (10.0f) - at (5.0f), WithinAbs (10.4, 1.0));
-        CHECK (at (10.0f) - at (0.0f) > 24.0f);
-    }
-
-    SECTION ("GROWL sends about 7 dB more low end into the distortion; the top barely moves")
-    {
-        const auto off = [&] (double hz) { return gainAt (hz, wet); };
-        const auto on = [&] (double hz) { return gainAt (hz, [&] (EffectRig& r) { wet (r); r.set (ParamIDs::dualGrowl, 1.0f); }); };
-        CHECK_THAT (on (80.0) - off (80.0), WithinAbs (6.7, 1.0));
-        CHECK (std::abs (on (8000.0) - off (8000.0)) < 1.5f);
-    }
-
-    SECTION ("BITE lifts about 3 kHz by 9 dB")
-    {
-        const auto off = gainAt (2976.0, wet);
-        const auto on = gainAt (2976.0, [&] (EffectRig& r) { wet (r); r.set (ParamIDs::dualBite, 1.0f); });
-        CHECK_THAT (on - off, WithinAbs (8.9, 1.0));
-    }
-
-    SECTION ("MOD: ALPHA scoops 520 Hz far deeper than OMEGA; at 1.9 kHz they're close")
-    {
-        const auto alpha = [&] (double hz) { return gainAt (hz, [&] (EffectRig& r) { wet (r); r.set (ParamIDs::dualMod, 0.0f); }); };
-        const auto omega = [&] (double hz) { return gainAt (hz, [&] (EffectRig& r) { wet (r); r.set (ParamIDs::dualMod, 10.0f); }); };
-        CHECK (omega (520.0) - alpha (520.0) > 10.0f);
-        CHECK (std::abs (omega (1900.0) - alpha (1900.0)) < 3.0f);
-    }
-
-    SECTION ("LEVEL down with BLEND fully wet: silence")
-    {
-        CHECK (gainAt (500.0, [&] (EffectRig& r) { wet (r); r.set (ParamIDs::dualLevel, 0.0f); }, 0.1f) < -40.0f);
-    }
-
-    SECTION ("The EQ, after the blend: BASS +13 dB at 80 Hz, TREBLE +16 dB at 5 kHz, MID +14.5 dB near 1 kHz")
-    {
-        const auto flat = [&] (double hz) { return gainAt (hz, clean); };
-        CHECK_THAT (gainAt (80.0, [&] (EffectRig& r) { clean (r); r.set (ParamIDs::dualBass, 10.0f); }) - flat (80.0), WithinAbs (13.1, 1.0));
-        CHECK_THAT (gainAt (5000.0, [&] (EffectRig& r) { clean (r); r.set (ParamIDs::dualTreble, 10.0f); }) - flat (5000.0), WithinAbs (15.9, 1.0));
-        CHECK_THAT (gainAt (1053.0, [&] (EffectRig& r) { clean (r); r.set (ParamIDs::dualMid, 10.0f); }) - flat (1053.0), WithinAbs (14.5, 1.0));
-        CHECK_THAT (gainAt (80.0, [&] (EffectRig& r) { clean (r); r.set (ParamIDs::dualBass, 0.0f); }) - flat (80.0), WithinAbs (-12.9, 1.0));
-    }
-
-    SECTION ("Oversampling keeps aliasing down at full drive")
-    {
-        // A 5 kHz note at full drive makes harmonics at 15, 25, 35 kHz...;
-        // without oversampling, 35 kHz would fold back to 13 kHz.
-        EffectRig rig;
-        rig.set (ParamIDs::driveOn, 1.0f);
-        rig.set (ParamIDs::dualBlend, 10.0f);
-        rig.set (ParamIDs::dualMod, 10.0f);
-        rig.set (ParamIDs::driveGain, 10.0f);
-        const auto output = rig.runMono (sine (5000.0, 0.5f, 0.6));
-        CHECK (dB (levelAt (output, 13000.0, 0.3) / levelAt (output, 5000.0, 0.3)) < -45.0f);
-    }
-
-    SECTION ("Every knob at its extreme, played hard: stable and bounded")
-    {
-        for (const auto extreme : { 0.0f, 10.0f })
-        {
-            EffectRig rig;
-            rig.set (ParamIDs::driveOn, 1.0f);
-            for (const auto* id : { ParamIDs::driveGain, ParamIDs::dualMod, ParamIDs::dualLevel, ParamIDs::dualBlend,
-                                    ParamIDs::dualBass, ParamIDs::dualMid, ParamIDs::dualTreble })
-                rig.set (id, extreme);
-            rig.set (ParamIDs::dualGrowl, 1.0f);
-            rig.set (ParamIDs::dualBite, 1.0f);
-            const auto output = rig.runMono (sine (41.2, 1.0f, 0.5));   // a low E, flat out
-            REQUIRE (allFinite (output));
-            CHECK (*std::max_element (output.begin(), output.end()) < 4.0f);   // the EQ op-amps' rails
-        }
-    }
-}
-
-TEST_CASE ("GOTHAM: the bass preamp follows the Bass Driver DI's circuit", "[effects][drive]")
-{
-    // As for the OBSIDIAN: a tone's level through the plugin, relative to its
-    // input, with GOTHAM chosen and set up by `setUp`; at -80 dBFS nothing clips.
-    const auto gainAt = [] (double hz, const std::function<void (EffectRig&)>& setUp, float amplitude = 1.0e-4f)
-    {
-        EffectRig rig;
-        rig.set (ParamIDs::driveOn, 1.0f);
-        rig.set (ParamIDs::driveType, (float) effects::Drive::Model::gotham);
-        setUp (rig);
-        const auto input = sine (hz, amplitude, 0.6);
-        const auto output = rig.runMono (input);
-        REQUIRE (allFinite (output));
-        return dB (levelAt (output, hz, 0.3) / levelAt (input, hz, 0.3));
-    };
-    const auto wet = [] (EffectRig& rig) { rig.set (ParamIDs::gothamBlend, 10.0f); };
-    const auto clean = [] (EffectRig& rig) { rig.set (ParamIDs::gothamBlend, 0.0f); };
-
-    SECTION ("BLEND all the way clean: LEVEL at full is the x2.2 stage (+6.8 dB), the EQ's input cap trimming the lows a little")
-    {
-        const auto full = [&] (EffectRig& r) { clean (r); r.set (ParamIDs::gothamLevel, 10.0f); };
-        CHECK_THAT (gainAt (100.0, full), WithinAbs (4.3, 0.5));
-        CHECK_THAT (gainAt (3000.0, full), WithinAbs (6.5, 0.5));
-        CHECK_THAT (juce::Decibels::gainToDecibels (std::abs (effects::Gotham::levelGain (10.0f))), WithinAbs (6.85, 0.05));
-        CHECK (std::abs (effects::Gotham::levelGain (5.0f)) < 0.2 * std::abs (effects::Gotham::levelGain (10.0f)));   // a volume taper
-        CHECK (juce::exactlyEqual (effects::Gotham::levelGain (0.0f), 0.0));
-    }
-
-    SECTION ("It distorts: a loud low note comes out full of harmonics")
-    {
-        EffectRig rig;
-        rig.set (ParamIDs::driveOn, 1.0f);
-        rig.set (ParamIDs::driveType, (float) effects::Drive::Model::gotham);
-        rig.set (ParamIDs::gothamBlend, 10.0f);
-        rig.set (ParamIDs::gothamDrive, 9.0f);
-        const auto output = rig.runMono (sine (110.0, 0.3f, 0.6));
-        REQUIRE (allFinite (output));
-        CHECK (dB (levelAt (output, 330.0, 0.3) / levelAt (output, 110.0, 0.3)) > -25.0f);
-    }
-
-    SECTION ("The drive path scoops the mids: 800 Hz far below 100 Hz")
-    {
-        CHECK (gainAt (100.0, wet) - gainAt (800.0, wet) > 15.0f);
-    }
-
-    SECTION ("PRESENCE: about +23 dB at 4 kHz from 0 to 10, the lows untouched")
-    {
-        const auto at = [&] (double hz, float presence) { return gainAt (hz, [&] (EffectRig& r) { wet (r); r.set (ParamIDs::gothamPresence, presence); }); };
-        CHECK_THAT (at (4000.0, 10.0f) - at (4000.0, 0.0f), WithinAbs (23.0, 1.5));
-        CHECK (std::abs (at (100.0, 10.0f) - at (100.0, 0.0f)) < 1.0f);
-    }
-
-    SECTION ("DRIVE: the circuit's gain plus our 25% (in dB): +29 dB from noon to full, most of it at the top")
-    {
-        // The circuit alone: +23.0 dB from noon to full, +4.6 from 0 to noon.
-        const auto at = [&] (float drive) { return gainAt (100.0, [&] (EffectRig& r) { wet (r); r.set (ParamIDs::gothamDrive, drive); }); };
-        CHECK_THAT (at (10.0f) - at (5.0f), WithinAbs (23.0 * 1.25, 1.0));
-        CHECK_THAT (at (5.0f) - at (0.0f), WithinAbs (4.6 * 1.25, 1.0));
-    }
-
-    SECTION ("BASS and TREBLE: +10 / -13 dB at 80 Hz, +15 dB at 5 kHz (Tech 21 says about +-12)")
-    {
-        const auto at = [&] (double hz, const juce::String& id, float value)
-        {
-            return gainAt (hz, [&] (EffectRig& r) { clean (r); r.set (id.toRawUTF8(), value); });
-        };
-        const auto flatAt = [&] (double hz) { return gainAt (hz, clean); };
-        CHECK_THAT (at (80.0, ParamIDs::gothamBass, 10.0f) - flatAt (80.0), WithinAbs (9.6, 1.0));
-        CHECK_THAT (at (80.0, ParamIDs::gothamBass, 0.0f) - flatAt (80.0), WithinAbs (-12.9, 1.0));
-        CHECK_THAT (at (5000.0, ParamIDs::gothamTreble, 10.0f) - flatAt (5000.0), WithinAbs (15.0, 1.0));
-    }
-
-    SECTION ("Every knob at its extreme, played hard: stable and bounded")
-    {
-        for (const auto extreme : { 0.0f, 10.0f })
-        {
-            EffectRig rig;
-            rig.set (ParamIDs::driveOn, 1.0f);
-            rig.set (ParamIDs::driveType, (float) effects::Drive::Model::gotham);
-            for (const auto* id : { ParamIDs::gothamLevel, ParamIDs::gothamBlend, ParamIDs::gothamTreble, ParamIDs::gothamBass,
-                                    ParamIDs::gothamDrive, ParamIDs::gothamPresence })
-                rig.set (id, extreme);
-            const auto output = rig.runMono (sine (41.2, 1.0f, 0.5));
-            REQUIRE (allFinite (output));
-            CHECK (*std::max_element (output.begin(), output.end()) < 4.0f);
-        }
-    }
-}
-
-namespace
-{
-    // A few plucked bass notes (low E, A, D), each a fundamental with its
-    // harmonics, struck and decaying, peaking near -10 dBFS: a stand-in for
-    // a real bass DI, to compare the factory rigs' loudness.
-    std::vector<float> pluckedBassLine()
-    {
-        std::vector<float> line;
-        for (const auto hz : { 41.2, 55.0, 73.4, 41.2 })
-        {
-            for (int i = 0; i < (int) (sampleRate * 0.6); ++i)
-            {
-                const auto t = (double) i / sampleRate;
-                auto v = 0.0;
-                for (int harmonic = 1; harmonic <= 8; ++harmonic)
-                    v += std::sin (juce::MathConstants<double>::twoPi * hz * harmonic * t) / (double) (harmonic * harmonic);
-                line.push_back ((float) (0.22 * v * std::exp (-3.0 * t)));
-            }
-        }
-        return line;
-    }
-
-    // A factory rig's loudness through the plugin (no amp or cab loaded), in dB RMS.
-    float factoryRigLoudness (const juce::String& name, const std::vector<float>& input)
-    {
-        EffectRig rig;
-        const auto* entry = rig.processor.getRigLibrary().findFactory (name);
-        REQUIRE (entry != nullptr);
-        rig.processor.loadRig (*entry);
-        const auto output = rig.runMono (input);
-        return dB (rms (output, 0.0));
-    }
-}
-
-TEST_CASE ("Factory rigs are loudness-matched: within 3 dB of Clean DI", "[rigs][loudness]")
-{
-    const auto input = pluckedBassLine();
-    const auto reference = factoryRigLoudness ("Clean DI", input);
-    for (const auto& rig : makeFactoryRigs())
-    {
-        INFO (rig.name);
-        CHECK (std::abs (factoryRigLoudness (rig.name, input) - reference) <= 3.0f);
-    }
-}
-
-TEST_CASE ("Print each factory rig's loudness against Clean DI (run by hand)", "[.measure]")
-{
-    const auto input = pluckedBassLine();
-    const auto reference = factoryRigLoudness ("Clean DI", input);
-    for (const auto& rig : makeFactoryRigs())
-        std::printf ("LOUDNESS %+6.1f dB  %s\n", (double) (factoryRigLoudness (rig.name, input) - reference), rig.name.toRawUTF8());
 }
 
 TEST_CASE ("Noise gate silences signal below its threshold", "[effects][comp]")
@@ -1446,7 +1187,7 @@ TEST_CASE ("Presence boosts the top end and leaves the lows alone", "[effects][p
 
 TEST_CASE ("Turning effects on and off doesn't click, and off really is off", "[effects]")
 {
-    for (const auto* id : { ParamIDs::compOn, ParamIDs::driveOn, ParamIDs::modOn, ParamIDs::delayOn, ParamIDs::reverbOn })
+    for (const auto* id : { ParamIDs::compOn, ParamIDs::eqOn, ParamIDs::modOn, ParamIDs::delayOn, ParamIDs::reverbOn })
     {
         DYNAMIC_SECTION (id)
         {
@@ -1480,7 +1221,7 @@ TEST_CASE ("Every effect copes with a mono track and with oversized blocks", "[e
 {
     const auto turnEverythingOn = [] (EffectRig& rig)
     {
-        for (const auto* id : { ParamIDs::compOn, ParamIDs::driveOn, ParamIDs::modOn, ParamIDs::delayOn, ParamIDs::reverbOn })
+        for (const auto* id : { ParamIDs::compOn, ParamIDs::eqOn, ParamIDs::modOn, ParamIDs::delayOn, ParamIDs::reverbOn })
             rig.set (id, 1.0f);
         rig.set (ParamIDs::delayPingPong, 1.0f);
         rig.set (ParamIDs::presence, 5.0f);
@@ -1517,9 +1258,7 @@ TEST_CASE ("Every effect copes with a mono track and with oversized blocks", "[e
 TEST_CASE ("Full chain runs comfortably faster than real time", "[effects][performance]")
 {
     EffectRig rig;
-    rig.processor.loadAmpModel (juce::File (PARAGON_NAM_EXAMPLE_MODELS).getChildFile ("wavenet.nam"));
-    REQUIRE (rig.processor.waitForLoads (20000));
-    for (const auto* id : { ParamIDs::compOn, ParamIDs::fpOn, ParamIDs::driveOn, ParamIDs::eqOn, ParamIDs::modOn, ParamIDs::delayOn,
+    for (const auto* id : { ParamIDs::compOn, ParamIDs::fpOn, ParamIDs::eqOn, ParamIDs::modOn, ParamIDs::delayOn,
                             ParamIDs::reverbOn })
         rig.set (id, 1.0f);
     // The costliest settings: the pitch shifter two octaves up (it jumps most often) and the rotary.
@@ -1855,83 +1594,6 @@ TEST_CASE ("Projects and rigs saved before reverb types keep the original reverb
            == (int) effects::Delay::Type::digital);
 }
 
-
-TEST_CASE ("SPLIT: everything below the split stays clean, the rest is driven", "[effects][drive]")
-{
-    // Both models cranked; a loud low A (55 Hz) or a 1 kHz note, with SPLIT
-    // on or off. Returns the input and the output.
-    const auto run = [] (effects::Drive::Model model, bool split, double hz, float amplitude,
-                         const std::function<void (EffectRig&)>& setUp = {})
-    {
-        EffectRig rig;
-        rig.set (ParamIDs::driveOn, 1.0f);
-        rig.set (ParamIDs::driveType, (float) model);
-        rig.set (ParamIDs::dualBlend, 10.0f);
-        rig.set (ParamIDs::driveGain, 8.0f);
-        rig.set (ParamIDs::dualMod, 10.0f);
-        rig.set (ParamIDs::gothamBlend, 10.0f);
-        rig.set (ParamIDs::gothamDrive, 9.0f);
-        rig.set (ParamIDs::driveSplit, split ? 1.0f : 0.0f);
-        if (setUp)
-            setUp (rig);
-        auto input = sine (hz, amplitude, 0.8);
-        auto output = rig.runMono (input);
-        REQUIRE (allFinite (output));
-        return std::make_pair (std::move (input), std::move (output));
-    };
-    // A harmonic's level relative to the note, and the note's gain.
-    const auto harmonic = [] (const std::vector<float>& output, double hz, int n) { return dB (levelAt (output, hz * n, 0.4) / levelAt (output, hz, 0.4)); };
-    const auto gain = [] (const std::pair<std::vector<float>, std::vector<float>>& io, double hz) { return dB (levelAt (io.second, hz, 0.4) / levelAt (io.first, hz, 0.4)); };
-
-    for (const auto model : { effects::Drive::Model::obsidian, effects::Drive::Model::gotham })
-    {
-        DYNAMIC_SECTION ("Model " << effects::Drive::modelNames[(int) model])
-        {
-            SECTION ("A loud low note: full of harmonics without SPLIT, clean with it, at its own level")
-            {
-                CHECK (harmonic (run (model, false, 55.0, 0.3f).second, 55.0, 3) > -20.0f);
-                const auto split = run (model, true, 55.0, 0.3f);
-                CHECK (harmonic (split.second, 55.0, 3) < -80.0f);
-                CHECK (harmonic (split.second, 55.0, 5) < -80.0f);
-                CHECK_THAT (gain (split, 55.0), WithinAbs (0.0, 0.5));
-            }
-
-            SECTION ("Above the split it distorts just as much as without it")
-            {
-                CHECK_THAT (harmonic (run (model, true, 1000.0, 0.3f).second, 1000.0, 3),
-                            WithinAbs (harmonic (run (model, false, 1000.0, 0.3f).second, 1000.0, 3), 1.0));
-            }
-
-            SECTION ("LOWS sets the clean lows' level, and OUTPUT trims them too")
-            {
-                CHECK_THAT (gain (run (model, true, 55.0, 0.3f, [] (EffectRig& r) { r.set (ParamIDs::driveSplitLows, 6.0f); }), 55.0), WithinAbs (6.0, 0.5));
-                CHECK_THAT (gain (run (model, true, 55.0, 0.3f, [] (EffectRig& r) { r.set (ParamIDs::driveLevel, -6.0f); }), 55.0), WithinAbs (-6.0, 0.5));
-            }
-
-            SECTION ("SPLIT HZ moves the split: a loud 150 Hz note is far cleaner split at 275 Hz than at 80 Hz")
-            {
-                // (Not perfectly clean at 275: the crossover is a slope, not a
-                // wall, and 150 Hz is under an octave below it.)
-                const auto at275 = harmonic (run (model, true, 150.0, 0.3f).second, 150.0, 3);
-                const auto at80 = harmonic (run (model, true, 150.0, 0.3f, [] (EffectRig& r) { r.set (ParamIDs::driveSplitHz, 80.0f); }).second, 150.0, 3);
-                CAPTURE (at275, at80);
-                CHECK (at80 > -30.0f);
-                CHECK (at275 < at80 - 15.0f);
-            }
-        }
-    }
-
-    SECTION ("The two bands add back up flat: the OBSIDIAN all clean sounds the same with SPLIT")
-    {
-        const auto clean = [] (EffectRig& r) { r.set (ParamIDs::dualBlend, 0.0f); };
-        for (const auto hz : { 60.0, 150.0, 275.0, 500.0, 1000.0 })
-        {
-            CAPTURE (hz);
-            CHECK_THAT (gain (run (effects::Drive::Model::obsidian, true, hz, 1.0e-4f, clean), hz),
-                        WithinAbs (gain (run (effects::Drive::Model::obsidian, false, hz, 1.0e-4f, clean), hz), 0.75));
-        }
-    }
-}
 
 TEST_CASE ("AEON: the flanger follows the BF-2's circuit and specifications", "[effects][modulation]")
 {
