@@ -309,10 +309,13 @@ TEST_CASE ("EQ sound: switched off, or with no bands, it leaves the sound exactl
         if (! on)
             rig.setBand (0, band (eq::Shape::bell, 1000.0, 12.0));   // off: even a band does nothing
         const auto out = rig.play (0.2, tone (440.0), tone (660.0, 0.2f));
+        // Within 1e-6 (-120 dB), not bit for bit: on Apple's arm64 compiler the
+        // test's own tone() can come out one float step (1 ulp) apart from the
+        // samples the rig fed in, as it fuses multiply-adds differently.
         for (int i = 0; i < 2000; ++i)
         {
-            REQUIRE (out[0][(size_t) i] == tone (440.0) (i));
-            REQUIRE (out[1][(size_t) i] == tone (660.0, 0.2f) (i));
+            REQUIRE_THAT (out[0][(size_t) i], WithinAbs (tone (440.0) (i), 1.0e-6));
+            REQUIRE_THAT (out[1][(size_t) i], WithinAbs (tone (660.0, 0.2f) (i), 1.0e-6));
         }
     }
 }
@@ -609,4 +612,3 @@ TEST_CASE ("EQ page: stomp 4's name opens it; BACK returns to the pedal", "[eq][
     CHECK_FALSE (pages[0]->isVisible());
     CHECK (stomps[3]->isVisible());
 }
-
