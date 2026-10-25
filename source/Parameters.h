@@ -12,7 +12,9 @@
 //   - in 0.2.0: tunerMute;
 //   - in 0.3.0, with PR7-B's effects (they were mono, and PR7-E is a stereo
 //     utility): comp*, gateThreshold, fp*, glitch*, lofi*, mod*, delay*,
-//     reverb*, pitchTune, oct*, freeze*.
+//     reverb*, pitchTune, oct*, freeze*;
+//   - in 0.4.0, with the graphic EQ the new EQ replaced: eq33, eq80, eq150,
+//     eq300, eq500, eq900, eq2k, eq5k, eq9k, eqLevel, eqUltraLo, eqUltraHi.
 namespace ParamIDs
 {
     inline constexpr auto inputGain  = "inputGain";
@@ -27,13 +29,16 @@ namespace ParamIDs
     inline constexpr auto expressionMin    = "expressionMin";     // the target's setting at the heel...
     inline constexpr auto expressionMax    = "expressionMax";     // ...and at the toe
 
-    // Stomp 4 for now: PR7-B's 9-band graphic EQ, until the new EQ replaces it.
-    inline constexpr auto eqOn    = "eqOn";
-    inline constexpr auto eqLevel = "eqLevel";
-    inline const juce::StringArray eqBands { "eq33", "eq80", "eq150", "eq300", "eq500", "eq900", "eq2k", "eq5k", "eq9k" };
-    inline const juce::StringArray eqBandNames { "33", "80", "150", "300", "500", "900", "2K", "5K", "9K" };
-    inline constexpr auto eqUltraLo = "eqUltraLo";
-    inline constexpr auto eqUltraHi = "eqUltraHi";
+    // Stomp 4, the EQ (inspired by FabFilter Pro-Q 4; see dsp/eq). eqOn is
+    // the stomp's switch (before 0.4.0 it switched the graphic EQ).
+    inline constexpr auto eqOn        = "eqOn";
+    inline constexpr auto eqOutput    = "eqOutput";
+    inline constexpr auto eqGainScale = "eqGainScale";
+    inline constexpr auto eqAutoGain  = "eqAutoGain";
+    inline constexpr int eqNumBands = 24;
+    // Each band's settings: "eqB1Used", "eqB1Freq"... `what` is one of the names below.
+    inline juce::String eqBand (int band, const char* what) { return "eqB" + juce::String (band + 1) + what; }
+    inline constexpr const char* eqBandSettings[] = { "Used", "On", "Shape", "Freq", "Gain", "Q", "Slope", "Place" };
 
     // Global settings: kept when switching rigs. Everything else is part of a rig.
     // The expression pedal's position is global for the same reason a real

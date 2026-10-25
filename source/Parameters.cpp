@@ -1,6 +1,6 @@
 #include "Parameters.h"
 
-#include "dsp/effects/GraphicEq.h"
+#include "dsp/eq/EqDesign.h"
 
 namespace
 {
@@ -9,6 +9,21 @@ namespace
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
+    const ToText asFrequency = [] (float hz, int)
+    {
+        return hz < 1000.0f ? juce::String (hz, hz < 100.0f ? 1 : 0) + " Hz" : juce::String (hz / 1000.0f, hz < 10000.0f ? 2 : 1) + " kHz";
+    };
+    const ToText asQ = [] (float q, int) { return juce::String (q, q < 10.0f ? 2 : 1); };
+
+    // A range whose knob travel is logarithmic (frequency, Q): each octave
+    // takes the same distance.
+    Range logRange (double min, double max)
+    {
+        return { (float) min, (float) max,
+                 [] (float start, float end, float normalised) { return start * std::pow (end / start, normalised); },
+                 [] (float start, float end, float value) { return std::log (value / start) / std::log (end / start); },
+                 [] (float start, float end, float value) { return juce::jlimit (start, end, value); } };
+    }
 
     std::unique_ptr<juce::AudioParameterFloat> makeFloat (const char* id, const juce::String& name, Range range,
                                                           float defaultValue, int versionHint, const ToText& toText)
@@ -64,15 +79,29 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     layout.add (makeFloat (ParamIDs::expressionMin, "Expression Min", { 0.0f, 1.0f, 0.01f }, 0.0f, v6, asPercent));
     layout.add (makeFloat (ParamIDs::expressionMax, "Expression Max", { 0.0f, 1.0f, 0.01f }, 1.0f, v6, asPercent));
 
-    // The graphic EQ (stomp 4 for now). Off by default. Its bands are the
-    // bass EQ's from PR7-B 0.2.0 (version 25).
-    constexpr int v8 = 8, v25 = 25;
+    // Stomp 4, the EQ (PR7-E 0.4.0): 24 band slots, each unused until a
+    // band is created in it, then OUTPUT, GAIN SCALE and AUTO GAIN. eqOn
+    // (version 8) was the graphic EQ's switch; it's the stomp's now.
+    constexpr int v8 = 8, v30 = 30;
     layout.add (makeSwitch (ParamIDs::eqOn, "EQ On", v8, false));
-    for (int band = 0; band < ParamIDs::eqBands.size(); ++band)
-        layout.add (makeFloat (ParamIDs::eqBands[band].toRawUTF8(), "EQ " + ParamIDs::eqBandNames[band] + " Hz",
-                               { -effects::GraphicEq::maxGainDb, effects::GraphicEq::maxGainDb, 0.1f }, 0.0f, v25, asDb));
-    layout.add (makeFloat (ParamIDs::eqLevel, "EQ Level", { -12.0f, 12.0f, 0.1f }, 0.0f, v8, asDb));
-    layout.add (makeSwitch (ParamIDs::eqUltraLo, "EQ Ultra Lo", v25, false));
-    layout.add (makeSwitch (ParamIDs::eqUltraHi, "EQ Ultra Hi", v25, false));
+    for (int band = 0; band < ParamIDs::eqNumBands; ++band)
+    {
+        const auto id = [band] (const char* what) { return ParamIDs::eqBand (band, what); };
+        const auto name = [band] (const juce::String& what) { return "EQ Band " + juce::String (band + 1) + " " + what; };
+        const eq::Band defaults;
+        layout.add (std::make_unique<juce::AudioParameterBool> (juce::ParameterID { id ("Used"), v30 }, name ("Used"), false));
+        layout.add (std::make_unique<juce::AudioParameterBool> (juce::ParameterID { id ("On"), v30 }, name ("On"), true));
+        layout.add (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { id ("Shape"), v30 }, name ("Shape"), eq::shapeNames, 0));
+        layout.add (makeFloat (id ("Freq").toRawUTF8(), name ("Frequency"), logRange (eq::minFrequency, eq::maxFrequency),
+                               (float) defaults.frequency, v30, asFrequency));
+        layout.add (makeFloat (id ("Gain").toRawUTF8(), name ("Gain"), { (float) -eq::maxGainDb, (float) eq::maxGainDb, 0.01f },
+                               0.0f, v30, asDb));
+        layout.add (makeFloat (id ("Q").toRawUTF8(), name ("Q"), logRange (eq::minQ, eq::maxQ), (float) defaults.q, v30, asQ));
+        layout.add (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { id ("Slope"), v30 }, name ("Slope"), eq::slopeNames, eq::defaultSlope));
+        layout.add (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { id ("Place"), v30 }, name ("Placement"), eq::placementNames, 0));
+    }
+    layout.add (makeFloat (ParamIDs::eqOutput, "EQ Output", { -36.0f, 36.0f, 0.01f }, 0.0f, v30, asDb));
+    layout.add (makeFloat (ParamIDs::eqGainScale, "EQ Gain Scale", { 0.0f, 2.0f, 0.01f }, 1.0f, v30, asPercent));
+    layout.add (makeSwitch (ParamIDs::eqAutoGain, "EQ Auto Gain", v30, false));
     return layout;
 }

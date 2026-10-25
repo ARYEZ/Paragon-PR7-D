@@ -4,8 +4,7 @@
 #include "Parameters.h"
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
-#include "ui/GraphicEqPanel.h"
-#include "ui/EqPresets.h"
+#include "ui/EqPage.h"
 #include "ui/Finish.h"
 #include "ui/PerformanceControls.h"
 #include "ui/TunerPanel.h"
@@ -142,7 +141,7 @@ TEST_CASE ("The chain and the stomps pick what the dock shows; the graphic EQ is
     ParagonX1AudioProcessor processor;
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
 
-    std::vector<GraphicEqPanel*> eqPanels;
+    std::vector<EqOverview*> eqPanels;
     findAll (*editor, eqPanels);
     REQUIRE (eqPanels.size() == 1);
     std::vector<TunerPanel*> tunerPanels;
@@ -168,7 +167,7 @@ TEST_CASE ("The chain and the stomps pick what the dock shows; the graphic EQ is
 
     std::vector<juce::TextButton*> buttons;
     findAll (*editor, buttons);
-    const auto back = std::find_if (buttons.begin(), buttons.end(), [] (auto* b) { return b->getButtonText() == "GRAPHIC EQ"; });
+    const auto back = std::find_if (buttons.begin(), buttons.end(), [] (auto* b) { return b->getButtonText() == "EQ"; });
     REQUIRE (back != buttons.end());
     CHECK ((*back)->isVisible());
     (*back)->onClick();
@@ -244,7 +243,7 @@ TEST_CASE ("BYPASS passes the clean guitar, on both channels", "[ui][bypass]")
 
     // Make the processed sound very different from the input...
     set (processor, ParamIDs::eqOn, 1.0f);
-    set (processor, ParamIDs::eqLevel, 12.0f);
+    set (processor, ParamIDs::eqOutput, 12.0f);
     set (processor, ParamIDs::inputGain, 12.0f);
     set (processor, ParamIDs::bypass, 1.0f);
 
@@ -292,7 +291,7 @@ TEST_CASE ("BYPASS is global: rigs don't change it and it doesn't mark them modi
     processor.useRigFolder (folder);
 
     processor.loadRig (*processor.getRigLibrary().findFactory ("Init"));
-    set (processor, ParamIDs::eqUltraHi, 1.0f);
+    set (processor, ParamIDs::eqAutoGain, 1.0f);
     REQUIRE (processor.saveCurrentRigAs ("Reverb Rig"));
     const auto reverbRig = processor.getCurrentRig().file;
     processor.loadRig (*processor.getRigLibrary().findFactory ("Init"));
@@ -300,7 +299,7 @@ TEST_CASE ("BYPASS is global: rigs don't change it and it doesn't mark them modi
     CHECK_FALSE (processor.isRigModified());
 
     processor.loadRig (*processor.getRigLibrary().find (reverbRig));
-    CHECK (processor.getParameters().getRawParameterValue (ParamIDs::eqUltraHi)->load() > 0.5f);   // the rig did load
+    CHECK (processor.getParameters().getRawParameterValue (ParamIDs::eqAutoGain)->load() > 0.5f);   // the rig did load
     CHECK (processor.getParameters().getRawParameterValue (ParamIDs::bypass)->load() > 0.5f);
     folder.deleteRecursively();
 }
@@ -391,53 +390,3 @@ TEST_CASE ("The dock's expression screen scrolls with the buttons beside it", "[
     CHECK (juce::roundToInt (processor.getParameters().getRawParameterValue (ParamIDs::expressionTarget)->load()) == ExpressionTargets::off);
 }
 
-TEST_CASE ("EQ PRESETS: choosing one sets the faders and switches the EQ on; moving a fader lets go of the name", "[ui]")
-{
-    ParagonX1AudioProcessor processor;
-    auto& state = processor.getParameters();
-    GraphicEqPanel panel (state);
-    panel.setBounds (0, 0, 520, 220);
-
-    juce::ComboBox* menu = nullptr;
-    for (auto* child : panel.getChildren())
-        if (auto* box = dynamic_cast<juce::ComboBox*> (child))
-            menu = box;
-    REQUIRE (menu != nullptr);
-    CHECK (menu->getSelectedItemIndex() == -1);   // a flat EQ isn't one of the presets
-
-    const auto value = [&] (const juce::String& id) { return state.getRawParameterValue (id)->load(); };
-    const auto& scoop = EqPresets::all[0];
-    menu->setSelectedItemIndex (0, juce::sendNotificationSync);
-
-    for (int band = 0; band < effects::GraphicEq::numBands; ++band)
-        CHECK_THAT (value (ParamIDs::eqBands[band]), WithinAbs (scoop.gainsDb[(size_t) band], 0.05));
-    CHECK_THAT (value (ParamIDs::eqLevel), WithinAbs (scoop.levelDb, 0.05));
-    CHECK (value (ParamIDs::eqOn) > 0.5f);
-    CHECK (menu->getText() == juce::String (scoop.name));
-
-    // Nudge 500 Hz: it's no longer the preset, so the menu says PRESETS again.
-    auto* band = state.getParameter (ParamIDs::eqBands[4]);
-    band->setValueNotifyingHost (band->convertTo0to1 (0.0f));
-    CHECK (menu->getSelectedItemIndex() == -1);
-
-    // A preset that uses the amp's ULTRA LO / ULTRA HI switches them on; one
-    // that doesn't switches them off again, so each preset sounds the same
-    // whatever was set before.
-    const auto withUltra = (int) std::distance (EqPresets::all.begin(),
-                                                std::find_if (EqPresets::all.begin(), EqPresets::all.end(),
-                                                              [] (const auto& preset) { return preset.ultraLo && preset.ultraHi; }));
-    REQUIRE (withUltra < (int) EqPresets::all.size());
-    menu->setSelectedItemIndex (withUltra, juce::sendNotificationSync);
-    CHECK (value (ParamIDs::eqUltraLo) > 0.5f);
-    CHECK (value (ParamIDs::eqUltraHi) > 0.5f);
-    CHECK (menu->getSelectedItemIndex() == withUltra);
-
-    // Switching ULTRA HI off by hand makes it your own curve.
-    auto* ultraHi = state.getParameter (ParamIDs::eqUltraHi);
-    ultraHi->setValueNotifyingHost (0.0f);
-    CHECK (menu->getSelectedItemIndex() == -1);
-
-    menu->setSelectedItemIndex (0, juce::sendNotificationSync);
-    CHECK (value (ParamIDs::eqUltraLo) < 0.5f);
-    CHECK (value (ParamIDs::eqUltraHi) < 0.5f);
-}

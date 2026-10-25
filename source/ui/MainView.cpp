@@ -122,13 +122,14 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
       tunerReader (processorToShow),
       selectedRig (processorToShow),
       expressionPanel (processorToShow.getParameters()),
-      eqPanel (processorToShow.getParameters()),
+      eqPanel (processorToShow),
       tunerPanel (processorToShow),
       // The blocks that shape the sound, in order; it grows as the stomps are built.
       signalChain (processorToShow.getParameters(), {
-          { "EQ", Icons::Type::eq, ParagonColours::eq, juce::String (ParamIDs::eqOn) + "," + ParamIDs::eqUltraLo + "," + ParamIDs::eqUltraHi } }),
+          { "EQ", Icons::Type::eq, ParagonColours::eq, ParamIDs::eqOn } }),
       rigBrowser (processorToShow),
-      settingsPage (processorToShow)
+      settingsPage (processorToShow),
+      eqPage (processorToShow)
 {
     auto& state = processorToShow.getParameters();
 
@@ -258,12 +259,14 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     addStomp (2, "OPEN", {}, noBlock, planned ("To plan"));
     addStomp (3, "INSERTS", {}, noBlock, planned ("Plugin slots: to plan"));
 
-    // Bottom row. EQ switches the graphic EQ for now, until the planned EQ
-    // (inspired by FabFilter Pro-Q 4) replaces it.
+    // Bottom row. EQ (inspired by FabFilter Pro-Q 4): its name opens its own page.
     addStomp (4, "EQ", { ParamIDs::eqOn }, eqBlock, [this]
     {
-        return "Graphic EQ  Level " + valueText (ParamIDs::eqLevel);
+        const auto settings = audioProcessor.getEqSettings();
+        const auto bands = std::count_if (settings.bands.begin(), settings.bands.end(), [] (const eq::Band& b) { return b.used; });
+        return bands == 0 ? juce::String ("No bands yet") : juce::String (bands) + (bands == 1 ? " band" : " bands");
     });
+    footswitches[3]->onSelect = [this] { showPage (Page::eq); };
     addStomp (5, "RESONANCE", {}, noBlock, planned ("Resonance suppression: to plan"));
     addStomp (6, "AUTO EQ", {}, noBlock, planned ("Adaptive EQ: to plan"));
     addStomp (7, "LIMITER", {}, noBlock, planned ("Output trim and limiter, from PR7-C: to port"));
@@ -283,7 +286,11 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     addChildComponent (eqPanel);
     addChildComponent (tunerPanel);
 
-    closePanel.setTooltip ("Back to the graphic EQ");
+    eqPanel.onOpen = [this] { showPage (Page::eq); };
+    eqPage.onClose = [this] { showPage (Page::processor); };
+    addChildComponent (eqPage);
+
+    closePanel.setTooltip ("Back to the EQ");
     closePanel.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff151217));
     closePanel.onClick = [this] { selectBlock (eqBlock); };
     addChildComponent (closePanel);
@@ -354,13 +361,17 @@ void MainView::selectBlock (int block)
 void MainView::showPage (Page newPage)
 {
     page = newPage;
-    auto& tab = newPage == Page::processor ? processorTab : newPage == Page::presets ? presetsTab : settingsTab;
+    // The EQ's page belongs to the pedal: PROCESSOR stays lit, and goes back to it.
+    auto& tab = newPage == Page::presets ? presetsTab : newPage == Page::settings ? settingsTab : processorTab;
     tab.setToggleState (true, juce::dontSendNotification);
 
     for (auto* component : processorPage)
         component->setVisible (newPage == Page::processor);
     rigBrowser.setVisible (newPage == Page::presets);
     settingsPage.setVisible (newPage == Page::settings);
+    eqPage.setVisible (newPage == Page::eq);
+    if (newPage == Page::eq)
+        eqPage.getDisplay().grabKeyboardFocus();
     selectBlock (selectedBlock);
 }
 
@@ -639,4 +650,5 @@ void MainView::resized()
     const auto pageArea = mock (126, 72, 1548, 822);   // between the INPUT and OUTPUT strips
     rigBrowser.setBounds (pageArea);
     settingsPage.setBounds (pageArea);
+    eqPage.setBounds (pageArea);
 }

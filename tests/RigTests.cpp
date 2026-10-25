@@ -4,7 +4,6 @@
 #include "Parameters.h"
 #include "PluginProcessor.h"
 #include "rigs/FactoryRigs.h"
-#include "ui/EqPresets.h"
 
 using Catch::Matchers::WithinAbs;
 
@@ -59,7 +58,7 @@ TEST_CASE ("A rig survives being written to a file and read back", "[rigs]")
     rig.number = 17;
     rig.favourite = true;
     rig.tags = { "Rock", "High Gain" };
-    rig.parameters = { { "eqLevel", 6.5f }, { "presence", -4.0f } };
+    rig.parameters = { { "eqOutput", 6.5f }, { "presence", -4.0f } };
 
     const auto restored = Rig::fromXml (*juce::XmlDocument::parse (rig.toXml()->toString()));
     REQUIRE (restored.has_value());
@@ -227,14 +226,14 @@ TEST_CASE ("Saving and loading a rig restores the sound but not the global knobs
 {
     RigRig r;
     r.set (ParamIDs::eqOn, 1.0f);
-    r.set (ParamIDs::eqLevel, 7.5f);
+    r.set (ParamIDs::eqOutput, 7.5f);
     r.set (ParamIDs::presence, 6.0f);
     r.set (ParamIDs::rigLevel, -3.0f);
     REQUIRE (r.processor.saveCurrentRigAs ("My Sound"));
 
     // Change everything, including the global input and output knobs.
     r.set (ParamIDs::eqOn, 0.0f);
-    r.set (ParamIDs::eqLevel, 1.0f);
+    r.set (ParamIDs::eqOutput, 1.0f);
     r.set (ParamIDs::presence, -2.0f);
     r.set (ParamIDs::rigLevel, 0.0f);
     r.set (ParamIDs::inputGain, 5.0f);
@@ -243,7 +242,7 @@ TEST_CASE ("Saving and loading a rig restores the sound but not the global knobs
     r.processor.loadRig (r.entryNamed ("My Sound"));
 
     CHECK (r.get (ParamIDs::eqOn) > 0.5f);
-    CHECK_THAT (r.get (ParamIDs::eqLevel), WithinAbs (7.5, 0.01));
+    CHECK_THAT (r.get (ParamIDs::eqOutput), WithinAbs (7.5, 0.01));
     CHECK_THAT (r.get (ParamIDs::presence), WithinAbs (6.0, 0.01));
     CHECK_THAT (r.get (ParamIDs::rigLevel), WithinAbs (-3.0, 0.01));
     // Global knobs are left alone.
@@ -255,7 +254,7 @@ TEST_CASE ("A rig that doesn't mention a parameter sets it to its default", "[ri
 {
     // E.g. a rig saved by an older version, before that parameter existed.
     RigRig r;
-    r.set (ParamIDs::eqUltraLo, 1.0f);
+    r.set (ParamIDs::eqAutoGain, 1.0f);
     r.set (ParamIDs::presence, 6.0f);
 
     Rig old;
@@ -265,7 +264,7 @@ TEST_CASE ("A rig that doesn't mention a parameter sets it to its default", "[ri
     r.processor.loadRig (r.entryNamed ("Old Rig"));
 
     CHECK (r.get (ParamIDs::eqOn) > 0.5f);
-    CHECK (r.get (ParamIDs::eqUltraLo) < 0.5f);
+    CHECK (r.get (ParamIDs::eqAutoGain) < 0.5f);
     CHECK_THAT (r.get (ParamIDs::presence), WithinAbs (0.0, 0.01));
 }
 
@@ -277,7 +276,7 @@ TEST_CASE ("The modified marker tracks changes since loading or saving", "[rigs]
 
     SECTION ("Turning a knob marks it modified")
     {
-        r.set (ParamIDs::eqLevel, 9.0f);
+        r.set (ParamIDs::eqOutput, 9.0f);
         CHECK (r.processor.isRigModified());
     }
 
@@ -290,10 +289,10 @@ TEST_CASE ("The modified marker tracks changes since loading or saving", "[rigs]
 
     SECTION ("Saving clears it")
     {
-        r.set (ParamIDs::eqLevel, 9.0f);
+        r.set (ParamIDs::eqOutput, 9.0f);
         REQUIRE (r.processor.saveCurrentRigAs ("Saved"));
         CHECK_FALSE (r.processor.isRigModified());
-        r.set (ParamIDs::eqLevel, 2.0f);
+        r.set (ParamIDs::eqOutput, 2.0f);
         CHECK (r.processor.isRigModified());
         REQUIRE (r.processor.saveCurrentRig());   // a user rig now, so plain save works
         CHECK_FALSE (r.processor.isRigModified());
@@ -326,13 +325,13 @@ TEST_CASE ("< and > step through the rigs in order", "[rigs]")
 TEST_CASE ("Deleting the loaded rig keeps the sound, now unsaved", "[rigs]")
 {
     RigRig r;
-    r.set (ParamIDs::eqLevel, 8.0f);
+    r.set (ParamIDs::eqOutput, 8.0f);
     REQUIRE (r.processor.saveCurrentRigAs ("Temporary"));
     REQUIRE (r.processor.deleteRig (r.entryNamed ("Temporary")));
 
     CHECK_FALSE (r.processor.getCurrentRig().isUserRig());
     CHECK (r.processor.isRigModified());
-    CHECK_THAT (r.get (ParamIDs::eqLevel), WithinAbs (8.0, 0.01));
+    CHECK_THAT (r.get (ParamIDs::eqOutput), WithinAbs (8.0, 0.01));
 }
 
 TEST_CASE ("The DAW project remembers which rig was loaded", "[rigs][state]")
@@ -341,9 +340,9 @@ TEST_CASE ("The DAW project remembers which rig was loaded", "[rigs][state]")
     juce::File rigFile;
     {
         RigRig r;
-        r.set (ParamIDs::eqLevel, 8.0f);
+        r.set (ParamIDs::eqOutput, 8.0f);
         REQUIRE (r.processor.saveCurrentRigAs ("Project Rig"));
-        r.set (ParamIDs::eqLevel, 3.0f);   // tweaked after saving
+        r.set (ParamIDs::eqOutput, 3.0f);   // tweaked after saving
         rigFile = r.processor.getCurrentRig().file;
         r.processor.getStateInformation (saved);
     }
@@ -353,7 +352,7 @@ TEST_CASE ("The DAW project remembers which rig was loaded", "[rigs][state]")
     CHECK (restored.getCurrentRig().name == "Project Rig");
     CHECK (restored.getCurrentRig().file == rigFile);
     CHECK (restored.isRigModified());   // the tweak is remembered as unsaved
-    CHECK_THAT (restored.getParameters().getRawParameterValue (ParamIDs::eqLevel)->load(), WithinAbs (3.0, 0.01));
+    CHECK_THAT (restored.getParameters().getRawParameterValue (ParamIDs::eqOutput)->load(), WithinAbs (3.0, 0.01));
 }
 
 TEST_CASE ("Each rig's RIG LEVEL adds to the master output", "[rigs]")

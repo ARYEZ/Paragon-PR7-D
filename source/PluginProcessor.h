@@ -3,10 +3,11 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "LevelMeterSource.h"
+#include "Parameters.h"
 #include "dsp/InputTap.h"
 #include "dsp/TapTempo.h"
 #include "dsp/Tuner.h"
-#include "dsp/effects/GraphicEq.h"
+#include "dsp/eq/ParametricEq.h"
 #include "dsp/effects/Presence.h"
 #include "rigs/RigLibrary.h"
 #include "rigs/UndoHistory.h"
@@ -125,6 +126,17 @@ public:
     // average (message thread). It updates itself while it's on; RESET empties the trace.
     const InputTap& getInputTap() const noexcept { return inputTap; }
     const Tuner& getTuner() const noexcept { return tuner; }
+
+    //==========================================================================
+    // The EQ (stomp 4). Its settings as they are now, read from the
+    // parameters (any thread), the audio going into and out of it (for the
+    // analyser), and SOLO, which isn't a parameter: it's held while listening.
+    eq::ParametricEq::Settings getEqSettings() const noexcept;
+    const InputTap& getEqInputTap() const noexcept { return eqInputTap; }
+    const InputTap& getEqOutputTap() const noexcept { return eqOutputTap; }
+    void setEqSolo (int band) noexcept { eqSoloBand = band; }
+    int getEqSolo() const noexcept { return eqSoloBand.load(); }
+    double getEqAutoGainDb() const noexcept { return parametricEq.getAutoGainDb(); }
     void resetTuner() noexcept { tuner.clear(); }
     void updateTuner();   // the timer calls this; tests call it to step the tuner
 
@@ -192,11 +204,14 @@ private:
 
     // Signal chain, stereo throughout: INPUT -> stomp 4 (EQ) -> PRESENCE -> OUTPUT.
     // The tuner only listens; the other stomps aren't built yet.
-    // Stomp 4 (the graphic EQ, for now) and PRESENCE: one of each per
-    // channel, since each keeps its filters' memory.
-    std::array<effects::GraphicEq, effects::maxChannels> graphicEq;
+    // Stomp 4, the EQ (stereo itself), then PRESENCE: one per channel,
+    // since each keeps its filter's memory.
+    eq::ParametricEq parametricEq;
+    struct EqBandParameters { std::atomic<float>* values[std::size (ParamIDs::eqBandSettings)] {}; };
+    std::array<EqBandParameters, ParamIDs::eqNumBands> eqBandParameters {};
+    std::atomic<int> eqSoloBand { -1 };
+    InputTap eqInputTap { 16384 }, eqOutputTap { 16384 };   // what goes into and comes out of the EQ, for its analyser
     std::array<effects::Presence, effects::maxChannels> presence;
-    std::array<std::atomic<float>*, effects::GraphicEq::numBands> eqGainDb {};
 
     std::unique_ptr<RigLibrary> rigLibrary;
     CurrentRig currentRig;

@@ -11,6 +11,7 @@ add_executable(ParagonX1Tests
     RigTests.cpp
     UiTests.cpp
     TunerTests.cpp
+    EqTests.cpp
     PerformanceTests.cpp
     EditorSnapshot.cpp)
 

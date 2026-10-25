@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.24)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "macOS architectures")
 
-project(ParagonX1 VERSION 0.3.0 LANGUAGES C CXX)
+project(ParagonX1 VERSION 0.4.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -50,7 +50,8 @@ target_sources(ParagonX1
         source/PluginEditor.cpp
         source/dsp/PitchDetector.cpp
         source/dsp/Tuner.cpp
-        source/dsp/effects/GraphicEq.cpp
+        source/dsp/eq/EqDesign.cpp
+        source/dsp/eq/ParametricEq.cpp
         source/rigs/Rig.cpp
         source/rigs/FactoryRigs.cpp
         source/rigs/RigLibrary.cpp
@@ -65,7 +66,8 @@ target_sources(ParagonX1
         source/ui/SlotWindow.cpp
         source/ui/SignalChain.cpp
         source/ui/DockPanels.cpp
-        source/ui/GraphicEqPanel.cpp
+        source/ui/EqDisplay.cpp
+        source/ui/EqPage.cpp
         source/ui/TunerPanel.cpp
         source/ui/PerformanceControls.cpp
         source/ui/MainView.cpp

@@ -5,7 +5,6 @@
 #include "Parameters.h"
 #include "PluginProcessor.h"
 #include "dsp/effects/Circuit.h"
-#include "ui/EqPresets.h"
 
 using Catch::Matchers::WithinAbs;
 
@@ -200,7 +199,10 @@ TEST_CASE ("Stereo stays stereo: left and right keep their own sound, on and byp
 TEST_CASE ("Turning the EQ on and off doesn't click, and off really is off", "[effects]")
 {
     EffectRig rig;
-    rig.set (ParamIDs::eqBands[2].toRawUTF8(), 8.0f);   // so ON makes a real difference
+    // A band +8 dB at 220 Hz, so ON makes a real difference.
+    rig.set (ParamIDs::eqBand (0, "Freq").toRawUTF8(), 220.0f);
+    rig.set (ParamIDs::eqBand (0, "Gain").toRawUTF8(), 8.0f);
+    rig.set (ParamIDs::eqBand (0, "Used").toRawUTF8(), 1.0f);
     const auto input = sine (220.0, 0.3f, 0.3);
     rig.set (ParamIDs::eqOn, 1.0f);
     rig.runMono (input);
@@ -307,160 +309,5 @@ TEST_CASE ("Presence boosts the top end and leaves the lows alone", "[effects][p
     const auto lows = sine (150.0, 0.1f, 0.5);
     CHECK (dB (rms (rig.runMono (highs), 0.2) / rms (highs, 0.2)) > 8.0f);
     CHECK_THAT (dB (rms (rig.runMono (lows), 0.2) / rms (lows, 0.2)), WithinAbs (0.0, 0.5));
-}
-
-TEST_CASE ("Graphic EQ: flat is transparent, each band moves only its own frequencies", "[effects][eq]")
-{
-    // The peak level of a steady tone after the plugin, with the EQ set by `setUp`.
-    auto levelOf = [] (float frequency, const std::function<void (EffectRig&)>& setUp)
-    {
-        EffectRig rig;
-        setUp (rig);
-        std::vector<float> tone ((size_t) (sampleRate * 0.5));
-        for (size_t i = 0; i < tone.size(); ++i)
-            tone[i] = 0.1f * (float) std::sin (juce::MathConstants<double>::twoPi * frequency * (double) i / sampleRate);
-        const auto out = rig.run (tone)[0];
-        return *std::max_element (out.end() - 4800, out.end());
-    };
-    const auto off = [] (EffectRig&) {};
-    const auto toDb = [] (float ratio) { return juce::Decibels::gainToDecibels (ratio); };
-
-    for (auto frequency : { 33.0f, 300.0f, 900.0f, 5000.0f })
-    {
-        // Switched on but flat: no change at all.
-        const auto flat = levelOf (frequency, [] (EffectRig& rig) { rig.set (ParamIDs::eqOn, 1.0f); });
-        CHECK_THAT (toDb (flat / levelOf (frequency, off)), WithinAbs (0.0, 0.05));
-    }
-
-    // +12 dB at 900 Hz: a 900 Hz tone comes up by about 12 dB; far-off bands barely
-    // move (a band's skirt spills a little, as on a hardware graphic EQ: under
-    // 0.5 dB at 33 Hz and 9 kHz).
-    const auto boost900 = [] (EffectRig& rig) { rig.set (ParamIDs::eqOn, 1.0f); rig.set ("eq900", 12.0f); };
-    CHECK_THAT (toDb (levelOf (900.0f, boost900) / levelOf (900.0f, off)), WithinAbs (12.0, 0.5));
-    CHECK (std::abs (toDb (levelOf (33.0f, boost900) / levelOf (33.0f, off))) < 0.5f);
-    CHECK (std::abs (toDb (levelOf (9000.0f, boost900) / levelOf (9000.0f, off))) < 0.5f);
-
-    // Cuts work the same way, down at the bass's low end too, and LEVEL moves everything.
-    const auto cut150 = [] (EffectRig& rig) { rig.set (ParamIDs::eqOn, 1.0f); rig.set ("eq150", -12.0f); };
-    CHECK_THAT (toDb (levelOf (150.0f, cut150) / levelOf (150.0f, off)), WithinAbs (-12.0, 0.5));
-    const auto boost33 = [] (EffectRig& rig) { rig.set (ParamIDs::eqOn, 1.0f); rig.set ("eq33", 12.0f); };
-    CHECK_THAT (toDb (levelOf (33.0f, boost33) / levelOf (33.0f, off)), WithinAbs (12.0, 0.5));
-    const auto louder = [] (EffectRig& rig) { rig.set (ParamIDs::eqOn, 1.0f); rig.set (ParamIDs::eqLevel, 6.0f); };
-    CHECK_THAT (toDb (levelOf (500.0f, louder) / levelOf (500.0f, off)), WithinAbs (6.0, 0.1));
-
-    // Off means off, whatever the faders say.
-    const auto bypassed = [] (EffectRig& rig) { rig.set ("eq900", 12.0f); };
-    CHECK_THAT (toDb (levelOf (900.0f, bypassed) / levelOf (900.0f, off)), WithinAbs (0.0, 0.01));
-
-    // ULTRA LO: a little more deep low end, a deep scoop at 500 Hz, the top
-    // untouched. It works with the EQ's faders switched off, as on the amp.
-    const auto ultraLo = [] (EffectRig& rig) { rig.set (ParamIDs::eqUltraLo, 1.0f); };
-    CHECK_THAT (toDb (levelOf (40.0f, ultraLo) / levelOf (40.0f, off)), WithinAbs (2.0, 0.5));
-    CHECK_THAT (toDb (levelOf (500.0f, ultraLo) / levelOf (500.0f, off)), WithinAbs (-10.0, 0.5));
-    CHECK (std::abs (toDb (levelOf (5000.0f, ultraLo) / levelOf (5000.0f, off))) < 0.3f);
-
-    // ULTRA HI: +9 dB at 8 kHz, leaving the lows and low mids alone.
-    const auto ultraHi = [] (EffectRig& rig) { rig.set (ParamIDs::eqUltraHi, 1.0f); };
-    CHECK_THAT (toDb (levelOf (8000.0f, ultraHi) / levelOf (8000.0f, off)), WithinAbs (9.0, 0.5));
-    CHECK (std::abs (toDb (levelOf (100.0f, ultraHi) / levelOf (100.0f, off))) < 0.1f);
-    CHECK (std::abs (toDb (levelOf (500.0f, ultraHi) / levelOf (500.0f, off))) < 0.3f);
-
-    // Both together, with the faders: the effects add up.
-    const auto everything = [] (EffectRig& rig)
-    {
-        rig.set (ParamIDs::eqOn, 1.0f); rig.set ("eq500", 6.0f);
-        rig.set (ParamIDs::eqUltraLo, 1.0f); rig.set (ParamIDs::eqUltraHi, 1.0f);
-    };
-    std::array<float, effects::GraphicEq::numBands> gains {};
-    gains[4] = 6.0f;
-    CHECK_THAT (toDb (levelOf (500.0f, everything) / levelOf (500.0f, off)),
-                WithinAbs (effects::GraphicEq::responseDb (gains, 500.0f, sampleRate, true, true), 0.5));
-}
-
-TEST_CASE ("Graphic EQ's drawn curve matches what it does", "[effects][eq]")
-{
-    std::array<float, effects::GraphicEq::numBands> gains {};
-    CHECK_THAT (effects::GraphicEq::responseDb (gains, 1000.0f), WithinAbs (0.0, 1.0e-6));
-    gains[5] = 12.0f;   // 900 Hz
-    CHECK_THAT (effects::GraphicEq::responseDb (gains, 900.0f), WithinAbs (12.0, 0.05));
-    CHECK (std::abs (effects::GraphicEq::responseDb (gains, 33.0f)) < 0.5f);
-
-    // The tone switches are drawn too: ULTRA LO's scoop and ULTRA HI's lift.
-    const std::array<float, effects::GraphicEq::numBands> flat {};
-    CHECK_THAT (effects::GraphicEq::responseDb (flat, 500.0f, 48000.0, true, false), WithinAbs (-10.0, 0.1));
-    CHECK_THAT (effects::GraphicEq::responseDb (flat, 8000.0f, 48000.0, false, true), WithinAbs (9.0, 0.1));
-    // A band above half a low sample rate is pulled down rather than breaking.
-    CHECK (effects::GraphicEq::bandFrequency (8, 22050.0) < 11025.0f);
-}
-
-TEST_CASE ("EQ presets: in range, named once each, and loudness-matched by LEVEL", "[effects][eq]")
-{
-    std::set<std::string> names;
-    for (const auto& preset : EqPresets::all)
-    {
-        INFO (preset.name);
-        CHECK (names.insert (preset.name).second);
-        for (const auto gain : preset.gainsDb)
-            CHECK (std::abs (gain) <= effects::GraphicEq::maxGainDb);
-        CHECK (std::abs (preset.levelDb) <= 12.0f);
-
-        // The curve's average power change over a bass's range (40 Hz to
-        // 5 kHz, sampled every 1/24 octave), plus LEVEL, is
-        // close to nothing: switching presets changes the tone, not the volume.
-        auto power = 0.0;
-        auto count = 0;
-        for (auto frequency = 40.0f; frequency <= 5000.0f; frequency *= std::pow (2.0f, 1.0f / 24.0f), ++count)
-            power += std::pow (10.0, effects::GraphicEq::responseDb (preset.gainsDb, frequency, 48000.0, preset.ultraLo, preset.ultraHi) / 10.0);
-        const auto changeDb = 10.0 * std::log10 (power / count) + preset.levelDb;
-        CHECK (std::abs (changeDb) <= 0.5);
-    }
-}
-
-TEST_CASE ("EQ presets sound as drawn: the plugin's output follows each preset's curve", "[effects][eq]")
-{
-    // A steady tone's level through the plugin with `preset` loaded (or the
-    // EQ off), at the bass's punch, its low-mid mud, and its clank.
-    const auto levelOf = [] (float frequency, const EqPresets::Preset* preset)
-    {
-        EffectRig rig;
-        if (preset != nullptr)
-        {
-            rig.set (ParamIDs::eqOn, 1.0f);
-            for (int band = 0; band < effects::GraphicEq::numBands; ++band)
-                rig.set (ParamIDs::eqBands[band].toRawUTF8(), preset->gainsDb[(size_t) band]);
-            rig.set (ParamIDs::eqLevel, preset->levelDb);
-            rig.set (ParamIDs::eqUltraLo, preset->ultraLo ? 1.0f : 0.0f);
-            rig.set (ParamIDs::eqUltraHi, preset->ultraHi ? 1.0f : 0.0f);
-        }
-        std::vector<float> tone ((size_t) (sampleRate * 0.4));
-        for (size_t i = 0; i < tone.size(); ++i)
-            tone[i] = 0.1f * (float) std::sin (juce::MathConstants<double>::twoPi * frequency * (double) i / sampleRate);
-        const auto out = rig.run (tone)[0];
-        return *std::max_element (out.end() - 4800, out.end());
-    };
-
-    for (const auto frequency : { 80.0f, 300.0f, 2000.0f })
-    {
-        const auto dry = levelOf (frequency, nullptr);
-        for (const auto& preset : EqPresets::all)
-        {
-            INFO (preset.name << " at " << frequency << " Hz");
-            const auto expected = effects::GraphicEq::responseDb (preset.gainsDb, frequency, sampleRate, preset.ultraLo, preset.ultraHi)
-                                + preset.levelDb;
-            CHECK_THAT (juce::Decibels::gainToDecibels (levelOf (frequency, &preset) / dry), WithinAbs (expected, 0.5));
-        }
-    }
-
-    // And the metal presets do what they say: the clank (2 kHz) is lifted
-    // over the low-mid mud (300 Hz) by a good margin.
-    for (const auto* name : { "Modern Metal Clank", "Djent Growl", "Grind Through the Guitars" })
-    {
-        INFO (name);
-        const auto& preset = *std::find_if (EqPresets::all.begin(), EqPresets::all.end(),
-                                            [name] (const auto& p) { return juce::String (p.name) == name; });
-        const auto clank = levelOf (2000.0f, &preset) / levelOf (2000.0f, nullptr);
-        const auto mud = levelOf (300.0f, &preset) / levelOf (300.0f, nullptr);
-        CHECK (juce::Decibels::gainToDecibels (clank / mud) > 6.0f);
-    }
 }
 

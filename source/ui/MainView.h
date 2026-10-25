@@ -6,7 +6,7 @@
 #include "ui/DockPanels.h"
 #include "ui/EffectPanel.h"
 #include "ui/Finish.h"
-#include "ui/GraphicEqPanel.h"
+#include "ui/EqPage.h"
 #include "ui/Footswitch.h"
 #include "ui/LedDisplay.h"
 #include "ui/LevelMeter.h"
@@ -80,7 +80,7 @@ private:
     // tunerBlock isn't in the chain (the tuner only listens): it's the TUNER stomp's panel.
     enum Block { eqBlock, numBlocks, tunerBlock = numBlocks };
 
-    enum class Page { processor, presets, settings };
+    enum class Page { processor, presets, settings, eq };   // eq: the EQ stomp's own page
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void applyFinish();   // colours the printed labels and redraws the unit in the current finish
@@ -142,15 +142,16 @@ private:
     RigNavigator rigNavigator;
     SelectedRigPanel selectedRig;
     ExpressionPanel expressionPanel;
-    GraphicEqPanel eqPanel;
+    EqOverview eqPanel;   // the dock's default: the EQ's curve, and OPEN EQ
     TunerPanel tunerPanel;
-    juce::TextButton closePanel { "GRAPHIC EQ" };   // back to the EQ, the dock's default
+    juce::TextButton closePanel { "EQ" };   // back to the EQ overview, the dock's default
     SignalChain signalChain;
     int selectedBlock = eqBlock;
 
     // Other pages
     RigBrowser rigBrowser;
     SettingsPage settingsPage;
+    EqPage eqPage;
     std::vector<juce::Component*> processorPage;
     Page page = Page::processor;
 

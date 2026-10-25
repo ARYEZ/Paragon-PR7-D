@@ -34,7 +34,7 @@ Stomps not built yet are placeholders: a `Footswitch` with no parameter IDs (dar
   2. **Open: to plan with the owner.** Ideas offered so far: a loudness/analysis stomp (LUFS, spectrum, stereo correlation), a channel utility (gain, polarity, mono/width, mid-side, swap), an A/B reference player.
   3. **Insert launcher.** A plugin can't open the other plugins on the DAW's track: hosts don't allow it. What it *can* do is host plugins itself (JUCE `AudioPluginFormatManager` / `KnownPluginList`, VST3 on Windows): load plugins into slots inside PR7-E and open their editors from the stomp, a mini rack. Confirm with the owner which platform it's for: the owner works in BeatMaker, and on iPad plugins are AUv3, which works differently.
 - **Bottom row**
-  1. **EQ inspired by FabFilter Pro-Q 4.** The owner supplied its manual (don't commit it: it's FabFilter's). Agreed: it **replaces the graphic EQ**, opens on a **big EQ page** of its own (over the pedal and dock, like PRESETS), and is built in stages: (1) the core EQ: up to 24 bands, the 10 shapes, slopes, per-band stereo / L / R / M / S, the interactive display with pre/post spectrum, solo, output gain / auto gain / gain scale, zero-latency analog-matched filters; (2) **dynamic EQ**; (3) **EQ Match**. Not wanted: linear phase, character modes. Skipped: instance list, surround, MIDI learn, spectral dynamics (that's the RESONANCE stomp's job). "Natural Phase" is FabFilter's own, unpublished.
+  1. **EQ inspired by FabFilter Pro-Q 4.** The owner supplied its manual (don't commit it: it's FabFilter's). Agreed: it **replaces the graphic EQ**, opens on a **big EQ page** of its own (over the pedal and dock, like PRESETS), and is built in stages: (1) the core EQ: **done in 0.4.0** (`dsp/eq/EqDesign.*`: shapes, slopes and the matched filters; `dsp/eq/ParametricEq.*`: the processing; `ui/EqDisplay.*`, `ui/EqPage.*`; tests in `tests/EqTests.cpp`). Band parameters are `eqB{n}{Used,On,Shape,Freq,Gain,Q,Slope,Place}` for n = 1 to 24: append dynamic EQ's per band with a new version hint, never reorder `eq::shapeNames`, `slopeNames` or `placementNames`. (2) **dynamic EQ**, next; (3) **EQ Match**. Not wanted: linear phase, character modes. Skipped: instance list, surround, MIDI learn, spectral dynamics (that's the RESONANCE stomp's job). "Natural Phase" is FabFilter's own, unpublished.
   2. **Inspired by oeksound soothe 3** (adaptive resonance suppression). The algorithm is secret: ours is our own design from the manual and how it behaves. Ask for the manual.
   3. **Inspired by Soundtheory Gullfoss** ("maybe", per the owner). Also a secret, adaptive algorithm: our own design. Ask for the manual.
   4. **The output trim / limiter from PR7-C** (`ARYEZ/Paragon-PR7-C`): port that section rather than writing a new one.
@@ -58,7 +58,9 @@ Stomps not built yet are placeholders: a `Footswitch` with no parameter IDs (dar
 - **Screenshots** for checking the UI, via `xvfb-run -a build/tests/ParagonX1Tests "[snapshot]"` with environment variables:
   - `PARAGON_SNAPSHOT` (output path), `PARAGON_SNAPSHOT_WIDTH` (e.g. 2560 for 2x).
   - `PARAGON_SNAPSHOT_BLOCK=n` (open block n's panel), `PARAGON_SNAPSHOT_PARAMS=id=value,...`.
-  - `PARAGON_SNAPSHOT_EXPRESSION`, `PARAGON_SNAPSHOT_PAGE=presets|settings`, `PARAGON_SNAPSHOT_FINISH=black|neon`.
+  - `PARAGON_SNAPSHOT_EXPRESSION`, `PARAGON_SNAPSHOT_PAGE=presets|settings|eq`, `PARAGON_SNAPSHOT_FINISH=black|neon`.
+  - `PARAGON_SNAPSHOT_BLOCK=0` (the dock's EQ overview) or `1` (the TUNER panel); `PARAGON_SNAPSHOT_TUNER=1` (a sung phrase in the tuner's trace).
+  - `PARAGON_SNAPSHOT_EQ=1` (a mix-bus set of EQ bands with noise through the analyser), `PARAGON_SNAPSHOT_EQ_BAND=n` (select band n).
   - Render, look, crop and zoom before claiming a visual change is right.
 
 ## Releases

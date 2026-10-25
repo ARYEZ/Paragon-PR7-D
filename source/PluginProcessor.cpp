@@ -30,8 +30,9 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
 {
     inputGainDb = parameters.getRawParameterValue (ParamIDs::inputGain);
     outputGainDb = parameters.getRawParameterValue (ParamIDs::outputGain);
-    for (int band = 0; band < effects::GraphicEq::numBands; ++band)
-        eqGainDb[(size_t) band] = parameters.getRawParameterValue (ParamIDs::eqBands[band]);
+    for (int band = 0; band < ParamIDs::eqNumBands; ++band)
+        for (size_t i = 0; i < std::size (ParamIDs::eqBandSettings); ++i)
+            eqBandParameters[(size_t) band].values[i] = parameters.getRawParameterValue (ParamIDs::eqBand (band, ParamIDs::eqBandSettings[i]));
 
     rigLibrary = std::make_unique<RigLibrary>();
 
@@ -78,8 +79,9 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     bypassDry.setSize (effects::maxChannels, preparedBlockSize);
     bypassAmount.reset (sampleRate, gainRampSeconds);
     bypassAmount.setCurrentAndTargetValue (isOn (ParamIDs::bypass) ? 1.0f : 0.0f);
-    for (auto& eq : graphicEq)
-        eq.prepare (sampleRate, preparedBlockSize);
+    parametricEq.prepare (sampleRate, preparedBlockSize);
+    eqInputTap.setSampleRate (sampleRate);
+    eqOutputTap.setSampleRate (sampleRate);
     for (auto& shelf : presence)
         shelf.prepare (sampleRate, preparedBlockSize);
     inputTap.setSampleRate (sampleRate);
@@ -99,6 +101,30 @@ float ParagonX1AudioProcessor::param (const char* id) const
     // Looked up by ID each block. APVTS keeps these in a sorted map, so the
     // lookup is a handful of string compares and never allocates.
     return parameters.getRawParameterValue (id)->load();
+}
+
+eq::ParametricEq::Settings ParagonX1AudioProcessor::getEqSettings() const noexcept
+{
+    eq::ParametricEq::Settings settings;
+    settings.on = isOn (ParamIDs::eqOn);
+    settings.outputDb = param (ParamIDs::eqOutput);
+    settings.gainScale = param (ParamIDs::eqGainScale);
+    settings.autoGain = isOn (ParamIDs::eqAutoGain);
+    settings.soloBand = eqSoloBand.load();
+    for (size_t i = 0; i < settings.bands.size(); ++i)
+    {
+        const auto& values = eqBandParameters[i].values;   // in eqBandSettings' order
+        auto& band = settings.bands[i];
+        band.used = values[0]->load() > 0.5f;
+        band.on = values[1]->load() > 0.5f;
+        band.shape = (eq::Shape) juce::roundToInt (values[2]->load());
+        band.frequency = values[3]->load();
+        band.gainDb = values[4]->load();
+        band.q = values[5]->load();
+        band.slope = juce::roundToInt (values[6]->load());
+        band.placement = (eq::Placement) juce::roundToInt (values[7]->load());
+    }
+    return settings;
 }
 
 void ParagonX1AudioProcessor::readHostTempo()
@@ -236,21 +262,21 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, in
     for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
         inputMeter.pushSamples (block.getChannelPointer (channel), numSamples);
 
-    // Stomp 4, EQ: the graphic EQ for now, one per channel (each keeps its
-    // own filters' memory), then PRESENCE on the face.
-    effects::GraphicEq::Settings eq;
-    eq.on = isOn (ParamIDs::eqOn);
-    for (size_t band = 0; band < eq.gainsDb.size(); ++band)
-        eq.gainsDb[band] = eqGainDb[band]->load();
-    eq.levelDb = param (ParamIDs::eqLevel);
-    eq.ultraLo = isOn (ParamIDs::eqUltraLo);
-    eq.ultraHi = isOn (ParamIDs::eqUltraHi);
-    for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
+    // Stomp 4, the EQ, with what goes in and comes out kept for its analyser.
+    const auto writeTap = [&] (InputTap& tap)
     {
-        const auto one = block.getSingleChannelBlock (channel);
-        graphicEq[channel].process (one, eq);
-        presence[channel].process (one, param (ParamIDs::presence));
-    }
+        if (numOutputChannels > 1)
+            tap.write (block.getChannelPointer (0), block.getChannelPointer (1), numSamples);
+        else
+            tap.write (block.getChannelPointer (0), numSamples);
+    };
+    writeTap (eqInputTap);
+    parametricEq.process (block, getEqSettings());
+    writeTap (eqOutputTap);
+
+    // PRESENCE on the face.
+    for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
+        presence[channel].process (block.getSingleChannelBlock (channel), param (ParamIDs::presence));
 
     // The master OUTPUT knob plus the rig's own RIG LEVEL, and the
     // expression pedal when it's a VOLUME pedal. Squaring the position gives

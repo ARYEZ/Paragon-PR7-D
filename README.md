@@ -25,7 +25,7 @@ stomps are still being planned, one at a time with the owner.
 | **1 Tuner** | Checks the pitch of recorded parts (a vocal, a bass line) | Works: note, 30-second trace, average |
 | **2 Open** | To plan: ideas so far are loudness/analysis, a channel utility, an A/B reference player | Placeholder |
 | **3 Inserts** | Host other plugins in slots inside PR7-E and open their editors (a mini rack) | Placeholder |
-| **4 EQ** | An EQ inspired by FabFilter Pro-Q 4 (our own design) | Switches the 9-band graphic EQ for now |
+| **4 EQ** | An EQ inspired by FabFilter Pro-Q 4 (our own design) | Works: 24 bands on its own page; dynamic EQ and EQ Match next |
 | **5 Resonance** | Resonance suppression inspired by oeksound soothe (our own design) | Placeholder |
 | **6 Auto EQ** | Adaptive EQ inspired by Soundtheory Gullfoss (a "maybe"; our own design) | Placeholder |
 | **7 Limiter** | The output trim / limiter from PR7-C, ported | Placeholder |
@@ -36,7 +36,12 @@ none of those products' names or branding go on the plugin.
 ## Using it
 
 - **Stomps 1-7:** three on the top row, four below. Press a pad to switch it on or off; click its name to show its knobs
-  in the dock (TUNER opens its trace, EQ the graphic EQ).
+  in the dock (TUNER opens its trace; EQ opens its own page).
+- **EQ (stomp 4)**, inspired by FabFilter Pro-Q 4: up to 24 bands (bell, shelves, cuts, notch, band pass, tilt shelf,
+  flat tilt, all pass; 6 to 96 dB/oct), each on the stereo signal or only its left, right, mid or side. Analog-matched
+  curves with zero latency. On its page: double-click to add a band, drag its dot, mouse wheel for Q (or a cut's slope),
+  Alt-click to switch it off, right-click for its menu, Delete to remove it; hold SOLO to hear only what a band works on.
+  OUTPUT, GAIN SCALE and AUTO GAIN. The spectrum going in and coming out shows behind the curve.
 - **Tuner (stomp 1):** for checking the pitch of a recorded part as it plays, one note at a time, up to 1,500 Hz. It
   hears both channels and never changes the sound. Its panel shows the current note and cents, the pitch over the last
   30 seconds against the notes (green within 5 cents, orange within 15, red beyond), and the **average**: how sharp or
