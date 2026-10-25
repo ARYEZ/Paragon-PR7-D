@@ -53,6 +53,31 @@ namespace ParamIDs
     inline constexpr auto compCharacter = "compCharacter";   // choice: VCA, OPTO, FET
     inline constexpr auto compLink      = "compLink";        // both channels together
 
+    // Stomp 5, DOMINION (0.10.0): dynamic resonance suppression, inspired by
+    // oeksound soothe 3 (our own design, see dsp/dominion/Dominion.h). After
+    // the EQ, before COMP.
+    inline constexpr auto domOn      = "domOn";
+    inline constexpr auto domMode    = "domMode";      // choice: Soft, Hard
+    inline constexpr auto domDepth   = "domDepth";     // 0 to 20
+    inline constexpr auto domDetail  = "domDetail";    // 0 to 100
+    inline constexpr auto domAttack  = "domAttack";    // 0 to 100
+    inline constexpr auto domRelease = "domRelease";   // 0 to 100
+    inline constexpr auto domStereo  = "domStereo";    // choice: L/R, M/S
+    inline constexpr auto domLink    = "domLink";      // %
+    inline constexpr auto domFocus   = "domFocus";     // -100 to 100
+    inline constexpr auto domDetailLow = "domDetailLow", domDetailHigh = "domDetailHigh",
+                          domAttackLow = "domAttackLow", domAttackHigh = "domAttackHigh",
+                          domReleaseLow = "domReleaseLow", domReleaseHigh = "domReleaseHigh";   // the tilts, -100 to 100
+    inline constexpr auto domMaxCut  = "domMaxCut";    // dB (40: no limit)
+    inline constexpr auto domWetTrim = "domWetTrim";   // dB
+    inline constexpr auto domMix     = "domMix";       // %
+    inline constexpr auto domOut     = "domOut";       // dB
+    inline constexpr auto domDelta   = "domDelta";
+    inline constexpr int domNumBands = 8;
+    // The depth curve's bands: "domB1Used", "domB1Freq"... `what` is one of the names below.
+    inline juce::String domBand (int band, const char* what) { return "domB" + juce::String (band + 1) + what; }
+    inline constexpr const char* domBandSettings[] = { "Used", "On", "Shape", "Freq", "Depth", "Q", "Slope", "Focus" };
+
     // Stomp 7, the LIMITER (0.8.0): PR7-C's limiter and output trim, ported.
     // The last thing in the chain, after OUTPUT, RIG LEVEL and the volume pedal.
     inline constexpr auto limitOn        = "limitOn";

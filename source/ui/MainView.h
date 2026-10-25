@@ -4,6 +4,7 @@
 
 #include "PluginProcessor.h"
 #include "ui/DockPanels.h"
+#include "ui/DominionPage.h"
 #include "ui/EffectPanel.h"
 #include "ui/Finish.h"
 #include "ui/EqPage.h"
@@ -76,11 +77,12 @@ public:
 private:
     // The blocks in signal-chain order; footswitches, the chain strip and
     // the summary cards select these to show their knobs.
-    // The signal chain's blocks (the EQ, COMP and the LIMITER, so far).
+    // The signal chain's blocks (the EQ, DOMINION, COMP and the LIMITER, so far).
+    // DOMINION's block opens its page, as its stomp's name does.
     // tunerBlock isn't in the chain (the tuner only listens): it's the TUNER stomp's panel.
-    enum Block { eqBlock, compBlock, limiterBlock, numBlocks, tunerBlock = numBlocks };
+    enum Block { eqBlock, dominionBlock, compBlock, limiterBlock, numBlocks, tunerBlock = numBlocks };
 
-    enum class Page { processor, presets, settings, eq };   // eq: the EQ stomp's own page
+    enum class Page { processor, presets, settings, eq, dominion };   // eq, dominion: those stomps' own pages
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void applyFinish();   // colours the printed labels and redraws the unit in the current finish
@@ -154,6 +156,7 @@ private:
     RigBrowser rigBrowser;
     SettingsPage settingsPage;
     EqPage eqPage;
+    DominionPage dominionPage;
     std::vector<juce::Component*> processorPage;
     Page page = Page::processor;
 

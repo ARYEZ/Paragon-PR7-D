@@ -186,7 +186,7 @@ TEST_CASE ("Seven stomps, three over four, labelled from the plan", "[ui]")
     findAll (*editor, stomps);
     REQUIRE (stomps.size() == 7);
 
-    const juce::StringArray names { "TUNER", "COMP", "INSERTS", "EQ", "RESONANCE", "AUTO EQ", "LIMITER" };
+    const juce::StringArray names { "TUNER", "COMP", "INSERTS", "EQ", "DOMINION", "AUTO EQ", "LIMITER" };
     for (size_t i = 0; i < stomps.size(); ++i)
         CHECK (stomps[i]->getTitle() == names[(int) i] + " footswitch");
 
@@ -224,9 +224,11 @@ TEST_CASE ("Seven stomps, three over four, labelled from the plan", "[ui]")
     CHECK (isOn (ParamIDs::limitOn));
     stomps[1]->toggle();
     CHECK (isOn (ParamIDs::compOn));
+    stomps[4]->toggle();
+    CHECK (isOn (ParamIDs::domOn));
 
     // The rest aren't built yet: their pads change nothing and their names open nothing.
-    for (const auto i : { 2, 4, 5 })
+    for (const auto i : { 2, 5 })
     {
         INFO (names[i]);
         auto& stomp = *stomps[(size_t) i];

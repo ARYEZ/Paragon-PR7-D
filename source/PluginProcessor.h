@@ -7,6 +7,7 @@
 #include "dsp/InputTap.h"
 #include "dsp/TapTempo.h"
 #include "dsp/Tuner.h"
+#include "dsp/dominion/Dominion.h"
 #include "dsp/effects/Compressor.h"
 #include "dsp/effects/Limiter.h"
 #include "dsp/eq/EqMatchSession.h"
@@ -143,6 +144,13 @@ public:
     eq::ParametricEq::DynamicReading getEqDynamics (int band) const noexcept { return parametricEq.getDynamics (band); }
     eq::match::Session& getEqMatch() noexcept { return eqMatch; }
 
+    // DOMINION (stomp 5): its settings, what it's cutting (for its page), and
+    // listening to one of its depth-curve bands (-1: none) while held.
+    dominion::Settings getDominionSettings() const noexcept;
+    const dominion::Processor& getDominion() const noexcept { return dominionProcessor; }
+    void setDominionListen (int band) noexcept { dominionListen = band; }
+    int getDominionListen() const noexcept { return dominionListen.load(); }
+
     // COMP's gain reduction on a channel in the last block (dB, 0 or more).
     float getCompressorReductionDb (int channel) const noexcept { return compressor.getReductionDb (channel); }
     // The LIMITER's gain reduction on a channel in the last block (dB, 0 or more).
@@ -222,6 +230,10 @@ private:
     std::atomic<int> eqSoloBand { -1 };
     InputTap eqInputTap { 16384 }, eqOutputTap { 16384 };   // what goes into and comes out of the EQ, for its analyser
     eq::match::Session eqMatch { {} };
+    dominion::Processor dominionProcessor;   // stomp 5
+    struct DominionBandParameters { std::atomic<float>* values[std::size (ParamIDs::domBandSettings)] {}; };
+    std::array<DominionBandParameters, ParamIDs::domNumBands> dominionBandParameters {};
+    std::atomic<int> dominionListen { -1 };
     effects::Compressor compressor;   // stomp 2, ported from PR7-C
     juce::AudioBuffer<float> compSidechain;   // what it listens to: the audio itself
     effects::Limiter limiter;   // stomp 7, ported from PR7-C

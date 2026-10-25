@@ -18,7 +18,7 @@ namespace
     // Which version's parameters a project was saved with, as for rigs (see
     // Rig.cpp). Projects from before 0.3.0 don't say: 0.
     const juce::Identifier parameterVersionKey { "parameterVersion" };
-    constexpr int parameterVersion = 33;
+    constexpr int parameterVersion = 34;
 
 }
 
@@ -33,6 +33,9 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
     for (int band = 0; band < ParamIDs::eqNumBands; ++band)
         for (size_t i = 0; i < std::size (ParamIDs::eqBandSettings); ++i)
             eqBandParameters[(size_t) band].values[i] = parameters.getRawParameterValue (ParamIDs::eqBand (band, ParamIDs::eqBandSettings[i]));
+    for (int band = 0; band < ParamIDs::domNumBands; ++band)
+        for (size_t i = 0; i < std::size (ParamIDs::domBandSettings); ++i)
+            dominionBandParameters[(size_t) band].values[i] = parameters.getRawParameterValue (ParamIDs::domBand (band, ParamIDs::domBandSettings[i]));
 
     rigLibrary = std::make_unique<RigLibrary>();
     eqMatch.setReferencesFolder (rigLibrary->getFolder().getChildFile ("Match References"));
@@ -81,6 +84,7 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     bypassAmount.reset (sampleRate, gainRampSeconds);
     bypassAmount.setCurrentAndTargetValue (isOn (ParamIDs::bypass) ? 1.0f : 0.0f);
     parametricEq.prepare (sampleRate, preparedBlockSize);
+    dominionProcessor.prepare (sampleRate, preparedBlockSize);
     compressor.prepare (sampleRate, preparedBlockSize);
     compSidechain.setSize (2, preparedBlockSize);
     limiter.prepare (sampleRate, preparedBlockSize);
@@ -136,6 +140,46 @@ eq::ParametricEq::Settings ParagonX1AudioProcessor::getEqSettings() const noexce
         band.release = values[12]->load();
     }
     return settings;
+}
+
+dominion::Settings ParagonX1AudioProcessor::getDominionSettings() const noexcept
+{
+    dominion::Settings s;
+    s.on = isOn (ParamIDs::domOn);
+    s.mode = (dominion::Mode) juce::jlimit (0, 1, juce::roundToInt (param (ParamIDs::domMode)));
+    s.depth = param (ParamIDs::domDepth);
+    s.detail = param (ParamIDs::domDetail);
+    s.attack = param (ParamIDs::domAttack);
+    s.release = param (ParamIDs::domRelease);
+    s.stereo = (dominion::StereoMode) juce::jlimit (0, 1, juce::roundToInt (param (ParamIDs::domStereo)));
+    s.link = param (ParamIDs::domLink);
+    s.focus = param (ParamIDs::domFocus);
+    s.detailTiltLow = param (ParamIDs::domDetailLow);
+    s.detailTiltHigh = param (ParamIDs::domDetailHigh);
+    s.attackTiltLow = param (ParamIDs::domAttackLow);
+    s.attackTiltHigh = param (ParamIDs::domAttackHigh);
+    s.releaseTiltLow = param (ParamIDs::domReleaseLow);
+    s.releaseTiltHigh = param (ParamIDs::domReleaseHigh);
+    s.maxCutDb = param (ParamIDs::domMaxCut);
+    s.wetTrimDb = param (ParamIDs::domWetTrim);
+    s.mix = param (ParamIDs::domMix);
+    s.outDb = param (ParamIDs::domOut);
+    s.delta = isOn (ParamIDs::domDelta);
+    for (size_t i = 0; i < s.bands.size(); ++i)
+    {
+        const auto& values = dominionBandParameters[i].values;   // in domBandSettings' order
+        auto& band = s.bands[i];
+        band.used = values[0]->load() > 0.5f;
+        band.on = values[1]->load() > 0.5f;
+        band.shape = (dominion::Shape) juce::jlimit (0, dominion::shapeNames.size() - 1, juce::roundToInt (values[2]->load()));
+        band.frequency = values[3]->load();
+        band.depthDb = values[4]->load();
+        band.q = values[5]->load();
+        band.slope = juce::roundToInt (values[6]->load());
+        band.focus = values[7]->load();
+    }
+    s.listenBand = dominionListen.load();
+    return s;
 }
 
 void ParagonX1AudioProcessor::readHostTempo()
@@ -284,6 +328,9 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, in
     writeTap (eqInputTap);
     parametricEq.process (block, getEqSettings());
     writeTap (eqOutputTap);
+
+    // Stomp 5, DOMINION, after the EQ (so it hears what the EQ made) and before COMP.
+    dominionProcessor.process (block, getDominionSettings());
 
     // Stomp 2, COMP (PR7-C's), after the EQ, so what the EQ cuts doesn't
     // drive it. It takes whole buffers, so it gets this piece's channels as

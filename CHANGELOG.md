@@ -2,6 +2,21 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.10.0
+
+- **DOMINION (stomp 5): dynamic resonance suppression, inspired by oeksound soothe 3.** It finds the parts of the sound that ring, whistle or build up as the track plays, and turns just those down, moment by moment, then lets go. Our own design from soothe's manual (soothe's algorithm isn't published, and the numbers in ours are our choices). Press stomp 5 to switch it on; click its name (or DOMINION in the signal chain) for its page.
+  - **How it listens:** a bank of filters 1/12 octave apart, 20 Hz to 20 kHz, each measuring its part of the spectrum. In the tests, a ringing tone 12 dB above pink noise is turned down by about 10 dB at the default settings while the noise around it moves less than 0.2 dB.
+  - **MODE:** **Soft** finds what sticks out above the sound around it, so it works the same whatever the level (vocals with loud and quiet phrases). **Hard** works on what's loud (over a level set by DEPTH): firmer, level-dependent, and a sound-design tool when pushed.
+  - **DEPTH** (how much), **DETAIL** (broad build-ups like boom and mud, up to narrow ringing), **ATTACK** and **RELEASE** (frequency-dependent: quicker up high, slower down low).
+  - **The graph** shows what it's cutting right now, across the spectrum. Over it, the **depth curve**: up to 8 bands (Low Cut, Low Shelf, High Shelf, High Cut, Bell, Band Pass, Band Reject, Tilt) that make it work harder where you raise the curve and leave alone where you lower it. Double-click to add a band (a cut at either end), drag its dot, mouse wheel for Q, double-click a dot to switch it off. Band passes work in parallel: only their parts are processed.
+  - **Each band's controls:** SHAPE, FREQ, DEPTH, Q, SLOPE, FOCUS, and **LISTEN** (hold it to hear only what DOMINION takes away in that band's part of the spectrum).
+  - **STEREO:** L/R or M/S, **LINK** (100%: both channels listened to together and cut alike; 0%: each on its own) and **FOCUS** (more on one channel).
+  - **TILT:** DETAIL, ATTACK and RELEASE for the lows and the highs separately (e.g. a slower attack in the bass to keep its punch).
+  - **SCALE:** **MAX CUT** (the most it may cut anywhere) and **WET TRIM**. **OUTPUT:** **DELTA** (hear only what it takes away), **MIX** and **OUT**.
+- **Zero latency**, like soothe's low-latency mode: no look-ahead, so it reacts a moment later than it could with one (the trade-off for no delay). Not included: soothe's higher-quality modes (they add delay), sidechain, and multichannel.
+- **In the chain:** after the EQ, before COMP. It uses about 11% of one core in stereo.
+- **Factory rigs with DOMINION:** Lead Vocal, Overheads, Acoustic Guitar and Mix Harshness Control (gentle settings, with a low cut on the depth curve so the low end is left alone).
+
 ## 0.9.0
 
 - **The COMP stomp (2): PR7-C's compressor, ported.** Stomp 2 was the open slot; it's now a full channel compressor, the same as on PR7-C (its code and tests), so it behaves the same. Press stomp 2 to switch it on; click its name for its knobs in the dock.

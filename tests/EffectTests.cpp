@@ -266,6 +266,10 @@ TEST_CASE ("Full chain runs comfortably faster than real time", "[effects][perfo
     rig.set (ParamIDs::eqOn, 1.0f);
     rig.set (ParamIDs::presence, 5.0f);
     rig.set (ParamIDs::tunerOn, 1.0f);
+    rig.set (ParamIDs::domOn, 1.0f);      // the heaviest stomp
+    rig.set (ParamIDs::compOn, 1.0f);
+    rig.set (ParamIDs::compCharacter, 2.0f);   // FET, with its grit
+    rig.set (ParamIDs::limitOn, 1.0f);
 
     const auto input = sine (220.0, 0.3f, 5.0);
     const auto startMs = juce::Time::getMillisecondCounterHiRes();

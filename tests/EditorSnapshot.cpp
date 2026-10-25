@@ -4,6 +4,7 @@
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 #include "ui/EqDisplay.h"
+#include "ui/DominionPage.h"
 #include "ui/EqPage.h"
 #include "ui/Finish.h"
 #include "ui/Footswitch.h"
@@ -226,6 +227,57 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 display->refresh();
             }
     }
+    // PARAGON_SNAPSHOT_PAGE=dominion opens DOMINION's page (stomp 5's name).
+    // PARAGON_SNAPSHOT_DOMINION=1: DOMINION on, a few depth-curve bands, and
+    // pink noise with three resonances (180 Hz boom, 2.5 kHz ring, 6.3 kHz
+    // whistle) through it, so the graph shows its cuts.
+    if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_PAGE", {}) == "dominion")
+    {
+        std::vector<Footswitch*> stomps;
+        std::function<void (juce::Component&)> collect = [&] (juce::Component& c)
+        {
+            if (auto* stomp = dynamic_cast<Footswitch*> (&c))
+                stomps.push_back (stomp);
+            for (auto* child : c.getChildren())
+                collect (*child);
+        };
+        collect (*editor);
+        REQUIRE (stomps.size() == 7);
+        stomps[4]->onSelect();
+        if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_DOMINION", {}) == "1")
+            if (auto* display = findType<DominionDisplay> (*editor))
+            {
+                processor.getParameters().getParameter (ParamIDs::domOn)->setValueNotifyingHost (1.0f);
+                display->createBand (dominion::Shape::lowCut, 60.0, 0.0);
+                display->createBand (dominion::Shape::bell, 2800.0, 6.0);
+                display->createBand (dominion::Shape::highShelf, 9000.0, -6.0);
+                juce::Random random (3);
+                double b[3] {};
+                juce::AudioBuffer<float> buffer (2, 256);
+                juce::MidiBuffer midi;
+                for (int block = 0, n = 0; block < 900; ++block)
+                {
+                    for (int i = 0; i < 256; ++i, ++n)
+                    {
+                        const auto white = random.nextFloat() * 2.0 - 1.0;
+                        b[0] = 0.99765 * b[0] + white * 0.0990460;
+                        b[1] = 0.96300 * b[1] + white * 0.2965164;
+                        b[2] = 0.57000 * b[2] + white * 1.0526913;
+                        const auto t = n / 48000.0;
+                        const auto x = 0.05 * (b[0] + b[1] + b[2] + white * 0.1848)
+                                     + 0.12 * std::sin (2.0 * juce::MathConstants<double>::pi * 180.0 * t)
+                                     + 0.10 * std::sin (2.0 * juce::MathConstants<double>::pi * 2500.0 * t)
+                                     + 0.05 * std::sin (2.0 * juce::MathConstants<double>::pi * 6300.0 * t);
+                        buffer.setSample (0, i, (float) x);
+                        buffer.setSample (1, i, (float) x);
+                    }
+                    processor.processBlock (buffer, midi);
+                }
+                display->select (1);
+                display->refresh();
+            }
+    }
+
     // PARAGON_SNAPSHOT_MATCH=1 (with PAGE=eq): EQ Match open, having heard
     // pink noise as the track and a brighter, thinner noise as the reference.
     if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_MATCH", {}) == "1")
@@ -252,7 +304,7 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 display->refresh();
         }
 
-    // PARAGON_SNAPSHOT_BLOCK=n opens block n's panel in the dock (0 = the EQ overview, 1 = COMP, 2 = the LIMITER, 3 = the TUNER panel).
+    // PARAGON_SNAPSHOT_BLOCK=n opens block n's panel in the dock (0 = the EQ overview, 1 = DOMINION's page, 2 = COMP, 3 = the LIMITER, 4 = the TUNER panel).
     if (const auto block = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_BLOCK", {}); block.isNotEmpty())
         if (auto* chain = findType<SignalChain> (*editor))
             chain->onSelect (block.getIntValue());

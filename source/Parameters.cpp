@@ -1,5 +1,6 @@
 #include "Parameters.h"
 
+#include "dsp/dominion/Dominion.h"
 #include "dsp/eq/Dynamics.h"
 #include "dsp/eq/EqDesign.h"
 
@@ -182,6 +183,51 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         layout.add (makeFloat (ParamIDs::compMakeUp, "Comp Make Up", { 0.0f, compMakeUpMax, 0.1f }, 0.0f, v33, asDb));
         layout.add (makeChoice (ParamIDs::compCharacter, "Comp Character", v33, compCharacters, 0));
         layout.add (makeSwitch (ParamIDs::compLink, "Comp Link", v33, true));
+    }
+
+    // Stomp 5, DOMINION (0.10.0).
+    {
+        constexpr int v34 = 34;
+        const ToText plain = [] (float v, int) { return juce::String (v, 1); };
+        const ToText percent = [] (float v, int) { return juce::String (juce::roundToInt (v)) + "%"; };
+        const ToText tilt = [] (float v, int) { return (v > 0.05f ? "+" : "") + juce::String (juce::roundToInt (v)); };
+        const ToText maxCut = [] (float v, int) { return v >= (float) dominion::maxCutLimitDb - 0.05f ? juce::String ("Off") : juce::String (v, 1) + " dB"; };
+        layout.add (makeSwitch (ParamIDs::domOn, "Dominion", v34, false));
+        layout.add (makeChoice (ParamIDs::domMode, "Dominion Mode", v34, dominion::modeNames, 0));
+        layout.add (makeFloat (ParamIDs::domDepth, "Dominion Depth", { 0.0f, 20.0f, 0.01f }, 5.0f, v34, plain));
+        layout.add (makeFloat (ParamIDs::domDetail, "Dominion Detail", { 0.0f, 100.0f, 0.1f }, 50.0f, v34, percent));
+        layout.add (makeFloat (ParamIDs::domAttack, "Dominion Attack", { 0.0f, 100.0f, 0.1f }, 50.0f, v34, percent));
+        layout.add (makeFloat (ParamIDs::domRelease, "Dominion Release", { 0.0f, 100.0f, 0.1f }, 50.0f, v34, percent));
+        layout.add (makeChoice (ParamIDs::domStereo, "Dominion Stereo", v34, dominion::stereoNames, 1));
+        layout.add (makeFloat (ParamIDs::domLink, "Dominion Link", { 0.0f, 100.0f, 1.0f }, 100.0f, v34, percent));
+        layout.add (makeFloat (ParamIDs::domFocus, "Dominion Focus", { -100.0f, 100.0f, 1.0f }, 0.0f, v34, tilt));
+        for (const auto* id : { ParamIDs::domDetailLow, ParamIDs::domDetailHigh, ParamIDs::domAttackLow, ParamIDs::domAttackHigh,
+                                ParamIDs::domReleaseLow, ParamIDs::domReleaseHigh })
+        {
+            const auto name = juce::String ("Dominion ") + juce::String (id).fromFirstOccurrenceOf ("dom", false, false);
+            layout.add (makeFloat (id, name, { -100.0f, 100.0f, 1.0f }, 0.0f, v34, tilt));
+        }
+        layout.add (makeFloat (ParamIDs::domMaxCut, "Dominion Max Cut", { 0.0f, (float) dominion::maxCutLimitDb, 0.1f },
+                               (float) dominion::maxCutLimitDb, v34, maxCut));
+        layout.add (makeFloat (ParamIDs::domWetTrim, "Dominion Wet Trim", { -12.0f, 12.0f, 0.1f }, 0.0f, v34, asDb));
+        layout.add (makeFloat (ParamIDs::domMix, "Dominion Mix", { 0.0f, 100.0f, 1.0f }, 100.0f, v34, percent));
+        layout.add (makeFloat (ParamIDs::domOut, "Dominion Out", { -12.0f, 12.0f, 0.1f }, 0.0f, v34, asDb));
+        layout.add (makeSwitch (ParamIDs::domDelta, "Dominion Delta", v34, false));
+        for (int band = 0; band < ParamIDs::domNumBands; ++band)
+        {
+            const auto id = [band] (const char* what) { return ParamIDs::domBand (band, what); };
+            const auto name = [band] (const juce::String& what) { return "Dominion Band " + juce::String (band + 1) + " " + what; };
+            const dominion::Band defaults;
+            layout.add (makeSwitch (id ("Used").toRawUTF8(), name ("Used"), v34, false));
+            layout.add (makeSwitch (id ("On").toRawUTF8(), name ("On"), v34, true));
+            layout.add (makeChoice (id ("Shape").toRawUTF8(), name ("Shape"), v34, dominion::shapeNames, (int) dominion::Shape::bell));
+            layout.add (makeFloat (id ("Freq").toRawUTF8(), name ("Frequency"), logRange (20.0, 20000.0), (float) defaults.frequency, v34, asFrequency));
+            layout.add (makeFloat (id ("Depth").toRawUTF8(), name ("Depth"), { (float) -dominion::maxDepthDb, (float) dominion::maxDepthDb, 0.01f },
+                                   0.0f, v34, asDb));
+            layout.add (makeFloat (id ("Q").toRawUTF8(), name ("Q"), logRange (0.1, 10.0), (float) defaults.q, v34, asQ));
+            layout.add (makeChoice (id ("Slope").toRawUTF8(), name ("Slope"), v34, eq::slopeNames, eq::defaultSlope));
+            layout.add (makeFloat (id ("Focus").toRawUTF8(), name ("Focus"), { -100.0f, 100.0f, 1.0f }, 0.0f, v34, tilt));
+        }
     }
 
     // Stomp 7, the LIMITER (0.8.0): ranges and defaults as on PR7-C.

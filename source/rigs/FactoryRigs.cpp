@@ -1,6 +1,7 @@
 #include "FactoryRigs.h"
 
 #include "Parameters.h"
+#include "dsp/dominion/Dominion.h"
 #include "dsp/eq/EqDesign.h"
 
 // PR7-E's factory rigs (0.6.0): starting points for the EQ stomp, filed by
@@ -245,6 +246,36 @@ std::vector<Rig> makeFactoryRigs()
                 rig.parameters[ParamIDs::compRelease] = c.release;
                 rig.parameters[ParamIDs::compAuto] = c.autoRelease ? 1.0f : 0.0f;
                 rig.notes << c.note;
+            }
+
+    // DOMINION (0.10.0) where harshness and ringing are common: SOFT, gentle
+    // depths, and a low cut on its depth curve so the low end is left alone
+    // (and, on the mix, a lift round 3 kHz, where harshness lives).
+    struct DominionSpec { const char* rig; float depth, detail, lowCutHz, bellHz, bellDb; const char* note; };
+    const DominionSpec dominions[] = {
+        { "Lead Vocal",            4.0f, 60.0f, 150.0f, 0.0f,    0.0f, " DOMINION smooths harsh, ringing resonances as they happen." },
+        { "Overheads",             5.0f, 70.0f, 400.0f, 0.0f,    0.0f, " DOMINION tames ringing cymbals and room resonances." },
+        { "Acoustic Guitar",       4.0f, 50.0f, 120.0f, 0.0f,    0.0f, " DOMINION smooths boomy and harsh spots in the body and strings." },
+        { "Mix Harshness Control", 2.5f, 40.0f, 200.0f, 3000.0f, 6.0f, " DOMINION gently smooths resonances, most of all round 3 kHz." },
+    };
+    for (const auto& d : dominions)
+        for (auto& rig : rigs)
+            if (rig.name == d.rig)
+            {
+                rig.parameters[ParamIDs::domOn] = 1.0f;
+                rig.parameters[ParamIDs::domDepth] = d.depth;
+                rig.parameters[ParamIDs::domDetail] = d.detail;
+                const auto band = [&rig] (int index, dominion::Shape shape, float hz, float depthDb)
+                {
+                    rig.parameters[ParamIDs::domBand (index, "Used")] = 1.0f;
+                    rig.parameters[ParamIDs::domBand (index, "Shape")] = (float) shape;
+                    rig.parameters[ParamIDs::domBand (index, "Freq")] = hz;
+                    rig.parameters[ParamIDs::domBand (index, "Depth")] = depthDb;
+                };
+                band (0, dominion::Shape::lowCut, d.lowCutHz, 0.0f);
+                if (d.bellHz > 0.0f)
+                    band (1, dominion::Shape::bell, d.bellHz, d.bellDb);
+                rig.notes << d.note;
             }
 
     // The mastering rigs end with the LIMITER (0.8.0): BRICK, a -1 dB ceiling,

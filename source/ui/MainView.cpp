@@ -135,11 +135,13 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
                       { "OUTPUT", { { ParamIDs::limitTrim, "OUTPUT TRIM" } } } }),
       signalChain (processorToShow.getParameters(), {
           { "EQ", Icons::Type::eq, ParagonColours::eq, ParamIDs::eqOn },
+          { "DOMINION", Icons::Type::filterPitch, juce::Colour (0xffb86dff), ParamIDs::domOn },
           { "COMP", Icons::Type::comp, ParagonColours::delay, ParamIDs::compOn },
           { "LIMITER", Icons::Type::comp, ParagonColours::comp, ParamIDs::limitOn } }),
       rigBrowser (processorToShow),
       settingsPage (processorToShow),
-      eqPage (processorToShow)
+      eqPage (processorToShow),
+      dominionPage (processorToShow)
 {
     auto& state = processorToShow.getParameters();
 
@@ -281,7 +283,12 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
         return bands == 0 ? juce::String ("No bands yet") : juce::String (bands) + (bands == 1 ? " band" : " bands");
     });
     footswitches[3]->onSelect = [this] { showPage (Page::eq); };
-    addStomp (5, "RESONANCE", {}, noBlock, planned ("Resonance suppression: to plan"));
+    // DOMINION: resonance suppression, inspired by soothe; its name opens its own page.
+    addStomp (5, "DOMINION", { ParamIDs::domOn }, dominionBlock, [this]
+    {
+        return valueText (ParamIDs::domMode) + "  DEPTH " + valueText (ParamIDs::domDepth) + "  DETAIL " + valueText (ParamIDs::domDetail);
+    });
+    footswitches[4]->onSelect = [this] { showPage (Page::dominion); };
     addStomp (6, "AUTO EQ", {}, noBlock, planned ("Adaptive EQ: to plan"));
     // LIMITER: PR7-C's limiter and output trim, last in the chain; its name opens its knobs.
     addStomp (7, "LIMITER", { ParamIDs::limitOn }, limiterBlock, [this]
@@ -320,6 +327,8 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     eqPanel.onOpen = [this] { showPage (Page::eq); };
     eqPage.onClose = [this] { showPage (Page::processor); };
     addChildComponent (eqPage);
+    dominionPage.onClose = [this] { showPage (Page::processor); };
+    addChildComponent (dominionPage);
 
     closePanel.setTooltip ("Back to the EQ");
     closePanel.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff151217));
@@ -334,7 +343,13 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     selectedRig.onSave = [this] { saveRig(); };
     selectedRig.onSaveAs = [this] { rigBrowser.promptSaveAs(); };
 
-    signalChain.onSelect = [this] (int block) { selectBlock (block); };
+    signalChain.onSelect = [this] (int block)
+    {
+        if (block == dominionBlock)
+            showPage (Page::dominion);
+        else
+            selectBlock (block);
+    };
     addAndMakeVisible (signalChain);
     addChildComponent (rigBrowser);
     addChildComponent (settingsPage);
@@ -383,7 +398,7 @@ void MainView::selectBlock (int block)
     if (block != eqBlock)
         closePanel.toFront (false);
 
-    const int footswitchBlocks[] = { tunerBlock, compBlock, noBlock, eqBlock, noBlock, noBlock, limiterBlock };
+    const int footswitchBlocks[] = { tunerBlock, compBlock, noBlock, eqBlock, dominionBlock, noBlock, limiterBlock };
     static_assert (std::size (footswitchBlocks) == std::tuple_size_v<decltype (footswitches)>);
     for (size_t i = 0; i < footswitches.size(); ++i)
         footswitches[i]->setSelected (footswitchBlocks[i] == block);
@@ -405,6 +420,9 @@ void MainView::showPage (Page newPage)
     eqPage.setVisible (newPage == Page::eq);
     if (newPage == Page::eq)
         eqPage.getDisplay().grabKeyboardFocus();
+    dominionPage.setVisible (newPage == Page::dominion);
+    if (newPage == Page::dominion)
+        dominionPage.getDisplay().grabKeyboardFocus();
     selectBlock (selectedBlock);
 }
 
@@ -686,4 +704,5 @@ void MainView::resized()
     rigBrowser.setBounds (pageArea);
     settingsPage.setBounds (pageArea);
     eqPage.setBounds (pageArea);
+    dominionPage.setBounds (pageArea);
 }

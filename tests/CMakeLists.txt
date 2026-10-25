@@ -14,6 +14,7 @@ add_executable(ParagonX1Tests
     EqTests.cpp
     LimiterTests.cpp
     CompressorTests.cpp
+    DominionTests.cpp
     PerformanceTests.cpp
     EditorSnapshot.cpp)
 

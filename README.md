@@ -26,7 +26,7 @@ stomps are still being planned, one at a time with the owner.
 | **2 Comp** | PR7-C's compressor, ported (a multiband version inspired by FabFilter Pro-MB is a possible later step) | Works: VCA, OPTO and FET; threshold, ratio, attack, release, auto, make up, link |
 | **3 Inserts** | Host other plugins in slots inside PR7-E and open their editors (a mini rack) | Placeholder |
 | **4 EQ** | An EQ inspired by FabFilter Pro-Q 4 (our own design) | Works: 24 bands on its own page, any of them dynamic, and EQ Match |
-| **5 Resonance** | Resonance suppression inspired by oeksound soothe (our own design) | Placeholder |
+| **5 Dominion** | Resonance suppression inspired by oeksound soothe 3 (our own design) | Works: Soft and Hard, the depth curve, stereo/mid-side, tilts, delta and band listen, on its own page |
 | **6 Auto EQ** | Adaptive EQ inspired by Soundtheory Gullfoss (a "maybe"; our own design) | Placeholder |
 | **7 Limiter** | The output trim / limiter from PR7-C, ported | Works: Brick, Soft and Auto, make up, mix, link, output trim |
 
@@ -50,6 +50,10 @@ none of those products' names or branding go on the plugin.
   - **EQ Match** (MATCH, top of the page): listens to your track and a reference (another part of the song, a song
     file, or a saved reference), then proposes bands that make your track's tone like the reference's. DETAIL (a few
     broad bands or more, finer ones) and AMOUNT (how much of the difference), then ADD BANDS.
+- **DOMINION (stomp 5)**, inspired by oeksound soothe 3: finds what rings, whistles or builds up as the track plays and
+  turns just that down. MODE (Soft: what sticks out, at any level; Hard: what's loud), DEPTH, DETAIL, ATTACK, RELEASE; a
+  graph of what it's cutting, with a depth curve of up to 8 bands to steer it; stereo or mid/side, LINK and FOCUS; tilts
+  for the lows and highs; MAX CUT, WET TRIM, DELTA, MIX and OUT. Click its name for its page. Zero latency.
 - **COMP (stomp 2)**, PR7-C's compressor, after the EQ: CHARACTER (VCA clean, OPTO smooth, FET fast with a little grit),
   THRESHOLD, RATIO (from Soft, a curve that firms up with level, to infinite), ATTACK, RELEASE, AUTO release, MAKE UP and
   LINK. Its panel shows the gain reduction.
@@ -62,7 +66,7 @@ none of those products' names or branding go on the plugin.
   flat the part sits overall. **RESET** (in the panel, or the key on the unit) starts the trace and average again. It
   keeps listening with the window closed. The reference pitch for A4 is in SETTINGS.
 - **Stereo throughout:** both channels pass through as they came in, apart from what the stomps do (a mono track plays on
-  both speakers). **Signal chain** (bottom strip): input → EQ → COMP → LIMITER → output, growing as the stomps are built.
+  both speakers). **Signal chain** (bottom strip): input → EQ → DOMINION → COMP → LIMITER → output, growing as the stomps are built.
 - **PRESENCE** cuts or boosts the top end (above about 3.5 kHz).
 - **Rigs:** SAVE in the header saves the current sound as a rig; **<** and **>** step through rigs; a `*` after the name
   means it's changed since loading. The **PRESETS** tab browses, files (banks A-E), tags and favourites rigs. The factory
@@ -132,5 +136,5 @@ It uses:
 - [JUCE](https://github.com/juce-framework/JUCE): AGPLv3
 - The Inter typeface (in `resources/fonts`) by Rasmus Andersson, under the SIL Open Font License
 
-FabFilter Pro-Q, oeksound soothe and Soundtheory Gullfoss are their makers' products. PR7-E's stomps are only inspired
+FabFilter Pro-Q and Pro-MB, oeksound soothe and Soundtheory Gullfoss are their makers' products. PR7-E's stomps are only inspired
 by how they're described and behave; it isn't affiliated with or endorsed by any of them.
