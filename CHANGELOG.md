@@ -2,6 +2,10 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.10.1
+
+- **Menus in the PR7 family's colours.** Every drop-down and right-click menu (DOMINION's band shapes, the EQ's, MODE, CHARACTER, the rig menus...) is now black with white text, as on PR7-C, and the item under the mouse lights up with a red to pink to orange gradient. They were the plain grey menus before.
+
 ## 0.10.0
 
 - **DOMINION (stomp 5): dynamic resonance suppression, inspired by oeksound soothe 3.** It finds the parts of the sound that ring, whistle or build up as the track plays, and turns just those down, moment by moment, then lets go. Our own design from soothe's manual (soothe's algorithm isn't published, and the numbers in ours are our choices). Press stomp 5 to switch it on; click its name (or DOMINION in the signal chain) for its page.

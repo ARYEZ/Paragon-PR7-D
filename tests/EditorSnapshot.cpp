@@ -8,6 +8,7 @@
 #include "ui/EqPage.h"
 #include "ui/Finish.h"
 #include "ui/Footswitch.h"
+#include "ui/ParagonLookAndFeel.h"
 
 namespace
 {
@@ -312,6 +313,30 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         editor->setSize (width, width * 9 / 16);
     editor->resized();
     const auto image = editor->createComponentSnapshot (editor->getLocalBounds());
+
+    juce::File file (juce::File::getCurrentWorkingDirectory().getChildFile (path));
+    file.deleteFile();
+    juce::FileOutputStream stream (file);
+    REQUIRE (stream.openedOk());
+    REQUIRE (juce::PNGImageFormat().writeImageToStream (image, stream));
+}
+
+// PARAGON_SNAPSHOT=menu.png ./ParagonX1Tests "[snapshot-menu]": a drop-down
+// menu as the plugin draws it (menus open in their own window, so the editor
+// snapshot can't show one): DOMINION's band shapes, Bell ticked, one highlighted.
+TEST_CASE ("Render a drop-down menu to a PNG", "[.][snapshot-menu]")
+{
+    const auto path = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT", "menu.png");
+    ParagonLookAndFeel look;
+    const juce::StringArray items { "Low Cut", "Low Shelf", "High Shelf", "High Cut", "Bell", "Band Pass", "Band Reject", "Tilt" };
+    constexpr int scale = 2, width = 150, itemHeight = 26;
+    juce::Image image (juce::Image::ARGB, width * scale, (itemHeight * items.size() + 8) * scale, true);
+    juce::Graphics g (image);
+    g.addTransform (juce::AffineTransform::scale ((float) scale));
+    look.drawPopupMenuBackground (g, width, itemHeight * items.size() + 8);
+    for (int i = 0; i < items.size(); ++i)
+        look.drawPopupMenuItem (g, { 0, 4 + i * itemHeight, width, itemHeight }, false, true, i == 2, items[i] == "Bell", false,
+                                items[i], {}, nullptr, nullptr);
 
     juce::File file (juce::File::getCurrentWorkingDirectory().getChildFile (path));
     file.deleteFile();

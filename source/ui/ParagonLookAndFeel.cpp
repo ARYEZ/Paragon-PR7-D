@@ -23,6 +23,94 @@ ParagonLookAndFeel::ParagonLookAndFeel()
     setColour (juce::TooltipWindow::backgroundColourId, ParagonColours::panel);
     setColour (juce::TooltipWindow::textColourId, ParagonColours::text);
     setColour (juce::TooltipWindow::outlineColourId, ParagonColours::panelEdge);
+
+    // Menus: black with white text, as on PR7-C (the highlight is drawn, below).
+    setColour (juce::PopupMenu::backgroundColourId, juce::Colour (0xff050405));
+    setColour (juce::PopupMenu::textColourId, juce::Colours::white);
+    setColour (juce::PopupMenu::headerTextColourId, juce::Colours::white);
+    setColour (juce::PopupMenu::highlightedBackgroundColourId, juce::Colour (0xffe0103c));
+    setColour (juce::PopupMenu::highlightedTextColourId, juce::Colours::white);
+}
+
+juce::ColourGradient ParagonLookAndFeel::menuHighlight (juce::Rectangle<float> area)
+{
+    // Red, through hot pink, to orange, left to right.
+    juce::ColourGradient gradient (juce::Colour (0xffe0103c), area.getX(), 0.0f, juce::Colour (0xffff7a1a), area.getRight(), 0.0f, false);
+    gradient.addColour (0.5, juce::Colour (0xffff2f7a));
+    return gradient;
+}
+
+void ParagonLookAndFeel::drawPopupMenuBackground (juce::Graphics& g, int width, int height)
+{
+    const auto bounds = juce::Rectangle<float> ((float) width, (float) height);
+    g.fillAll (findColour (juce::PopupMenu::backgroundColourId));
+    g.setColour (ParagonColours::panelEdge);
+    g.drawRect (bounds, 1.0f);
+}
+
+void ParagonLookAndFeel::drawPopupMenuItem (juce::Graphics& g, const juce::Rectangle<int>& area, bool isSeparator, bool isActive,
+                                            bool isHighlighted, bool isTicked, bool hasSubMenu, const juce::String& text,
+                                            const juce::String& shortcutKeyText, const juce::Drawable* icon, const juce::Colour* textColour)
+{
+    if (isSeparator)
+    {
+        g.setColour (ParagonColours::panelEdge);
+        g.fillRect (area.reduced (6, 0).withSizeKeepingCentre (area.getWidth() - 12, 1));
+        return;
+    }
+
+    auto r = area.reduced (2, 1).toFloat();
+    if (isHighlighted && isActive)
+    {
+        g.setGradientFill (menuHighlight (r));
+        g.fillRoundedRectangle (r, 3.0f);
+    }
+
+    const auto colour = ! isActive ? juce::Colours::white.withAlpha (0.35f)
+                                   : (textColour != nullptr && ! isHighlighted ? *textColour : juce::Colours::white);
+    g.setColour (colour);
+    auto font = getPopupMenuFont();
+    const auto maxFontHeight = r.getHeight() / 1.3f;
+    if (font.getHeight() > maxFontHeight)
+        font.setHeight (maxFontHeight);
+    g.setFont (font);
+
+    auto textArea = r.reduced (8.0f, 0.0f);
+    auto tickArea = textArea.removeFromLeft (font.getHeight() * 0.9f);
+    if (icon != nullptr)
+        icon->drawWithin (g, tickArea.reduced (2.0f), juce::RectanglePlacement::centred | juce::RectanglePlacement::onlyReduceInSize, 1.0f);
+    else if (isTicked)
+    {
+        // A tick, in white.
+        const auto tick = tickArea.withSizeKeepingCentre (tickArea.getWidth() * 0.7f, tickArea.getWidth() * 0.7f);
+        juce::Path path;
+        path.startNewSubPath (tick.getX(), tick.getCentreY());
+        path.lineTo (tick.getX() + tick.getWidth() * 0.38f, tick.getBottom());
+        path.lineTo (tick.getRight(), tick.getY());
+        g.strokePath (path, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+
+    if (hasSubMenu)
+    {
+        const auto arrowH = 0.6f * font.getAscent();
+        const auto x = textArea.removeFromRight (arrowH).getX();
+        const auto halfH = textArea.getCentreY();
+        juce::Path arrow;
+        arrow.startNewSubPath (x, halfH - arrowH * 0.5f);
+        arrow.lineTo (x + arrowH * 0.6f, halfH);
+        arrow.lineTo (x, halfH + arrowH * 0.5f);
+        g.strokePath (arrow, juce::PathStrokeType (1.6f));
+    }
+
+    textArea.removeFromRight (3.0f);
+    g.drawFittedText (text, textArea.toNearestInt(), juce::Justification::centredLeft, 1);
+    if (shortcutKeyText.isNotEmpty())
+    {
+        auto small = font;
+        small.setHeight (small.getHeight() * 0.75f);
+        g.setFont (small);
+        g.drawText (shortcutKeyText, textArea, juce::Justification::centredRight, true);
+    }
 }
 
 void ParagonLookAndFeel::drawToggleButton (juce::Graphics& g, juce::ToggleButton& button, bool highlighted, bool)

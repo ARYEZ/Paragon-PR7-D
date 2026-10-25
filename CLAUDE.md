@@ -62,6 +62,7 @@ Stomps not built yet are placeholders: a `Footswitch` with no parameter IDs (dar
   - `PARAGON_SNAPSHOT_BLOCK=0` (the dock's EQ overview), `1` (DOMINION's page), `2` (COMP), `3` (the LIMITER) or `4` (the TUNER panel); `PARAGON_SNAPSHOT_TUNER=1` (a sung phrase in the tuner's trace).
   - `PARAGON_SNAPSHOT_PAGE=dominion` (DOMINION's page) with `PARAGON_SNAPSHOT_DOMINION=1` (on, three depth-curve bands, pink noise with resonances at 180 Hz, 2.5 kHz and 6.3 kHz through it).
   - `PARAGON_SNAPSHOT_EQ=1` (a mix-bus set of EQ bands with noise through the analyser; band 3 is dynamic), `PARAGON_SNAPSHOT_EQ_BAND=n` (select band n), `PARAGON_SNAPSHOT_MATCH=1` (with `PAGE=eq`: EQ Match open, having heard a track and a brighter reference).
+  - Menus open in their own window, so the editor snapshot can't show one: `PARAGON_SNAPSHOT=menu.png ... "[snapshot-menu]"` draws a drop-down as the plugin's look-and-feel does (black, white text, the red-pink-orange highlight, as the owner asked in 0.10.1).
   - Render, look, crop and zoom before claiming a visual change is right.
 
 ## Releases
