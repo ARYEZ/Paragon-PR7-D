@@ -2,6 +2,18 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.6.0
+
+- **Factory rigs: 30 starting points for the EQ**, in the PRESETS tab, filed by what they're for (search their tags, e.g. "vocal" or "dynamic"). Each says what it does in its notes.
+  - **Bank A, vocals and voice:** Lead Vocal, Vocal De-Esser, Rap Vocal, Backing Vocals, Spoken Voice (podcasts, voice-overs), Vocal Mud Control. Init stays at A01.
+  - **Bank B, drums:** Kick Punch, Kick Boom Control, Snare Crack, Hi-Hat Tame, Overheads, Drum Bus.
+  - **Bank C, bass, guitars and keys:** Bass DI, 808 Control, Electric Guitar, Acoustic Guitar, Piano, Pad, Make Room.
+  - **Bank D, the full mix:** Mix Bus Polish, Mix Mud Control, Mix Harshness Control, Mix Wider Top, Mix Warmer, Mix Brighter.
+  - **Bank E, mastering:** Master Gentle Polish, Master Low-End Control, Master De-Harsh, Master Width, Master Warm Tilt, Master Bright Tilt.
+- **What they are:** common mixing moves (cutting rumble and mud, adding presence and air, keeping the bass centred), not copies of anyone's presets. Problems that come and go (sibilance, boomy notes, harsh moments) use dynamic bands with AUTO, so they only act when the problem is there. No rig boosts more than 4.5 dB anywhere; the mastering rigs move 2 dB at most. Every track is different: load one, then adjust by ear (and save your version with SAVE).
+- **Not yet:** the mastering rigs are EQ only. A limiter comes with stomp 7.
+- Your own rigs in bank A now file from A08 (Init and the vocal rigs take A01 to A07). Rigs you've already saved keep their places; a factory rig shows first if one shares a slot.
+
 ## 0.5.0
 
 - **Dynamic EQ.** Any bell, shelf or tilt band can now be **dynamic**: its gain moves only when its own part of the sound gets loud, like a compressor working on just that part of the spectrum. Inspired by Pro-Q 4's dynamic EQ, as its manual describes it; how ours listens and reacts is our own design (FabFilter doesn't publish theirs).

@@ -102,14 +102,28 @@ TEST_CASE ("Every factory rig is valid", "[rigs]")
     CHECK (slots.size() == (int) makeFactoryRigs().size());   // no two in the same slot
 }
 
-TEST_CASE ("PR7-E starts with one empty factory rig, Init; PR7-B's bass rigs are gone", "[rigs]")
+TEST_CASE ("PR7-E's factory rigs: Init at A01, then vocals, drums, instruments, mix and mastering; PR7-B's are gone", "[rigs]")
 {
     const auto rigs = makeFactoryRigs();
-    REQUIRE (rigs.size() == 1);
+    REQUIRE (rigs.size() > 25);
     CHECK (rigs.front().name == "Init");
     CHECK (rigs.front().getSlotName() == "A01");
     CHECK (rigs.front().parameters.empty());   // everything at its default: every block off
-    CHECK (rigs.front().notes.isNotEmpty());
+
+    // Each bank has at least four, each says what it's for, and each (but
+    // Init) switches the EQ on.
+    std::array<int, Rig::numBanks> perBank {};
+    for (const auto& rig : rigs)
+    {
+        INFO (rig.name);
+        ++perBank[(size_t) rig.bank];
+        CHECK (rig.notes.isNotEmpty());
+        CHECK_FALSE (rig.tags.isEmpty());
+        if (rig.name != "Init")
+            CHECK (rig.parameters.at (ParamIDs::eqOn) == 1.0f);
+    }
+    for (const auto count : perBank)
+        CHECK (count >= 4);
 
     RigRig r;
     for (const auto* bassRig : { "Clean DI", "Studio Bass", "Chorus Bass", "Dub Delay", "Hysteria (Muse)", "Absolomb (Periphery)" })
@@ -219,7 +233,7 @@ TEST_CASE ("Rigs are sorted by bank and number, and < > wrap round", "[rigs]")
     CHECK (library.step (&entries.front(), -1) == &entries.back());
     CHECK (library.step (nullptr, 1) == &entries.front());
 
-    CHECK (library.nextFreeNumber (0) == 2);   // Init fills A01
+    CHECK (library.nextFreeNumber (0) == 8);   // Init and the vocal rigs fill A01 to A07
 }
 
 TEST_CASE ("Saving and loading a rig restores the sound but not the global knobs", "[rigs]")
@@ -312,14 +326,18 @@ TEST_CASE ("< and > step through the rigs in order", "[rigs]")
 {
     RigRig r;
     r.processor.loadRig (r.entryNamed ("Init"));
-    REQUIRE (r.processor.saveCurrentRigAs ("Second"));   // filed after Init, at A02
-    REQUIRE (r.processor.saveCurrentRigAs ("Third"));    // A03
-    r.processor.loadRig (r.entryNamed ("Init"));
+    REQUIRE (r.processor.saveCurrentRigAs ("Second"));   // filed after bank A's factory rigs, at A08
+    REQUIRE (r.processor.saveCurrentRigAs ("Third"));    // A09
+    CHECK (r.entryNamed ("Second").rig.getSlotName() == "A08");
+    r.processor.loadRig (r.entryNamed ("Vocal Mud Control"));   // A07
     r.processor.stepRig (1);
     CHECK (r.processor.getCurrentRig().name == "Second");
-    r.processor.stepRig (-1);
+    r.processor.stepRig (1);
+    r.processor.stepRig (1);   // on into bank B
+    CHECK (r.processor.getCurrentRig().name == "Kick Punch");
+    r.processor.loadRig (r.entryNamed ("Init"));
     r.processor.stepRig (-1);   // wraps round to the last rig
-    CHECK (r.processor.getCurrentRig().name == "Third");
+    CHECK (r.processor.getCurrentRig().name == "Master Bright Tilt");
 }
 
 TEST_CASE ("Deleting the loaded rig keeps the sound, now unsaved", "[rigs]")

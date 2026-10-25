@@ -56,9 +56,10 @@ none of those products' names or branding go on the plugin.
   both speakers). **Signal chain** (bottom strip): input → EQ → output, growing as the stomps are built.
 - **PRESENCE** cuts or boosts the top end (above about 3.5 kHz).
 - **Rigs:** SAVE in the header saves the current sound as a rig; **<** and **>** step through rigs; a `*` after the name
-  means it's changed since loading. The **PRESETS** tab browses, files (banks A-E), tags and favourites rigs. There's one
-  factory rig, **Init** (everything off), until the stomps are built. INPUT and OUTPUT stay put when you switch rigs;
-  each rig has its own **RIG LEVEL**, which adds to OUTPUT.
+  means it's changed since loading. The **PRESETS** tab browses, files (banks A-E), tags and favourites rigs. The factory
+  rigs are EQ starting points: **A** vocals and voice (with **Init**, everything off, at A01), **B** drums, **C** bass,
+  guitars and keys, **D** the full mix, **E** mastering. INPUT and OUTPUT stay put when you switch rigs; each rig has its
+  own **RIG LEVEL**, which adds to OUTPUT.
 - **TAP** (header or pedal): holding it switches the tuner on. Tapping still sets a tempo, but nothing uses one since
   the delay went in 0.3.0.
 - **Undo / redo:** the header arrows, UNDO / REDO on the pedal, or Ctrl+Z / Ctrl+Shift+Z (Cmd on a Mac).

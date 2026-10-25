@@ -6,6 +6,7 @@
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 #include "dsp/eq/EqDesign.h"
+#include "rigs/FactoryRigs.h"
 #include "ui/EqDisplay.h"
 #include "ui/EqPage.h"
 #include "ui/Footswitch.h"
@@ -896,4 +897,114 @@ TEST_CASE ("Dynamic EQ display and page: Alt+double-click, the range handle, Alt
     CHECK_THAT (bands.get (0, "Dyn"), WithinAbs (0.0, 0.1));
     page.refreshControls();
     CHECK_FALSE (page.isShowingDynamics());
+}
+
+//==============================================================================
+// Factory rigs (0.6.0): they do what their notes say.
+namespace
+{
+    void loadFactory (EqRig& rig, const juce::String& name)
+    {
+        const auto* entry = rig.processor.getRigLibrary().findFactory (name);
+        REQUIRE (entry != nullptr);
+        rig.processor.loadRig (*entry);
+        rig.play (0.3, silence(), silence());   // the EQ settles on the new settings
+    }
+
+    // The stereo curve's largest boost and cut from `fromHz` to `toHz`.
+    std::pair<double, double> curveExtremes (const eq::ParametricEq::Settings& settings, double fromHz, double toHz,
+                                             eq::Placement which = eq::Placement::stereo)
+    {
+        double most = -1000.0, least = 1000.0;
+        for (auto hz = fromHz; hz <= toHz; hz *= 1.02)
+        {
+            const auto db = eq::ParametricEq::curveDb (settings, hz, EqRig::sampleRate, which);
+            most = std::max (most, db);
+            least = std::min (least, db);
+        }
+        return { most, least };
+    }
+}
+
+TEST_CASE ("Factory rigs: none boosts wildly, mastering ones move 2 dB at most, and all play cleanly", "[eq][rigs]")
+{
+    juce::Random random (3);
+    for (const auto& factory : makeFactoryRigs())
+    {
+        INFO (factory.name);
+        EqRig rig;
+        loadFactory (rig, factory.name);
+        const auto settings = rig.processor.getEqSettings();
+        CHECK (settings.on == (factory.name != "Init"));
+
+        for (const auto placement : { eq::Placement::stereo, eq::Placement::mid, eq::Placement::side })
+        {
+            const auto [most, least] = curveExtremes (settings, 40.0, 16000.0, placement);
+            CHECK (most <= 4.5);   // starting points, not drastic
+            if (factory.bank == 4 && placement == eq::Placement::stereo)   // mastering
+            {
+                CHECK (most <= 2.0);
+                CHECK (least >= -2.0);
+            }
+        }
+
+        // Noise through it: nothing blows up or jumps out.
+        const auto noise = [&random] (int) { return (random.nextFloat() * 2.0f - 1.0f) * 0.25f; };
+        const auto out = rig.play (0.5, noise, noise);
+        float peak = 0.0f;
+        for (const auto& channel : out)
+            for (const auto sample : channel)
+            {
+                REQUIRE (std::isfinite (sample));
+                peak = std::max (peak, std::abs (sample));
+            }
+        CHECK (peak < 0.8f);
+    }
+}
+
+TEST_CASE ("Factory rigs: Kick Punch, Mix Brighter and Master Gentle Polish change the levels they say", "[eq][rigs]")
+{
+    const auto level = [] (const juce::String& name, double hz)
+    {
+        EqRig rig;
+        loadFactory (rig, name);
+        return outDb (rig, 0.5, hz, -20.0) + 20.0;   // the change in dB
+    };
+    // Kick: weight at 60 Hz up, the box at 350 Hz down.
+    CHECK (level ("Kick Punch", 60.0) > 2.0);
+    CHECK (level ("Kick Punch", 350.0) < -3.0);
+    // 0.6 dB an octave: 8 kHz (three octaves up) +1.8 dB, 125 Hz -1.8 dB.
+    CHECK_THAT (level ("Mix Brighter", 8000.0), WithinAbs (1.8, 0.3));
+    CHECK_THAT (level ("Mix Brighter", 125.0), WithinAbs (-1.8, 0.3));
+    // A master's middle barely moves.
+    CHECK_THAT (level ("Master Gentle Polish", 1000.0), WithinAbs (0.0, 0.5));
+}
+
+TEST_CASE ("Factory rigs: Vocal De-Esser acts only on loud sibilance; Mix Wider Top leaves the middle alone", "[eq][rigs][dynamic]")
+{
+    {
+        EqRig rig;
+        loadFactory (rig, "Vocal De-Esser");
+        // Steady, quiet highs: left alone once AUTO has settled...
+        rig.play (3.0, toneDb (6500.0, -40.0), toneDb (6500.0, -40.0));
+        CHECK_THAT (outDb (rig, 0.5, 6500.0, -40.0), WithinAbs (-40.0, 0.3));
+        // ...a loud S is pulled down at once, and the rest of the voice isn't.
+        const auto sibilant = [] (int n) { return toneDb (6500.0, -12.0) (n) + toneDb (300.0, -12.0) (n); };
+        const auto out = rig.play (0.1, sibilant, sibilant);
+        CHECK (rig.processor.getEqDynamics (0).changeDb < -4.0f);
+        CHECK_THAT (levelDb (out[0], 300.0), WithinAbs (-12.0, 0.1));
+    }
+    {
+        EqRig rig;
+        loadFactory (rig, "Mix Wider Top");
+        // The same on both sides (all middle): untouched, so a mono playback sounds the same.
+        CHECK_THAT (outDb (rig, 0.5, 10000.0, -20.0), WithinAbs (-20.0, 0.01));
+        CHECK_THAT (outDb (rig, 0.5, 60.0, -20.0), WithinAbs (-20.0, 0.01));
+        // Opposite on each side (all sides): the top lifted, by the side curve (1.5 dB at 10 kHz, 2 dB above).
+        const auto side = toneDb (10000.0, -20.0);
+        const auto out = rig.play (0.5, side, [&side] (int n) { return -side (n); });
+        const auto lift = eq::ParametricEq::curveDb (rig.processor.getEqSettings(), 10000.0, EqRig::sampleRate, eq::Placement::side);
+        CHECK (lift > 1.0);
+        CHECK_THAT (levelDb (out[0], 10000.0), WithinAbs (-20.0 + lift, 0.05));
+    }
 }
