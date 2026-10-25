@@ -82,7 +82,7 @@ jobs:
   # above, zipped, with notes from CHANGELOG.md.
   release:
     name: Release
-    if: github.event_name == 'push'
+    if: false && github.event_name == 'push'   # off until PR7-E's checklist is done (see CLAUDE.md)
     needs: build
     runs-on: ubuntu-24.04
     permissions:
