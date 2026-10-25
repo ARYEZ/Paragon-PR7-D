@@ -2,6 +2,10 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.10.2
+
+- **DOMINION's cuts in the menus' colours.** On its graph, what DOMINION is cutting is now drawn in the same red to pink to orange gradient as the menus' highlight (left to right across the spectrum: red in the lows, pink in the middle, orange in the highs) instead of violet. With stereo or mid/side unlinked, the second channel's cuts show fainter behind.
+
 ## 0.10.1
 
 - **Menus in the PR7 family's colours.** Every drop-down and right-click menu (DOMINION's band shapes, the EQ's, MODE, CHARACTER, the rig menus...) is now black with white text, as on PR7-C, and the item under the mouse lights up with a red to pink to orange gradient. They were the plain grey menus before.

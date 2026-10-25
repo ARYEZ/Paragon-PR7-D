@@ -206,7 +206,8 @@ void DominionDisplay::paint (juce::Graphics& g)
     const auto& d = processor.getDominion();
     const auto zero = yForDb (0.0);
 
-    // What it's cutting now: the right/side channel lighter, behind the left/mid.
+    // What it's cutting now, in the menus' red to pink to orange (left to
+    // right across the graph): the right/side channel fainter, behind the left/mid.
     const auto channels = shown.stereo == dominion::StereoMode::midSide || shown.link < 99.5 ? 2 : 1;
     for (int c = channels - 1; c >= 0; --c)
     {
@@ -216,10 +217,13 @@ void DominionDisplay::paint (juce::Graphics& g)
             area.lineTo (xForFrequency (d.getFrequency (k)), yForDb (-(double) d.getReductionDb (c, k)));
         area.lineTo (plot.getRight(), zero);
         area.closeSubPath();
-        const auto colour = c == 0 ? dominionColour : dominionColour.brighter (0.6f);
-        g.setColour (colour.withAlpha (c == 0 ? 0.55f : 0.3f));
+        auto fill = ParagonLookAndFeel::menuHighlight (plot);
+        fill.multiplyOpacity (c == 0 ? 0.7f : 0.3f);
+        g.setGradientFill (fill);
         g.fillPath (area);
-        g.setColour (colour);
+        auto edge = ParagonLookAndFeel::menuHighlight (plot);
+        edge.multiplyOpacity (c == 0 ? 1.0f : 0.5f);
+        g.setGradientFill (edge);
         g.strokePath (area, juce::PathStrokeType (1.2f));
     }
 
