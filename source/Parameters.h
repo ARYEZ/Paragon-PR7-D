@@ -4,176 +4,77 @@
 
 // Parameter IDs are saved in DAW projects and presets, so never rename one
 // once it has shipped. Add new parameters with a new ID instead.
+//
+// IDs that are gone, never to be reused (a project or rig that still has them
+// loads fine: they're ignored):
+//   - before 0.1.0 shipped: PR7-B's ampOn, ampNormalise, cabOn, and the bass
+//     drives' drive*, gotham* and dual*;
+//   - in 0.2.0: tunerMute;
+//   - in 0.3.0, with PR7-B's effects (they were mono, and PR7-E is a stereo
+//     utility): comp*, gateThreshold, fp*, glitch*, lofi*, mod*, delay*,
+//     reverb*, pitchTune, oct*, freeze*;
+//   - in 0.4.0, with the graphic EQ the new EQ replaced: eq33, eq80, eq150,
+//     eq300, eq500, eq900, eq2k, eq5k, eq9k, eqLevel, eqUltraLo, eqUltraHi.
 namespace ParamIDs
 {
-    inline constexpr auto inputGain    = "inputGain";
-    inline constexpr auto outputGain   = "outputGain";
-    inline constexpr auto ampOn        = "ampOn";
-    inline constexpr auto ampNormalise = "ampNormalise";
-    inline constexpr auto cabOn        = "cabOn";
+    inline constexpr auto inputGain  = "inputGain";
+    inline constexpr auto outputGain = "outputGain";
+    inline constexpr auto presence   = "presence";    // the PRESENCE knob on the face
+    inline constexpr auto rigLevel   = "rigLevel";    // the RIG LEVEL knob on the face
+    inline constexpr auto bypass     = "bypass";
 
-    // Phase 3
-    inline constexpr auto presence       = "presence";
-
-    inline constexpr auto compOn         = "compOn";
-    inline constexpr auto compThreshold  = "compThreshold";
-    inline constexpr auto compRatio      = "compRatio";
-    inline constexpr auto compLevel      = "compLevel";
-    inline constexpr auto gateThreshold  = "gateThreshold";
-
-    inline constexpr auto driveOn        = "driveOn";
-    inline constexpr auto driveGain      = "driveGain";
-    inline constexpr auto driveLevel     = "driveLevel";
-
-    // The OBSIDIAN's other knobs (its DRIVE is driveGain, and driveLevel is its OUTPUT trim).
-    // "dual" is from its first name, DUAL ENGINE (0.4.0): IDs are saved, so they stay.
-    // driveType chooses the model: OBSIDIAN or GOTHAM, whose knobs follow.
-    inline constexpr auto driveType       = "driveType";
-    inline constexpr auto gothamLevel     = "gothamLevel";
-    inline constexpr auto gothamBlend     = "gothamBlend";
-    inline constexpr auto gothamTreble    = "gothamTreble";
-    inline constexpr auto gothamBass      = "gothamBass";
-    inline constexpr auto gothamDrive     = "gothamDrive";
-    inline constexpr auto gothamPresence  = "gothamPresence";
-    // SPLIT: the lows go around the drive, clean (both models).
-    inline constexpr auto driveSplit      = "driveSplit";
-    inline constexpr auto driveSplitHz    = "driveSplitHz";
-    inline constexpr auto driveSplitLows  = "driveSplitLows";
-    inline constexpr auto dualMod    = "dualMod";
-    inline constexpr auto dualLevel  = "dualLevel";
-    inline constexpr auto dualBlend  = "dualBlend";
-    inline constexpr auto dualBass   = "dualBass";
-    inline constexpr auto dualMid    = "dualMid";
-    inline constexpr auto dualTreble = "dualTreble";
-    inline constexpr auto dualGrowl  = "dualGrowl";
-    inline constexpr auto dualBite   = "dualBite";
-
-    inline constexpr auto modOn          = "modOn";
-    inline constexpr auto modType        = "modType";
-    inline constexpr auto modRate        = "modRate";
-    inline constexpr auto modDepth       = "modDepth";
-    inline constexpr auto modMix         = "modMix";
-    // AEON's (the flanger's) MANUAL and RES; it shares RATE and DEPTH.
-    inline constexpr auto modManual      = "modManual";
-    inline constexpr auto modRes         = "modRes";
-
-    inline constexpr auto delayOn        = "delayOn";
-    inline constexpr auto delayTime      = "delayTime";
-    inline constexpr auto delaySync      = "delaySync";
-    inline constexpr auto delayFeedback  = "delayFeedback";
-    inline constexpr auto delayTone      = "delayTone";
-    inline constexpr auto delayMix       = "delayMix";
-    inline constexpr auto delayPingPong  = "delayPingPong";
-
-    inline constexpr auto reverbOn       = "reverbOn";
-    inline constexpr auto reverbSize     = "reverbSize";
-    inline constexpr auto reverbTone     = "reverbTone";
-    inline constexpr auto reverbMix      = "reverbMix";
-
-    // Phase 4
-    inline constexpr auto rigLevel       = "rigLevel";
-
-    // Phase 5
-    inline constexpr auto bypass         = "bypass";
-
-    // Phase 6
-    inline constexpr auto tunerOn          = "tunerOn";
-    inline constexpr auto tunerMute        = "tunerMute";
+    inline constexpr auto tunerOn          = "tunerOn";            // stomp 1
     inline constexpr auto expression       = "expression";        // the pedal's position, 0 heel to 1 toe
     inline constexpr auto expressionTarget = "expressionTarget";  // what the pedal controls
     inline constexpr auto expressionMin    = "expressionMin";     // the target's setting at the heel...
     inline constexpr auto expressionMax    = "expressionMax";     // ...and at the toe
 
-    // Phase 8: the 9-band graphic EQ, one band per octave.
-    inline constexpr auto eqOn    = "eqOn";
-    inline constexpr auto eqLevel = "eqLevel";
-    // The bass EQ's bands (PR7-G's were 63 Hz to 16 kHz, with their own IDs).
-    inline const juce::StringArray eqBands { "eq33", "eq80", "eq150", "eq300", "eq500", "eq900", "eq2k", "eq5k", "eq9k" };
-    inline const juce::StringArray eqBandNames { "33", "80", "150", "300", "500", "900", "2K", "5K", "9K" };
-    inline constexpr auto eqUltraLo = "eqUltraLo";
-    inline constexpr auto eqUltraHi = "eqUltraHi";
+    // Stomp 4, the EQ (inspired by FabFilter Pro-Q 4; see dsp/eq). eqOn is
+    // the stomp's switch (before 0.4.0 it switched the graphic EQ).
+    inline constexpr auto eqOn        = "eqOn";
+    inline constexpr auto eqOutput    = "eqOutput";
+    inline constexpr auto eqGainScale = "eqGainScale";
+    inline constexpr auto eqAutoGain  = "eqAutoGain";
+    inline constexpr int eqNumBands = 24;
+    // Each band's settings: "eqB1Used", "eqB1Freq"... `what` is one of the names below.
+    // From 0.5.0, its dynamics: Dyn (the range), DynAuto, Thresh, Attack, Release.
+    inline juce::String eqBand (int band, const char* what) { return "eqB" + juce::String (band + 1) + what; }
+    inline constexpr const char* eqBandSettings[] = { "Used", "On", "Shape", "Freq", "Gain", "Q", "Slope", "Place",
+                                                      "Dyn", "DynAuto", "Thresh", "Attack", "Release" };
 
-    // Modulation tempo sync: Off, or a note length at the tapped or host tempo.
-    inline constexpr auto modSync = "modSync";
-
-    // Version 10: the FILTER / PITCH block: auto-wah and pitch shifter.
-    inline constexpr auto fpOn          = "fpOn";
-    inline constexpr auto fpType        = "fpType";
-    inline constexpr auto fpSensitivity = "fpSensitivity";   // auto-wah
-    inline constexpr auto fpResonance   = "fpResonance";     // auto-wah
-    inline constexpr auto fpInterval    = "fpInterval";      // pitch shifter, in semitones
-    inline constexpr auto fpMix         = "fpMix";
-
-    // Version 12: the LO-FI block, last in the chain.
-    inline constexpr auto lofiOn     = "lofiOn";
-    inline constexpr auto lofiType   = "lofiType";
-    inline constexpr auto lofiAmount = "lofiAmount";
-    inline constexpr auto lofiNoise  = "lofiNoise";
-    inline constexpr auto lofiMix    = "lofiMix";
-    inline constexpr auto lofiLevel  = "lofiLevel";
-
-    // Version 15: the reverb's TYPE and PRE-DELAY.
-    inline constexpr auto reverbType     = "reverbType";
-    inline constexpr auto reverbPreDelay = "reverbPreDelay";
-
-    // Version 16: the delay's TYPE.
-    inline constexpr auto delayType = "delayType";
-
-    // Version 17: DUCK for the delay and the reverb.
-    inline constexpr auto delayDuck  = "delayDuck";
-    inline constexpr auto reverbDuck = "reverbDuck";
-
-    // Version 21: the FILTER / PITCH block's Whammy-Wah program (the XP-100's 01 to 28).
-    // (Version 20's "fpWhammyWahMode" was replaced by this the same day.)
-    inline constexpr auto fpXpProgram = "fpXpProgram";
-
-    // Version 22: the Daybreak compressor (COMP / GATE's second TYPE).
-    inline constexpr auto compType      = "compType";
-    inline constexpr auto compAmount    = "compAmount";      // COMP
-    inline constexpr auto compDetail    = "compDetail";      // DETAIL
-    inline constexpr auto compMix       = "compMix";         // MIX
-    inline constexpr auto compIntensity = "compIntensity";   // INTENSITY
-
-    // Version 23: the GLITCH block.
-    inline constexpr auto glitchOn       = "glitchOn";
-    inline constexpr auto glitchMode     = "glitchMode";
-    inline constexpr auto glitchPosition = "glitchPosition";   // Post (after the amp) or Pre (before it)
-    inline constexpr auto glitchSync     = "glitchSync";
-    inline constexpr auto glitchTime     = "glitchTime";       // LENGTH in ms, when not synced
-    inline constexpr auto glitchDivision = "glitchDivision";   // LENGTH as a note value, when synced
-    inline constexpr auto glitchDensity  = "glitchDensity";
-    inline constexpr auto glitchPitch    = "glitchPitch";
-    inline constexpr auto glitchChaos    = "glitchChaos";
-    inline constexpr auto glitchMix      = "glitchMix";
-
-    // Version 24: the PITCH block (first in the chain).
-    inline constexpr auto pitchTune      = "pitchTune";        // TUNING, semitones; 0 is standard (off)
-    inline constexpr auto octOn          = "octOn";            // the OCTAVER
-    inline constexpr auto octSubTwo      = "octSubTwo";
-    inline constexpr auto octSubOne      = "octSubOne";
-    inline constexpr auto octDry         = "octDry";
-    inline constexpr auto octUp          = "octUp";
-    inline constexpr auto freezeOn       = "freezeOn";         // FREEZE
-    inline constexpr auto freezeLevel    = "freezeLevel";
-    inline constexpr auto freezeAttack   = "freezeAttack";     // ms
-    inline constexpr auto freezeRelease  = "freezeRelease";    // ms
+    // Stomp 7, the LIMITER (0.8.0): PR7-C's limiter and output trim, ported.
+    // The last thing in the chain, after OUTPUT, RIG LEVEL and the volume pedal.
+    inline constexpr auto limitOn        = "limitOn";
+    inline constexpr auto limitThreshold = "limitThreshold";   // dBFS
+    inline constexpr auto limitMakeUp    = "limitMakeUp";      // dB
+    inline constexpr auto limitMode      = "limitMode";        // choice: Brick, Soft, Auto
+    inline constexpr auto limitMix       = "limitMix";         // %
+    inline constexpr auto limitLink      = "limitLink";        // both channels together
+    inline constexpr auto limitTrim      = "limitTrim";        // OUTPUT TRIM, dB, after the limiter
 
     // Global settings: kept when switching rigs. Everything else is part of a rig.
     // The expression pedal's position is global for the same reason a real
     // pedal's is: it's where your foot is, not part of the sound. What the
     // pedal is assigned to, and its range, are saved with each rig.
-    inline const juce::StringArray notInRigs { inputGain, outputGain, bypass, tunerOn, tunerMute, expression };
+    inline const juce::StringArray notInRigs { inputGain, outputGain, bypass, tunerOn, expression };
 }
 
 namespace ExpressionTargets
 {
-    // Saved by number: only ever add to the end.
-    enum { off, volume, wah, morph, pitch, loFi, whammyWah, glitch, talkBox };
-    inline const juce::StringArray names { "Off", "Volume", "Wah / Filter", "Morph FX", "Pitch / Whammy", "Lo-Fi", "Whammy-Wah", "Glitch", "Talk Box" };
+    // Saved by number: only ever add to the end. Before 0.3.0 the list went
+    // on with PR7-B's effects (2 to 8); projects and rigs from then that used
+    // those load with the pedal unassigned (see setStateInformation and Rig::fromXml).
+    enum { off, volume };
+    inline const juce::StringArray names { "Off", "Volume" };
 }
 
 namespace ParamRanges
 {
+    // The LIMITER's, as on PR7-C.
+    inline constexpr float limitThresholdMin = -20.0f, limitMakeUpMax = 12.0f;
+    inline constexpr float limitTrimMin = -12.0f, limitTrimMax = 12.0f;
+    inline const juce::StringArray limitModes { "Brick", "Soft", "Auto" };   // saved by index: only append
+
     inline constexpr float gainMinDb = -24.0f;
     inline constexpr float gainMaxDb = 24.0f;
 }

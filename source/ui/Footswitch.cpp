@@ -56,7 +56,8 @@ void Footswitch::refresh()
         summary = newSummary;
         // The settings show on hover; the RIG SUMMARY cards in the dock show them too.
         setTooltip (name + (summary.isNotEmpty() ? ":  " + summary : juce::String())
-                    + "\nPress the pad to switch on or off; click the name to edit.");
+                    + (isPlaceholder() ? juce::String ("\nNot built yet: this stomp is still being planned.")
+                                       : juce::String ("\nPress the pad to switch on or off; click the name to edit.")));
         repaint();
     }
 }

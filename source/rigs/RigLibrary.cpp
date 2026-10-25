@@ -24,16 +24,16 @@ RigLibrary::RigLibrary (juce::File folderToUse) : folder (std::move (folderToUse
 
 juce::File RigLibrary::defaultFolder()
 {
-    // Windows: %APPDATA%\Paragon\Paragon PR7-B\Rigs
-    // macOS:   ~/Library/Application Support/Paragon/Paragon PR7-B/Rigs (via userApplicationDataDirectory)
-    // Linux:   ~/.config/Paragon/Paragon PR7-B/Rigs
-    // Its own folder, apart from Paragon PR7-G's: guitar rigs don't carry over.
+    // Windows: %APPDATA%\Paragon\Paragon PR7-E\Rigs
+    // macOS:   ~/Library/Application Support/Paragon/Paragon PR7-E/Rigs (via userApplicationDataDirectory)
+    // Linux:   ~/.config/Paragon/Paragon PR7-E/Rigs
+    // Its own folder, apart from its siblings': PR7-B's bass rigs don't carry over.
     return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
           #if JUCE_MAC
            .getChildFile ("Application Support")
           #endif
            .getChildFile ("Paragon")
-           .getChildFile ("Paragon PR7-B")
+           .getChildFile ("Paragon PR7-E")
            .getChildFile ("Rigs");
 }
 
@@ -51,7 +51,7 @@ void RigLibrary::rescan()
     if (folder.isDirectory())
     {
         for (const auto& file : folder.findChildFiles (juce::File::findFiles, false,
-                                                         juce::String ("*") + Rig::fileExtension + ";*" + Rig::oldFileExtension))
+                                                         juce::String ("*") + Rig::fileExtension))
         {
             // Be strict about damaged files (e.g. cut short by a crash):
             // JUCE's parser accepts an unclosed opening tag without an error,
@@ -123,7 +123,6 @@ juce::File RigLibrary::saveAsNew (Rig rig)
         return {};
 
     rig.name = uniqueName (rig.name);
-    rig.keepAmpAndCab = false;
     const auto file = uniqueFileFor (rig.name);
     if (! writeRig (file, rig))
         return {};

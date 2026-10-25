@@ -5,16 +5,15 @@
 #include <map>
 #include <optional>
 
-// A rig: one complete sound. Every amp, cabinet and effect setting, the
-// model and IR files, and how it's filed (name, bank, number, tags).
+// A rig: one complete sound. Every effect setting, and how it's filed (name, bank, number, tags).
 //
 // The INPUT and OUTPUT knobs at the sides aren't part of a rig: they suit
-// the player's guitar and monitoring, not a particular sound, so switching
+// the player's instrument and monitoring, not a particular sound, so switching
 // rigs leaves them alone (as on hardware modellers). Each rig has its own
 // RIG LEVEL for balancing rigs against each other instead.
 struct Rig
 {
-    static constexpr int numBanks = 5;          // A to D, and E for the song-inspired rigs
+    static constexpr int numBanks = 5;          // A to E
     static constexpr int maxNumber = 99;
 
     juce::String name { "New Rig" };
@@ -30,15 +29,8 @@ struct Rig
     // saved before a parameter existed get that parameter's neutral setting.
     std::map<juce::String, float> parameters;
 
-    juce::String ampModelPath, cabIrPath;
-
-    // Free text shown with the rig: what it's for, and for the factory song
-    // rigs, the amp and cabinet to load with it (they can't ship captures).
+    // Free text shown with the rig: what it's for.
     juce::String notes;
-
-    // Factory rigs set only the effects: we can't ship other people's NAM
-    // captures, so they keep whatever amp and cabinet the user has loaded.
-    bool keepAmpAndCab = false;
 
     juce::String getSlotName() const;           // e.g. "A01"
     static juce::String bankName (int bank);    // "A".."E"
@@ -48,6 +40,4 @@ struct Rig
     static std::optional<Rig> fromXml (const juce::XmlElement&);
 
     static constexpr const char* fileExtension = ".pr7rig";
-    // From when the plugin was called Paragon X1: still read, never written.
-    static constexpr const char* oldFileExtension = ".x1rig";
 };

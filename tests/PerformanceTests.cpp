@@ -119,34 +119,34 @@ TEST_CASE ("Undo history steps back and forward and forgets redo after a new edi
 TEST_CASE ("Undo and redo take back whole knob moves", "[undo]")
 {
     TestRig rig;
-    rig.turn (ParamIDs::driveGain, 8.0f);
-    rig.turn (ParamIDs::delayMix, 0.6f);
+    rig.turn (ParamIDs::eqOutput, 8.0f);
+    rig.turn (ParamIDs::presence, 6.0f);
     REQUIRE (rig.processor.canUndo());
 
     rig.processor.undo();
-    CHECK_THAT (rig.value (ParamIDs::delayMix), WithinAbs (0.25, 1.0e-4));   // back to the default
-    CHECK_THAT (rig.value (ParamIDs::driveGain), WithinAbs (8.0, 1.0e-4));   // untouched
+    CHECK_THAT (rig.value (ParamIDs::presence), WithinAbs (0.0, 1.0e-4));   // back to the default
+    CHECK_THAT (rig.value (ParamIDs::eqOutput), WithinAbs (8.0, 1.0e-4));   // untouched
 
     rig.processor.undo();
-    CHECK_THAT (rig.value (ParamIDs::driveGain), WithinAbs (5.0, 1.0e-4));
+    CHECK_THAT (rig.value (ParamIDs::eqOutput), WithinAbs (0.0, 1.0e-4));
     CHECK_FALSE (rig.processor.canUndo());
 
     rig.processor.redo();
     rig.processor.redo();
-    CHECK_THAT (rig.value (ParamIDs::driveGain), WithinAbs (8.0, 1.0e-4));
-    CHECK_THAT (rig.value (ParamIDs::delayMix), WithinAbs (0.6, 1.0e-4));
+    CHECK_THAT (rig.value (ParamIDs::eqOutput), WithinAbs (8.0, 1.0e-4));
+    CHECK_THAT (rig.value (ParamIDs::presence), WithinAbs (6.0, 1.0e-4));
     CHECK_FALSE (rig.processor.canRedo());
 }
 
 TEST_CASE ("Undo doesn't take back the global knobs or the pedal position", "[undo]")
 {
     TestRig rig;
-    rig.turn (ParamIDs::driveGain, 7.0f);
+    rig.turn (ParamIDs::eqOutput, 7.0f);
     rig.turn (ParamIDs::outputGain, -6.0f);
     rig.turn (ParamIDs::expression, 0.3f);
 
     rig.processor.undo();
-    CHECK_THAT (rig.value (ParamIDs::driveGain), WithinAbs (5.0, 1.0e-4));
+    CHECK_THAT (rig.value (ParamIDs::eqOutput), WithinAbs (0.0, 1.0e-4));
     CHECK_THAT (rig.value (ParamIDs::outputGain), WithinAbs (-6.0, 1.0e-4));
     CHECK_THAT (rig.value (ParamIDs::expression), WithinAbs (0.3, 1.0e-3));
 }
@@ -154,22 +154,22 @@ TEST_CASE ("Undo doesn't take back the global knobs or the pedal position", "[un
 TEST_CASE ("Undoing a rig change brings back the previous rig and its name", "[undo][rigs]")
 {
     TestRig rig;
-    rig.turn (ParamIDs::reverbMix, 0.5f);
+    rig.turn (ParamIDs::presence, 5.0f);
 
-    const auto* surf = rig.processor.getRigLibrary().findFactory ("Tremolo Pulse");
-    REQUIRE (surf != nullptr);
-    rig.processor.loadRig (*surf);
+    const auto* init = rig.processor.getRigLibrary().findFactory ("Init");
+    REQUIRE (init != nullptr);
+    rig.processor.loadRig (*init);
     rig.processor.flushUndoStep();
-    CHECK (rig.processor.getCurrentRig().name == "Tremolo Pulse");
+    CHECK (rig.processor.getCurrentRig().name == "Init");
     CHECK_FALSE (rig.processor.isRigModified());
 
     rig.processor.undo();
     CHECK (rig.processor.getCurrentRig().name == "Untitled");
-    CHECK_THAT (rig.value (ParamIDs::reverbMix), WithinAbs (0.5, 1.0e-4));
+    CHECK_THAT (rig.value (ParamIDs::presence), WithinAbs (5.0, 1.0e-4));
     CHECK (rig.processor.isRigModified());   // it was edited before the rig change
 
     rig.processor.redo();
-    CHECK (rig.processor.getCurrentRig().name == "Tremolo Pulse");
+    CHECK (rig.processor.getCurrentRig().name == "Init");
     CHECK_FALSE (rig.processor.isRigModified());
 }
 
@@ -195,24 +195,57 @@ TEST_CASE ("Tapped tempo replaces the DAW's until cleared, and is saved", "[tap]
     CHECK_THAT (rig.processor.getTappedBpm(), WithinAbs (tapped, 1.0e-9));
 }
 
-TEST_CASE ("The tuner mutes the output, unless told not to", "[tuner]")
+TEST_CASE ("The tuner never changes the sound: no mute, so you hear the recording you're checking", "[tuner]")
 {
+    // The same tone, played through two plugins, one with the tuner on:
+    // every sample comes out the same.
+    TestRig off, on;
+    on.turn (ParamIDs::tunerOn, 1.0f);
+
+    juce::AudioBuffer<float> a (2, blockSize), b (2, blockSize);
+    juce::MidiBuffer midi;
+    for (int block = 0; block < 40; ++block)
+    {
+        for (auto* buffer : { &a, &b })
+        {
+            buffer->clear();
+            for (int i = 0; i < blockSize; ++i)
+                buffer->setSample (0, i, 0.3f * (float) std::sin (juce::MathConstants<double>::twoPi * 220.0 * (block * blockSize + i) / sampleRate));
+        }
+        off.processor.processBlock (a, midi);
+        on.processor.processBlock (b, midi);
+        on.processor.updateTuner();
+        for (int channel = 0; channel < 2; ++channel)
+            for (int i = 0; i < blockSize; ++i)
+                REQUIRE (a.getSample (channel, i) == b.getSample (channel, i));
+    }
+    CHECK (b.getMagnitude (0, 0, blockSize) > 0.25f);
+    CHECK (on.processor.getTuner().getReading().hasNote);   // and it was listening
+}
+
+TEST_CASE ("A 0.1.0 project saved with the tuner on and muting plays out loud", "[tuner][state]")
+{
+    // 0.1.0 had a MUTE for the tuner, on by default. A project saved with it
+    // (and the tuner left on) must not come back silent.
+    juce::MemoryBlock saved;
+    {
+        TestRig old;
+        old.turn (ParamIDs::tunerOn, 1.0f);
+        old.processor.getStateInformation (saved);
+    }
+    auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
+    REQUIRE (xml != nullptr);
+    auto* mute = xml->createNewChildElement ("PARAM");
+    mute->setAttribute ("id", "tunerMute");
+    mute->setAttribute ("value", 1.0);
+    juce::MemoryBlock oldProject;
+    juce::AudioProcessor::copyXmlToBinary (*xml, oldProject);
+
     TestRig rig;
     const auto normal = rig.play (0.3);
-    REQUIRE (normal > 0.05f);
-
-    rig.turn (ParamIDs::tunerOn, 1.0f);
-    CHECK (rig.play (0.1) == 0.0f);
-
-    rig.turn (ParamIDs::tunerMute, 0.0f);
-    CHECK_THAT (rig.play (0.1), WithinAbs (normal, 0.01));
-
-    // And the tuner can hear the guitar while muted.
-    rig.turn (ParamIDs::tunerMute, 1.0f);
-    rig.play (0.3);
-    std::vector<float> heard (8192);
-    rig.processor.getInputTap().readLatest (heard.data(), (int) heard.size());
-    CHECK (*std::max_element (heard.begin(), heard.end()) > 0.2f);
+    rig.processor.setStateInformation (oldProject.getData(), (int) oldProject.getSize());
+    CHECK (rig.processor.getParameters().getRawParameterValue (ParamIDs::tunerOn)->load() > 0.5f);
+    CHECK_THAT (rig.play (0.3), WithinAbs (normal, 0.01));
 }
 
 TEST_CASE ("Expression pedal as a volume pedal, within its MIN and MAX", "[expression]")
@@ -253,95 +286,43 @@ TEST_CASE ("MIDI CC 11 moves the expression pedal", "[expression]")
     CHECK_THAT (rig.play (0.2, midi), WithinAbs (full, 0.005));
 }
 
-TEST_CASE ("Expression pedal as WAH and MORPH FX", "[expression]")
+TEST_CASE ("A project from before 0.3.0 with the pedal on an effect that's gone loads unassigned, not silent", "[expression][state]")
 {
-    TestRig rig;
-    const auto clean = rig.play (0.3);
-
-    // A 220 Hz tone is below the wah's sweep: loud at the heel, cut at the toe.
-    rig.turn (ParamIDs::expressionTarget, (float) ExpressionTargets::wah);
-    rig.turn (ParamIDs::expression, 0.0f);
-    const auto heel = rig.play (0.3);
-    rig.turn (ParamIDs::expression, 1.0f);
-    const auto toe = rig.play (0.3);
-    CHECK (heel > 2.0f * toe);
-
-    // MORPH at the heel: the time effects are dry, so the output is the clean tone.
-    rig.turn (ParamIDs::expressionTarget, (float) ExpressionTargets::morph);
-    rig.turn (ParamIDs::reverbOn, 1.0f);
-    rig.turn (ParamIDs::reverbType, 4.0f);   // plate: dense from the first moment, so its effect shows within the half second
-    rig.turn (ParamIDs::reverbMix, 1.0f);
-    rig.turn (ParamIDs::expression, 0.0f);
-    CHECK_THAT (rig.play (0.5), WithinAbs (clean, 0.005));
-    rig.turn (ParamIDs::expression, 1.0f);
-    CHECK (std::abs (rig.play (0.5) - clean) > 0.02f);
-}
-
-TEST_CASE ("Expression pedal as a WHAMMY bends the pitch shifter", "[expression][pitch]")
-{
-    // The pitch shifter set an octave up, all wet; the pedal sweeps from
-    // no shift at the heel to the full octave at the toe.
-    ParagonX1AudioProcessor processor;
-    processor.setPlayConfigDetails (1, 1, 48000.0, 256);
-    processor.prepareToPlay (48000.0, 256);
-    const auto set = [&] (const char* id, float plainValue)
+    // 0.1.0 and 0.2.0 could assign the pedal to PR7-B's effects (WAH was 2,
+    // TALK BOX 8). Those are gone; a project that used one must not come
+    // back as a VOLUME pedal sitting at the heel, which would be silent.
+    juce::MemoryBlock saved;
     {
-        auto* parameter = processor.getParameters().getParameter (id);
-        parameter->setValueNotifyingHost (parameter->convertTo0to1 (plainValue));
-    };
-    set (ParamIDs::fpOn, 1.0f);
-    set (ParamIDs::fpType, (float) effects::FilterPitch::Type::pitchShifter);
-    set (ParamIDs::fpInterval, 12.0f);
-    set (ParamIDs::fpMix, 1.0f);
-    set (ParamIDs::expressionTarget, (float) ExpressionTargets::pitch);
-
-    // Plays a 300 Hz tone for half a second; returns its level at `hz` over the last 0.3 s.
-    const auto levelAt = [&] (double hz)
+        TestRig old;
+        old.processor.getStateInformation (saved);
+    }
+    for (const auto oldTarget : { 2, 8 })
     {
-        std::vector<float> output;
-        juce::AudioBuffer<float> buffer (1, 256);
-        juce::MidiBuffer midi;
-        for (int start = 0; start < 24000; start += 256)
-        {
-            for (int i = 0; i < 256; ++i)
-                buffer.setSample (0, i, 0.3f * (float) std::sin (juce::MathConstants<double>::twoPi * 300.0 * (start + i) / 48000.0));
-            processor.processBlock (buffer, midi);
-            output.insert (output.end(), buffer.getReadPointer (0), buffer.getReadPointer (0) + 256);
-        }
-        const auto coefficient = 2.0 * std::cos (juce::MathConstants<double>::twoPi * hz / 48000.0);
-        double s1 = 0.0, s2 = 0.0;
-        for (size_t i = 9600; i < output.size(); ++i)
-        {
-            const auto s0 = output[i] + coefficient * s1 - s2;
-            s2 = s1;
-            s1 = s0;
-        }
-        return std::sqrt (std::max (0.0, s1 * s1 + s2 * s2 - coefficient * s1 * s2));
-    };
+        INFO ("Old target " << oldTarget);
+        auto xml = juce::AudioProcessor::getXmlFromBinary (saved.getData(), (int) saved.getSize());
+        REQUIRE (xml != nullptr);
+        xml->removeAttribute ("parameterVersion");   // as 0.1.0 and 0.2.0 wrote it
+        for (auto* param : xml->getChildWithTagNameIterator ("PARAM"))
+            if (param->getStringAttribute ("id") == ParamIDs::expressionTarget)
+                param->setAttribute ("value", oldTarget);
+        juce::MemoryBlock oldProject;
+        juce::AudioProcessor::copyXmlToBinary (*xml, oldProject);
 
-    set (ParamIDs::expression, 0.0f);
-    CHECK (levelAt (300.0) > 10.0 * levelAt (600.0));   // heel: the note as played
-    set (ParamIDs::expression, 1.0f);
-    CHECK (levelAt (600.0) > 10.0 * levelAt (300.0));   // toe: an octave up
-    set (ParamIDs::expression, 7.0f / 12.0f);
-    CHECK (levelAt (300.0 * std::exp2 (7.0 / 12.0)) > 10.0 * levelAt (300.0));   // part way: a fifth up
-}
+        TestRig rig;
+        const auto normal = rig.play (0.3);
+        rig.processor.setStateInformation (oldProject.getData(), (int) oldProject.getSize());
+        CHECK (juce::roundToInt (rig.value (ParamIDs::expressionTarget)) == ExpressionTargets::off);
+        CHECK_THAT (rig.play (0.3), WithinAbs (normal, 0.01));
+    }
 
-TEST_CASE ("Expression pedal as LO-FI sweeps from the full band into the phone", "[expression][lofi]")
-{
+    // A project saved now keeps VOLUME as VOLUME.
     TestRig rig;
-    const auto clean = rig.play (0.3);
-
-    // A 220 Hz tone is below the telephone's band: it passes at the heel
-    // (no lo-fi) and is mostly cut at the toe (all lo-fi).
-    rig.turn (ParamIDs::lofiOn, 1.0f);
-    rig.turn (ParamIDs::lofiType, (float) effects::LoFi::Type::telephone);
-    rig.turn (ParamIDs::lofiNoise, 0.0f);
-    rig.turn (ParamIDs::expressionTarget, (float) ExpressionTargets::loFi);
-    rig.turn (ParamIDs::expression, 0.0f);
-    CHECK_THAT (rig.play (0.5), WithinAbs (clean, 0.01));
-    rig.turn (ParamIDs::expression, 1.0f);
-    CHECK (rig.play (0.5) < 0.3f * clean);
+    rig.turn (ParamIDs::expressionTarget, (float) ExpressionTargets::volume);
+    juce::MemoryBlock current;
+    rig.processor.getStateInformation (current);
+    TestRig restored;
+    restored.processor.setStateInformation (current.getData(), (int) current.getSize());
+    CHECK (juce::roundToInt (restored.value (ParamIDs::expressionTarget)) == ExpressionTargets::volume);
 }
 
 TEST_CASE ("SETTINGS: the pedal's MIDI CC and the tuner's reference are saved with the project", "[expression][settings]")

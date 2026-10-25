@@ -1,468 +1,238 @@
 #include "FactoryRigs.h"
 
 #include "Parameters.h"
+#include "dsp/eq/EqDesign.h"
 
+// PR7-E's factory rigs (0.6.0): starting points for the EQ stomp, filed by
+// what they're for. Bank A: vocals and voice; B: drums; C: bass, guitars
+// and keys; D: the full mix; E: mastering.
+//
+// They're common mixing moves (cut the mud, add presence and air, tame
+// sibilance and boom), not copies of anyone's presets, and every track is
+// different: they're meant to be tweaked by ear. Problems that come and go
+// (sibilance, boomy notes, harsh hits) use dynamic bands with AUTO, so they
+// only act when the problem is there. Mastering rigs move a dB or two at
+// most, and end with the LIMITER as a -1 dB safety ceiling. None of them
+// touch PRESENCE or RIG LEVEL.
 namespace
 {
-    Rig make (const juce::String& name, int bank, int number, const juce::String& tags,
-              std::initializer_list<std::pair<const char*, float>> changes, const juce::String& notes = {})
+    using eq::Shape;
+    using eq::Placement;
+
+    // A band, as a rig sets it. Slope in dB/oct; a range makes it dynamic (AUTO threshold).
+    struct BandSpec
+    {
+        Shape shape;
+        double frequency, gainDb = 0.0, q = 1.0;
+        int slopeDb = 12;
+        Placement placement = Placement::stereo;
+        double dynamicRangeDb = 0.0;
+        double attack = 0.5, release = 0.5;
+    };
+
+    BandSpec cut (Shape shape, double hz, int slopeDb, Placement placement = Placement::stereo)
+    {
+        return { shape, hz, 0.0, 1.0, slopeDb, placement };
+    }
+
+    BandSpec bell (double hz, double gainDb, double q, Placement placement = Placement::stereo)
+    {
+        return { Shape::bell, hz, gainDb, q, 12, placement };
+    }
+
+    BandSpec shelf (Shape shape, double hz, double gainDb, double q = 0.7, Placement placement = Placement::stereo)
+    {
+        return { shape, hz, gainDb, q, 12, placement };
+    }
+
+    BandSpec tilt (double gainDb) { return { Shape::flatTilt, 1000.0, gainDb }; }   // gainDb / 10 dB per octave round 1 kHz
+
+    // A band that moves by `rangeDb` when its part gets loud (and `gainDb` otherwise).
+    BandSpec dynamic (BandSpec band, double rangeDb, double attack = 0.5, double release = 0.5)
+    {
+        band.dynamicRangeDb = rangeDb;
+        band.attack = attack;
+        band.release = release;
+        return band;
+    }
+
+    int slopeIndex (int dbPerOctave)
+    {
+        for (int i = 0; i < eq::numSlopes; ++i)
+            if (eq::slopes[i] == dbPerOctave)
+                return i;
+        jassertfalse;
+        return eq::defaultSlope;
+    }
+
+    Rig makeRig (const juce::String& name, int bank, int number, const juce::StringArray& tags, const juce::String& notes,
+                 const std::vector<BandSpec>& bands)
     {
         Rig rig;
         rig.name = name;
-        rig.notes = notes;
         rig.bank = bank;
         rig.number = number;
-        rig.tags = juce::StringArray::fromTokens (tags, ",", {});
-        rig.keepAmpAndCab = true;
-        // Only the changes from the defaults: loading a rig resets every
-        // parameter it doesn't mention to its default (every effect off).
-        for (const auto& [id, value] : changes)
-            rig.parameters[id] = value;
+        rig.tags = tags;
+        rig.notes = notes;
+        rig.parameters[ParamIDs::eqOn] = 1.0f;
+        for (int i = 0; i < (int) bands.size() && i < ParamIDs::eqNumBands; ++i)
+        {
+            const auto& b = bands[(size_t) i];
+            const auto set = [&] (const char* what, double value) { rig.parameters[ParamIDs::eqBand (i, what)] = (float) value; };
+            set ("Used", 1.0);
+            set ("On", 1.0);
+            set ("Shape", (double) b.shape);
+            set ("Freq", b.frequency);
+            set ("Gain", b.gainDb);
+            set ("Q", b.q);
+            set ("Slope", slopeIndex (b.slopeDb));
+            set ("Place", (double) b.placement);
+            if (std::abs (b.dynamicRangeDb) > 0.0)
+            {
+                set ("Dyn", b.dynamicRangeDb);
+                set ("DynAuto", 1.0);
+                set ("Attack", b.attack);
+                set ("Release", b.release);
+            }
+        }
         return rig;
     }
 
-    // Delay sync choices (index into effects::Delay::syncNames).
-    constexpr float syncOff = 0, quarter = 3, eighth = 6, dottedEighth = 7;
-    // Modulation types (index into effects::Modulation::typeNames).
-    constexpr float chorus = 0, flanger = 1, phaser = 2, tremolo = 3, dimension = 4, uniVibe = 5, rotary = 6, vibrato = 7,
-                    harmonicTremolo = 8, autoPan = 9, doubler = 10;
-    // FILTER / PITCH types.
-    constexpr float autoWah = 0, pitchShifter = 1, whammyWah = 2, talkBoxType = 3;
-    constexpr float pedalTalkBox = 8;   // the expression pedal's TALK BOX setting
-    constexpr float daybreakComp = 1;   // COMP / GATE's TYPE
-    constexpr float glitchSequence = 1, glitchTexturizer = 3, glitchSixteenth = 3;   // GLITCH's MODE and LENGTH
-    constexpr float pedalGlitch = 7;   // the expression pedal's GLITCH setting
-    constexpr float pedalWah = 2;      // the expression pedal's WAH / FILTER setting
-    constexpr float glitchKillswitch = 4;
-    constexpr int E = 4;               // bank E: rigs inspired by particular songs
-    constexpr float digitalDelay = 0;
-    constexpr float xpCryWah = 1, xpUpOctave = 12, xpOctDownOctUp = 20, xpUp4thUp5th = 23;   // Whammy-Wah programs 02, 13, 21 and 24
-    constexpr float pedalWhammyWah = 6;   // the expression pedal's WHAMMY-WAH setting
-    // Delay types (index into effects::Delay::typeNames).
-    constexpr float analogDelay = 1, tapeDelay = 2, modDelay = 3, reverseDelay = 4, multiTap = 5, shimmer = 6, ducking = 7;
-    // Reverb types (index into effects::Reverb::typeNames).
-    constexpr float room = 1, hall = 2, cathedral = 3, plate = 4, spring = 5, digital = 6, reverse = 7;
-    // LO-FI types.
-    constexpr float telephone = 0, amRadio = 1, megaphone = 2, cassette = 3, bitcrusher = 4;
-    // The graphic EQ's bands, by their parameter IDs (ParamIDs::eqBands).
-    constexpr auto eq33 = "eq33", eq80 = "eq80", eq150 = "eq150", eq300 = "eq300", eq500 = "eq500",
-                   eq900 = "eq900", eq2k = "eq2k", eq5k = "eq5k", eq9k = "eq9k";
+    constexpr int vocals = 0, drums = 1, instruments = 2, mix = 3, mastering = 4;
 }
 
 std::vector<Rig> makeFactoryRigs()
 {
-    using namespace ParamIDs;
-    constexpr int A = 0, B = 1, C = 2, D = 3;
-    constexpr float obsidian = 0, gotham = 1;   // OD / DISTORTION's MODEL
+    std::vector<Rig> rigs;
 
-    // The bass factory rigs (PR7-B 0.8.0; PR7-G's guitar rigs are gone).
-    // A: clean and basics. B: drive. C: effects. D: genres. E: songs.
-    //
-    // The song rigs follow what's documented about each recording (the
-    // research notes behind them are summarised in each rig's notes): the
-    // bassist's drive, EQ and effects, built from PR7-B's blocks. They're
-    // our interpretation, "inspired by", not copies. Each rig's notes say
-    // which amp capture and cabinet IR to load, since rigs can't ship them.
-    return {
-        // ---- A: clean and basics -----------------------------------------
-        make ("Clean DI", A, 1, "Clean", {},
-              "Nothing on: your bass, amp and cab as they are. A starting point."),
+    Rig init;
+    init.name = "Init";
+    init.bank = vocals;   // A01
+    init.number = 1;
+    init.tags = { "Init" };
+    init.notes = "Everything off: a starting point.";
+    rigs.push_back (init);
 
-        make ("Studio Bass", A, 2, "Clean,Compressor", { { rigLevel, 1 },
-            { compOn, 1 }, { compThreshold, -22 }, { compRatio, 4 }, { compLevel, 3 },
-            { eqOn, 1 }, { eq33, -2 }, { eq80, 1 }, { eq300, -2 }, { eq900, 1 }, { eq2k, 1 }, { eq5k, 2 }, { eq9k, 1 }, { eqLevel, -0.5f } },
-            "An evened-out, polished clean bass for recording: 4:1 compression and the Clean DI Polish EQ.\n"
-            "Amp: a clean Ampeg SVT or B-15 capture, or none for a pure DI.\nCab: an 8x10 or 1x15 IR, or none."),
+    // A: vocals and voice
+    rigs.push_back (makeRig ("Lead Vocal", vocals, 2, { "Vocal", "Lead" },
+        "Clears rumble and boxiness, adds presence and air, and tames sibilance when it's there (a dynamic band at 6.5 kHz).",
+        { cut (Shape::lowCut, 80.0, 18), bell (300.0, -2.0, 1.2), bell (3000.0, 2.0, 0.8), shelf (Shape::highShelf, 10000.0, 2.5),
+          dynamic (bell (6500.0, 0.0, 3.0), -6.0) }));
+    rigs.push_back (makeRig ("Vocal De-Esser", vocals, 3, { "Vocal", "De-ess", "Dynamic" },
+        "Only the S and T sounds: a dynamic band at 6.5 kHz pulls down sibilance as it happens and leaves the rest alone. "
+        "If the S sits higher or lower in your singer's voice, solo the band and move it there.",
+        { dynamic (bell (6500.0, 0.0, 2.0), -8.0, 0.25, 0.4) }));
+    rigs.push_back (makeRig ("Rap Vocal", vocals, 4, { "Vocal", "Rap", "Lead" },
+        "Tight and forward: a steeper low cut, less low-mid weight, more bite at 4 kHz, sibilance kept in check.",
+        { cut (Shape::lowCut, 100.0, 24), bell (220.0, -2.5, 1.0), bell (4000.0, 3.0, 1.0), shelf (Shape::highShelf, 12000.0, 2.0),
+          dynamic (bell (6000.0, 0.0, 2.5), -6.0) }));
+    rigs.push_back (makeRig ("Backing Vocals", vocals, 5, { "Vocal", "Backing" },
+        "Thinner and a little further back than the lead, so they support it rather than crowd it, with an airy top.",
+        { cut (Shape::lowCut, 150.0, 24), bell (400.0, -2.0, 0.8), bell (3000.0, -1.5, 1.0), shelf (Shape::highShelf, 10000.0, 2.0),
+          dynamic (bell (6500.0, 0.0, 2.5), -6.0) }));
+    rigs.push_back (makeRig ("Spoken Voice", vocals, 6, { "Voice", "Podcast", "Voice-over" },
+        "For speech: clear, without boom or harsh S's. Dynamic bands catch popped P's and B's (150 Hz) and sibilance (6 kHz).",
+        { cut (Shape::lowCut, 70.0, 24), dynamic (bell (150.0, 0.0, 1.0), -6.0), bell (300.0, -2.0, 1.0), bell (2500.0, 2.0, 1.0),
+          dynamic (bell (6000.0, 0.0, 2.5), -6.0) }));
+    rigs.push_back (makeRig ("Vocal Mud Control", vocals, 7, { "Vocal", "Dynamic", "Mud" },
+        "Turns down the low mids (300 Hz) only on the notes where they build up, so the voice keeps its body elsewhere.",
+        { cut (Shape::lowCut, 90.0, 18), dynamic (bell (300.0, 0.0, 1.2), -5.0) }));
 
-        make ("Fingerstyle Round", A, 3, "Clean,Compressor", { { rigLevel, -2 },
-            { compOn, 1 }, { compType, daybreakComp }, { compAmount, 4 }, { compDetail, 6 },
-            { eqOn, 1 }, { eq80, 2 }, { eq300, -1 }, { eq500, 2 }, { eq900, 3 }, { eq2k, 1 }, { eq9k, -1 }, { eqLevel, -1.5f } },
-            "Warm lows and a woody growl for fingerstyle rock.\n"
-            "Amp: a clean Ampeg SVT capture.\nCab: an SVT 8x10 IR."),
+    // B: drums
+    rigs.push_back (makeRig ("Kick Punch", drums, 1, { "Drums", "Kick" },
+        "Weight at 60 Hz, less cardboard box at 350 Hz, more beater click at 4 kHz; rumble below 30 Hz cut.",
+        { cut (Shape::lowCut, 30.0, 24), bell (60.0, 3.0, 1.2), bell (350.0, -4.0, 1.5), bell (4000.0, 3.0, 1.5) }));
+    rigs.push_back (makeRig ("Kick Boom Control", drums, 2, { "Drums", "Kick", "Dynamic" },
+        "For a kick whose boom swamps the mix: the lows come down when they bloom, and a touch of click helps it cut through.",
+        { cut (Shape::lowCut, 30.0, 24), dynamic (shelf (Shape::lowShelf, 80.0, 0.0), -5.0), bell (4000.0, 2.0, 1.2) }));
+    rigs.push_back (makeRig ("Snare Crack", drums, 3, { "Drums", "Snare" },
+        "Body at 200 Hz, less ring at 900 Hz, crack at 5 kHz and a little sizzle on top.",
+        { cut (Shape::lowCut, 80.0, 18), bell (200.0, 2.0, 1.5), bell (900.0, -2.0, 2.0), bell (5000.0, 3.0, 1.0),
+          shelf (Shape::highShelf, 10000.0, 1.5) }));
+    rigs.push_back (makeRig ("Hi-Hat Tame", drums, 4, { "Drums", "Hi-hat", "Cymbals", "Dynamic" },
+        "Hats without the spit: the lows (kick and snare bleed) cut, harsh hits around 8 kHz pulled down as they come.",
+        { cut (Shape::lowCut, 250.0, 18), dynamic (bell (8000.0, 0.0, 1.5), -5.0), shelf (Shape::highShelf, 12000.0, 1.0) }));
+    rigs.push_back (makeRig ("Overheads", drums, 5, { "Drums", "Overheads", "Cymbals" },
+        "Cleaner cymbals and room: less low mid, harsh crashes tamed around 3.5 kHz, and air on top.",
+        { cut (Shape::lowCut, 120.0, 18), bell (400.0, -2.0, 1.0), dynamic (bell (3500.0, 0.0, 1.5), -4.0),
+          shelf (Shape::highShelf, 12000.0, 2.0) }));
+    rigs.push_back (makeRig ("Drum Bus", drums, 6, { "Drums", "Bus" },
+        "For the whole kit: a little weight and snap, less boxiness, and a clean bottom.",
+        { cut (Shape::lowCut, 25.0, 24), bell (60.0, 1.5, 0.9), bell (400.0, -1.5, 1.0), bell (5000.0, 1.5, 0.8),
+          shelf (Shape::highShelf, 12000.0, 1.5) }));
 
-        make ("Slap Funk", A, 4, "Clean,Funk,Compressor", {
-            { compOn, 1 }, { compThreshold, -26 }, { compRatio, 6 }, { compLevel, 4 },
-            { eqOn, 1 }, { eq33, 2 }, { eq80, 3 }, { eq150, -1 }, { eq300, -3 }, { eq500, -2 }, { eq2k, 1 }, { eq5k, 1 },
-            { eqLevel, -1 }, { eqUltraHi, 1 } },
-            "Full lows, scooped mids and sparkle for slap and pop.\n"
-            "Amp: a clean Gallien-Krueger or Ampeg capture.\nCab: a 4x10 IR with a tweeter."),
+    // C: bass, guitars and keys
+    rigs.push_back (makeRig ("Bass DI", instruments, 1, { "Bass" },
+        "A direct bass: an even bottom (boomy notes come down, at 70 Hz), less mud at 250 Hz, a little growl at 800 Hz.",
+        { cut (Shape::lowCut, 35.0, 24), dynamic (bell (70.0, 1.5, 1.4), -4.0), bell (250.0, -3.0, 1.2), bell (800.0, 1.5, 1.0) }));
+    rigs.push_back (makeRig ("808 Control", instruments, 2, { "Bass", "808", "Dynamic" },
+        "Evens out an 808 whose notes boom unevenly, and lifts its upper harmonics (1.2 kHz) so it's heard on small speakers.",
+        { cut (Shape::lowCut, 25.0, 24), dynamic (bell (55.0, 2.0, 1.0), -5.0), bell (1200.0, 2.0, 1.0),
+          cut (Shape::highCut, 8000.0, 12) }));
+    rigs.push_back (makeRig ("Electric Guitar", instruments, 3, { "Guitar", "Electric" },
+        "Makes room in a mix: no low end below 90 Hz, less mud, a little bite at 2.5 kHz, and the fizz above 11 kHz rolled off.",
+        { cut (Shape::lowCut, 90.0, 18), bell (400.0, -2.0, 1.2), bell (2500.0, 1.5, 1.0), cut (Shape::highCut, 11000.0, 12) }));
+    rigs.push_back (makeRig ("Acoustic Guitar", instruments, 4, { "Guitar", "Acoustic" },
+        "Body boom (200 Hz) comes down when it builds up, a less honky middle, more sparkle.",
+        { cut (Shape::lowCut, 80.0, 18), dynamic (bell (200.0, 0.0, 1.2), -5.0), bell (1000.0, -1.0, 1.0), bell (5000.0, 2.0, 0.9),
+          shelf (Shape::highShelf, 11000.0, 2.0) }));
+    rigs.push_back (makeRig ("Piano", instruments, 5, { "Keys", "Piano" },
+        "Clearer in a mix: less low-mid muddiness, a little presence and air.",
+        { cut (Shape::lowCut, 40.0, 18), bell (300.0, -2.0, 1.0), bell (3000.0, 1.5, 0.8), shelf (Shape::highShelf, 10000.0, 1.5) }));
+    rigs.push_back (makeRig ("Pad, Make Room", instruments, 6, { "Keys", "Synth", "Pad" },
+        "Pushes a pad or keys behind the song: the lows cut, and a dip around 2.5 kHz leaves room for a vocal.",
+        { cut (Shape::lowCut, 150.0, 18), bell (2500.0, -2.5, 0.8), shelf (Shape::highShelf, 9000.0, -1.5) }));
 
-        make ("Motown Thump", A, 5, "Clean,Vintage", {
-            { compOn, 1 }, { compThreshold, -20 }, { compRatio, 3 },
-            { eqOn, 1 }, { eq33, 1 }, { eq80, 4 }, { eq150, 2 }, { eq500, -1 }, { eq900, -2 }, { eq2k, -4 }, { eq5k, -6 }, { eq9k, -8 },
-            { eqLevel, -0.5f } },
-            "Round, warm and dark, like flatwound strings: the highs rolled right off.\n"
-            "Amp: an Ampeg B-15 capture, or none.\nCab: a 1x15 IR, or none."),
+    // D: the full mix
+    rigs.push_back (makeRig ("Mix Bus Polish", mix, 1, { "Mix", "Bus" },
+        "Gentle moves for a whole mix: a touch of weight, a little less low-mid, a little air, and nothing below 25 Hz.",
+        { cut (Shape::lowCut, 25.0, 12), shelf (Shape::lowShelf, 80.0, 1.0), bell (300.0, -1.0, 0.8),
+          shelf (Shape::highShelf, 10000.0, 1.5) }));
+    rigs.push_back (makeRig ("Mix Mud Control", mix, 2, { "Mix", "Dynamic", "Mud" },
+        "Turns down the low mids (280 Hz) only where they build up, so the mix stays full but clear.",
+        { cut (Shape::lowCut, 25.0, 12), dynamic (bell (280.0, 0.0, 1.0), -4.0) }));
+    rigs.push_back (makeRig ("Mix Harshness Control", mix, 3, { "Mix", "Dynamic", "Harsh" },
+        "For a mix that gets harsh when it's busy: 3 kHz and 7 kHz come down a little only in those moments.",
+        { dynamic (bell (3000.0, 0.0, 1.2), -3.0), dynamic (bell (7000.0, 0.0, 1.5), -3.0) }));
+    rigs.push_back (makeRig ("Mix Wider Top", mix, 4, { "Mix", "Stereo", "Width" },
+        "Wider without touching the middle: the sides' top end lifted, and their lows below 120 Hz cut so the bass stays centred.",
+        { cut (Shape::lowCut, 120.0, 12, Placement::side), shelf (Shape::highShelf, 6000.0, 2.0, 0.7, Placement::side) }));
+    rigs.push_back (makeRig ("Mix Warmer", mix, 5, { "Mix", "Tilt", "Warm" },
+        "Tilts the whole mix darker: 0.6 dB an octave, the lows up and the highs down round 1 kHz.", { tilt (-6.0) }));
+    rigs.push_back (makeRig ("Mix Brighter", mix, 6, { "Mix", "Tilt", "Bright" },
+        "Tilts the whole mix brighter: 0.6 dB an octave, the highs up and the lows down round 1 kHz.", { tilt (6.0) }));
 
-        make ("Fretless Mwah", A, 6, "Clean,Modulation", { { rigLevel, 5 },
-            { compOn, 1 }, { compThreshold, -24 }, { compRatio, 3 }, { compLevel, 2 },
-            { eqOn, 1 }, { eq33, -1 }, { eq80, 1 }, { eq300, -1 }, { eq500, 2 }, { eq900, 3 }, { eq2k, 2 }, { eq9k, -2 }, { eqLevel, -1.5f },
-            { modOn, 1 }, { modType, chorus }, { modRate, 0.6f }, { modDepth, 0.3f }, { modMix, 0.25f } },
-            "Lifts the vocal 500 Hz to 2 kHz range that makes a fretless sing, with a touch of chorus.\n"
-            "Amp: a clean Ampeg or Mesa capture.\nCab: a 4x10 or 8x10 IR."),
+    // E: mastering (a dB or two at most), each finished by the LIMITER (below)
+    rigs.push_back (makeRig ("Master Gentle Polish", mastering, 1, { "Mastering" },
+        "Small, broad moves: a touch of weight and air, a little less low-mid, and sub-sonic rumble (below 18 Hz) cut.",
+        { cut (Shape::lowCut, 18.0, 24), shelf (Shape::lowShelf, 60.0, 0.8), bell (250.0, -0.8, 0.7),
+          shelf (Shape::highShelf, 12000.0, 1.0) }));
+    rigs.push_back (makeRig ("Master Low-End Control", mastering, 2, { "Mastering", "Dynamic", "Low end" },
+        "Keeps the bass solid: the sides' lows (below 150 Hz) cut so the bass is centred, and boomy notes below 100 Hz "
+        "come down a little when they bloom.",
+        { cut (Shape::lowCut, 20.0, 24), cut (Shape::lowCut, 150.0, 12, Placement::side),
+          dynamic (shelf (Shape::lowShelf, 100.0, 0.0), -3.0) }));
+    rigs.push_back (makeRig ("Master De-Harsh", mastering, 3, { "Mastering", "Dynamic", "Harsh" },
+        "Softens harsh moments in a finished mix (around 3.2 and 6.5 kHz), by at most 2.5 dB, only when they happen.",
+        { dynamic (bell (3200.0, 0.0, 1.0), -2.5), dynamic (bell (6500.0, 0.0, 1.5), -2.5) }));
+    rigs.push_back (makeRig ("Master Width", mastering, 4, { "Mastering", "Stereo", "Width" },
+        "A little wider at the top (the sides above 8 kHz up 1.5 dB) with the bass kept in the middle.",
+        { cut (Shape::lowCut, 120.0, 12, Placement::side), shelf (Shape::highShelf, 8000.0, 1.5, 0.7, Placement::side) }));
+    rigs.push_back (makeRig ("Master Warm Tilt", mastering, 5, { "Mastering", "Tilt", "Warm" },
+        "A gentle darker tilt for a bright master: 0.3 dB an octave.", { tilt (-3.0) }));
+    rigs.push_back (makeRig ("Master Bright Tilt", mastering, 6, { "Mastering", "Tilt", "Bright" },
+        "A gentle brighter tilt for a dull master: 0.3 dB an octave.", { tilt (3.0) }));
 
-        // ---- B: drive -----------------------------------------------------
-        make ("Gotham Grit", B, 1, "Drive", { { rigLevel, 7 },
-            { driveOn, 1 }, { driveType, gotham }, { gothamLevel, 6 }, { gothamBlend, 6 }, { gothamDrive, 4 }, { gothamPresence, 5 } },
-            "The GOTHAM (modelled on the SansAmp Bass Driver DI) at a gentle grit, half blended with the clean bass.\n"
-            "Amp: none, or a clean amp capture.\nCab: an 8x10 or 4x10 IR, or none (it imitates an amp and cab itself)."),
+    // The mastering rigs end with the LIMITER (0.8.0): BRICK, a -1 dB ceiling,
+    // as a safety net against overs rather than to make it louder.
+    for (auto& rig : rigs)
+        if (rig.bank == mastering)
+        {
+            rig.parameters[ParamIDs::limitOn] = 1.0f;
+            rig.parameters[ParamIDs::limitThreshold] = -1.0f;
+            rig.parameters[ParamIDs::limitMode] = 0.0f;   // Brick
+            rig.notes << " The LIMITER (stomp 7) holds a -1 dB ceiling.";
+        }
 
-        make ("Gotham Cranked", B, 2, "Drive,Rock", { { rigLevel, -7.5f },
-            { driveOn, 1 }, { driveType, gotham }, { gothamLevel, 4 }, { gothamBlend, 8 }, { gothamDrive, 10 }, { gothamPresence, 6 },
-            { gothamBass, 6 } },
-            "The GOTHAM flat out: the classic cranked SansAmp snarl.\n"
-            "Amp: none, or a clean amp capture.\nCab: an 8x10 IR."),
-
-        make ("Obsidian Tight", B, 3, "Drive,Metal", { { rigLevel, 5 },
-            { compOn, 1 }, { compThreshold, -20 }, { compRatio, 4 },
-            { driveOn, 1 }, { driveType, obsidian }, { driveGain, 6 }, { dualMod, 0 }, { dualBlend, 5 }, { dualLevel, 4.5f }, { dualBite, 1 } },
-            "The OBSIDIAN (modelled on the Darkglass Alpha·Omega) on its ALPHA side: tight, focused grind, clean lows blended under.\n"
-            "Amp: a clean Ampeg SVT capture, or none.\nCab: an SVT 8x10 IR."),
-
-        make ("Obsidian Raw", B, 4, "Drive,Metal", { { rigLevel, 2 },
-            { driveOn, 1 }, { driveType, obsidian }, { driveGain, 7 }, { dualMod, 10 }, { dualBlend, 6 }, { dualLevel, 4 }, { dualGrowl, 1 } },
-            "The OBSIDIAN on its OMEGA side with GROWL: raw, brutal and fat.\n"
-            "Amp: a clean Ampeg SVT capture, or none.\nCab: an SVT 8x10 IR."),
-
-        make ("Modern Metal Clank", B, 5, "Drive,Metal", { { rigLevel, 9.5f },
-            { compOn, 1 }, { compThreshold, -22 }, { compRatio, 4 },
-            { driveOn, 1 }, { driveType, obsidian }, { driveGain, 6.5f }, { dualMod, 5 }, { dualBlend, 5 }, { dualLevel, 4 }, { dualBite, 1 },
-            { eqOn, 1 }, { eq33, -3 }, { eq80, 3 }, { eq300, -3 }, { eq500, -2 }, { eq900, 2 }, { eq2k, 5 }, { eq5k, 4 }, { eq9k, -2 },
-            { eqLevel, -2 } },
-            "Tight lows, the low-mid mud cut and a bright 2-5 kHz clank: heard under heavy guitars.\n"
-            "Amp: a clean Ampeg SVT capture.\nCab: an SVT 8x10 IR (MD421 style)."),
-
-        make ("Doom Fuzz", B, 6, "Drive,Fuzz", { { rigLevel, 1 },
-            { driveOn, 1 }, { driveType, obsidian }, { driveGain, 9 }, { dualMod, 10 }, { dualBlend, 7 }, { dualLevel, 3.5f }, { dualGrowl, 1 },
-            { dualTreble, 3.5f },
-            { eqOn, 1 }, { eq33, 3 }, { eq80, 4 }, { eq150, 3 }, { eq300, 2 }, { eq900, -1 }, { eq2k, -2 }, { eq5k, -4 }, { eq9k, -6 },
-            { eqLevel, -2 } },
-            "Thick, dark and heavy for doom and sludge: OMEGA side, GROWL, the top rolled off.\n"
-            "Amp: an Orange or Ampeg capture.\nCab: an 8x10 or 4x12 IR."),
-
-        // Nolly's split (Periphery): his multiband trick, a FabFilter Saturn
-        // split at 275 Hz with the band below left alone and the band above
-        // driven hard (75% drive, 80% mix). Here: the Absolomb OBSIDIAN
-        // pushed harder, with SPLIT keeping everything below 275 Hz clean.
-        make ("Nolly Split", B, 7, "Drive,Metal", { { rigLevel, 2 },
-            { compOn, 1 }, { compThreshold, -20 }, { compRatio, 4 },
-            { driveOn, 1 }, { driveType, obsidian }, { driveGain, 7 }, { dualBlend, 8 }, { dualLevel, 4 }, { dualMod, 7 },
-            { dualBass, 5 }, { dualMid, 5.8f }, { dualTreble, 7.5f }, { dualGrowl, 0 }, { dualBite, 1 },
-            { driveSplit, 1 }, { driveSplitHz, 275 } },
-            "Nolly's split: everything below 275 Hz stays clean, so the low end is solid and tight while the drive above it "
-            "is pushed hard. Modelled on his FabFilter Saturn trick (band 1 bypassed, band 2 driven).\n"
-            "Amp: a clean Ampeg SVT capture, or none.\nCab: an SVT 8x10 IR.\n"
-            "Play: with a pick, on an extended-range bass. Try SPLIT off to hear what it does."),
-
-        // ---- C: effects ---------------------------------------------------
-        make ("Envelope Funk", C, 1, "Funk,Filter", { { rigLevel, 6.5f },
-            { compOn, 1 }, { compThreshold, -22 }, { compRatio, 4 }, { compLevel, 8 },
-            { fpOn, 1 }, { fpType, autoWah }, { fpSensitivity, 6 }, { fpResonance, 6 }, { fpMix, 0.75f } },
-            "An envelope filter that opens as you dig in: classic funk quack.\n"
-            "Amp: a clean Ampeg or GK capture.\nCab: a 4x10 IR."),
-
-        make ("Synth Octave", C, 2, "Synth,Filter,Octave", { { rigLevel, 7.5f },
-            { octOn, 1 }, { octSubOne, 0.8f }, { octDry, 0.6f },
-            { compOn, 1 }, { compThreshold, -20 }, { compRatio, 4 }, { compLevel, 8 },
-            { fpOn, 1 }, { fpType, autoWah }, { fpSensitivity, 7 }, { fpResonance, 7 }, { fpMix, 0.7f },
-            { driveOn, 1 }, { driveType, gotham }, { gothamDrive, 5 }, { gothamBlend, 4 }, { driveLevel, 8 } },
-            "Octave down into a resonant envelope filter, with a little grit: a synth-bass sound. Play one note at a time.\n"
-            "Amp: a clean amp capture, or none.\nCab: an 8x10 IR, or none."),
-
-        make ("Sub Octave", C, 3, "Octave", { { rigLevel, 1 },
-            { octOn, 1 }, { octSubOne, 0.7f }, { octDry, 1 },
-            { compOn, 1 }, { compThreshold, -20 }, { compRatio, 3 } },
-            "A sub-octave under your notes for weight. Play one note at a time.\n"
-            "Amp: a clean Ampeg SVT capture.\nCab: an 8x10 IR."),
-
-        make ("Chorus Bass", C, 4, "Modulation", { { rigLevel, 6 },
-            { compOn, 1 }, { compThreshold, -22 }, { compRatio, 3 },
-            { modOn, 1 }, { modType, chorus }, { modRate, 0.7f }, { modDepth, 0.45f }, { modMix, 0.4f } },
-            "A shimmering bass chorus for clean, melodic parts.\n"
-            "Amp: a clean amp capture.\nCab: a 4x10 IR."),
-
-        make ("Flanged Bass", C, 5, "Modulation", { { rigLevel, -3 },
-            { modOn, 1 }, { modType, flanger }, { modRate, 0.25f }, { modDepth, 0.6f }, { modManual, 5 }, { modRes, 6 } },
-            "A slow jet-plane sweep on the AEON (modelled on the Boss BF-2), RES up for the ring.\n"
-            "Amp: a clean amp capture.\nCab: a 4x10 or 8x10 IR."),
-
-        make ("Dub Delay", C, 6, "Delay,Reggae", { { rigLevel, 2 },
-            { compOn, 1 }, { compThreshold, -22 }, { compRatio, 4 },
-            { eqOn, 1 }, { eq80, 3 }, { eq150, 2 }, { eq2k, -3 }, { eq5k, -6 }, { eq9k, -8 }, { eqLevel, -1 },
-            { delayOn, 1 }, { delayType, analogDelay }, { delaySync, dottedEighth }, { delayFeedback, 0.4f }, { delayMix, 0.3f }, { delayTone, 4 } },
-            "Deep, round dub bass with dark echoes in time (tap the tempo, or follow the DAW's).\n"
-            "Amp: an Ampeg B-15 or SVT capture.\nCab: a 1x15 or 8x10 IR."),
-
-        make ("Tremolo Pulse", C, 7, "Modulation", { { rigLevel, 3 },
-            { modOn, 1 }, { modType, tremolo }, { modSync, eighth }, { modDepth, 0.7f } },
-            "Tremolo in time with the song: chopping eighth notes.\n"
-            "Amp: a clean amp capture.\nCab: a 4x10 IR."),
-
-        // ---- D: genres ----------------------------------------------------
-        // Each genre's typical bass sound, as it's commonly played, recorded
-        // and mixed: our interpretation of the style, not any one player's rig.
-        make ("Metalcore", D, 1, "Genre,Metal,Drive", { { rigLevel, 10 },
-            { compOn, 1 }, { compThreshold, -24 }, { compRatio, 5 }, { gateThreshold, -62 },
-            { driveOn, 1 }, { driveType, obsidian }, { driveGain, 6.5f }, { dualMod, 3 }, { dualBlend, 5 }, { dualLevel, 4 }, { dualBite, 1 },
-            { eqOn, 1 }, { eq33, -3 }, { eq80, 3 }, { eq300, -3 }, { eq500, -1 }, { eq900, 2 }, { eq2k, 4 }, { eq5k, 3 }, { eq9k, -2 },
-            { eqLevel, -2 } },
-            "Tight, compressed and clanky: a bright, gritty top over a clean, solid low end that locks with the kick through "
-            "breakdowns.\n"
-            "Amp: a clean Ampeg SVT capture.\nCab: an SVT 8x10 IR.\n"
-            "Play: with a pick, drop C or drop B."),
-
-        make ("Nu Metal", D, 2, "Genre,Metal", { { rigLevel, 9.5f },
-            { compOn, 1 }, { compThreshold, -26 }, { compRatio, 6 }, { compLevel, 3 }, { gateThreshold, -60 },
-            { driveOn, 1 }, { driveType, gotham }, { gothamLevel, 6 }, { gothamBlend, 3 }, { gothamDrive, 4 }, { gothamPresence, 7 },
-            { gothamTreble, 7 },
-            { eqOn, 1 }, { eq33, 1 }, { eq80, 3 }, { eq150, -4 }, { eq300, -6 }, { eq500, -4 }, { eq2k, 3 }, { eq5k, 5 }, { eq9k, 3 },
-            { eqLevel, 1.5f }, { eqUltraHi, 1 } },
-            "Late-'90s down-tuned clank: a percussive, bright attack, hollowed-out mids and boom underneath, with just a little "
-            "grit. Dig in hard.\n"
-            "Amp: a clean Mesa bass capture.\nCab: a 4x10 IR with a tweeter.\n"
-            "Play: slapped or picked hard on a 5-string tuned down (B, A or drop A)."),
-
-        make ("Thrash Metal", D, 3, "Genre,Metal,Drive", { { rigLevel, 8 },
-            { compOn, 1 }, { compThreshold, -20 }, { compRatio, 4 },
-            { driveOn, 1 }, { driveType, gotham }, { gothamLevel, 5 }, { gothamBlend, 6 }, { gothamDrive, 6.5f }, { gothamPresence, 6.5f },
-            { gothamTreble, 6 },
-            { eqOn, 1 }, { eq33, -2 }, { eq80, 2 }, { eq300, -1 }, { eq900, 3 }, { eq2k, 3 }, { eq5k, 2 }, { eqLevel, -1.5f } },
-            "Picked, bright and gritty with plenty of mids, so fast riffs stay defined against the guitars.\n"
-            "Amp: an Ampeg SVT capture with a little hair.\nCab: an SVT 8x10 IR.\n"
-            "Play: fast down-picking, E or E-flat standard."),
-
-        make ("Pop Punk", D, 4, "Genre,Punk,Drive", { { rigLevel, 9.5f },
-            { compOn, 1 }, { compThreshold, -22 }, { compRatio, 4 }, { compLevel, 2 },
-            { driveOn, 1 }, { driveType, gotham }, { gothamLevel, 6 }, { gothamBlend, 4 }, { gothamDrive, 4.5f }, { gothamPresence, 5 },
-            { eqOn, 1 }, { eq80, 2 }, { eq300, 1 }, { eq500, 2 }, { eq900, 2 }, { eq2k, 1 }, { eq9k, -2 }, { eqLevel, -2 } },
-            "A picked P-bass with a fat midrange and light overdrive: driving eighth notes that glue the band together.\n"
-            "Amp: an Ampeg SVT capture.\nCab: an SVT 8x10 IR.\n"
-            "Play: with a pick, steady eighth notes, E or E-flat standard."),
-
-        make ("Djent", D, 5, "Genre,Metal,Drive", { { rigLevel, 11 },
-            { compOn, 1 }, { compThreshold, -28 }, { compRatio, 8 }, { gateThreshold, -58 },
-            { driveOn, 1 }, { driveType, obsidian }, { driveGain, 7 }, { dualMod, 5 }, { dualBlend, 4.5f }, { dualLevel, 4 }, { dualBite, 1 }, { driveLevel, 4 },
-            { eqOn, 1 }, { eq33, -4 }, { eq80, 2 }, { eq150, -1 }, { eq300, -4 }, { eq900, 4 }, { eq2k, 6 }, { eq5k, 2 }, { eq9k, -4 },
-            { eqLevel, -2.5f } },
-            "Heavily compressed and surgical: a tight low end, a deep low-mid scoop and a gnarly 900 Hz-2 kHz growl, gated "
-            "between stabs.\n"
-            "Amp: a clean Ampeg SVT capture, or none.\nCab: an SVT 8x10 IR.\n"
-            "Play: with a pick on a 5- or 6-string in a low drop tuning (drop A, drop F#)."),
-
-        make ("Death Metal", D, 6, "Genre,Metal,Drive", { { rigLevel, 9 },
-            { compOn, 1 }, { compThreshold, -24 }, { compRatio, 5 }, { gateThreshold, -60 },
-            { driveOn, 1 }, { driveType, obsidian }, { driveGain, 5.5f }, { dualMod, 2 }, { dualBlend, 4 }, { dualLevel, 4.5f }, { dualBite, 1 },
-            { dualTreble, 6.5f },
-            { eqOn, 1 }, { eq80, 2 }, { eq300, -2 }, { eq500, 1 }, { eq900, 3 }, { eq2k, 4 }, { eq5k, 4 }, { eqLevel, -2.5f } },
-            "Trebly, articulate clank that cuts through tremolo-picked guitars and blast beats, with just enough grit.\n"
-            "Amp: a clean Ampeg SVT or Mesa capture.\nCab: an 8x10 or 4x10 IR.\n"
-            "Play: fingers or pick, fast; D standard or lower."),
-
-        make ("Stoner Rock", D, 7, "Genre,Fuzz,Drive", { { rigLevel, 3 },
-            { driveOn, 1 }, { driveType, obsidian }, { driveGain, 8.5f }, { dualMod, 9 }, { dualBlend, 6 }, { dualLevel, 3.5f }, { dualGrowl, 1 },
-            { dualTreble, 4 },
-            { eqOn, 1 }, { eq33, 2 }, { eq80, 4 }, { eq150, 2 }, { eq300, 1 }, { eq2k, -1 }, { eq5k, -3 }, { eq9k, -5 }, { eqLevel, -2 },
-            { reverbOn, 1 }, { reverbType, room }, { reverbSize, 0.3f }, { reverbMix, 0.08f } },
-            "Warm, fat fuzz with huge lows and the fizz rolled off: big, slow riffs in the desert.\n"
-            "Amp: an Orange or Sunn-style bass capture.\nCab: an 8x10 or 4x15 IR.\n"
-            "Play: fingers or pick, C or D standard, let notes ring."),
-
-        make ("Hardcore Punk", D, 8, "Genre,Punk,Drive", { { rigLevel, 3.5f },
-            { compOn, 1 }, { compThreshold, -20 }, { compRatio, 4 },
-            { driveOn, 1 }, { driveType, gotham }, { gothamLevel, 4.5f }, { gothamBlend, 7 }, { gothamDrive, 8 }, { gothamPresence, 5 },
-            { eqOn, 1 }, { eq80, 2 }, { eq500, 2 }, { eq900, 3 }, { eq2k, 1 }, { eq9k, -3 }, { eqLevel, -2 } },
-            "Raw, mid-pushed grit that's almost a second guitar: aggressive and in your face.\n"
-            "Amp: an Ampeg SVT capture.\nCab: an SVT 8x10 IR.\n"
-            "Play: fast down-picking, E or D standard."),
-
-        make ("Grunge", D, 9, "Genre,Rock,Drive", { { rigLevel, 6 },
-            { compOn, 1 }, { compThreshold, -20 }, { compRatio, 3 },
-            { driveOn, 1 }, { driveType, gotham }, { gothamLevel, 5 }, { gothamBlend, 6 }, { gothamDrive, 6 }, { gothamPresence, 3.5f },
-            { gothamBass, 6 },
-            { eqOn, 1 }, { eq80, 3 }, { eq300, 1 }, { eq500, 2 }, { eq5k, -2 }, { eq9k, -4 }, { eqLevel, -2 } },
-            "A dirty, warm P-bass growl, a little dark: thick under loud, fuzzy guitars.\n"
-            "Amp: an Ampeg SVT capture.\nCab: an SVT 8x10 IR.\n"
-            "Play: with a pick or fingers, E or drop D."),
-
-        make ("Classic Rock", D, 10, "Genre,Rock,Vintage", { { rigLevel, 9.5f },
-            { compOn, 1 }, { compThreshold, -18 }, { compRatio, 3 },
-            { driveOn, 1 }, { driveType, gotham }, { gothamLevel, 6 }, { gothamBlend, 3 }, { gothamDrive, 3 }, { gothamPresence, 4 },
-            { eqOn, 1 }, { eq80, 3 }, { eq150, 2 }, { eq500, 1 }, { eq2k, -1 }, { eq5k, -3 }, { eq9k, -5 }, { eqLevel, -1.5f } },
-            "Round and warm, like a tube amp pushed just to the edge of breakup.\n"
-            "Amp: an Ampeg B-15 or SVT capture.\nCab: a 1x15 or 8x10 IR.\n"
-            "Play: fingers, E standard."),
-
-        make ("Alt / Indie Rock", D, 11, "Genre,Rock,Modulation", { { rigLevel, 12 },
-            { compOn, 1 }, { compThreshold, -22 }, { compRatio, 4 },
-            { driveOn, 1 }, { driveType, gotham }, { gothamLevel, 6 }, { gothamBlend, 3 }, { gothamDrive, 4 }, { gothamPresence, 6 }, { driveLevel, 4 },
-            { eqOn, 1 }, { eq33, -2 }, { eq500, 2 }, { eq900, 3 }, { eq2k, 2 }, { eq5k, 1 }, { eqLevel, -1.5f },
-            { modOn, 1 }, { modType, chorus }, { modRate, 0.7f }, { modDepth, 0.35f }, { modMix, 0.25f } },
-            "Picked and mid-forward with a little chorus shimmer: melodic lines that sit up front.\n"
-            "Amp: an Ampeg or Fender-style bass capture.\nCab: a 4x10 IR.\n"
-            "Play: with a pick, E standard."),
-
-        make ("Prog Metal", D, 12, "Genre,Metal,Prog", { { rigLevel, 6.5f },
-            { compOn, 1 }, { compThreshold, -22 }, { compRatio, 4 },
-            { driveOn, 1 }, { driveType, obsidian }, { driveGain, 5.5f }, { dualMod, 4 }, { dualBlend, 3.5f }, { dualLevel, 5 }, { dualMid, 6 },
-            { dualBite, 1 },
-            { eqOn, 1 }, { eq80, 2 }, { eq300, -2 }, { eq900, 2 }, { eq2k, 3 }, { eq5k, 2 }, { eqLevel, -1.5f } },
-            "Articulate and mostly clean, with grind blended underneath: every note of a busy line heard.\n"
-            "Amp: a clean Ampeg SVT capture.\nCab: an SVT 8x10 IR.\n"
-            "Play: fingers or pick on a 5- or 6-string."),
-
-        make ("Post-Rock", D, 13, "Genre,Ambient,Clean", { { rigLevel, 2 },
-            { compOn, 1 }, { compThreshold, -22 }, { compRatio, 3 },
-            { eqOn, 1 }, { eq80, 2 }, { eq300, -1 }, { eq900, 1 }, { eq5k, -2 }, { eq9k, -3 }, { eqLevel, -0.5f },
-            { delayOn, 1 }, { delayType, analogDelay }, { delaySync, dottedEighth }, { delayFeedback, 0.35f }, { delayMix, 0.2f }, { delayTone, 4 },
-            { reverbOn, 1 }, { reverbType, hall }, { reverbSize, 0.7f }, { reverbMix, 0.25f } },
-            "Clean and round in a big space: dark echoes in time and a hall, for slow builds.\n"
-            "Amp: a clean Ampeg or Fender-style capture.\nCab: an 8x10 or 4x10 IR.\n"
-            "Play: fingers, let notes ring; tap the tempo for the echoes."),
-
-        make ("80s / Synthwave", D, 14, "Genre,Modulation,Clean", { { rigLevel, 7.5f },
-            { compOn, 1 }, { compThreshold, -26 }, { compRatio, 6 }, { compLevel, 4 },
-            { eqOn, 1 }, { eq33, -2 }, { eq80, 2 }, { eq300, -3 }, { eq900, 1 }, { eq2k, 3 }, { eq5k, 4 }, { eq9k, 3 }, { eqLevel, -1.5f },
-            { modOn, 1 }, { modType, chorus }, { modRate, 0.9f }, { modDepth, 0.55f }, { modMix, 0.45f } },
-            "Bright, tightly compressed and chorused: punchy eighth notes with a glossy '80s shine.\n"
-            "Amp: a clean, bright bass capture, or none.\nCab: a 4x10 IR, or none.\n"
-            "Play: with a pick, steady eighths, E standard."),
-
-        // ---- E: songs -----------------------------------------------------
-        // Muse, "Hysteria": producer Rich Costey described three amps at once,
-        // one clean, one through a Big Muff, one through a Japanese
-        // distortion; a synth reportedly doubles it. Fuzz over a clean low end.
-        make ("Hysteria (Muse)", E, 1, "Song,Fuzz,Drive", { { rigLevel, 5.5f },
-            { compOn, 1 }, { compThreshold, -20 }, { compRatio, 4 },
-            { driveOn, 1 }, { driveType, obsidian }, { driveGain, 8.5f }, { dualMod, 9 }, { dualBlend, 5 }, { dualLevel, 4 },
-            { dualGrowl, 1 }, { dualBite, 1 }, { dualMid, 6 },
-            { octOn, 1 }, { octSubOne, 0.25f }, { octDry, 1 },
-            { eqOn, 1 }, { eq300, -1 }, { eq900, 3 }, { eq2k, 3 }, { eq9k, -2 }, { eqLevel, -1.5f } },
-            "Chris Wolstenholme's fuzz: buzzy and mid-forward over a solid clean low end, with a hint of octave down for the synth "
-            "layer. The studio blended a clean amp with a Big Muff and a Japanese distortion (as producer Rich Costey described it).\n"
-            "Amp: a clean Ampeg SVT capture (Marshall bass captures are rare).\nCab: a 4x10 or 8x10 IR.\n"
-            "Play: with a pick, E standard, about 94 BPM."),
-
-        // Tool, "Forty Six & 2", the intro: the clean, picked riff with a
-        // flanger sweeping through it (the owner's ears; a Boss BF-2 flanger
-        // is on Justin Chancellor's board, though no source ties it to this
-        // song, so the AEON, modelled on it, plays it; its settings are ours). The GOTHAM is set up for the heavy part but left off:
-        // footswitch 2 brings it in.
-        make ("Forty Six & 2 (Tool)", E, 2, "Song,Modulation,Clean", { { rigLevel, 0.5f },
-            { compOn, 1 }, { compThreshold, -22 }, { compRatio, 4 },
-            { eqOn, 1 }, { eq80, 1 }, { eq300, -1 }, { eq900, 3 }, { eq2k, 3 }, { eq5k, 1 }, { eqLevel, -1.5f },
-            { modOn, 1 }, { modType, flanger }, { modRate, 0.15f }, { modDepth, 0.7f }, { modManual, 4 }, { modRes, 4 },
-            { driveOn, 0 }, { driveType, gotham }, { gothamLevel, 6 }, { gothamBlend, 5 }, { gothamDrive, 5.5f }, { gothamPresence, 6 },
-            { gothamTreble, 6 } },
-            "The intro riff: Justin Chancellor's clean, picked, mid-forward Wal tone with a slow AEON sweep through it "
-            "(modelled on the Boss BF-2 on his board). "
-            "For the heavy part, press footswitch 2: the GOTHAM is set up for his grit (a SansAmp is in his chain).\n"
-            "Amp: a Gallien-Krueger (2001RB style) capture.\nCab: a Mesa 8x10 IR.\n"
-            "Play: with a hard pick, drop D, about 80 BPM."),
-
-        // Korn, "Blind": Fieldy's percussive clank, an Ibanez 5-string tuned
-        // a step down, Mesa M-2000s, mids "all the way off" and treble up,
-        // no drive.
-        make ("Blind (Korn)", E, 3, "Song,Clean,Metal", { { rigLevel, -1 },
-            { compOn, 1 }, { compThreshold, -26 }, { compRatio, 6 }, { compLevel, 4 },
-            { gateThreshold, -60 },
-            { eqOn, 1 }, { eq33, 1 }, { eq80, 3 }, { eq150, -6 }, { eq300, -8 }, { eq500, -6 }, { eq900, -2 }, { eq2k, 3 }, { eq5k, 6 },
-            { eq9k, 4 }, { eqLevel, 2 }, { eqUltraHi, 1 } },
-            "Fieldy's clanky, percussive slap: bright attack, a hollow middle (he's said he turns the mids all the way off) and boom "
-            "underneath, no distortion.\n"
-            "Amp: a clean Mesa (M-2000 style) capture.\nCab: a 4x10 IR with a tweeter.\n"
-            "Play: slapped hard, 5-string tuned a whole step down (A D G C F)."),
-
-        // RATM, "Bulls on Parade": Tim Commerford, Fender Jazz with three
-        // fingers, two Ampeg SVTs, one always clean, the other switched in
-        // with a Marshall Guv'nor for dirt. Warm, mids kept in.
-        make ("Bulls on Parade (RATM)", E, 4, "Song,Drive,Rock", {
-            { compOn, 1 }, { compThreshold, -18 }, { compRatio, 3 },
-            { driveOn, 1 }, { driveType, obsidian }, { driveGain, 5 }, { dualMod, 2 }, { dualBlend, 5 }, { dualLevel, 4.5f }, { dualGrowl, 1 },
-            { eqOn, 1 }, { eq80, 3 }, { eq150, 1 }, { eq500, 1 }, { eq900, 1 }, { eqLevel, -1.5f } },
-            "Tim Commerford's warm, round SVT tone that's always there, with crunchy dirt on top: on record, one amp stayed clean and "
-            "the other added a Guv'nor's distortion. The OBSIDIAN's blend does that split.\n"
-            "Amp: an Ampeg SVT capture.\nCab: an SVT 8x10 IR.\n"
-            "Play: fingers, E-flat standard (or TUNING -1), 83 BPM."),
-
-        // Live, "Lakini's Juice": Patrick Dahlheimer's '58 P-bass, "a little
-        // MXR overdrive" in line (his words, quoted). Thick, dark growl.
-        make ("Lakini's Juice (Live)", E, 5, "Song,Drive,Rock", { { rigLevel, 1 },
-            { driveOn, 1 }, { driveType, gotham }, { gothamLevel, 5 }, { gothamBlend, 7 }, { gothamDrive, 7 }, { gothamPresence, 4 },
-            { gothamBass, 6 },
-            { octOn, 1 }, { octSubOne, 0.15f }, { octDry, 1 },
-            { eqOn, 1 }, { eq80, 3 }, { eq500, 2 }, { eq5k, -3 }, { eq9k, -4 }, { eqLevel, -1.5f } },
-            "Patrick Dahlheimer's thick, dark overdriven P-bass with a strong low-mid push (he's quoted as having \"a little MXR "
-            "overdrive\" in line). The faint octave down is our addition, for weight.\n"
-            "Amp: a Trace Elliot or mildly driven Ampeg SVT capture.\nCab: a 4x10 or 8x10 IR.\n"
-            "Play: tuned a half step down with the low string dropped (Db Ab Db Gb), about 91 BPM."),
-
-        // Karnivool, "Simple Boy": Jon Stockman co-designed the Alpha·Omega
-        // to recreate his Sound Awake tone, so the OBSIDIAN is the direct
-        // match. Settings: our starting point (none published).
-        make ("Simple Boy (Karnivool)", E, 6, "Song,Drive,Prog", { { rigLevel, 5.5f },
-            { compOn, 1 }, { compThreshold, -20 }, { compRatio, 4 },
-            { driveOn, 1 }, { driveType, obsidian }, { driveGain, 6 }, { dualMod, 3 }, { dualBlend, 4 }, { dualLevel, 5 }, { dualMid, 6 },
-            { dualTreble, 4.5f }, { dualBite, 1 } },
-            "Jon Stockman's thick clean low end with a mid-forward grind on top. He co-designed the Alpha·Omega to recreate his Sound "
-            "Awake tone, so the OBSIDIAN is the direct match; no settings have been published, so these are our starting point.\n"
-            "Amp: a clean Ampeg SVT capture.\nCab: an SVT 8x10 IR.\n"
-            "Play: 6-string, roughly B F# B E G C (as fans report)."),
-
-        // Metallica, "Until It Sleeps": Jason Newsted's fretless 5-string Zon
-        // (sold with the studio settings still taped on), Ampeg and Mesa
-        // cabs, a tube DI. Warm fretless verses, driven layer for the heavy parts.
-        make ("Until It Sleeps (Metallica)", E, 7, "Song,Clean,Drive", { { rigLevel, 10 },
-            { compOn, 1 }, { compThreshold, -22 }, { compRatio, 3 }, { compLevel, 2 },
-            { driveOn, 1 }, { driveType, gotham }, { gothamLevel, 6 }, { gothamBlend, 3 }, { gothamDrive, 3 }, { gothamPresence, 4 },
-            { eqOn, 1 }, { eq80, 2 }, { eq150, 2 }, { eq900, 2 }, { eq2k, 2 }, { eq9k, -2 }, { eqLevel, -1.5f } },
-            "Jason Newsted's warm, round fretless \"mwah\": mostly clean, with a little GOTHAM grit standing in for the tube DI. "
-            "For the heavy choruses, raise BLEND and DRIVE.\n"
-            "Amp: an Ampeg SVT capture (or a Mesa bass head).\nCab: an SVT 8x10 IR (or a 4x10).\n"
-            "Play: fretless if you have one, E-flat standard (or TUNING -1), about 90 BPM."),
-
-        // Periphery, "Absolomb" (Nolly on bass): the OBSIDIAN at the
-        // settings seen on the pedal in Nolly's Darkglass demo, which plays
-        // the song (the owner confirmed GROWL off and BITE on), after
-        // Nolly's own 4:1 compression.
-        make ("Absolomb (Periphery)", E, 8, "Song,Bass,Distortion,Metal", { { rigLevel, 7.5f },
-            { compOn, 1 }, { compThreshold, -20 }, { compRatio, 4 },
-            { driveOn, 1 }, { driveType, obsidian }, { driveGain, 5.8f }, { dualBlend, 5.5f }, { dualLevel, 4 }, { dualMod, 7 },
-            { dualBass, 5 }, { dualMid, 5.8f }, { dualTreble, 7.5f }, { dualGrowl, 0 }, { dualBite, 1 } },
-            "Nolly's Absolomb tone: the OBSIDIAN at the settings on the pedal in his Darkglass demo, after a gentle 4:1 compressor "
-            "(his own chain compresses before the drive).\n"
-            "Amp: a clean Ampeg SVT capture, or none.\nCab: an SVT 8x10 IR (MD421 at the cap edge, as he used).\n"
-            "Play: with a pick, on an extended-range bass (Nolly's Dingwall)."),
-
-        // RHCP, "Higher Ground": Flea's Spector with EMGs, a GK 800RB over
-        // Mesa cabs. Bright, scooped, snappy slap.
-        make ("Higher Ground (RHCP)", E, 9, "Song,Funk,Clean", {
-            { compOn, 1 }, { compThreshold, -26 }, { compRatio, 6 }, { compLevel, 4 },
-            { eqOn, 1 }, { eq33, 1 }, { eq80, 3 }, { eq300, -3 }, { eq500, -3 }, { eq900, -1 }, { eq2k, 2 }, { eq5k, 3 }, { eq9k, 2 },
-            { eqLevel, -0.5f } },
-            "Flea's bright, scooped, snappy slap.\n"
-            "Amp: a Gallien-Krueger 800RB style capture.\nCab: a 2x15 or 4x10 IR.\n"
-            "Play: slapped, E standard, about 140 BPM."),
-
-        // Marvin Gaye, "What's Going On": James Jamerson's Precision with
-        // heavy flatwounds and a foam mute. Warm, round, no treble.
-        make ("What's Going On (Jamerson)", E, 10, "Song,Clean,Vintage", { { rigLevel, -2 },
-            { compOn, 1 }, { compThreshold, -18 }, { compRatio, 2.5f },
-            { eqOn, 1 }, { eq80, 3 }, { eq150, 3 }, { eq300, 1 }, { eq900, -2 }, { eq2k, -5 }, { eq5k, -9 }, { eq9k, -11 }, { eqLevel, 0.5f } },
-            "James Jamerson's warm, round, thumpy Motown tone with no treble. His flatwound strings and foam mute can't be "
-            "modelled: a muted thumb or palm gets you closer.\n"
-            "Amp: an Ampeg B-15 capture, or none (it may have gone straight to the desk).\nCab: a 1x15 IR, or none.\n"
-            "Play: one finger, E standard, about 102 BPM."),
-
-        // Joy Division, "Love Will Tear Us Apart": Peter Hook's trebly,
-        // picked lead bass with chorus (an EHX Clone Theory, reported).
-        make ("Love Will Tear Us Apart (Joy Division)", E, 11, "Song,Modulation,Clean", { { rigLevel, 11 },
-            { compOn, 1 }, { compThreshold, -22 }, { compRatio, 3 },
-            { driveOn, 1 }, { driveType, gotham }, { gothamLevel, 6 }, { gothamBlend, 3 }, { gothamDrive, 3 }, { gothamPresence, 6 },
-            { gothamTreble, 7 }, { driveLevel, 8 },
-            { eqOn, 1 }, { eq33, -3 }, { eq80, -1 }, { eq500, 2 }, { eq900, 3 }, { eq2k, 3 }, { eq5k, 2 }, { eqLevel, -1.5f },
-            { modOn, 1 }, { modType, chorus }, { modRate, 0.8f }, { modDepth, 0.5f }, { modMix, 0.45f } },
-            "Peter Hook's trebly, picked, melodic lead bass with chorus, played high on the neck.\n"
-            "Amp: a Hiwatt capture at the edge of breakup.\nCab: a 4x12 or 4x15 IR.\n"
-            "Play: with a pick, high on the neck, E standard, about 150 BPM."),
-    };
+    return rigs;
 }

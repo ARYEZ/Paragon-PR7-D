@@ -75,7 +75,7 @@ class ExpressionAssign final : public juce::Component,
 {
 public:
     enum class Style { pedal, list };
-    static constexpr int numTargets = 8;    // what the pedal can control: everything but "Off"
+    static constexpr int numTargets = 1;    // what the pedal can control: everything but "Off" (VOLUME, for now)
     static constexpr int visibleRows = 6;   // the screen's lines; the list scrolls
 
     ExpressionAssign (juce::AudioProcessorValueTreeState&, Style);
@@ -164,9 +164,8 @@ private:
 };
 
 //==============================================================================
-// Measures the guitar's pitch for the tuner, about 30 times a second, from
-// the audio the processor shares. Steadies the reading so the display
-// doesn't flicker, and keeps showing the last note briefly after it fades.
+// Passes the processor's tuner reading (see dsp/Tuner.h) to the screen on
+// the unit, about 30 times a second, while the tuner is on.
 class TunerReader final : private juce::Timer
 {
 public:
@@ -188,9 +187,4 @@ private:
     void timerCallback() override;
 
     ParagonX1AudioProcessor& processor;
-    PitchDetector detector;
-    double preparedRate = 0.0;
-    std::vector<float> window;
-    double smoothedNote = -1.0;   // as a fractional MIDI note number; -1 = none
-    juce::uint32 lastHeard = 0;
 };

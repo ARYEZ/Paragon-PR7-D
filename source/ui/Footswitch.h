@@ -2,14 +2,17 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
-// One of the four footswitches along the bottom of the pedal: a status LED,
+// One of the seven footswitches on the pedal: a status LED,
 // a big rubber pad, and the block's name printed on the metal. Pressing the
 // pad turns the block on or off; clicking the name selects the block so its
 // knobs show in the edit panel.
 //
-// A footswitch can control several on/off parameters at once (footswitch 4
-// controls both delay and reverb). If any of them is on, the LED is lit and
-// pressing turns them all off; otherwise pressing turns them all on.
+// A footswitch can control several on/off parameters at once. If any of
+// them is on, the LED is lit and pressing turns them all off; otherwise
+// pressing turns them all on.
+//
+// With no parameters it's a stomp still to be built: it shows its name, its
+// LED stays dark and pressing it does nothing.
 class Footswitch final : public juce::Component,
                          public juce::SettableTooltipClient,
                          private juce::Timer
@@ -27,6 +30,7 @@ public:
     // Re-reads the parameters now (also happens on a timer).
     void refresh();
     bool isAnyOn() const;
+    bool isPlaceholder() const { return onParameterIds.isEmpty(); }
     void toggle();
 
     void paint (juce::Graphics&) override;

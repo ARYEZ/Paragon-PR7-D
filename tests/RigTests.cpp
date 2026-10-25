@@ -4,7 +4,6 @@
 #include "Parameters.h"
 #include "PluginProcessor.h"
 #include "rigs/FactoryRigs.h"
-#include "ui/EqPresets.h"
 
 using Catch::Matchers::WithinAbs;
 
@@ -49,8 +48,6 @@ namespace
         TempRigFolder temp;
         ParagonX1AudioProcessor processor;
     };
-
-    const juce::File exampleModels { PARAGON_NAM_EXAMPLE_MODELS };
 }
 
 TEST_CASE ("A rig survives being written to a file and read back", "[rigs]")
@@ -61,9 +58,7 @@ TEST_CASE ("A rig survives being written to a file and read back", "[rigs]")
     rig.number = 17;
     rig.favourite = true;
     rig.tags = { "Rock", "High Gain" };
-    rig.parameters = { { "driveGain", 6.5f }, { "delayTime", 420.0f } };
-    rig.ampModelPath = "C:\\Models\\Plexi.nam";
-    rig.cabIrPath = "/Users/me/IRs/4x12 V30.wav";
+    rig.parameters = { { "eqOutput", 6.5f }, { "presence", -4.0f } };
 
     const auto restored = Rig::fromXml (*juce::XmlDocument::parse (rig.toXml()->toString()));
     REQUIRE (restored.has_value());
@@ -72,9 +67,6 @@ TEST_CASE ("A rig survives being written to a file and read back", "[rigs]")
     CHECK (restored->favourite);
     CHECK (restored->tags == rig.tags);
     CHECK (restored->parameters == rig.parameters);
-    CHECK (restored->ampModelPath == rig.ampModelPath);
-    CHECK (restored->cabIrPath == rig.cabIrPath);
-    CHECK_FALSE (restored->keepAmpAndCab);
 }
 
 TEST_CASE ("Files that aren't rigs, or are from a newer version, are refused", "[rigs]")
@@ -91,7 +83,6 @@ TEST_CASE ("Every factory rig is valid", "[rigs]")
     for (const auto& rig : makeFactoryRigs())
     {
         INFO (rig.name);
-        CHECK (rig.keepAmpAndCab);
         names.addIfNotAlreadyThere (rig.name);
         slots.addIfNotAlreadyThere (rig.getSlotName());
 
@@ -111,49 +102,50 @@ TEST_CASE ("Every factory rig is valid", "[rigs]")
     CHECK (slots.size() == (int) makeFactoryRigs().size());   // no two in the same slot
 }
 
-TEST_CASE ("The factory rigs are PR7-B's bass rigs, each with notes; song rigs say which amp and cab to load", "[rigs]")
+TEST_CASE ("PR7-E's factory rigs: Init at A01, then vocals, drums, instruments, mix and mastering; PR7-B's are gone", "[rigs]")
 {
     const auto rigs = makeFactoryRigs();
+    REQUIRE (rigs.size() > 25);
+    CHECK (rigs.front().name == "Init");
+    CHECK (rigs.front().getSlotName() == "A01");
+    CHECK (rigs.front().parameters.empty());   // everything at its default: every block off
+
+    // Each bank has at least four, each says what it's for, and each (but
+    // Init) switches the EQ on.
+    std::array<int, Rig::numBanks> perBank {};
     for (const auto& rig : rigs)
     {
         INFO (rig.name);
+        ++perBank[(size_t) rig.bank];
         CHECK (rig.notes.isNotEmpty());
-        if (rig.bank == 4)   // E: the song rigs
-        {
-            CHECK (rig.tags.contains ("Song"));
-            CHECK (rig.notes.contains ("Amp:"));
-            CHECK (rig.notes.contains ("Cab:"));
-            CHECK (rig.notes.contains ("Play:"));
-        }
+        CHECK_FALSE (rig.tags.isEmpty());
+        if (rig.name != "Init")
+            CHECK (rig.parameters.at (ParamIDs::eqOn) == 1.0f);
     }
+    for (const auto count : perBank)
+        CHECK (count >= 4);
 
-    // PR7-G's guitar rigs are gone.
-    for (const auto* guitarRig : { "Clean Slate", "Studio Clean", "Slapback", "Surf Tremolo", "Nu-Metal Screech", "Whammy Lead",
-                                   "Killing Solo (RATM)", "Numb Solo (Floyd)", "Jambi Talk Box (Tool)" })
-        CHECK (std::none_of (rigs.begin(), rigs.end(), [guitarRig] (const Rig& rig) { return rig.name == guitarRig; }));
-
-    // The songs asked for are all there.
-    for (const auto* song : { "Hysteria (Muse)", "Forty Six & 2 (Tool)", "Blind (Korn)", "Bulls on Parade (RATM)",
-                              "Lakini's Juice (Live)", "Simple Boy (Karnivool)", "Until It Sleeps (Metallica)", "Absolomb (Periphery)" })
-        CHECK (std::any_of (rigs.begin(), rigs.end(), [song] (const Rig& rig) { return rig.name == song; }));
+    RigRig r;
+    for (const auto* bassRig : { "Clean DI", "Studio Bass", "Chorus Bass", "Dub Delay", "Hysteria (Muse)", "Absolomb (Periphery)" })
+        CHECK (r.processor.getRigLibrary().findFactory (bassRig) == nullptr);
 }
 
 TEST_CASE ("A rig's notes are saved with it and kept by Save As", "[rigs]")
 {
     Rig rig;
     rig.name = "Noted";
-    rig.notes = "Amp: an Ampeg SVT capture.\nCab: an SVT 8x10 IR.";
+    rig.notes = "For the mix bus.\nTrim first, then limit.";
     const auto loaded = Rig::fromXml (*rig.toXml());
     REQUIRE (loaded.has_value());
     CHECK (loaded->notes == rig.notes);
 
-    // Saving a copy of a factory song rig keeps its amp and cab advice.
+    // Saving a copy of a factory rig keeps its notes.
     RigRig r;
-    r.processor.loadRig (r.entryNamed ("Bulls on Parade (RATM)"));
-    REQUIRE (r.processor.saveCurrentRigAs ("My Bulls"));
+    r.processor.loadRig (r.entryNamed ("Init"));
+    REQUIRE (r.processor.saveCurrentRigAs ("My Init"));
     const auto* saved = r.processor.getRigLibrary().find (r.processor.getCurrentRig().file);
     REQUIRE (saved != nullptr);
-    CHECK (saved->rig.notes == r.entryNamed ("Bulls on Parade (RATM)").rig.notes);
+    CHECK (saved->rig.notes == r.entryNamed ("Init").rig.notes);
 }
 
 TEST_CASE ("The rig library saves, finds, renames and deletes rigs", "[rigs]")
@@ -209,12 +201,16 @@ TEST_CASE ("Favourites stick, including on factory rigs", "[rigs]")
     TempRigFolder temp;
     {
         RigLibrary library (temp.folder);
-        library.setFavourite (*library.findFactory ("Dub Delay"), true);
+        library.setFavourite (*library.findFactory ("Init"), true);
+    }
+    {
+        RigLibrary reopened (temp.folder);
+        CHECK (reopened.findFactory ("Init")->rig.favourite);
+        reopened.setFavourite (*reopened.findFactory ("Init"), false);
     }
 
-    RigLibrary reopened (temp.folder);
-    CHECK (reopened.findFactory ("Dub Delay")->rig.favourite);
-    CHECK_FALSE (reopened.findFactory ("Studio Bass")->rig.favourite);
+    RigLibrary reopenedAgain (temp.folder);
+    CHECK_FALSE (reopenedAgain.findFactory ("Init")->rig.favourite);
 }
 
 TEST_CASE ("Rigs are sorted by bank and number, and < > wrap round", "[rigs]")
@@ -237,31 +233,31 @@ TEST_CASE ("Rigs are sorted by bank and number, and < > wrap round", "[rigs]")
     CHECK (library.step (&entries.front(), -1) == &entries.back());
     CHECK (library.step (nullptr, 1) == &entries.front());
 
-    CHECK (library.nextFreeNumber (0) == 7);   // factory rigs fill A01-A06
+    CHECK (library.nextFreeNumber (0) == 8);   // Init and the vocal rigs fill A01 to A07
 }
 
 TEST_CASE ("Saving and loading a rig restores the sound but not the global knobs", "[rigs]")
 {
     RigRig r;
-    r.set (ParamIDs::driveOn, 1.0f);
-    r.set (ParamIDs::driveGain, 7.5f);
-    r.set (ParamIDs::delayTime, 640.0f);
+    r.set (ParamIDs::eqOn, 1.0f);
+    r.set (ParamIDs::eqOutput, 7.5f);
+    r.set (ParamIDs::presence, 6.0f);
     r.set (ParamIDs::rigLevel, -3.0f);
     REQUIRE (r.processor.saveCurrentRigAs ("My Sound"));
 
     // Change everything, including the global input and output knobs.
-    r.set (ParamIDs::driveOn, 0.0f);
-    r.set (ParamIDs::driveGain, 1.0f);
-    r.set (ParamIDs::delayTime, 100.0f);
+    r.set (ParamIDs::eqOn, 0.0f);
+    r.set (ParamIDs::eqOutput, 1.0f);
+    r.set (ParamIDs::presence, -2.0f);
     r.set (ParamIDs::rigLevel, 0.0f);
     r.set (ParamIDs::inputGain, 5.0f);
     r.set (ParamIDs::outputGain, -4.0f);
 
     r.processor.loadRig (r.entryNamed ("My Sound"));
 
-    CHECK (r.get (ParamIDs::driveOn) > 0.5f);
-    CHECK_THAT (r.get (ParamIDs::driveGain), WithinAbs (7.5, 0.01));
-    CHECK_THAT (r.get (ParamIDs::delayTime), WithinAbs (640.0, 0.5));
+    CHECK (r.get (ParamIDs::eqOn) > 0.5f);
+    CHECK_THAT (r.get (ParamIDs::eqOutput), WithinAbs (7.5, 0.01));
+    CHECK_THAT (r.get (ParamIDs::presence), WithinAbs (6.0, 0.01));
     CHECK_THAT (r.get (ParamIDs::rigLevel), WithinAbs (-3.0, 0.01));
     // Global knobs are left alone.
     CHECK_THAT (r.get (ParamIDs::inputGain), WithinAbs (5.0, 0.01));
@@ -272,79 +268,30 @@ TEST_CASE ("A rig that doesn't mention a parameter sets it to its default", "[ri
 {
     // E.g. a rig saved by an older version, before that parameter existed.
     RigRig r;
-    r.set (ParamIDs::reverbOn, 1.0f);
+    r.set (ParamIDs::eqAutoGain, 1.0f);
     r.set (ParamIDs::presence, 6.0f);
 
     Rig old;
     old.name = "Old Rig";
-    old.parameters = { { ParamIDs::driveOn, 1.0f } };
+    old.parameters = { { ParamIDs::eqOn, 1.0f } };
     r.processor.getRigLibrary().saveAsNew (old);
     r.processor.loadRig (r.entryNamed ("Old Rig"));
 
-    CHECK (r.get (ParamIDs::driveOn) > 0.5f);
-    CHECK (r.get (ParamIDs::reverbOn) < 0.5f);
+    CHECK (r.get (ParamIDs::eqOn) > 0.5f);
+    CHECK (r.get (ParamIDs::eqAutoGain) < 0.5f);
     CHECK_THAT (r.get (ParamIDs::presence), WithinAbs (0.0, 0.01));
-}
-
-TEST_CASE ("User rigs bring their amp and cab; factory rigs keep yours", "[rigs]")
-{
-    RigRig r;
-    const auto wavenet = exampleModels.getChildFile ("wavenet.nam");
-    const auto lstm = exampleModels.getChildFile ("lstm.nam");
-
-    r.processor.loadAmpModel (wavenet);
-    REQUIRE (r.processor.waitForLoads (20000));
-    REQUIRE (r.processor.saveCurrentRigAs ("Wavenet Rig"));
-
-    r.processor.loadAmpModel (lstm);
-    REQUIRE (r.processor.waitForLoads (20000));
-    REQUIRE (r.processor.saveCurrentRigAs ("LSTM Rig"));
-
-    SECTION ("Loading a user rig loads its model")
-    {
-        r.processor.loadRig (r.entryNamed ("Wavenet Rig"));
-        REQUIRE (r.processor.waitForLoads (20000));
-        CHECK (r.processor.getAmpStatus().file == wavenet);
-    }
-
-    SECTION ("Loading a factory rig keeps the current model")
-    {
-        r.processor.loadRig (r.entryNamed ("Chorus Bass"));
-        REQUIRE (r.processor.waitForLoads (20000));
-        CHECK (r.processor.getAmpStatus().file == lstm);
-        CHECK (r.get (ParamIDs::modOn) > 0.5f);   // its chorus, applied
-    }
-
-    SECTION ("A user rig saved with no amp unloads the amp")
-    {
-        r.processor.clearAmpModel();
-        REQUIRE (r.processor.waitForLoads (20000));
-        REQUIRE (r.processor.saveCurrentRigAs ("No Amp"));
-        r.processor.loadRig (r.entryNamed ("Wavenet Rig"));
-        REQUIRE (r.processor.waitForLoads (20000));
-        r.processor.loadRig (r.entryNamed ("No Amp"));
-        REQUIRE (r.processor.waitForLoads (20000));
-        CHECK (r.processor.getAmpStatus().file == juce::File());
-    }
 }
 
 TEST_CASE ("The modified marker tracks changes since loading or saving", "[rigs]")
 {
     RigRig r;
-    r.processor.loadRig (r.entryNamed ("Studio Bass"));
+    r.processor.loadRig (r.entryNamed ("Init"));
     CHECK_FALSE (r.processor.isRigModified());
 
     SECTION ("Turning a knob marks it modified")
     {
-        r.set (ParamIDs::driveGain, 9.0f);
+        r.set (ParamIDs::eqOutput, 9.0f);
         CHECK (r.processor.isRigModified());
-    }
-
-    SECTION ("Loading a different amp marks it modified")
-    {
-        r.processor.loadAmpModel (exampleModels.getChildFile ("wavenet.nam"));
-        CHECK (r.processor.isRigModified());
-        REQUIRE (r.processor.waitForLoads (20000));
     }
 
     SECTION ("The global knobs don't count")
@@ -356,10 +303,10 @@ TEST_CASE ("The modified marker tracks changes since loading or saving", "[rigs]
 
     SECTION ("Saving clears it")
     {
-        r.set (ParamIDs::driveGain, 9.0f);
+        r.set (ParamIDs::eqOutput, 9.0f);
         REQUIRE (r.processor.saveCurrentRigAs ("Saved"));
         CHECK_FALSE (r.processor.isRigModified());
-        r.set (ParamIDs::driveGain, 2.0f);
+        r.set (ParamIDs::eqOutput, 2.0f);
         CHECK (r.processor.isRigModified());
         REQUIRE (r.processor.saveCurrentRig());   // a user rig now, so plain save works
         CHECK_FALSE (r.processor.isRigModified());
@@ -369,33 +316,40 @@ TEST_CASE ("The modified marker tracks changes since loading or saving", "[rigs]
 TEST_CASE ("Factory rigs can't be saved over", "[rigs]")
 {
     RigRig r;
-    r.processor.loadRig (r.entryNamed ("Dub Delay"));
-    r.set (ParamIDs::delayMix, 0.9f);
+    r.processor.loadRig (r.entryNamed ("Init"));
+    r.set (ParamIDs::presence, 9.0f);
     CHECK_FALSE (r.processor.saveCurrentRig());   // the UI then asks for a new name
-    CHECK_THAT (r.entryNamed ("Dub Delay").rig.parameters.at (ParamIDs::delayMix), WithinAbs (0.3, 0.001));
+    CHECK (r.entryNamed ("Init").rig.parameters.count (ParamIDs::presence) == 0);
 }
 
 TEST_CASE ("< and > step through the rigs in order", "[rigs]")
 {
     RigRig r;
-    r.processor.loadRig (r.entryNamed ("Clean DI"));
+    r.processor.loadRig (r.entryNamed ("Init"));
+    REQUIRE (r.processor.saveCurrentRigAs ("Second"));   // filed after bank A's factory rigs, at A08
+    REQUIRE (r.processor.saveCurrentRigAs ("Third"));    // A09
+    CHECK (r.entryNamed ("Second").rig.getSlotName() == "A08");
+    r.processor.loadRig (r.entryNamed ("Vocal Mud Control"));   // A07
     r.processor.stepRig (1);
-    CHECK (r.processor.getCurrentRig().name == "Studio Bass");
-    r.processor.stepRig (-1);
+    CHECK (r.processor.getCurrentRig().name == "Second");
+    r.processor.stepRig (1);
+    r.processor.stepRig (1);   // on into bank B
+    CHECK (r.processor.getCurrentRig().name == "Kick Punch");
+    r.processor.loadRig (r.entryNamed ("Init"));
     r.processor.stepRig (-1);   // wraps round to the last rig
-    CHECK (r.processor.getCurrentRig().name == r.processor.getRigLibrary().getEntries().back().rig.name);
+    CHECK (r.processor.getCurrentRig().name == "Master Bright Tilt");
 }
 
 TEST_CASE ("Deleting the loaded rig keeps the sound, now unsaved", "[rigs]")
 {
     RigRig r;
-    r.set (ParamIDs::driveGain, 8.0f);
+    r.set (ParamIDs::eqOutput, 8.0f);
     REQUIRE (r.processor.saveCurrentRigAs ("Temporary"));
     REQUIRE (r.processor.deleteRig (r.entryNamed ("Temporary")));
 
     CHECK_FALSE (r.processor.getCurrentRig().isUserRig());
     CHECK (r.processor.isRigModified());
-    CHECK_THAT (r.get (ParamIDs::driveGain), WithinAbs (8.0, 0.01));
+    CHECK_THAT (r.get (ParamIDs::eqOutput), WithinAbs (8.0, 0.01));
 }
 
 TEST_CASE ("The DAW project remembers which rig was loaded", "[rigs][state]")
@@ -404,20 +358,19 @@ TEST_CASE ("The DAW project remembers which rig was loaded", "[rigs][state]")
     juce::File rigFile;
     {
         RigRig r;
-        r.set (ParamIDs::driveGain, 8.0f);
+        r.set (ParamIDs::eqOutput, 8.0f);
         REQUIRE (r.processor.saveCurrentRigAs ("Project Rig"));
-        r.set (ParamIDs::driveGain, 3.0f);   // tweaked after saving
+        r.set (ParamIDs::eqOutput, 3.0f);   // tweaked after saving
         rigFile = r.processor.getCurrentRig().file;
         r.processor.getStateInformation (saved);
     }
 
     ParagonX1AudioProcessor restored;
     restored.setStateInformation (saved.getData(), (int) saved.getSize());
-    REQUIRE (restored.waitForLoads (20000));
     CHECK (restored.getCurrentRig().name == "Project Rig");
     CHECK (restored.getCurrentRig().file == rigFile);
     CHECK (restored.isRigModified());   // the tweak is remembered as unsaved
-    CHECK_THAT (restored.getParameters().getRawParameterValue (ParamIDs::driveGain)->load(), WithinAbs (3.0, 0.01));
+    CHECK_THAT (restored.getParameters().getRawParameterValue (ParamIDs::eqOutput)->load(), WithinAbs (3.0, 0.01));
 }
 
 TEST_CASE ("Each rig's RIG LEVEL adds to the master output", "[rigs]")
@@ -437,44 +390,48 @@ TEST_CASE ("Each rig's RIG LEVEL adds to the master output", "[rigs]")
     CHECK_THAT (buffer.getMagnitude (0, 0, 256), WithinAbs (0.1 * 1.9953, 0.005));
 }
 
-TEST_CASE ("Rigs live in their own Paragon PR7-B folder, apart from Paragon PR7-G's", "[rigs]")
+TEST_CASE ("Rigs live in their own Paragon PR7-E folder, apart from its siblings'", "[rigs]")
 {
     const auto folder = RigLibrary::defaultFolder();
     CHECK (folder.getFileName() == "Rigs");
-    CHECK (folder.getParentDirectory().getFileName() == "Paragon PR7-B");
+    CHECK (folder.getParentDirectory().getFileName() == "Paragon PR7-E");
     CHECK (folder.getParentDirectory().getParentDirectory().getFileName() == "Paragon");
 
-    // The guitar version's rigs folder sits next to it, and is a different folder.
-    const auto guitarFolder = folder.getParentDirectory().getSiblingFile ("Paragon PR7-G").getChildFile ("Rigs");
-    CHECK (folder != guitarFolder);
-    CHECK_FALSE (folder.isAChildOf (guitarFolder.getParentDirectory()));
+    // PR7-B's (bass) and PR7-G's (guitar) rigs folders sit next to it, and are different folders.
+    for (const auto* sibling : { "Paragon PR7-B", "Paragon PR7-G" })
+    {
+        const auto siblingFolder = folder.getParentDirectory().getSiblingFile (sibling).getChildFile ("Rigs");
+        CHECK (folder != siblingFolder);
+        CHECK_FALSE (folder.isAChildOf (siblingFolder.getParentDirectory()));
+    }
 }
 
-TEST_CASE ("Rig files from Paragon X1 (.x1rig) still load", "[rigs]")
+TEST_CASE ("Only .pr7rig files are rigs: the old Paragon X1 .x1rig files aren't read", "[rigs]")
 {
-    const auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory)
-                            .getChildFile ("ParagonOldRigs-" + juce::String::toHexString (juce::Random::getSystemRandom().nextInt64()));
-    REQUIRE (folder.createDirectory());
+    TempRigFolder temp;
+    REQUIRE (temp.folder.createDirectory());
     Rig old;
     old.name = "From X1";
-    REQUIRE (old.toXml()->writeTo (folder.getChildFile ("From X1.x1rig")));
+    REQUIRE (old.toXml()->writeTo (temp.folder.getChildFile ("From X1.x1rig")));
 
-    RigLibrary library (folder);
-    CHECK (std::any_of (library.getEntries().begin(), library.getEntries().end(),
-                        [] (const auto& entry) { return entry.rig.name == "From X1"; }));
-    folder.deleteRecursively();
+    RigLibrary library (temp.folder);
+    CHECK (std::none_of (library.getEntries().begin(), library.getEntries().end(),
+                         [] (const auto& entry) { return entry.rig.name == "From X1"; }));
 }
 
-TEST_CASE ("A rig file saved before reverb types loads with the original reverb", "[rigs]")
+TEST_CASE ("A rig file from before 0.3.0 with the pedal on an effect that's gone loads with it unassigned", "[rigs]")
 {
-    auto xml = juce::XmlDocument::parse (R"(<ParagonRig version="1" parameterVersion="10" name="Old"><Param id="reverbOn" value="1"/></ParagonRig>)");
+    // WAH (2): one of PR7-B's effects, gone in 0.3.0.
+    auto xml = juce::XmlDocument::parse (R"(<ParagonRig version="1" parameterVersion="15" name="Old"><Param id="expressionTarget" value="2"/></ParagonRig>)");
     REQUIRE (xml != nullptr);
     const auto rig = Rig::fromXml (*xml);
     REQUIRE (rig.has_value());
-    REQUIRE (rig->parameters.count ("reverbType") == 1);
-    CHECK (rig->parameters.at ("reverbType") == 0.0f);
+    CHECK (rig->parameters.at ("expressionTarget") == 0.0f);
 
-    Rig current;   // saved by this version: written with its reverb type, and read back as it is
-    current.parameters["reverbType"] = 4.0f;
-    CHECK (Rig::fromXml (*current.toXml())->parameters.at ("reverbType") == 4.0f);
+    // VOLUME (1) stays VOLUME, and a rig saved now is read back as it is.
+    auto volume = juce::XmlDocument::parse (R"(<ParagonRig version="1" parameterVersion="15" name="Old"><Param id="expressionTarget" value="1"/></ParagonRig>)");
+    CHECK (Rig::fromXml (*volume)->parameters.at ("expressionTarget") == 1.0f);
+    Rig current;
+    current.parameters["expressionTarget"] = 1.0f;
+    CHECK (Rig::fromXml (*current.toXml())->parameters.at ("expressionTarget") == 1.0f);
 }

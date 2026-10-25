@@ -28,7 +28,6 @@ public:
             int octave = 0;
             double cents = 0.0;     // -50 to +50
             double frequency = 0.0;
-            bool muted = true;
 
             bool operator== (const Tuner&) const = default;
         } tuner;

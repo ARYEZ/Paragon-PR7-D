@@ -3,34 +3,16 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "LevelMeterSource.h"
-#include "dsp/AmpStage.h"
-#include "dsp/CabStage.h"
+#include "Parameters.h"
 #include "dsp/InputTap.h"
 #include "dsp/TapTempo.h"
-#include "dsp/effects/CompGate.h"
-#include "dsp/effects/Delay.h"
-#include "dsp/effects/Drive.h"
-#include "dsp/effects/FilterPitch.h"
-#include "dsp/effects/GraphicEq.h"
-#include "dsp/effects/LoFi.h"
-#include "dsp/effects/Glitch.h"
-#include "dsp/effects/PitchBlock.h"
-#include "dsp/effects/TalkBox.h"
-#include "dsp/effects/Modulation.h"
+#include "dsp/Tuner.h"
+#include "dsp/effects/Limiter.h"
+#include "dsp/eq/EqMatchSession.h"
+#include "dsp/eq/ParametricEq.h"
 #include "dsp/effects/Presence.h"
-#include "dsp/effects/Reverb.h"
-#include "dsp/effects/Wah.h"
 #include "rigs/RigLibrary.h"
 #include "rigs/UndoHistory.h"
-
-// What the editor shows for the amp or cabinet slot.
-struct SlotStatus
-{
-    juce::File file;        // the file in use (or that a saved project asked for)
-    juce::String detail;    // e.g. "48 kHz, resampled" or the IR length
-    juce::String error;     // why the last load failed; empty if it didn't
-    bool loading = false;
-};
 
 // Which rig is loaded, for the header display and the Save button.
 struct CurrentRig
@@ -83,20 +65,6 @@ public:
 
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
-
-    // Loading happens on a background thread; these return immediately.
-    // Listen to statusBroadcaster to hear when a load finishes.
-    void loadAmpModel (const juce::File& file);
-    void clearAmpModel();
-    void loadCabinetIR (const juce::File& file);
-    void clearCabinetIR();
-
-    SlotStatus getAmpStatus() const;
-    SlotStatus getCabStatus() const;
-    juce::ChangeBroadcaster statusBroadcaster;
-
-    // Blocks until queued loads finish. For tests.
-    bool waitForLoads (int timeoutMs);
 
     //==========================================================================
     // Rigs (message thread only)
@@ -156,8 +124,28 @@ public:
     double getTempoBpm() const noexcept;                                 // whichever is in use
 
     //==========================================================================
-    // Tuner: the guitar signal, for the editor's tuner to measure.
+    // Tuner: what's coming in, and the TUNER stomp's reading, trace and
+    // average (message thread). It updates itself while it's on; RESET empties the trace.
     const InputTap& getInputTap() const noexcept { return inputTap; }
+    const Tuner& getTuner() const noexcept { return tuner; }
+
+    //==========================================================================
+    // The EQ (stomp 4). Its settings as they are now, read from the
+    // parameters (any thread), the audio going into and out of it (for the
+    // analyser), and SOLO, which isn't a parameter: it's held while listening.
+    eq::ParametricEq::Settings getEqSettings() const noexcept;
+    const InputTap& getEqInputTap() const noexcept { return eqInputTap; }
+    const InputTap& getEqOutputTap() const noexcept { return eqOutputTap; }
+    void setEqSolo (int band) noexcept { eqSoloBand = band; }
+    int getEqSolo() const noexcept { return eqSoloBand.load(); }
+    double getEqAutoGainDb() const noexcept { return parametricEq.getAutoGainDb(); }
+    eq::ParametricEq::DynamicReading getEqDynamics (int band) const noexcept { return parametricEq.getDynamics (band); }
+    eq::match::Session& getEqMatch() noexcept { return eqMatch; }
+
+    // The LIMITER's gain reduction on a channel in the last block (dB, 0 or more).
+    float getLimiterReductionDb (int channel) const noexcept { return limiter.getReductionDb (channel); }
+    void resetTuner() noexcept { tuner.clear(); }
+    void updateTuner();   // the timer calls this; tests call it to step the tuner
 
     // The expression pedal's position after MIDI (0 heel to 1 toe), for the UI.
     float getExpressionPosition() const noexcept;
@@ -175,8 +163,6 @@ public:
 
     juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
     LevelMeterSource& getInputMeter() noexcept { return inputMeter; }
-    // How hard the compressor is working (dB, 0 or less), for its meter.
-    float getCompGainReductionDb() const noexcept { return compGate.getGainReductionDb(); }
     LevelMeterSource& getOutputMeter() noexcept { return outputMeter; }
 
 private:
@@ -186,7 +172,6 @@ private:
     bool isOn (const char* id) const { return param (id) > 0.5f; }
 
     void timerCallback() override;
-    void setStatus (SlotStatus& slot, SlotStatus newStatus);
     void parameterChanged (const juce::String& parameterId, float newValue) override;
     void markModified() noexcept;
     void applyRig (const Rig& rig);
@@ -200,8 +185,7 @@ private:
 
         bool operator== (const Snapshot& other) const
         {
-            return rig.parameters == other.rig.parameters && rig.ampModelPath == other.rig.ampModelPath
-                && rig.cabIrPath == other.rig.cabIrPath && current == other.current;
+            return rig.parameters == other.rig.parameters && current == other.current;
         }
     };
     Snapshot takeSnapshot() const;
@@ -221,33 +205,24 @@ private:
     juce::AudioProcessorValueTreeState parameters;
     std::atomic<float>* inputGainDb = nullptr;
     std::atomic<float>* outputGainDb = nullptr;
-    std::atomic<float>* ampOn = nullptr;
-    std::atomic<float>* ampNormalise = nullptr;
-    std::atomic<float>* cabOn = nullptr;
 
     // Smoothing stops zipper noise when a gain knob moves.
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> inputGain, outputGain;
 
-    AmpStage amp;
-    CabStage cab;
-
-    // Signal chain, in order: wah -> compGate -> drive -> amp -> cab -> presence
-    // -> graphic EQ -> modulation -> delay -> reverb. Up to the cab it's mono; from
-    // modulation on it's stereo when the track is.
-    effects::CompGate compGate;
-    effects::FilterPitch filterPitch;   // after the compressor, before the drive
-    effects::Drive drive;
-    effects::Presence presence;
-    effects::Modulation modulation;
-    effects::Delay delay;
-    effects::Reverb reverb;
-    effects::LoFi loFi;   // last: after the reverb
-    effects::Glitch glitch;
-    effects::PitchBlock pitchBlock;
-    effects::TalkBox talkBox;   // FILTER / PITCH's Talk Box type, after the cab   // first: TUNING, OCTAVER and FREEZE, before the wah   // after the EQ (POST), or after FILTER / PITCH (PRE)
-    effects::Wah wah;
-    effects::GraphicEq graphicEq;   // after the cabinet and presence, before modulation
-    std::array<std::atomic<float>*, effects::GraphicEq::numBands> eqGainDb {};   // the expression pedal's WAH, first in the chain as on a pedalboard
+    // Signal chain, stereo throughout: INPUT -> stomp 4 (EQ) -> PRESENCE -> OUTPUT.
+    // The tuner only listens; the other stomps aren't built yet.
+    // Stomp 4, the EQ (stereo itself), then PRESENCE: one per channel,
+    // since each keeps its filter's memory.
+    eq::ParametricEq parametricEq;
+    struct EqBandParameters { std::atomic<float>* values[std::size (ParamIDs::eqBandSettings)] {}; };
+    std::array<EqBandParameters, ParamIDs::eqNumBands> eqBandParameters {};
+    std::atomic<int> eqSoloBand { -1 };
+    InputTap eqInputTap { 16384 }, eqOutputTap { 16384 };   // what goes into and comes out of the EQ, for its analyser
+    eq::match::Session eqMatch { {} };
+    effects::Limiter limiter;   // stomp 7, ported from PR7-C
+    juce::SmoothedValue<float> limitTrim { 1.0f };   // its OUTPUT TRIM (1 while it's off)
+    bool limitTrimFresh = true;   // EQ Match's listening (its folder is set with the rigs folder)
+    std::array<effects::Presence, effects::maxChannels> presence;
 
     std::unique_ptr<RigLibrary> rigLibrary;
     CurrentRig currentRig;
@@ -255,13 +230,13 @@ private:
     std::atomic<bool> rigModified { false }, applyingRig { false };
 
     // BYPASS: the clean input, delayed by our latency so switching bypass
-    // never shifts the guitar in time, crossfaded in over 20 ms.
+    // never shifts the sound in time, crossfaded in over 20 ms.
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::None> bypassDelay { 8192 };
     juce::AudioBuffer<float> bypassDry;
     juce::SmoothedValue<float> bypassAmount;
 
     // The expression pedal's VOLUME, and the tuner's mute.
-    juce::SmoothedValue<float> expressionVolume, tunerOpen;
+    juce::SmoothedValue<float> expressionVolume;
 
     // The last MIDI expression value not yet copied into the expression parameter (-1 = none).
     std::atomic<float> pendingMidiExpression { -1.0f };
@@ -269,6 +244,7 @@ private:
     std::atomic<double> tunerReferenceHz { 440.0 };
 
     InputTap inputTap { 32768 };   // enough for the tuner's window at 192 kHz
+    Tuner tuner;
 
     UndoHistory<Snapshot> history;
     std::atomic<int> activeGestures { 0 };
@@ -276,16 +252,9 @@ private:
 
     int preparedBlockSize = 512;
     std::atomic<double> hostBpm { 120.0 }, tappedBpm { 0.0 };
-    double songBeatsAtBlock = -1.0;   // the song position at this block's start, in beats; -1 when not playing (audio thread only)
     TapTempo tapCounter;
 
-    juce::CriticalSection statusLock;
-    SlotStatus ampStatus, cabStatus;
-
     LevelMeterSource inputMeter, outputMeter;
-
-    // Declared last so it is destroyed first: its jobs use the members above.
-    juce::ThreadPool loader { juce::ThreadPoolOptions{}.withThreadName ("Paragon PR7-B loader").withNumberOfThreads (1) };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParagonX1AudioProcessor)
 };

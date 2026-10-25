@@ -7,9 +7,11 @@ namespace
 
     // Which plugin version's parameters the rig was saved with, for the
     // occasional parameter whose default changed (older plugins ignore it).
-    // 10: PR7-G's drive MODEL (its guitar drives are gone from PR7-B).
-    // 15: the reverb's TYPE, defaulting to HALL.
-    constexpr int parameterVersion = 15;
+    // 15: the reverb's TYPE (from PR7-G, via PR7-B; gone in PR7-E 0.3.0).
+    // 30: PR7-E 0.3.0, when the expression pedal's effect targets went.
+    // 31: PR7-E 0.5.0, the dynamic EQ (nothing to migrate: new bands' defaults are static).
+    // 32: PR7-E 0.8.0, the LIMITER (off by default: nothing to migrate).
+    constexpr int parameterVersion = 32;
 
     const juce::Identifier rigTag { "ParagonRig" };
     const juce::Identifier parameterTag { "Param" };
@@ -35,12 +37,8 @@ std::unique_ptr<juce::XmlElement> Rig::toXml() const
     xml->setAttribute ("number", number);
     xml->setAttribute ("favourite", favourite);
     xml->setAttribute ("tags", tags.joinIntoString (","));
-    xml->setAttribute ("ampModel", ampModelPath);
-    xml->setAttribute ("cabIr", cabIrPath);
     if (notes.isNotEmpty())
         xml->setAttribute ("notes", notes);
-    if (keepAmpAndCab)
-        xml->setAttribute ("keepAmpAndCab", true);
 
     for (const auto& [id, value] : parameters)
     {
@@ -68,9 +66,6 @@ std::optional<Rig> Rig::fromXml (const juce::XmlElement& xml)
     rig.tags = juce::StringArray::fromTokens (xml.getStringAttribute ("tags"), ",", {});
     rig.tags.trim();
     rig.tags.removeEmptyStrings();
-    rig.ampModelPath = xml.getStringAttribute ("ampModel");
-    rig.cabIrPath = xml.getStringAttribute ("cabIr");
-    rig.keepAmpAndCab = xml.getBoolAttribute ("keepAmpAndCab");
     rig.notes = xml.getStringAttribute ("notes");
 
     for (const auto* parameter : xml.getChildWithTagNameIterator (parameterTag))
@@ -78,9 +73,11 @@ std::optional<Rig> Rig::fromXml (const juce::XmlElement& xml)
             rig.parameters[id] = (float) parameter->getDoubleAttribute ("value");
 
     const auto savedWith = xml.getIntAttribute ("parameterVersion", 0);
-    // Saved before the reverb had a TYPE: it was the original, now CLASSIC (0).
-    if (savedWith < 15 && rig.parameters.count ("reverbType") == 0)
-        rig.parameters["reverbType"] = 0.0f;
+    // Saved before 0.3.0 with the expression pedal on one of PR7-B's effects
+    // (2 to 8, all gone): unassigned instead (see ExpressionTargets).
+    if (const auto target = rig.parameters.find ("expressionTarget");
+        savedWith < 30 && target != rig.parameters.end() && target->second > 1.5f)
+        target->second = 0.0f;
 
     return rig;
 }

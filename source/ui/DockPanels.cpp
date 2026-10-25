@@ -307,8 +307,7 @@ void SelectedRigPanel::mouseUp (const juce::MouseEvent& event)
 
 //==============================================================================
 SettingsPage::SettingsPage (ParagonX1AudioProcessor& p)
-    : processor (p),
-      muteAttachment (p.getParameters(), ParamIDs::tunerMute, muteWhileTuning)
+    : processor (p)
 {
     reference.setRange (430.0, 450.0, 1.0);
     reference.setTextValueSuffix (" Hz");
@@ -318,9 +317,7 @@ SettingsPage::SettingsPage (ParagonX1AudioProcessor& p)
     reference.setColour (juce::Slider::thumbColourId, ParagonColours::accent);
     reference.setDoubleClickReturnValue (true, 440.0);
     reference.onValueChange = [this] { processor.setTunerReferenceHz (reference.getValue()); };
-    reference.setTooltip ("The pitch the tuner calls A4. 440 Hz is standard; some bands tune to 432 or 442. Double-click for 440.");
-
-    muteWhileTuning.setColour (juce::ToggleButton::textColourId, ParagonColours::text);
+    reference.setTooltip ("The pitch the tuner calls A4. 440 Hz is standard; some recordings are tuned to 432 or 442. Double-click for 440.");
 
     for (int cc = 1; cc <= 127; ++cc)
         ccBox.addItem ("CC " + juce::String (cc) + (cc == 11 ? "  (Expression, standard)" : cc == 7 ? "  (Volume)" : cc == 4 ? "  (Foot controller)" : ""), cc);
@@ -343,7 +340,7 @@ SettingsPage::SettingsPage (ParagonX1AudioProcessor& p)
     Finish::changes().addChangeListener (this);
     showFinish();
 
-    for (auto* component : std::initializer_list<juce::Component*> { &reference, &muteWhileTuning, &ccBox, &openFolder, &pearlWhite, &pearlWhiteNeon, &pearlBlack })
+    for (auto* component : std::initializer_list<juce::Component*> { &reference, &ccBox, &openFolder, &pearlWhite, &pearlWhiteNeon, &pearlBlack })
         addAndMakeVisible (component);
 }
 
@@ -382,19 +379,20 @@ void SettingsPage::paint (juce::Graphics& g)
         g.drawFittedText (body, inner.removeFromTop (60), juce::Justification::topLeft, 4, 1.0f);
     };
 
-    section (tunerArea, "TUNER", "Hold TAP or press TUNER on the pedal to tune. Reference pitch for A4:");
+    section (tunerArea, "TUNER", "Press stomp 1 (TUNER), the TUNER key, or hold TAP, to check the pitch of what's playing. "
+                                 "Click TUNER's name for its trace. Reference pitch for A4:");
     section (expressionArea, "EXPRESSION PEDAL",
              "A MIDI expression pedal moves the on-screen pedal. Pick the MIDI controller it sends "
-             "(most send CC 11), and route the MIDI track to Paragon PR7-B in your DAW.");
+             "(most send CC 11), and route the MIDI track to Paragon PR7-E in your DAW.");
     section (finishArea, "FINISH",
              "The unit's colour: pearl white with black keys, or pearl white or pearl black with neon pink-to-orange keys. "
-             "Saved on this computer, so every Paragon PR7-B you open uses it.");
+             "Saved on this computer, so every Paragon PR7-E you open uses it.");
     section (rigsArea, "RIGS", "Your rigs are files in this folder, so you can back them up or share them:\n"
                                + processor.getRigLibrary().getFolder().getFullPathName());
     section (aboutArea, "ABOUT",
-             juce::String ("Paragon PR7-B v") + JucePlugin_VersionString
+             juce::String ("Paragon PR7-E v") + JucePlugin_VersionString
                  + ". Free and open source under the GNU AGPLv3.\n"
-                   "Built with JUCE (AGPLv3), NeuralAmpModelerCore (MIT), Eigen (MPL 2.0) and the Inter typeface (SIL OFL).");
+                   "Built with JUCE (AGPLv3) and the Inter typeface (SIL OFL).");
 }
 
 void SettingsPage::resized()
@@ -411,8 +409,6 @@ void SettingsPage::resized()
 
     auto tunerControls = tunerArea.reduced (24, 18).withTrimmedTop (90);
     reference.setBounds (tunerControls.removeFromTop (32).withWidth (juce::jmin (420, tunerControls.getWidth())));
-    tunerControls.removeFromTop (12);
-    muteWhileTuning.setBounds (tunerControls.removeFromTop (26).withWidth (360));
 
     ccBox.setBounds (expressionArea.reduced (24, 18).withTrimmedTop (100).removeFromTop (30).withWidth (300));
     openFolder.setBounds (rigsArea.reduced (24, 18).withTrimmedTop (100).removeFromTop (32).withWidth (200));

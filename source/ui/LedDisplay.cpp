@@ -299,13 +299,13 @@ void LedDisplay::paintTuner (juce::Graphics& g, juce::Rectangle<float> content, 
 
     content.removeFromLeft (content.getHeight() * 0.25f);
 
-    // Top line: TUNER and whether the output is muted.
+    // Top line: TUNER, listening (it never changes the sound).
     auto topLine = content.removeFromTop (content.getHeight() * 0.3f);
     g.setColour (colour);
     g.setFont (juce::FontOptions (topLine.getHeight() * 0.85f, juce::Font::bold));
     g.drawText ("TUNER", topLine, juce::Justification::centredLeft, false);
     g.setColour (colour.withAlpha (0.6f));
-    g.drawText (tuner.muted ? "OUTPUT MUTED" : "LISTENING", topLine, juce::Justification::centredRight, false);
+    g.drawText ("LISTENING", topLine, juce::Justification::centredRight, false);
 
     // The meter: a row of LED bars from -50 to +50 cents. The centre bar is
     // taller; the lit bar shows how far off the note is.
@@ -344,7 +344,7 @@ void LedDisplay::paintTuner (juce::Graphics& g, juce::Rectangle<float> content, 
     else
     {
         g.setColour (colour.withAlpha (0.6f));
-        g.drawText ("PLAY A STRING", content, juce::Justification::centredLeft, false);
+        g.drawText ("WAITING FOR A NOTE", content, juce::Justification::centredLeft, false);
     }
 }
 

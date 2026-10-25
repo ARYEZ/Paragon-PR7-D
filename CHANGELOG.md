@@ -2,137 +2,96 @@
 
 Each version's notes appear on its GitHub Release page.
 
-## 0.11.0
-
-- **AEON replaces the generic flanger:** a flanger modelled on the Boss BF-2, built stage by stage from its schematic with the real component values, like the OBSIDIAN and GOTHAM. It's first in a plan to model specific pedals for each modulation effect.
-  - **The pedal's four knobs:** MANUAL (the delay time), DEPTH, RATE and RES (resonance). MIX is greyed out, because the pedal always mixes dry and wet 50/50, which makes the notches deep.
-  - **The delay:** a bucket-brigade chip (BBD) model, 13 ms down to 1 ms across MANUAL, the pedal's specified range. The old flanger only reached 0.5 to 5.5 ms, so AEON sweeps much lower and deeper. At full DEPTH, MANUAL does nothing, as the pedal's manual says.
-  - **The sweep:** a triangle LFO, from one cycle every 16 s to 10 per second. At fast RATE settings the sweep gets narrower, as on the pedal, where a capacitor smooths it.
-  - **RES:** rings the peaks hardest in the treble, the BF-2's metallic "zing", without howling.
-  - **For bass:** the pedal's wet path lets little through below about 40 Hz, so the low end stays solid while the mids and highs sweep.
-  - **Your sound:** rigs and projects that used the old flanger now get AEON, with MANUAL and RES at 5. Expect it to be louder (up to about 6 dB on the comb's peaks), because dry and wet add at full level.
-  - **Two details are estimates,** because the schematic can't show them: how much signal the BBD chip and its output stage lose, and where the factory set the RES trimmer. Both are set so full RES rings hard without howling.
-- **Flanged Bass (C5) and Forty Six & 2 (E2)** now use AEON (Justin Chancellor has a BF-2 on his board), rebalanced to match the other rigs' loudness.
-
-## 0.10.1
-
-- **No more screws on the face plate.** The four screw heads in its corners are gone, for a cleaner front.
-- **The MIN light beside the expression pedal is gone too.** It lit when the pedal was fully back on its heel; the dock's EXPRESSION ASSIGN screen already shows where the pedal sits.
-
-## 0.10.0
-
-- **SPLIT in OD / DIST (both models):** keeps everything below 275 Hz clean, the multiband trick Nolly (Periphery) uses on bass.
-  - A crossover sends the lows around the pedal, untouched, and only the band above through the OBSIDIAN or GOTHAM, then adds them back together. The low end stays tight and solid however hard the drive is pushed.
-  - Modelled on his FabFilter Saturn setup (split at 275 Hz, the band below bypassed). The crossover is a Linkwitz-Riley, whose two bands add back up flat.
-  - **SPLIT HZ** (80 to 600 Hz, 275 by default) moves the split. **LOWS** (±12 dB) sets the clean lows' level against the pedal's. OUTPUT trims both.
-  - Off by default, so existing rigs and projects sound the same. The footswitch shows "+ split" when it's on.
-- **New rig B7, Nolly Split:** the Absolomb OBSIDIAN pushed harder, with SPLIT on. The Absolomb rig itself is unchanged.
-
-## 0.9.0
-
-- **14 genre rigs in bank D:** Metalcore, Nu Metal, Thrash Metal, Pop Punk, Djent, Death Metal, Stoner Rock, Hardcore Punk, Grunge, Classic Rock, Alt / Indie Rock, Prog Metal, Post-Rock and 80s / Synthwave.
-  - Each one is that style's typical bass sound, as it's commonly played, recorded and mixed, built from PR7-B's blocks: our interpretation of the genre, not any one player's rig.
-  - Like the song rigs, each one's notes say what it's for, which amp capture and cab IR to load, and how to play it (pick or fingers, tuning).
-  - They're loudness-matched to the other rigs, within about 1 dB.
-
-## 0.8.1
-
-- **Forty Six & 2 (Tool) is now the intro riff:** a clean, picked, mid-forward bass with a slow flanger sweeping through it. The GOTHAM grit for the heavy part is set up but off: press **footswitch 2** when the band comes in.
-
 ## 0.8.0
 
-- **New bass factory rigs.** All of PR7-G's guitar rigs are gone, replaced by 30 rigs made for bass:
-  - **A, clean and basics:** Clean DI, Studio Bass, Fingerstyle Round, Slap Funk, Motown Thump, Fretless Mwah.
-  - **B, drive:** Gotham Grit, Gotham Cranked, Obsidian Tight, Obsidian Raw, Modern Metal Clank, Doom Fuzz.
-  - **C, effects:** Envelope Funk, Synth Octave, Sub Octave, Chorus Bass, Flanged Bass, Dub Delay, Tremolo Pulse.
-  - **E, songs:** Hysteria (Muse), Forty Six & 2 (Tool), Blind (Korn), Bulls on Parade (RATM), Lakini's Juice (Live), Simple Boy (Karnivool), Until It Sleeps (Metallica), Absolomb (Periphery), Higher Ground (RHCP), What's Going On (Jamerson) and Love Will Tear Us Apart (Joy Division).
-- **The song rigs follow what's documented about each recording:** the bassist's drive, the EQ character and the effects, built from PR7-B's blocks.
-  - **Some sound right out of the box.** Bulls on Parade, for one, recreates Tim Commerford's clean amp plus distorted amp with the OBSIDIAN's blend. Simple Boy uses the OBSIDIAN, the pedal Jon Stockman co-designed.
-  - **They're our interpretation**, inspired by the records, not copies. Where nothing was published (most knob settings), the settings are our starting point, and each rig's notes say so.
-- **Rigs have notes.** The PRESETS page's SELECTED RIG panel shows what each rig is for. For the song rigs, it also shows **which amp capture and cabinet IR to load** (rigs can't ship them), the tuning and how to play it. Saving a copy keeps the notes.
-- **Every factory rig is loudness-matched**, within about 1 dB of Clean DI on a test bass line, so switching rigs doesn't jump in volume.
-- The PRESETS page's summary line now also names the octaver, filter and EQ.
-
-## 0.7.1
-
-- **GOTHAM's DRIVE is more aggressive:** 25% more gain (in dB) at every setting, so fully cranked it's about 50 dB instead of 40, closer to the real pedal flat out. The knob keeps its feel, with most of the drive still in the top half. It's still well short of the OBSIDIAN's gain. This is our voicing by ear; the circuit's own values are unchanged.
+- **The LIMITER stomp (7): PR7-C's limiter and output trim, ported.** The same limiter as on PR7-C, code and tests, so it behaves the same. Press stomp 7 to switch it on; click its name for its knobs in the dock.
+  - **THRESHOLD** (-20 to 0 dB, -1 to start): the ceiling. **MAKE UP** (0 to 12 dB) turns up the limited sound, raising the ceiling with it. **MIX** blends in the unlimited sound (below 100%, some of the original peaks come back). **LINK** turns both sides down together, so the stereo picture stays put.
+  - **MODE:** **Brick**, a hard ceiling; **Soft**, which eases in from 3 dB below the threshold and lets go more gently; **Auto**, Brick's ceiling, letting go quickly after short peaks and slowly under steady limiting.
+  - **OUTPUT TRIM** (+-12 dB) after it, as on PR7-C: it moves the ceiling with it. It only applies while the stomp is on.
+  - The panel's **GAIN REDUCTION** meter shows how much it's turning down, and the stomp shows the ceiling (threshold + make up + trim).
+- **It's last in the chain**, after OUTPUT, RIG LEVEL and the volume pedal, so nothing after it can push a peak past the ceiling. Turning OUTPUT up drives into it, as into a mastering limiter.
+- **No look-ahead, so no delay** (the same trade-off as on PR7-C): when it limits hard, the very start of each peak is squared off a little. It limits the samples, not the peaks between them, so a converter can still see a peak a fraction of a dB over (the reason for -1 dB rather than 0).
+- **The mastering factory rigs** (bank E) now end with it: Brick, a -1 dB ceiling, as a safety net against overs rather than to make them louder.
+- The signal chain at the bottom now shows EQ, then LIMITER.
 
 ## 0.7.0
 
-- **The small EXPRESSION screen beside the pedal is gone.** Assign the expression pedal on the EXPRESSION ASSIGN screen in the dock, which is bigger and scrolls.
-- **AMP, CABINET and RIG share the row equally**, each window wider, now that the small screen's space at the row's end is free.
+- **EQ Match: make your track's tone like a reference's.** Click **MATCH** at the top of the EQ page. It listens to your track and to a reference, compares their overall tone (how much low end, middle and top each has, averaged over time), and proposes EQ bands that make your track sound like the reference. Inspired by Pro-Q 4's EQ Match, as its manual describes it; how ours analyses and picks bands is our own design.
+  - **YOUR TRACK:** opening MATCH starts listening (RECORDING). Play the part you want to match for a few seconds or more (longer is steadier). CLEAR starts again. Pauses and silence don't count.
+  - **REFERENCE**, three ways: **RECORD INPUT** (move to another part of your song and play it, e.g. last week's vocal take to match today's punch-ins), **LOAD FILE...** (a song: WAV, AIFF, FLAC, Ogg or MP3), or **SAVED...** (a reference saved before). SAVED also saves your track or the reference for another time; they're kept beside your rigs, in "Match References".
+  - **On the display:** a thick line where the EQ would need to be to match, and a dashed line for the bands it proposes. **DETAIL** chooses a few broad bands (the overall tone) or more, finer ones. **AMOUNT** chooses how much of the difference to make up: 100% all of it, 50% halfway.
+  - **ADD BANDS** adds them as ordinary bands, to change or delete like any others (and switches the EQ on if it was off). One undo takes them all back.
+  - It matches tone, not loudness, and it allows for the bands you already have. It doesn't follow the reference where either one has next to nothing (a reference with no deep bass doesn't cut yours away), and no band it proposes goes past 12 dB.
+- **In the tests:** noise matched to a file of the same noise through a known EQ comes out within 0.7 dB of the reference's tone, from 50 Hz to 15 kHz.
+- **Not included:** listening to another track live (that would need a sidechain, left out for now) and dragging a file onto the plugin.
 
 ## 0.6.0
 
-The chassis finishes from the guitar version, Paragon PR7-G (its 0.29.0 to 0.32.0), brought over to PR7-B.
-
-- **Three finishes**, in **SETTINGS → FINISH**:
-  - **Pearl White:** the original, unchanged.
-  - **Pearl White + Neon:** the white unit with neon keys and knobs that run pink through red to orange. That covers the footswitches, the AMP / CABINET / RIG keys, the small keys, the RIG LEVEL and PRESENCE knobs, and the expression pedal's grip plates.
-  - **Pearl Black:** a deep black pearl chassis, pedal bay and treadle, with the same neon keys, knobs and grips, and white lettering.
-  - Over the neon keys, the six button names (UNDO, REDO, BYPASS, TUNER, MUTE, TAP) are printed so they stay readable.
-  - The choice is saved on your computer, not in the project, so every Paragon PR7-B you open uses it. It's kept apart from PR7-G's, so each plugin remembers its own finish.
-- **Opens bigger:** the window opens at **1824 × 1026** (it was 1280 × 720), or the largest size that fits on the screen *above the taskbar*, leaving room for the DAW's title bar and plugin toolbar. On a 1080p screen that's about 1706 × 959. You can still drag it to any size.
-- **EXPRESSION ASSIGN is a screen:** the dock's list of small buttons is now the same orange LCD as the EXPRESSION screen beside the pedal, enlarged, with bigger lettering. **▲ / ▼** beside it scroll the list. Click a line to assign the pedal, click it again to unassign, or use the mouse wheel. MIN, the range slider and MAX share one row underneath.
-- On the neon finishes, a tilted expression pedal no longer looks washed-out and grey.
+- **Factory rigs: 30 starting points for the EQ**, in the PRESETS tab, filed by what they're for (search their tags, e.g. "vocal" or "dynamic"). Each says what it does in its notes.
+  - **Bank A, vocals and voice:** Lead Vocal, Vocal De-Esser, Rap Vocal, Backing Vocals, Spoken Voice (podcasts, voice-overs), Vocal Mud Control. Init stays at A01.
+  - **Bank B, drums:** Kick Punch, Kick Boom Control, Snare Crack, Hi-Hat Tame, Overheads, Drum Bus.
+  - **Bank C, bass, guitars and keys:** Bass DI, 808 Control, Electric Guitar, Acoustic Guitar, Piano, Pad, Make Room.
+  - **Bank D, the full mix:** Mix Bus Polish, Mix Mud Control, Mix Harshness Control, Mix Wider Top, Mix Warmer, Mix Brighter.
+  - **Bank E, mastering:** Master Gentle Polish, Master Low-End Control, Master De-Harsh, Master Width, Master Warm Tilt, Master Bright Tilt.
+- **What they are:** common mixing moves (cutting rumble and mud, adding presence and air, keeping the bass centred), not copies of anyone's presets. Problems that come and go (sibilance, boomy notes, harsh moments) use dynamic bands with AUTO, so they only act when the problem is there. No rig boosts more than 4.5 dB anywhere; the mastering rigs move 2 dB at most. Every track is different: load one, then adjust by ear (and save your version with SAVE).
+- **Not yet:** the mastering rigs are EQ only. A limiter comes with stomp 7.
+- Your own rigs in bank A now file from A08 (Init and the vocal rigs take A01 to A07). Rigs you've already saved keep their places; a factory rig shows first if one shares a slot.
 
 ## 0.5.0
 
-- **GOTHAM, a new bass preamp modelled on the Tech 21 SansAmp Bass Driver DI** (the original, Version 1). OD / DISTORTION now has a **MODEL** menu: OBSIDIAN or GOTHAM.
-  - **Built from the circuit**, like the OBSIDIAN: every stage follows the schematic of madbeanpedals' SludgeHammer, a clone of the pedal, with its real component values.
-  - **What it does, as the pedal does:** it imitates an amp and cabinet. A filter scoops about 800 Hz before the gain (the classic SansAmp mid scoop). The drive stages clip like op-amps on 9 V. The filters after them keep the lows big and roll the top off like a speaker.
-  - **The knobs, as on the pedal:**
-    - **LEVEL:** the volume.
-    - **BLEND:** the clean bass against the drive.
-    - **TREBLE and BASS:** about ±12 dB at 5 kHz and 80 Hz.
-    - **DRIVE:** up to 40 dB of gain, most of it in the top half of the knob, as on the pedal.
-    - **PRESENCE:** lifts the top going into the distortion, up to +27 dB around 4–5 kHz.
-    - **OUTPUT:** our trim into the amp, shared with OBSIDIAN.
-  - **One place we chose:** the SludgeHammer puts LEVEL straight into the EQ, which would make LEVEL tilt the tone and halve the EQ's boost. An analysis of the original pedal (Bass21) puts LEVEL before the last gain stage instead, which matches Tech 21's ±12 dB EQ spec. We followed the original.
-- **DUAL ENGINE is now called OBSIDIAN.** Same sound and settings; rigs and projects saved with 0.4.0 load as before.
-- **The OBSIDIAN's panel uses two rows**, now that the MODEL menu is there too, so its twelve controls keep good-sized knobs and readable values.
+- **Dynamic EQ.** Any bell, shelf or tilt band can now be **dynamic**: its gain moves only when its own part of the sound gets loud, like a compressor working on just that part of the spectrum. Inspired by Pro-Q 4's dynamic EQ, as its manual describes it; how ours listens and reacts is our own design (FabFilter doesn't publish theirs).
+  - **DYN RANGE** (beside GAIN): how far the band moves, from -30 to +30 dB. **Below 0 it cuts** when its part gets loud: tame a harsh note, sibilance, a boomy bass note, only when they happen. **Above 0 it boosts**: bring out a snare's crack or a pick's attack. 0 is an ordinary band. A band can have both: say +6 dB of gain that falls back to level when its part gets loud.
+  - **It listens to its own part of the spectrum** (the same part SOLO plays), on the channel it works on: a loud bass note doesn't set off a 5 kHz de-esser, and a left-only band listens to the left.
+  - **AUTO** (on by default): the threshold sits 6 dB above the band's usual level over the last few seconds, so it acts on what stands out, whatever the track's level. Switch AUTO off to set **THRESHOLD** yourself.
+  - **ATTACK** and **RELEASE**: at 50% they're set from the band's frequency (low bands need longer to measure a note: 2 ms high up, up to 50 ms in the lows; release 15 times that). Lower is faster, higher slower, from a quarter to four times.
+  - **On the display:** a dynamic band shows a dashed curve where its whole range would take it, a handle there to drag, and a white ring where its gain is right now; the curves move as it works. **Alt+double-click** makes a dynamic band, **Alt + mouse wheel** sets the range, and the right-click menu has **Make dynamic / Make static**. While a band is dynamic its controls get a second row: AUTO, THRESHOLD, ATTACK, RELEASE, and a meter of what it hears (against its threshold) and how far it's moving.
+  - Moving it to and from dynamic glides, without clicks. Cutting a held low note adds no audible distortion (the harmonics measure 87 dB down at the fastest attack).
+- **Not yet:** a sidechain input (a band listening to another track) isn't included. AUTO GAIN works from the bands' set gains, not their dynamic moves. EQ Match comes next.
 
 ## 0.4.0
 
-- **DUAL ENGINE, a bass distortion modelled on the Darkglass Alpha·Omega**, the pedal Nolly demoed for Darkglass with "Absolomb". It replaces the guitar drives (Classic, Screamer, Muff Fuzz and Face Fuzz), so OD / DISTORTION is now the bass distortion.
-  - **Built from the circuit itself.** Every stage follows a trace of the pedal's circuit (Aion FX's) with its real component values, so the filters and gains are the pedal's, not guesses. The distortion is what the circuit does: op-amps pushed past their 9 V supply, in three places.
-  - **The knobs, as on the pedal:**
-    - **BLEND:** the clean bass (full range, untouched) against the distortion.
-    - **LEVEL:** the distortion's volume.
-    - **DRIVE:** its gain, up to about 40 dB on top of a fixed 20 dB.
-    - **MOD:** 0 is ALPHA (tight and refined: a deep scoop at 520 Hz and the top rolled off), 10 is OMEGA (raw: a gentler scoop at 780 Hz, more top). In between is a mix of both.
-    - **GROWL:** much more bass into the distortion (about 7 dB at 80 Hz), for a fatter, heavier sound.
-    - **BITE:** lifts about 3 kHz by 9 dB before the distortion, for clank and definition.
-    - **BASS, MID, TREBLE:** after the blend, so they shape the clean bass too.
-    - **OUTPUT:** our addition, a trim into the amp.
-  - **What the circuit showed** that the specs don't say:
-    - The MID knob centres near 1 kHz, not the advertised 500 Hz.
-    - There's a fixed, narrow dip at 1.85 kHz after the blend, on the clean bass too.
-    - BITE really is a boost, as Darkglass says.
-- **New song rig: E9 Absolomb (Periphery)**, the DUAL ENGINE at the settings on the pedal in Nolly's demo, after a gentle 4:1 compressor. GROWL and BITE weren't visible there, so those two are our guess. Load an SVT 8x10 cabinet IR with it.
-- The guitar factory rigs that used a drive now use the DUAL ENGINE until they're replaced with bass rigs.
+- **The EQ stomp: a new EQ, inspired by FabFilter Pro-Q 4.** It replaces the 9-band graphic EQ. Our own design, from Pro-Q's manual and published filter methods (not FabFilter's code). Click stomp 4's name (or OPEN EQ in the dock) for its page.
+  - **Up to 24 bands**, each a **Bell, Low Shelf, Low Cut, High Shelf, High Cut, Notch, Band Pass, Tilt Shelf, Flat Tilt or All Pass**, with **slopes from 6 to 96 dB/oct** for the cuts and shelves.
+  - **Stereo, Left, Right, Mid or Side, per band:** for example, lift only the sides' top end, or cut the middle's low mud.
+  - **Analog-matched, zero latency.** Most digital EQs squash curves near the top: a +12 dB bell at 15 kHz comes out up to 7.5 dB off its analog shape. These stay within about 1 dB, and exact at each band's own frequency (within 0.3 dB at 96 kHz). Bands can sit above 20 kHz, up to 30 kHz, where only their slope reaches the audible range.
+  - **The page:** a big display with the curve, each band's shape, and a spectrum of what goes in (shaded) and comes out (a line). Double-click to add a band (a bell, or a cut at either end); drag its dot for frequency and gain; mouse wheel for Q (or the slope of a cut); Alt-click to switch it off; right-click for its menu; Delete to remove it. Below, the selected band's controls, and **SOLO** (hold it to hear only what that band works on).
+  - **OUTPUT, GAIN SCALE** (0% to 200% of every band's gain) and **AUTO GAIN** (turns the level down by about as much as the curve turns it up, so you can judge the EQ by ear, not by loudness; an estimate from the curve, as in Pro-Q).
+  - **No clicks or zipper noise:** moving a band glides, and changing what a band is (its shape, slope or placement, or switching it) crossfades.
+  - The dock shows the EQ's curve in place of the graphic EQ.
+- **Projects from 0.3.0** with the graphic EQ on come back with the new EQ on and flat (the graphic EQ's settings are gone).
+- **Not yet:** dynamic EQ and EQ Match come next. Not planned: linear phase and the character modes.
 
 ## 0.3.0
 
-- **Bass EQ presets.** The guitar presets are replaced by sixteen made for bass, most of them for modern metal. Open **PRESETS** in the GRAPHIC EQ:
-  - **Metal:** Modern Metal Clank, Djent Growl, Tight Low End, Drop-Tuned Weight, Grind Through the Guitars, Thrash Pick Attack, Classic Metal Scoop, Doom Fuzz, Fizz Tamer and Mud Cut.
-  - **Other styles:** Clean DI Polish, Slap Funk, Motown Thump, Fingerstyle Growl, Fretless Mwah and Radio.
-  - The metal ones follow the usual recipe for heavy bass: keep the deepest lows in check so the low end stays tight, cut the muddy low mids (around 300 Hz), and lift the upper-mid "clank" and grind (900 Hz to 5K) so the bass is heard under down-tuned guitars.
-  - Presets can now switch **ULTRA LO** and **ULTRA HI** too: Classic Metal Scoop uses both, for the amp's scooped '80s and '90s metal tone, and Slap Funk uses ULTRA HI. Choosing a preset that doesn't use them switches them off.
-  - Each one's LEVEL is set so switching presets changes the tone, not the volume. Hover over the menu to read what a preset is for.
+- **Stereo stays stereo.** Until now PR7-E played a stereo track's left channel on both sides, even with everything switched off: the effects that came from PR7-B were built for a mono instrument. Now both channels pass through exactly as they came in, apart from what the stomps do to them, and BYPASS keeps both channels too. A mono track still plays on both speakers.
+- **PR7-B's old effects are gone:** pitch, comp / gate, filter / pitch, glitch, modulation (AEON), delay, reverb and lo-fi. PR7-E is a utility processor: input, its seven stomps, output.
+  - The signal chain at the bottom now shows just the EQ, and grows as the stomps are built.
+  - The graphic EQ (stomp 4, for now) and PRESENCE work on each channel separately.
+  - The expression pedal can be a **VOLUME** pedal. The effects it could also control are gone, and a project or rig that had the pedal on one of them now loads with the pedal unassigned (rather than as a volume pedal sitting at the heel, which would be silent).
+- **Next:** the new EQ, inspired by FabFilter Pro-Q 4, on a big EQ page of its own, replacing the graphic EQ.
 
 ## 0.2.0
 
-- **A bass amp's graphic EQ.** The nine bands now sit where a bass needs them: **33, 80, 150, 300, 500, 900 Hz, 2K, 5K and 9K**, the layout of the Ampeg SVT-3 PRO's graphic EQ (modelled on it, not a copy of its circuit). 33 Hz reaches the sub lows of a low B or drop D, and the bands are closer together through the low mids, where a bass's tone and punch live. Each still cuts or boosts by up to 12 dB.
-- **ULTRA LO and ULTRA HI switches**, in the GRAPHIC EQ header, as on that amp:
-  - **ULTRA LO:** a deep scoop in the low mids (-10 dB at 500 Hz) with a touch more deep low end (+2 dB at 40 Hz), for a big, hollow, modern tone.
-  - **ULTRA HI:** a big lift in the highs (+9 dB at 8 kHz), for slap, pick attack and string zing.
-  - Like the amp's, they work whether the EQ's faders are switched on or not. The EQ block in the signal chain lights while any of them is on, and the curve shows what they do.
-- **The EQ presets** were carried across to the new bands, following each curve so it keeps its shape, and re-levelled over a bass's range.
+- **The TUNER stomp checks the pitch of recorded parts.** Built for checking a vocal or a bass line as it plays back, rather than for tuning an instrument. One part at a time, up to 1,500 Hz (a bass's lowest notes to a high vocal).
+- **Its panel:** click TUNER's name (stomp 1) and the dock shows:
+  - **The current note**, how many cents off it is, and its frequency.
+  - **A trace of the last 30 seconds:** the pitch drawn against the notes, so you can see where a note goes flat, slides in, wavers or drifts. Each note is coloured by where it centres: green within 5 cents, orange within 15, red beyond.
+  - **The average:** how far the notes in the trace sit from the nearest note, e.g. "+12 cents, sharp", and over how many seconds of notes. It answers "is this part in tune overall?" A part sitting halfway between two notes reads as 50 cents out, not as "in tune".
+  - **RESET** empties the trace and starts the average again, e.g. just before the passage you want to check.
+- **It listens to both channels.** A stereo track is heard as left and right together, so a part panned anywhere is measured. (It used to hear only the left channel.)
+- **It never changes the sound.** The tuner's MUTE is gone, from SETTINGS too: when checking a recording you want to hear it. On the unit, the MUTE key is now **RESET**. A project saved with 0.1.0 with the tuner on and muting now plays out loud.
+- **It keeps listening with the plugin window closed:** play the passage, then open the window and the trace is there. It follows the audio's own time, so when the DAW stops, the trace stops too, instead of filling with the last note.
+- The reference pitch (A4 = 440 Hz unless you change it in SETTINGS) applies to everything above: a recording tuned to A = 432 Hz reads 32 cents flat against 440, or in tune against 432.
 
 ## 0.1.0
 
-- **The bass processor, based on Paragon PR7-G 0.28.0.** Everything PR7-G 0.28.0 has, under its own name, ready to be voiced for bass.
-- **Its own plugin.** Paragon PR7-B has its own name, ID and plugin code, so your DAW sees it as a separate plugin: it installs alongside Paragon PR7-G instead of replacing it, and projects using either keep the right one.
-- **Its own rigs.** Rigs are saved in their own Paragon PR7-B folder. Guitar rigs from PR7-G aren't copied over.
-- **The PR7-B logo** on the header and the unit's badge, in the same slanted, speed-cut lettering.
+- **The utility processor, based on Paragon PR7-B 0.11.0.** The first release of Paragon PR7-E, the PR7 family's utility processor.
+- **Its own plugin.** Paragon PR7-E has its own name, ID and plugin code, so your DAW sees it as a separate plugin: it installs alongside PR7-G, PR7-B, PR7-V and PR7-C instead of replacing any of them. It keeps its own rigs (in a "Paragon PR7-E" folder) and remembers its own finish. DAWs file it under Tools.
+- **The -E mark.** The logo reads PR7-E, in the same slanted, speed-cut lettering as its siblings, and the badge says UTILITY PROCESSOR.
+- **Seven stomps, three over four.** The top row is **1 Tuner, 2 Open, 3 Inserts**; the bottom row **4 EQ, 5 Resonance, 6 Auto EQ, 7 Limiter**, laid out like PR7-V, with each top stomp sitting between two below it.
+  - **TUNER** works now: it's the tuner PR7-B had.
+  - **EQ** switches the 9-band graphic EQ for now, until the planned EQ (inspired by FabFilter Pro-Q 4) takes its place.
+  - **OPEN, INSERTS, RESONANCE, AUTO EQ and LIMITER** are still being planned. Their lights stay off and pressing them does nothing yet. Their names are placeholders too.
+- **No bass blocks.** The NAM amp, the cabinet IR loader, the AMP, CABINET and RIG panels, and the OD / DISTORTION stomp (OBSIDIAN and GOTHAM) are gone, along with PR7-B's bass factory rigs. One factory rig, **Init** (everything off), is the starting point until PR7-E has its own.
+  - Nothing in the chain looks ahead any more, so PR7-E adds no latency, and it uses about a quarter of the CPU PR7-B did.
+- **Still here from PR7-B:** pitch, comp / gate, filter / pitch, graphic EQ, glitch, modulation (with AEON), delay, reverb and lo-fi, in the signal chain at the bottom (click a block for its knobs), plus the expression pedal, tap tempo, undo and rigs.

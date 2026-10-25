@@ -6,17 +6,16 @@
 #include "ui/DockPanels.h"
 #include "ui/EffectPanel.h"
 #include "ui/Finish.h"
-#include "ui/GraphicEqPanel.h"
+#include "ui/EqPage.h"
 #include "ui/Footswitch.h"
 #include "ui/LedDisplay.h"
 #include "ui/LevelMeter.h"
-#include "ui/ModelSlot.h"
 #include "ui/ParagonLookAndFeel.h"
 #include "ui/PedalBody.h"
 #include "ui/PerformanceControls.h"
 #include "ui/RigBrowser.h"
-#include "ui/RigSlot.h"
 #include "ui/SignalChain.h"
+#include "ui/TunerPanel.h"
 
 // A side strip from the mockup: a title, a gain knob with its value
 // underneath, and a level meter.
@@ -56,7 +55,7 @@ private:
 // the whole view to the window size, staying sharp (everything is vectors).
 //
 //   header:  logo | PROCESSOR PRESETS SETTINGS | < rig > | BPM TAP | undo redo save settings
-//   middle:  INPUT | the pedal unit with its expression pedal | OUTPUT
+//   middle:  INPUT | the pedal unit (7 stomps: 3 over 4) with its expression pedal | OUTPUT
 //   dock:    RIG BROWSER | SELECTED RIG | TAGS + RIG SUMMARY (or a block's knobs) | EXPRESSION ASSIGN
 //   bottom:  SIGNAL CHAIN
 class MainView final : public juce::Component,
@@ -77,9 +76,11 @@ public:
 private:
     // The blocks in signal-chain order; footswitches, the chain strip and
     // the summary cards select these to show their knobs.
-    enum Block { pitchBlock, compBlock, filterPitchBlock, driveBlock, ampBlock, cabBlock, eqBlock, glitchBlock, modBlock, delayBlock, reverbBlock, loFiBlock, numBlocks };
+    // The signal chain's blocks (the EQ and the LIMITER, so far).
+    // tunerBlock isn't in the chain (the tuner only listens): it's the TUNER stomp's panel.
+    enum Block { eqBlock, limiterBlock, numBlocks, tunerBlock = numBlocks };
 
-    enum class Page { processor, presets, settings };
+    enum class Page { processor, presets, settings, eq };   // eq: the EQ stomp's own page
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void applyFinish();   // colours the printed labels and redraws the unit in the current finish
@@ -118,19 +119,18 @@ private:
     juce::TextButton pedalSave { "SAVE" }, pedalSaveAs { "SAVE AS..." }, bypassButton;
     juce::AudioProcessorValueTreeState::ButtonAttachment bypassAttachment;
 
-    // The 2 x 3 button cluster: UNDO REDO BYPASS / TUNER MUTE TAP
-    juce::TextButton undoPedal, redoPedal, tunerPedal, mutePedal, tapPedal;
-    juce::AudioProcessorValueTreeState::ButtonAttachment tunerAttachment, muteAttachment;
+    // The 2 x 3 button cluster: UNDO REDO BYPASS / TUNER RESET TAP
+    juce::TextButton undoPedal, redoPedal, tunerPedal, resetPedal, tapPedal;
+    juce::AudioProcessorValueTreeState::ButtonAttachment tunerAttachment;
     juce::Label undoLabel { {}, "UNDO" }, redoLabel { {}, "REDO" }, bypassLabel { {}, "BYPASS" },
-                tunerLabel { {}, "TUNER" }, muteLabel { {}, "MUTE" }, tapLabel { {}, "TAP" }, holdLabel { {}, "HOLD TO TUNER" };
+                tunerLabel { {}, "TUNER" }, resetLabel { {}, "RESET" }, tapLabel { {}, "TAP" }, holdLabel { {}, "HOLD TO TUNER" };
 
     juce::Slider rigLevelKnob { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox },
                  presenceKnob { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox };
     juce::AudioProcessorValueTreeState::SliderAttachment rigLevelAttachment, presenceAttachment;
     juce::Label rigLevelLabel { {}, "RIG LEVEL" }, presenceLabel { {}, "PRESENCE" };
-    ModelSlot ampSlot, cabSlot;
-    RigSlot rigSlot;
-    std::array<std::unique_ptr<Footswitch>, 4> footswitches;
+    // The seven stomps: 1-3 on the top row, 4-7 on the bottom.
+    std::array<std::unique_ptr<Footswitch>, 7> footswitches;
 
     // Expression pedal and tuner
     ExpressionPedal expressionPedal;
@@ -142,15 +142,17 @@ private:
     RigNavigator rigNavigator;
     SelectedRigPanel selectedRig;
     ExpressionPanel expressionPanel;
-    std::array<std::unique_ptr<EffectPanel>, numBlocks> panels;   // empty at eqBlock: the EQ has its own panel
-    GraphicEqPanel eqPanel;
-    juce::TextButton closePanel { "GRAPHIC EQ" };   // back to the EQ, the dock's default
+    EqOverview eqPanel;   // the dock's default: the EQ's curve, and OPEN EQ
+    TunerPanel tunerPanel;
+    EffectPanel limiterPanel;   // stomp 7's knobs, with its gain-reduction meter
+    juce::TextButton closePanel { "EQ" };   // back to the EQ overview, the dock's default
     SignalChain signalChain;
     int selectedBlock = eqBlock;
 
     // Other pages
     RigBrowser rigBrowser;
     SettingsPage settingsPage;
+    EqPage eqPage;
     std::vector<juce::Component*> processorPage;
     Page page = Page::processor;
 

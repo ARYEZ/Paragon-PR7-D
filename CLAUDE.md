@@ -2,9 +2,9 @@
 
 This repository starts as a copy of **Paragon PR7-B** (the bass processor, repo `ARYEZ/Paragon-PR7-B`) at PR7-B **0.11.0**, full history included, to become **Paragon PR7-E**, the **utility** processor of the PR7 family. Its siblings: **PR7-G** (guitar, repo `ARYEZ/Paragon-PR7-G`), **PR7-B** (bass), **PR7-V** (vocal, `ARYEZ/Paragon-PR7-V`) and **PR7-C** (`ARYEZ/Paragon-PR7-C`). Everything below describes how the project is built, tested and released, and how the owner likes to work.
 
-## First: make it its own plugin (do this before anything else)
+## First: make it its own plugin (done in 0.1.0)
 
-Until these are done, PR7-E *is* PR7-B as far as a DAW is concerned. The two would replace each other and share rigs and settings.
+All of this was done in 0.1.0; it's kept as the record of what makes PR7-E its own plugin. (The loader thread named in item 5 went with the NAM amp, so there's no thread to rename.)
 
 1. **CMakeLists.txt** (`juce_add_plugin`):
    - `PRODUCT_NAME` becomes "Paragon PR7-E".
@@ -25,17 +25,19 @@ Until these are done, PR7-E *is* PR7-B as far as a DAW is concerned. The two wou
 
 ## The plan: seven stomps, each modelled on a specific plugin
 
-The owner's layout is PR7-V's: **three stomps on the top row, four on the bottom**. PR7-B has four stomps plus the AMP, CABINET and RIG keys, so take the seven-stomp face from PR7-V (`ARYEZ/Paragon-PR7-V`, `source/ui/MainView.cpp`, `PedalBody`) rather than inventing a new one. The bass-specific blocks (NAM amp, cab IR, Obsidian, Gotham, the bass rigs) are not part of this plugin: strip them once the plan is agreed. AEON and the `Circuit` solver came along from PR7-B and may be useful later.
+The owner's layout is PR7-V's: **three stomps on the top row, four on the bottom**. Done in 0.1.0: the face came from PR7-V, and the bass-specific blocks (NAM amp, cab IR, Obsidian, Gotham, the bass rigs) are gone. Factory rigs (0.6.0, `source/rigs/FactoryRigs.cpp`, asked for by the owner): EQ starting points by bank, A vocals and voice (Init at A01), B drums, C bass/guitars/keys, D full mix, E mastering. Common mixing moves, our own; dynamic bands for intermittent problems; at most +4.5 dB anywhere and ±2 dB for mastering (tested). Add to them as stomps are built (e.g. the limiter in the mastering rigs). In 0.3.0 the owner had PR7-B's general effects (pitch, comp / gate, filter / pitch, glitch, modulation with AEON, delay, reverb, lo-fi) removed: they were mono and lost the right channel. PR7-E is **stereo throughout**: every new stomp must process both channels (or one copy per channel) and keep left and right apart. The `Circuit` solver stays (tested) and may be useful later.
+
+Stomps not built yet are placeholders: a `Footswitch` with no parameter IDs (dark LED, the pad does nothing, the name opens nothing; see `addStomp` in `MainView.cpp`). Give a stomp its parameters only when it's built: once released, IDs are saved forever. Stomp 4 (EQ) switches the graphic EQ until the planned EQ replaces it. Planning order: one stomp at a time, with the owner.
 
 - **Top row**
-  1. **Tuner.**
+  1. **Tuner.** Done in 0.2.0, for **checking the pitch of recorded parts** (the owner's main use), not tuning an instrument: single parts (vocals, bass lines) up to 1,500 Hz, both channels, no mute (it never changes the sound), a 30-second trace and an average in cents (`dsp/Tuner.*`, `ui/TunerPanel.*`). The processor runs it from its timer, so it keeps listening with the window closed. Not built (offered, not asked for): chords or full mixes.
   2. **Open: to plan with the owner.** Ideas offered so far: a loudness/analysis stomp (LUFS, spectrum, stereo correlation), a channel utility (gain, polarity, mono/width, mid-side, swap), an A/B reference player.
   3. **Insert launcher.** A plugin can't open the other plugins on the DAW's track: hosts don't allow it. What it *can* do is host plugins itself (JUCE `AudioPluginFormatManager` / `KnownPluginList`, VST3 on Windows): load plugins into slots inside PR7-E and open their editors from the stomp, a mini rack. Confirm with the owner which platform it's for: the owner works in BeatMaker, and on iPad plugins are AUv3, which works differently.
 - **Bottom row**
-  1. **EQ inspired by FabFilter Pro-Q 4.** Pro-Q's features are well documented; ask the owner for its manual.
+  1. **EQ inspired by FabFilter Pro-Q 4.** The owner supplied its manual (don't commit it: it's FabFilter's). Agreed: it **replaces the graphic EQ**, opens on a **big EQ page** of its own (over the pedal and dock, like PRESETS), and is built in stages: (1) the core EQ: **done in 0.4.0** (`dsp/eq/EqDesign.*`: shapes, slopes and the matched filters; `dsp/eq/ParametricEq.*`: the processing; `ui/EqDisplay.*`, `ui/EqPage.*`; tests in `tests/EqTests.cpp`). Band parameters are `eqB{n}{Used,On,Shape,Freq,Gain,Q,Slope,Place}` (version hint 30) and `eqB{n}{Dyn,DynAuto,Thresh,Attack,Release}` (31) for n = 1 to 24: never reorder `eq::shapeNames`, `slopeNames` or `placementNames`. (2) **dynamic EQ: done in 0.5.0** (`dsp/eq/Dynamics.h`: the gain curve, knee, AUTO threshold and timing, all our own numbers; the detector is in `ParametricEq`). Owner's choices: auto by default with manual threshold/attack/release; cut and boost (negative and positive range); no sidechain for now (BeatMaker on iPad may not route one). (3) **EQ Match: done in 0.7.0** (`dsp/eq/EqMatch.*`: long-term spectra, the target and the band fitting; `dsp/eq/EqMatchSession.*`: listening from the processor's timer, file loading, saved references in the rigs folder's "Match References" as `.pr7ref`; `ui/EqMatchPanel.*`). Our own analysis and fitting; references from the input, a file or saved, no sidechain. Adds ordinary bands (no new parameters). Not wanted: linear phase, character modes. Skipped: instance list, surround, MIDI learn, spectral dynamics (that's the RESONANCE stomp's job). "Natural Phase" is FabFilter's own, unpublished.
   2. **Inspired by oeksound soothe 3** (adaptive resonance suppression). The algorithm is secret: ours is our own design from the manual and how it behaves. Ask for the manual.
   3. **Inspired by Soundtheory Gullfoss** ("maybe", per the owner). Also a secret, adaptive algorithm: our own design. Ask for the manual.
-  4. **The output trim / limiter from PR7-C** (`ARYEZ/Paragon-PR7-C`): port that section rather than writing a new one.
+  4. **The output trim / limiter from PR7-C** (`ARYEZ/Paragon-PR7-C`): **done in 0.8.0**, ported from PR7-C 0.4.1 (`dsp/effects/Limiter.*`, unchanged but for `process()` taking a block; PR7-C's limiter tests ported in `tests/LimiterTests.cpp`). Parameters `limitOn/Threshold/MakeUp/Mode/Mix/Link/Trim` (version hint 32; modes Brick, Soft, Auto by index). Last in the chain, after OUTPUT, RIG LEVEL and the volume pedal; OUTPUT TRIM after it, only while it's on. Dock panel: `EffectPanel` with its gain-reduction meter. The mastering factory rigs end with it at -1 dB, Brick.
 - **Names:** none of those products' names or branding on the plugin: our own names (the owner names them, as with Obsidian, Gotham, AEON). "Inspired by" in descriptions is fine.
 
 ## The project
@@ -46,7 +48,7 @@ The owner's layout is PR7-V's: **three stomps on the top row, four on the bottom
   - Saved by ID and choices by **index**: only ever *append* choices, never reorder.
   - New parameters get a new version hint number.
   - Migrations for changed defaults live in `setStateInformation` and `Rig::fromXml`.
-- **Shared DSP pieces:** `BypassFade` and `TailWatch` (EffectUtils.h), `PitchShifter`, and `Circuit` (Circuit.h: models analog stages from their schematics, part by part).
+- **Shared DSP pieces:** `BypassFade` and `TailWatch` (EffectUtils.h), and `Circuit` (Circuit.h: models analog stages from their schematics, part by part).
 
 ## Build, test, check
 
@@ -56,7 +58,9 @@ The owner's layout is PR7-V's: **three stomps on the top row, four on the bottom
 - **Screenshots** for checking the UI, via `xvfb-run -a build/tests/ParagonX1Tests "[snapshot]"` with environment variables:
   - `PARAGON_SNAPSHOT` (output path), `PARAGON_SNAPSHOT_WIDTH` (e.g. 2560 for 2x).
   - `PARAGON_SNAPSHOT_BLOCK=n` (open block n's panel), `PARAGON_SNAPSHOT_PARAMS=id=value,...`.
-  - `PARAGON_SNAPSHOT_EXPRESSION`, `PARAGON_SNAPSHOT_PAGE=presets|settings`, `PARAGON_SNAPSHOT_FINISH=black|neon`.
+  - `PARAGON_SNAPSHOT_EXPRESSION`, `PARAGON_SNAPSHOT_PAGE=presets|settings|eq`, `PARAGON_SNAPSHOT_FINISH=black|neon`.
+  - `PARAGON_SNAPSHOT_BLOCK=0` (the dock's EQ overview), `1` (the LIMITER panel) or `2` (the TUNER panel); `PARAGON_SNAPSHOT_TUNER=1` (a sung phrase in the tuner's trace).
+  - `PARAGON_SNAPSHOT_EQ=1` (a mix-bus set of EQ bands with noise through the analyser; band 3 is dynamic), `PARAGON_SNAPSHOT_EQ_BAND=n` (select band n), `PARAGON_SNAPSHOT_MATCH=1` (with `PAGE=eq`: EQ Match open, having heard a track and a brighter reference).
   - Render, look, crop and zoom before claiming a visual change is right.
 
 ## Releases
