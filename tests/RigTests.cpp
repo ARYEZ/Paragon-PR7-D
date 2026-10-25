@@ -59,7 +59,7 @@ TEST_CASE ("A rig survives being written to a file and read back", "[rigs]")
     rig.number = 17;
     rig.favourite = true;
     rig.tags = { "Rock", "High Gain" };
-    rig.parameters = { { "compLevel", 6.5f }, { "delayTime", 420.0f } };
+    rig.parameters = { { "eqLevel", 6.5f }, { "presence", -4.0f } };
 
     const auto restored = Rig::fromXml (*juce::XmlDocument::parse (rig.toXml()->toString()));
     REQUIRE (restored.has_value());
@@ -226,25 +226,25 @@ TEST_CASE ("Rigs are sorted by bank and number, and < > wrap round", "[rigs]")
 TEST_CASE ("Saving and loading a rig restores the sound but not the global knobs", "[rigs]")
 {
     RigRig r;
-    r.set (ParamIDs::compOn, 1.0f);
-    r.set (ParamIDs::compLevel, 7.5f);
-    r.set (ParamIDs::delayTime, 640.0f);
+    r.set (ParamIDs::eqOn, 1.0f);
+    r.set (ParamIDs::eqLevel, 7.5f);
+    r.set (ParamIDs::presence, 6.0f);
     r.set (ParamIDs::rigLevel, -3.0f);
     REQUIRE (r.processor.saveCurrentRigAs ("My Sound"));
 
     // Change everything, including the global input and output knobs.
-    r.set (ParamIDs::compOn, 0.0f);
-    r.set (ParamIDs::compLevel, 1.0f);
-    r.set (ParamIDs::delayTime, 100.0f);
+    r.set (ParamIDs::eqOn, 0.0f);
+    r.set (ParamIDs::eqLevel, 1.0f);
+    r.set (ParamIDs::presence, -2.0f);
     r.set (ParamIDs::rigLevel, 0.0f);
     r.set (ParamIDs::inputGain, 5.0f);
     r.set (ParamIDs::outputGain, -4.0f);
 
     r.processor.loadRig (r.entryNamed ("My Sound"));
 
-    CHECK (r.get (ParamIDs::compOn) > 0.5f);
-    CHECK_THAT (r.get (ParamIDs::compLevel), WithinAbs (7.5, 0.01));
-    CHECK_THAT (r.get (ParamIDs::delayTime), WithinAbs (640.0, 0.5));
+    CHECK (r.get (ParamIDs::eqOn) > 0.5f);
+    CHECK_THAT (r.get (ParamIDs::eqLevel), WithinAbs (7.5, 0.01));
+    CHECK_THAT (r.get (ParamIDs::presence), WithinAbs (6.0, 0.01));
     CHECK_THAT (r.get (ParamIDs::rigLevel), WithinAbs (-3.0, 0.01));
     // Global knobs are left alone.
     CHECK_THAT (r.get (ParamIDs::inputGain), WithinAbs (5.0, 0.01));
@@ -255,17 +255,17 @@ TEST_CASE ("A rig that doesn't mention a parameter sets it to its default", "[ri
 {
     // E.g. a rig saved by an older version, before that parameter existed.
     RigRig r;
-    r.set (ParamIDs::reverbOn, 1.0f);
+    r.set (ParamIDs::eqUltraLo, 1.0f);
     r.set (ParamIDs::presence, 6.0f);
 
     Rig old;
     old.name = "Old Rig";
-    old.parameters = { { ParamIDs::compOn, 1.0f } };
+    old.parameters = { { ParamIDs::eqOn, 1.0f } };
     r.processor.getRigLibrary().saveAsNew (old);
     r.processor.loadRig (r.entryNamed ("Old Rig"));
 
-    CHECK (r.get (ParamIDs::compOn) > 0.5f);
-    CHECK (r.get (ParamIDs::reverbOn) < 0.5f);
+    CHECK (r.get (ParamIDs::eqOn) > 0.5f);
+    CHECK (r.get (ParamIDs::eqUltraLo) < 0.5f);
     CHECK_THAT (r.get (ParamIDs::presence), WithinAbs (0.0, 0.01));
 }
 
@@ -277,7 +277,7 @@ TEST_CASE ("The modified marker tracks changes since loading or saving", "[rigs]
 
     SECTION ("Turning a knob marks it modified")
     {
-        r.set (ParamIDs::compLevel, 9.0f);
+        r.set (ParamIDs::eqLevel, 9.0f);
         CHECK (r.processor.isRigModified());
     }
 
@@ -290,10 +290,10 @@ TEST_CASE ("The modified marker tracks changes since loading or saving", "[rigs]
 
     SECTION ("Saving clears it")
     {
-        r.set (ParamIDs::compLevel, 9.0f);
+        r.set (ParamIDs::eqLevel, 9.0f);
         REQUIRE (r.processor.saveCurrentRigAs ("Saved"));
         CHECK_FALSE (r.processor.isRigModified());
-        r.set (ParamIDs::compLevel, 2.0f);
+        r.set (ParamIDs::eqLevel, 2.0f);
         CHECK (r.processor.isRigModified());
         REQUIRE (r.processor.saveCurrentRig());   // a user rig now, so plain save works
         CHECK_FALSE (r.processor.isRigModified());
@@ -304,9 +304,9 @@ TEST_CASE ("Factory rigs can't be saved over", "[rigs]")
 {
     RigRig r;
     r.processor.loadRig (r.entryNamed ("Init"));
-    r.set (ParamIDs::delayMix, 0.9f);
+    r.set (ParamIDs::presence, 9.0f);
     CHECK_FALSE (r.processor.saveCurrentRig());   // the UI then asks for a new name
-    CHECK (r.entryNamed ("Init").rig.parameters.count (ParamIDs::delayMix) == 0);
+    CHECK (r.entryNamed ("Init").rig.parameters.count (ParamIDs::presence) == 0);
 }
 
 TEST_CASE ("< and > step through the rigs in order", "[rigs]")
@@ -326,13 +326,13 @@ TEST_CASE ("< and > step through the rigs in order", "[rigs]")
 TEST_CASE ("Deleting the loaded rig keeps the sound, now unsaved", "[rigs]")
 {
     RigRig r;
-    r.set (ParamIDs::compLevel, 8.0f);
+    r.set (ParamIDs::eqLevel, 8.0f);
     REQUIRE (r.processor.saveCurrentRigAs ("Temporary"));
     REQUIRE (r.processor.deleteRig (r.entryNamed ("Temporary")));
 
     CHECK_FALSE (r.processor.getCurrentRig().isUserRig());
     CHECK (r.processor.isRigModified());
-    CHECK_THAT (r.get (ParamIDs::compLevel), WithinAbs (8.0, 0.01));
+    CHECK_THAT (r.get (ParamIDs::eqLevel), WithinAbs (8.0, 0.01));
 }
 
 TEST_CASE ("The DAW project remembers which rig was loaded", "[rigs][state]")
@@ -341,9 +341,9 @@ TEST_CASE ("The DAW project remembers which rig was loaded", "[rigs][state]")
     juce::File rigFile;
     {
         RigRig r;
-        r.set (ParamIDs::compLevel, 8.0f);
+        r.set (ParamIDs::eqLevel, 8.0f);
         REQUIRE (r.processor.saveCurrentRigAs ("Project Rig"));
-        r.set (ParamIDs::compLevel, 3.0f);   // tweaked after saving
+        r.set (ParamIDs::eqLevel, 3.0f);   // tweaked after saving
         rigFile = r.processor.getCurrentRig().file;
         r.processor.getStateInformation (saved);
     }
@@ -353,7 +353,7 @@ TEST_CASE ("The DAW project remembers which rig was loaded", "[rigs][state]")
     CHECK (restored.getCurrentRig().name == "Project Rig");
     CHECK (restored.getCurrentRig().file == rigFile);
     CHECK (restored.isRigModified());   // the tweak is remembered as unsaved
-    CHECK_THAT (restored.getParameters().getRawParameterValue (ParamIDs::compLevel)->load(), WithinAbs (3.0, 0.01));
+    CHECK_THAT (restored.getParameters().getRawParameterValue (ParamIDs::eqLevel)->load(), WithinAbs (3.0, 0.01));
 }
 
 TEST_CASE ("Each rig's RIG LEVEL adds to the master output", "[rigs]")
@@ -402,16 +402,19 @@ TEST_CASE ("Only .pr7rig files are rigs: the old Paragon X1 .x1rig files aren't 
                          [] (const auto& entry) { return entry.rig.name == "From X1"; }));
 }
 
-TEST_CASE ("A rig file saved before reverb types loads with the original reverb", "[rigs]")
+TEST_CASE ("A rig file from before 0.3.0 with the pedal on an effect that's gone loads with it unassigned", "[rigs]")
 {
-    auto xml = juce::XmlDocument::parse (R"(<ParagonRig version="1" parameterVersion="10" name="Old"><Param id="reverbOn" value="1"/></ParagonRig>)");
+    // WAH (2): one of PR7-B's effects, gone in 0.3.0.
+    auto xml = juce::XmlDocument::parse (R"(<ParagonRig version="1" parameterVersion="15" name="Old"><Param id="expressionTarget" value="2"/></ParagonRig>)");
     REQUIRE (xml != nullptr);
     const auto rig = Rig::fromXml (*xml);
     REQUIRE (rig.has_value());
-    REQUIRE (rig->parameters.count ("reverbType") == 1);
-    CHECK (rig->parameters.at ("reverbType") == 0.0f);
+    CHECK (rig->parameters.at ("expressionTarget") == 0.0f);
 
-    Rig current;   // saved by this version: written with its reverb type, and read back as it is
-    current.parameters["reverbType"] = 4.0f;
-    CHECK (Rig::fromXml (*current.toXml())->parameters.at ("reverbType") == 4.0f);
+    // VOLUME (1) stays VOLUME, and a rig saved now is read back as it is.
+    auto volume = juce::XmlDocument::parse (R"(<ParagonRig version="1" parameterVersion="15" name="Old"><Param id="expressionTarget" value="1"/></ParagonRig>)");
+    CHECK (Rig::fromXml (*volume)->parameters.at ("expressionTarget") == 1.0f);
+    Rig current;
+    current.parameters["expressionTarget"] = 1.0f;
+    CHECK (Rig::fromXml (*current.toXml())->parameters.at ("expressionTarget") == 1.0f);
 }

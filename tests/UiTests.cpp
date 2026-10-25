@@ -137,64 +137,43 @@ TEST_CASE ("PEARL BLACK recolours the unit's printing, and every open window fol
     CHECK (rigLevelColour (*first) == ParagonColours::ink);
 }
 
-TEST_CASE ("The chain and footswitches pick which block's knobs show; the graphic EQ is the default", "[ui]")
+TEST_CASE ("The chain and the stomps pick what the dock shows; the graphic EQ is the default", "[ui]")
 {
     ParagonX1AudioProcessor processor;
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
 
-    // The knob panels in signal-chain order: eight EffectPanels, with the
-    // graphic EQ's own panel as block 3 (after FILTER / PITCH).
-    std::vector<EffectPanel*> effectPanels;
-    findAll (*editor, effectPanels);
-    REQUIRE (effectPanels.size() == 8);
     std::vector<GraphicEqPanel*> eqPanels;
     findAll (*editor, eqPanels);
     REQUIRE (eqPanels.size() == 1);
-    std::vector<juce::Component*> panels (effectPanels.begin(), effectPanels.end());
-    panels.insert (panels.begin() + 3, eqPanels[0]);
+    std::vector<TunerPanel*> tunerPanels;
+    findAll (*editor, tunerPanels);
+    REQUIRE (tunerPanels.size() == 1);
+    CHECK (eqPanels[0]->isVisible());
+    CHECK_FALSE (tunerPanels[0]->isVisible());
 
-    const auto visiblePanel = [&]
-    {
-        int count = 0, index = -1;
-        for (size_t i = 0; i < panels.size(); ++i)
-            if (panels[i]->isVisible())
-            {
-                ++count;
-                index = (int) i;
-            }
-        REQUIRE (count == 1);
-        return index;
-    };
-
-    // To start with the dock shows the graphic EQ.
-    CHECK (visiblePanel() == 3);
-
+    // The chain has just the EQ (PR7-B's effects went in 0.3.0).
     std::vector<SignalChain*> chains;
     findAll (*editor, chains);
     REQUIRE (chains.size() == 1);
-    for (int block = 0; block < 9; ++block)
-    {
-        chains[0]->onSelect (block);
-        CHECK (visiblePanel() == block);
-    }
+    chains[0]->onSelect (0);
+    CHECK (eqPanels[0]->isVisible());
 
-    // Stomp 4's name (EQ) shows the graphic EQ, from another block's panel.
-    chains[0]->onSelect (5);
+    // TUNER's name shows its panel; the GRAPHIC EQ button goes back.
     std::vector<Footswitch*> footswitches;
     findAll (*editor, footswitches);
     REQUIRE (footswitches.size() == 7);
-    footswitches[3]->onSelect();
-    CHECK (visiblePanel() == 3);
-    chains[0]->onSelect (5);
+    footswitches[0]->onSelect();
+    CHECK (tunerPanels[0]->isVisible());
+    CHECK_FALSE (eqPanels[0]->isVisible());
 
-    // The GRAPHIC EQ button on any other block's panel goes back to the EQ.
     std::vector<juce::TextButton*> buttons;
     findAll (*editor, buttons);
     const auto back = std::find_if (buttons.begin(), buttons.end(), [] (auto* b) { return b->getButtonText() == "GRAPHIC EQ"; });
     REQUIRE (back != buttons.end());
     CHECK ((*back)->isVisible());
     (*back)->onClick();
-    CHECK (visiblePanel() == 3);
+    CHECK (eqPanels[0]->isVisible());
+    CHECK_FALSE (tunerPanels[0]->isVisible());
     CHECK_FALSE ((*back)->isVisible());
 }
 
@@ -264,8 +243,8 @@ TEST_CASE ("BYPASS passes the clean guitar, on both channels", "[ui][bypass]")
     processor.prepareToPlay (48000.0, 512);
 
     // Make the processed sound very different from the input...
-    set (processor, ParamIDs::compOn, 1.0f);
-    set (processor, ParamIDs::compLevel, 24.0f);
+    set (processor, ParamIDs::eqOn, 1.0f);
+    set (processor, ParamIDs::eqLevel, 12.0f);
     set (processor, ParamIDs::inputGain, 12.0f);
     set (processor, ParamIDs::bypass, 1.0f);
 
@@ -313,7 +292,7 @@ TEST_CASE ("BYPASS is global: rigs don't change it and it doesn't mark them modi
     processor.useRigFolder (folder);
 
     processor.loadRig (*processor.getRigLibrary().findFactory ("Init"));
-    set (processor, ParamIDs::reverbOn, 1.0f);
+    set (processor, ParamIDs::eqUltraHi, 1.0f);
     REQUIRE (processor.saveCurrentRigAs ("Reverb Rig"));
     const auto reverbRig = processor.getCurrentRig().file;
     processor.loadRig (*processor.getRigLibrary().findFactory ("Init"));
@@ -321,7 +300,7 @@ TEST_CASE ("BYPASS is global: rigs don't change it and it doesn't mark them modi
     CHECK_FALSE (processor.isRigModified());
 
     processor.loadRig (*processor.getRigLibrary().find (reverbRig));
-    CHECK (processor.getParameters().getRawParameterValue (ParamIDs::reverbOn)->load() > 0.5f);   // the rig did load
+    CHECK (processor.getParameters().getRawParameterValue (ParamIDs::eqUltraHi)->load() > 0.5f);   // the rig did load
     CHECK (processor.getParameters().getRawParameterValue (ParamIDs::bypass)->load() > 0.5f);
     folder.deleteRecursively();
 }
@@ -360,47 +339,26 @@ TEST_CASE ("The expression screen: click a line to assign the pedal, again to un
 
     REQUIRE (target() == ExpressionTargets::off);
 
-    click (1);
-    CHECK (target() == ExpressionTargets::wah);
-    click (4);
-    CHECK (target() == ExpressionTargets::loFi);
-    click (4);
-    CHECK (target() == ExpressionTargets::off);
-
-    // WHAMMY-WAH also switches the FILTER / PITCH block on as a Whammy-Wah.
-    click (5);
-    CHECK (target() == ExpressionTargets::whammyWah);
-    CHECK (state.getRawParameterValue (ParamIDs::fpOn)->load() > 0.5f);
-    CHECK (juce::roundToInt (state.getRawParameterValue (ParamIDs::fpType)->load()) == (int) effects::FilterPitch::Type::whammyWah);
-    click (5);
-    CHECK (target() == ExpressionTargets::off);
-
-    // Scrolling down from unassigned starts at the top, then steps down; it stops at the ends.
-    scroll (-1.0f);
-    CHECK (target() == ExpressionTargets::volume);
-    scroll (-1.0f);
-    CHECK (target() == ExpressionTargets::wah);
-    scroll (1.0f);
-    scroll (1.0f);
+    // VOLUME is the only target now (PR7-B's effects went in 0.3.0): the
+    // other lines are empty, and clicking them does nothing.
+    click (0);
     CHECK (target() == ExpressionTargets::volume);
     click (0);
     CHECK (target() == ExpressionTargets::off);
+    for (int line = 1; line < ExpressionAssign::visibleRows; ++line)
+        click (line);
+    CHECK (target() == ExpressionTargets::off);
 
-    // The list is longer than the screen: the down arrow (the heading's
-    // right end) scrolls it, and the last line becomes TALK BOX, which also
-    // switches FILTER / PITCH on as a Talk Box.
-    const auto glass = screen.getLocalBounds().toFloat().reduced (7.0f).reduced (5.0f, 4.0f);
-    const auto downArrow = juce::Point<float> (glass.getRight() - 5.0f, glass.getY() + 6.5f);
-    for (int i = 0; i < 2; ++i)
-    {
-        const auto now = juce::Time::getCurrentTime();
-        screen.mouseUp (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), downArrow, {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-                                          &screen, &screen, now, downArrow, now, 1, false));
-    }
-    CHECK (target() == ExpressionTargets::off);   // scrolling doesn't choose anything
-    click (ExpressionAssign::visibleRows - 1);
-    CHECK (target() == ExpressionTargets::talkBox);
-    CHECK (juce::roundToInt (state.getRawParameterValue (ParamIDs::fpType)->load()) == (int) effects::FilterPitch::Type::talkBox);
+    // Scrolling down from unassigned starts at the top, and stops at the end.
+    scroll (-1.0f);
+    CHECK (target() == ExpressionTargets::volume);
+    scroll (-1.0f);
+    CHECK (target() == ExpressionTargets::volume);
+
+    // The screen draws with its short list, at both styles' sizes.
+    juce::Image image (juce::Image::ARGB, 88, 101, true);
+    juce::Graphics g (image);
+    screen.paintEntireComponent (g, false);
 }
 
 TEST_CASE ("The dock's expression screen scrolls with the buttons beside it", "[ui]")
@@ -421,13 +379,13 @@ TEST_CASE ("The dock's expression screen scrolls with the buttons beside it", "[
         CHECK (button->getX() > screen.getWidth() / 2);
     }
 
-    // At the top: only down works. Two steps reach the end of the eight-line list.
+    // The list (just VOLUME) fits on the screen: neither scrolls.
     CHECK (! up->isEnabled());
-    CHECK (down->isEnabled());
-    for (int i = 0; i < ExpressionAssign::numTargets - ExpressionAssign::visibleRows; ++i)
-        down->onClick();
     CHECK (! down->isEnabled());
-    CHECK (up->isEnabled());
+    down->onClick();
+    juce::Image image (juce::Image::ARGB, 272, 160, true);
+    juce::Graphics g (image);
+    screen.paintEntireComponent (g, false);   // and still draws
 
     // Scrolling never assigns the pedal.
     CHECK (juce::roundToInt (processor.getParameters().getRawParameterValue (ParamIDs::expressionTarget)->load()) == ExpressionTargets::off);

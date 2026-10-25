@@ -76,9 +76,9 @@ public:
 private:
     // The blocks in signal-chain order; footswitches, the chain strip and
     // the summary cards select these to show their knobs.
+    // The signal chain's blocks (just the EQ, until more stomps are built).
     // tunerBlock isn't in the chain (the tuner only listens): it's the TUNER stomp's panel.
-    enum Block { pitchBlock, compBlock, filterPitchBlock, eqBlock, glitchBlock, modBlock, delayBlock, reverbBlock, loFiBlock, numBlocks,
-                 tunerBlock = numBlocks };
+    enum Block { eqBlock, numBlocks, tunerBlock = numBlocks };
 
     enum class Page { processor, presets, settings };
 
@@ -142,7 +142,6 @@ private:
     RigNavigator rigNavigator;
     SelectedRigPanel selectedRig;
     ExpressionPanel expressionPanel;
-    std::array<std::unique_ptr<EffectPanel>, numBlocks> panels;   // empty at eqBlock: the EQ has its own panel
     GraphicEqPanel eqPanel;
     TunerPanel tunerPanel;
     juce::TextButton closePanel { "GRAPHIC EQ" };   // back to the EQ, the dock's default

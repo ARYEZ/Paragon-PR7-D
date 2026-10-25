@@ -23,13 +23,11 @@ namespace
         label.setColour (juce::Label::textColourId, ParagonColours::textDim);
     }
 
-    // One line describing what a rig switches on, e.g. "Comp, EQ, Delay".
+    // One line describing what a rig switches on, e.g. "EQ".
     juce::String describeBlocks (const Rig& rig)
     {
         const std::pair<const char*, const char*> blocks[] = {
-            { ParamIDs::octOn, "Octaver" }, { ParamIDs::compOn, "Comp" }, { ParamIDs::fpOn, "Filter" },
-            { ParamIDs::eqOn, "EQ" }, { ParamIDs::modOn, "Mod" },
-            { ParamIDs::delayOn, "Delay" }, { ParamIDs::reverbOn, "Reverb" } };
+            { ParamIDs::tunerOn, "Tuner" }, { ParamIDs::eqOn, "EQ" } };
 
         juce::StringArray on;
         for (const auto& [id, name] : blocks)

@@ -7,8 +7,9 @@ namespace
 
     // Which plugin version's parameters the rig was saved with, for the
     // occasional parameter whose default changed (older plugins ignore it).
-    // 15: the reverb's TYPE, defaulting to HALL (from PR7-G, via PR7-B).
-    constexpr int parameterVersion = 15;
+    // 15: the reverb's TYPE (from PR7-G, via PR7-B; gone in PR7-E 0.3.0).
+    // 30: PR7-E 0.3.0, when the expression pedal's effect targets went.
+    constexpr int parameterVersion = 30;
 
     const juce::Identifier rigTag { "ParagonRig" };
     const juce::Identifier parameterTag { "Param" };
@@ -70,9 +71,11 @@ std::optional<Rig> Rig::fromXml (const juce::XmlElement& xml)
             rig.parameters[id] = (float) parameter->getDoubleAttribute ("value");
 
     const auto savedWith = xml.getIntAttribute ("parameterVersion", 0);
-    // Saved before the reverb had a TYPE: it was the original, now CLASSIC (0).
-    if (savedWith < 15 && rig.parameters.count ("reverbType") == 0)
-        rig.parameters["reverbType"] = 0.0f;
+    // Saved before 0.3.0 with the expression pedal on one of PR7-B's effects
+    // (2 to 8, all gone): unassigned instead (see ExpressionTargets).
+    if (const auto target = rig.parameters.find ("expressionTarget");
+        savedWith < 30 && target != rig.parameters.end() && target->second > 1.5f)
+        target->second = 0.0f;
 
     return rig;
 }

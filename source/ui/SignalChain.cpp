@@ -46,10 +46,13 @@ void SignalChain::resized()
     guitarArea = area.removeFromLeft (70.0f);
     outputArea = area.removeFromRight (110.0f);
 
-    // Blocks spread evenly with gaps for the dotted connectors.
+    // Blocks spread evenly with gaps for the dotted connectors, from the
+    // left, never wider than nine across would make them: a short chain
+    // (PR7-E's grows as its stomps are built) stays in proportion.
     const auto count = (float) blocks.size();
     const auto gap = 16.0f;
-    const auto blockWidth = (area.getWidth() - gap * (count + 1.0f)) / count;
+    const auto widthFor = [&] (float n) { return (area.getWidth() - gap * (n + 1.0f)) / n; };
+    const auto blockWidth = juce::jmin (widthFor (count), widthFor (9.0f));
     blockAreas.clear();
     area.removeFromLeft (gap);
     for (size_t i = 0; i < blocks.size(); ++i)

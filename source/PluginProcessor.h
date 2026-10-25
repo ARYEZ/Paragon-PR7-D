@@ -6,18 +6,8 @@
 #include "dsp/InputTap.h"
 #include "dsp/TapTempo.h"
 #include "dsp/Tuner.h"
-#include "dsp/effects/CompGate.h"
-#include "dsp/effects/Delay.h"
-#include "dsp/effects/FilterPitch.h"
 #include "dsp/effects/GraphicEq.h"
-#include "dsp/effects/LoFi.h"
-#include "dsp/effects/Glitch.h"
-#include "dsp/effects/PitchBlock.h"
-#include "dsp/effects/TalkBox.h"
-#include "dsp/effects/Modulation.h"
 #include "dsp/effects/Presence.h"
-#include "dsp/effects/Reverb.h"
-#include "dsp/effects/Wah.h"
 #include "rigs/RigLibrary.h"
 #include "rigs/UndoHistory.h"
 
@@ -154,8 +144,6 @@ public:
 
     juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
     LevelMeterSource& getInputMeter() noexcept { return inputMeter; }
-    // How hard the compressor is working (dB, 0 or less), for its meter.
-    float getCompGainReductionDb() const noexcept { return compGate.getGainReductionDb(); }
     LevelMeterSource& getOutputMeter() noexcept { return outputMeter; }
 
 private:
@@ -202,22 +190,13 @@ private:
     // Smoothing stops zipper noise when a gain knob moves.
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> inputGain, outputGain;
 
-    // Signal chain, in order: pitch -> wah -> compGate -> filter / pitch -> presence
-    // -> talk box -> graphic EQ -> modulation -> delay -> reverb -> lo-fi (glitch pre
-    // or post). Up to the EQ it's mono; from modulation on it's stereo when the track is.
-    effects::CompGate compGate;
-    effects::FilterPitch filterPitch;   // after the compressor
-    effects::Presence presence;
-    effects::Modulation modulation;
-    effects::Delay delay;
-    effects::Reverb reverb;
-    effects::LoFi loFi;   // last: after the reverb
-    effects::Glitch glitch;
-    effects::PitchBlock pitchBlock;
-    effects::TalkBox talkBox;   // FILTER / PITCH's Talk Box type, after the cab   // first: TUNING, OCTAVER and FREEZE, before the wah   // after the EQ (POST), or after FILTER / PITCH (PRE)
-    effects::Wah wah;
-    effects::GraphicEq graphicEq;   // after presence, before modulation
-    std::array<std::atomic<float>*, effects::GraphicEq::numBands> eqGainDb {};   // the expression pedal's WAH, first in the chain as on a pedalboard
+    // Signal chain, stereo throughout: INPUT -> stomp 4 (EQ) -> PRESENCE -> OUTPUT.
+    // The tuner only listens; the other stomps aren't built yet.
+    // Stomp 4 (the graphic EQ, for now) and PRESENCE: one of each per
+    // channel, since each keeps its filters' memory.
+    std::array<effects::GraphicEq, effects::maxChannels> graphicEq;
+    std::array<effects::Presence, effects::maxChannels> presence;
+    std::array<std::atomic<float>*, effects::GraphicEq::numBands> eqGainDb {};
 
     std::unique_ptr<RigLibrary> rigLibrary;
     CurrentRig currentRig;
@@ -225,7 +204,7 @@ private:
     std::atomic<bool> rigModified { false }, applyingRig { false };
 
     // BYPASS: the clean input, delayed by our latency so switching bypass
-    // never shifts the guitar in time, crossfaded in over 20 ms.
+    // never shifts the sound in time, crossfaded in over 20 ms.
     juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::None> bypassDelay { 8192 };
     juce::AudioBuffer<float> bypassDry;
     juce::SmoothedValue<float> bypassAmount;
@@ -247,7 +226,6 @@ private:
 
     int preparedBlockSize = 512;
     std::atomic<double> hostBpm { 120.0 }, tappedBpm { 0.0 };
-    double songBeatsAtBlock = -1.0;   // the song position at this block's start, in beats; -1 when not playing (audio thread only)
     TapTempo tapCounter;
 
     LevelMeterSource inputMeter, outputMeter;

@@ -25,7 +25,7 @@ All of this was done in 0.1.0; it's kept as the record of what makes PR7-E its o
 
 ## The plan: seven stomps, each modelled on a specific plugin
 
-The owner's layout is PR7-V's: **three stomps on the top row, four on the bottom**. Done in 0.1.0: the face came from PR7-V, and the bass-specific blocks (NAM amp, cab IR, Obsidian, Gotham, the bass rigs) are gone; one factory rig, Init, remains. AEON and the `Circuit` solver came along from PR7-B and may be useful later. PR7-B's general effects (pitch, comp / gate, filter / pitch, glitch, modulation, delay, reverb, lo-fi) are still in the signal chain, with no stomps: whether they stay is for the owner.
+The owner's layout is PR7-V's: **three stomps on the top row, four on the bottom**. Done in 0.1.0: the face came from PR7-V, and the bass-specific blocks (NAM amp, cab IR, Obsidian, Gotham, the bass rigs) are gone; one factory rig, Init, remains. In 0.3.0 the owner had PR7-B's general effects (pitch, comp / gate, filter / pitch, glitch, modulation with AEON, delay, reverb, lo-fi) removed: they were mono and lost the right channel. PR7-E is **stereo throughout**: every new stomp must process both channels (or one copy per channel) and keep left and right apart. The `Circuit` solver stays (tested) and may be useful later.
 
 Stomps not built yet are placeholders: a `Footswitch` with no parameter IDs (dark LED, the pad does nothing, the name opens nothing; see `addStomp` in `MainView.cpp`). Give a stomp its parameters only when it's built: once released, IDs are saved forever. Stomp 4 (EQ) switches the graphic EQ until the planned EQ replaces it. Planning order: one stomp at a time, with the owner.
 
@@ -34,7 +34,7 @@ Stomps not built yet are placeholders: a `Footswitch` with no parameter IDs (dar
   2. **Open: to plan with the owner.** Ideas offered so far: a loudness/analysis stomp (LUFS, spectrum, stereo correlation), a channel utility (gain, polarity, mono/width, mid-side, swap), an A/B reference player.
   3. **Insert launcher.** A plugin can't open the other plugins on the DAW's track: hosts don't allow it. What it *can* do is host plugins itself (JUCE `AudioPluginFormatManager` / `KnownPluginList`, VST3 on Windows): load plugins into slots inside PR7-E and open their editors from the stomp, a mini rack. Confirm with the owner which platform it's for: the owner works in BeatMaker, and on iPad plugins are AUv3, which works differently.
 - **Bottom row**
-  1. **EQ inspired by FabFilter Pro-Q 4.** Pro-Q's features are well documented; ask the owner for its manual.
+  1. **EQ inspired by FabFilter Pro-Q 4.** The owner supplied its manual (don't commit it: it's FabFilter's). Agreed: it **replaces the graphic EQ**, opens on a **big EQ page** of its own (over the pedal and dock, like PRESETS), and is built in stages: (1) the core EQ: up to 24 bands, the 10 shapes, slopes, per-band stereo / L / R / M / S, the interactive display with pre/post spectrum, solo, output gain / auto gain / gain scale, zero-latency analog-matched filters; (2) **dynamic EQ**; (3) **EQ Match**. Not wanted: linear phase, character modes. Skipped: instance list, surround, MIDI learn, spectral dynamics (that's the RESONANCE stomp's job). "Natural Phase" is FabFilter's own, unpublished.
   2. **Inspired by oeksound soothe 3** (adaptive resonance suppression). The algorithm is secret: ours is our own design from the manual and how it behaves. Ask for the manual.
   3. **Inspired by Soundtheory Gullfoss** ("maybe", per the owner). Also a secret, adaptive algorithm: our own design. Ask for the manual.
   4. **The output trim / limiter from PR7-C** (`ARYEZ/Paragon-PR7-C`): port that section rather than writing a new one.
@@ -48,7 +48,7 @@ Stomps not built yet are placeholders: a `Footswitch` with no parameter IDs (dar
   - Saved by ID and choices by **index**: only ever *append* choices, never reorder.
   - New parameters get a new version hint number.
   - Migrations for changed defaults live in `setStateInformation` and `Rig::fromXml`.
-- **Shared DSP pieces:** `BypassFade` and `TailWatch` (EffectUtils.h), `PitchShifter`, and `Circuit` (Circuit.h: models analog stages from their schematics, part by part).
+- **Shared DSP pieces:** `BypassFade` and `TailWatch` (EffectUtils.h), and `Circuit` (Circuit.h: models analog stages from their schematics, part by part).
 
 ## Build, test, check
 

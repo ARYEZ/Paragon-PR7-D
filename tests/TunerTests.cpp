@@ -7,7 +7,6 @@
 #include "dsp/InputTap.h"
 #include "dsp/PitchDetector.h"
 #include "dsp/Tuner.h"
-#include "dsp/effects/Wah.h"
 
 using Catch::Matchers::WithinAbs;
 
@@ -274,41 +273,4 @@ TEST_CASE ("TUNER only listens while it's on", "[tuner]")
     rig.play (1.0, note (steady (220.0)));
     CHECK (rig.tuner().getTrace().empty());
     CHECK_FALSE (rig.tuner().getReading().hasNote);
-}
-
-TEST_CASE ("Wah sweeps a band-pass from heel to toe", "[wah]")
-{
-    CHECK_THAT (effects::Wah::frequencyFor (0.0f), WithinAbs (350.0, 0.01));
-    CHECK_THAT (effects::Wah::frequencyFor (1.0f), WithinAbs (2200.0, 0.01));
-    CHECK (effects::Wah::frequencyFor (0.5f) > 800.0f);
-    CHECK (effects::Wah::frequencyFor (0.5f) < 900.0f);
-
-    // Measure how loud a tone comes through with the pedal at each end.
-    auto levelThrough = [] (double toneHz, float position)
-    {
-        constexpr double sampleRate = 48000.0;
-        constexpr int blockSize = 256;
-        effects::Wah wah;
-        wah.prepare (sampleRate, blockSize);
-        float peak = 0.0f;
-        std::vector<float> block (blockSize);
-        for (int b = 0; b < 200; ++b)
-        {
-            for (int i = 0; i < blockSize; ++i)
-                block[(size_t) i] = (float) std::sin (juce::MathConstants<double>::twoPi * toneHz * (b * blockSize + i) / sampleRate);
-            float* channels[] = { block.data() };
-            wah.process (juce::dsp::AudioBlock<float> (channels, 1, blockSize), true, position);
-            if (b > 100)
-                for (auto s : block)
-                    peak = std::max (peak, std::abs (s));
-        }
-        return peak;
-    };
-
-    // Heel down favours the low tone, toe down the high tone.
-    CHECK (levelThrough (350.0, 0.0f) > 2.0f * levelThrough (2200.0, 0.0f));
-    CHECK (levelThrough (2200.0, 1.0f) > 2.0f * levelThrough (350.0, 1.0f));
-    // At its centre frequency the make-up gain keeps the level roughly where it was.
-    CHECK (levelThrough (350.0, 0.0f) > 0.7f);
-    CHECK (levelThrough (350.0, 0.0f) < 2.0f);
 }

@@ -2,8 +2,6 @@
 
 #include "Parameters.h"
 #include "ui/Logo.h"
-#include "dsp/effects/CompGate.h"
-#include "dsp/effects/Modulation.h"
 
 namespace
 {
@@ -126,16 +124,9 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
       expressionPanel (processorToShow.getParameters()),
       eqPanel (processorToShow.getParameters()),
       tunerPanel (processorToShow),
+      // The blocks that shape the sound, in order; it grows as the stomps are built.
       signalChain (processorToShow.getParameters(), {
-          { "PITCH", Icons::Type::pitch, ParagonColours::pitch, juce::String (ParamIDs::octOn) + "," + ParamIDs::freezeOn },
-          { "COMP / GATE", Icons::Type::comp, ParagonColours::comp, ParamIDs::compOn },
-          { "FILTER / PITCH", Icons::Type::filterPitch, ParagonColours::filterPitch, ParamIDs::fpOn },
-          { "EQ", Icons::Type::eq, ParagonColours::eq, juce::String (ParamIDs::eqOn) + "," + ParamIDs::eqUltraLo + "," + ParamIDs::eqUltraHi },
-          { "GLITCH", Icons::Type::glitch, ParagonColours::glitch, ParamIDs::glitchOn },
-          { "MOD", Icons::Type::modulation, ParagonColours::modulation, ParamIDs::modOn },   // MODULATION: short, as on PR7-B
-          { "DELAY", Icons::Type::delay, ParagonColours::delay, ParamIDs::delayOn },
-          { "REVERB", Icons::Type::reverb, ParagonColours::reverb, ParamIDs::reverbOn },
-          { "LO-FI", Icons::Type::loFi, ParagonColours::loFi, ParamIDs::lofiOn } }),
+          { "EQ", Icons::Type::eq, ParagonColours::eq, juce::String (ParamIDs::eqOn) + "," + ParamIDs::eqUltraLo + "," + ParamIDs::eqUltraHi } }),
       rigBrowser (processorToShow),
       settingsPage (processorToShow)
 {
@@ -289,88 +280,6 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     for (auto* component : processorPage)
         addAndMakeVisible (component);
 
-    //==========================================================================
-    // Edit panels, one per block, shown in place of the rig summary. Each
-    // starts with the block's on switch.
-    using Group = EffectPanel::Group;
-    // The compressor's TYPE shows only its own knobs: Classic's THRESHOLD and
-    // RATIO, or Daybreak's COMP, DETAIL, MIX and INTENSITY.
-    panels[pitchBlock] = std::make_unique<EffectPanel> (state, std::vector<Group> {
-        { "TUNING", { { ParamIDs::pitchTune, "TUNING" } } },
-        { "OCTAVER", { { ParamIDs::octOn, "ON" }, { ParamIDs::octSubTwo, "2 DOWN" }, { ParamIDs::octSubOne, "1 DOWN" },
-                       { ParamIDs::octDry, "DRY" }, { ParamIDs::octUp, "1 UP" } } },
-        { "FREEZE", { { ParamIDs::freezeOn, "FREEZE" }, { ParamIDs::freezeLevel, "LEVEL" }, { ParamIDs::freezeAttack, "ATTACK" },
-                      { ParamIDs::freezeRelease, "RELEASE" } } } });
-    const auto compIs = [this] (effects::CompGate::Type type)
-    {
-        return [this, type] { return juce::roundToInt (rawValue (ParamIDs::compType)) == (int) type; };
-    };
-    const auto classic = compIs (effects::CompGate::Type::classic), daybreak = compIs (effects::CompGate::Type::daybreak);
-    panels[compBlock] = std::make_unique<EffectPanel> (state, std::vector<Group> {
-        { "COMPRESSOR", { { ParamIDs::compOn, "ON" }, { ParamIDs::compType, "TYPE" },
-                          { ParamIDs::compThreshold, "THRESHOLD", classic, true }, { ParamIDs::compRatio, "RATIO", classic, true },
-                          { ParamIDs::compAmount, "COMP", daybreak, true }, { ParamIDs::compDetail, "DETAIL", daybreak, true },
-                          { ParamIDs::compMix, "MIX", daybreak, true }, { ParamIDs::compIntensity, "INTENSITY", daybreak, true },
-                          { ParamIDs::compLevel, "LEVEL" } } },
-        { "NOISE GATE", { { ParamIDs::gateThreshold, "THRESHOLD" } } } });
-    panels[compBlock]->setMeter ([this] { return audioProcessor.getCompGainReductionDb(); });
-    const auto fpIs = [this] (effects::FilterPitch::Type type)
-    {
-        return [this, type] { return juce::roundToInt (rawValue (ParamIDs::fpType)) == (int) type; };
-    };
-    panels[filterPitchBlock] = std::make_unique<EffectPanel> (state, std::vector<Group> {
-        { "FILTER / PITCH", { { ParamIDs::fpOn, "ON" }, { ParamIDs::fpType, "TYPE" },
-                              { ParamIDs::fpSensitivity, "SENSITIVITY", fpIs (effects::FilterPitch::Type::autoWah) },
-                              { ParamIDs::fpResonance, "RESONANCE", [autoWah = fpIs (effects::FilterPitch::Type::autoWah),
-                                                                      talkBox = fpIs (effects::FilterPitch::Type::talkBox)] { return autoWah() || talkBox(); } },
-                              { ParamIDs::fpInterval, "INTERVAL", fpIs (effects::FilterPitch::Type::pitchShifter) },
-                              { ParamIDs::fpXpProgram, "PROGRAM", fpIs (effects::FilterPitch::Type::whammyWah) },
-                              { ParamIDs::fpMix, "MIX" } } } });
-    // AEON (the flanger) adds its pedal's MANUAL and RES.
-    const auto isAeon = [this] { return juce::roundToInt (rawValue (ParamIDs::modType)) == (int) effects::Modulation::Type::flanger; };
-    panels[modBlock] = std::make_unique<EffectPanel> (state, std::vector<Group> {
-        { "MODULATION", { { ParamIDs::modOn, "ON" }, { ParamIDs::modType, "TYPE" }, { ParamIDs::modSync, "SYNC" },
-                          { ParamIDs::modManual, "MANUAL", isAeon, true },
-                          { ParamIDs::modRate, "RATE", [this] { return rawValue (ParamIDs::modSync) < 0.5f; } },
-                          { ParamIDs::modDepth, "DEPTH" },
-                          { ParamIDs::modRes, "RES", isAeon, true },
-                          { ParamIDs::modMix, "MIX", [this] {
-                              return effects::Modulation::usesMix ((effects::Modulation::Type) juce::roundToInt (rawValue (ParamIDs::modType))); } } } } });
-    panels[delayBlock] = std::make_unique<EffectPanel> (state, std::vector<Group> {
-        { "DELAY", { { ParamIDs::delayOn, "ON" }, { ParamIDs::delayType, "TYPE" }, { ParamIDs::delaySync, "SYNC" },
-                     { ParamIDs::delayTime, "TIME", [this] { return rawValue (ParamIDs::delaySync) < 0.5f; } },
-                     { ParamIDs::delayFeedback, "FEEDBACK" }, { ParamIDs::delayTone, "TONE" }, { ParamIDs::delayMix, "MIX" }, { ParamIDs::delayDuck, "DUCK" },
-                     { ParamIDs::delayPingPong, "PING-PONG" } } } });
-    panels[reverbBlock] = std::make_unique<EffectPanel> (state, std::vector<Group> {
-        { "REVERB", { { ParamIDs::reverbOn, "ON" }, { ParamIDs::reverbType, "TYPE" }, { ParamIDs::reverbSize, "SIZE" },
-                      { ParamIDs::reverbPreDelay, "PRE-DELAY" }, { ParamIDs::reverbTone, "TONE" }, { ParamIDs::reverbMix, "MIX" },
-                      { ParamIDs::reverbDuck, "DUCK" } } } });
-    // GLITCH's LENGTH is a time, or a note value while synced: the one that
-    // applies shows.
-    const auto glitchSynced = [this] { return rawValue (ParamIDs::glitchSync) > 0.5f; };
-    const auto glitchFree = [this] { return rawValue (ParamIDs::glitchSync) <= 0.5f; };
-    panels[glitchBlock] = std::make_unique<EffectPanel> (state, std::vector<Group> {
-        { "GLITCH", { { ParamIDs::glitchOn, "ON" }, { ParamIDs::glitchMode, "MODE" }, { ParamIDs::glitchPosition, "POSITION" },
-                      { ParamIDs::glitchSync, "SYNC" },
-                      { ParamIDs::glitchTime, "LENGTH", glitchFree, true }, { ParamIDs::glitchDivision, "LENGTH", glitchSynced, true },
-                      { ParamIDs::glitchDensity, "DENSITY" }, { ParamIDs::glitchPitch, "PITCH" }, { ParamIDs::glitchChaos, "CHAOS" },
-                      { ParamIDs::glitchMix, "MIX" } } } });
-    panels[loFiBlock] = std::make_unique<EffectPanel> (state, std::vector<Group> {
-        { "LO-FI", { { ParamIDs::lofiOn, "ON" }, { ParamIDs::lofiType, "TYPE" }, { ParamIDs::lofiAmount, "AMOUNT" },
-                     { ParamIDs::lofiNoise, "NOISE" }, { ParamIDs::lofiMix, "MIX" }, { ParamIDs::lofiLevel, "LEVEL" } } } });
-    const std::pair<Icons::Type, juce::Colour> headers[] = {
-        { Icons::Type::pitch, ParagonColours::pitch }, { Icons::Type::comp, ParagonColours::comp }, { Icons::Type::filterPitch, ParagonColours::filterPitch },
-        { Icons::Type::eq, ParagonColours::eq }, { Icons::Type::glitch, ParagonColours::glitch },
-        { Icons::Type::modulation, ParagonColours::modulation }, { Icons::Type::delay, ParagonColours::delay },
-        { Icons::Type::reverb, ParagonColours::reverb }, { Icons::Type::loFi, ParagonColours::loFi } };
-    const char* titles[] = { "PITCH", "COMP / GATE", "FILTER / PITCH", "GRAPHIC EQ", "GLITCH", "MODULATION", "DELAY", "REVERB", "LO-FI" };
-    for (size_t i = 0; i < panels.size(); ++i)
-    {
-        if (panels[i] == nullptr)
-            continue;
-        panels[i]->setHeader (headers[i].first, headers[i].second, titles[i]);
-        addChildComponent (*panels[i]);
-    }
     addChildComponent (eqPanel);
     addChildComponent (tunerPanel);
 
@@ -428,9 +337,6 @@ void MainView::selectBlock (int block)
     // The selected block's knobs fill the middle of the dock; the graphic EQ is the default.
     selectedBlock = block;
     const auto onProcessorPage = page == Page::processor;
-    for (size_t i = 0; i < panels.size(); ++i)
-        if (panels[i] != nullptr)
-            panels[i]->setVisible ((int) i == block && onProcessorPage);
     eqPanel.setVisible (block == eqBlock && onProcessorPage);
     tunerPanel.setVisible (block == tunerBlock && onProcessorPage);
     closePanel.setVisible (block != eqBlock && onProcessorPage);
@@ -721,9 +627,6 @@ void MainView::resized()
     rigNavigator.setBounds (mock (12, 568, 246, 822));
     selectedRig.setBounds (mock (256, 568, 652, 822));
     const auto summaryArea = mock (662, 568, 1334, 822);
-    for (auto& panel : panels)
-        if (panel != nullptr)
-            panel->setBounds (summaryArea);
     eqPanel.setBounds (summaryArea);
     tunerPanel.setBounds (summaryArea);
     closePanel.setBounds (summaryArea.withSizeKeepingCentre (0, 0).withX (summaryArea.getRight() - 130).withY (summaryArea.getY() + 10)

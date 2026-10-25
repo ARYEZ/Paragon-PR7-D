@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.24)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "macOS architectures")
 
-project(ParagonX1 VERSION 0.2.0 LANGUAGES C CXX)
+project(ParagonX1 VERSION 0.3.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -50,19 +50,7 @@ target_sources(ParagonX1
         source/PluginEditor.cpp
         source/dsp/PitchDetector.cpp
         source/dsp/Tuner.cpp
-        source/dsp/effects/CompGate.cpp
-        source/dsp/effects/Delay.cpp
-        source/dsp/effects/Aeon.cpp
-        source/dsp/effects/FilterPitch.cpp
         source/dsp/effects/GraphicEq.cpp
-        source/dsp/effects/LoFi.cpp
-        source/dsp/effects/Glitch.cpp
-        source/dsp/effects/PitchBlock.cpp
-        source/dsp/effects/TalkBox.cpp
-        source/dsp/effects/Modulation.cpp
-        source/dsp/effects/PitchShifter.cpp
-        source/dsp/effects/Reverb.cpp
-        source/dsp/effects/Wah.cpp
         source/rigs/Rig.cpp
         source/rigs/FactoryRigs.cpp
         source/rigs/RigLibrary.cpp

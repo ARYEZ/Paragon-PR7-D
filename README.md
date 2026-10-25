@@ -42,18 +42,18 @@ none of those products' names or branding go on the plugin.
   30 seconds against the notes (green within 5 cents, orange within 15, red beyond), and the **average**: how sharp or
   flat the part sits overall. **RESET** (in the panel, or the key on the unit) starts the trace and average again. It
   keeps listening with the window closed. The reference pitch for A4 is in SETTINGS.
-- **Signal chain** (bottom strip; click a block for its knobs): pitch → comp / gate → filter / pitch → graphic EQ →
-  glitch → modulation → delay → reverb → lo-fi. These are the general effects that came from PR7-B; they have no stomps
-  of their own. Whether they stay in a utility processor is still to decide.
+- **Stereo throughout:** both channels pass through as they came in, apart from what the stomps do (a mono track plays on
+  both speakers). **Signal chain** (bottom strip): input → EQ → output, growing as the stomps are built.
 - **PRESENCE** cuts or boosts the top end (above about 3.5 kHz).
 - **Rigs:** SAVE in the header saves the current sound as a rig; **<** and **>** step through rigs; a `*` after the name
   means it's changed since loading. The **PRESETS** tab browses, files (banks A-E), tags and favourites rigs. There's one
   factory rig, **Init** (everything off), until the stomps are built. INPUT and OUTPUT stay put when you switch rigs;
   each rig has its own **RIG LEVEL**, which adds to OUTPUT.
-- **TAP** (header or pedal) sets the tempo for the delay and synced effects; click the BPM to follow your DAW again.
+- **TAP** (header or pedal): holding it switches the tuner on. Tapping still sets a tempo, but nothing uses one since
+  the delay went in 0.3.0.
 - **Undo / redo:** the header arrows, UNDO / REDO on the pedal, or Ctrl+Z / Ctrl+Shift+Z (Cmd on a Mac).
 - **Expression pedal** (right of the unit): drag it, use the mouse wheel, or send MIDI CC 11 (or the CC chosen in
-  SETTINGS). Assign it on the EXPRESSION ASSIGN screen in the dock.
+  SETTINGS). Assign it as a **VOLUME** pedal on the EXPRESSION ASSIGN screen in the dock.
 - **SETTINGS:** the tuner's reference pitch, the expression pedal's MIDI CC, and the unit's finish.
 - No latency: nothing in the chain looks ahead.
 

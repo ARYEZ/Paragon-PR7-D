@@ -11,8 +11,8 @@ namespace
 {
     constexpr float screenSize = 7.0f / 11.0f;   // the assign screen's frame and bezel, relative to the main screen's
 
-    const char* pedalNames[] = { "VOLUME", "WAH / FILTER", "MORPH / FX", "PITCH / WHAMMY", "LO-FI", "WHAMMY-WAH", "GLITCH", "TALK BOX" };
-    constexpr int lastTarget = ExpressionTargets::talkBox;
+    const char* pedalNames[] = { "VOLUME" };
+    constexpr int lastTarget = ExpressionTargets::volume;
     static_assert (std::size (pedalNames) == (size_t) lastTarget && ExpressionAssign::numTargets == lastTarget);
 
     juce::RangedAudioParameter& parameter (juce::AudioProcessorValueTreeState& state, const char* id)
@@ -140,7 +140,7 @@ ExpressionAssign::ExpressionAssign (juce::AudioProcessorValueTreeState& stateToU
 
 void ExpressionAssign::scroll (int lines)
 {
-    firstRow = juce::jlimit (0, numTargets - visibleRows, firstRow + lines);
+    firstRow = juce::jlimit (0, juce::jmax (0, numTargets - visibleRows), firstRow + lines);
     updateScrollButtons();
     repaint();
 }
@@ -158,44 +158,6 @@ void ExpressionAssign::select (int target)
 {
     // Clicking the lit one again turns the pedal off.
     const auto newTarget = target == currentTarget ? ExpressionTargets::off : target;
-
-    const auto set = [this] (const char* id, float plainValue)
-    {
-        auto* parameter = state.getParameter (id);
-        parameter->beginChangeGesture();
-        parameter->setValueNotifyingHost (parameter->convertTo0to1 (plainValue));
-        parameter->endChangeGesture();
-    };
-
-    // PITCH / WHAMMY bends the pitch shifter, so make sure there's one
-    // running: switch the FILTER / PITCH block on as a pitch shifter.
-    if (newTarget == ExpressionTargets::pitch)
-    {
-        set (ParamIDs::fpOn, 1.0f);
-        set (ParamIDs::fpType, (float) effects::FilterPitch::Type::pitchShifter);
-    }
-
-    // WHAMMY-WAH plays the FILTER / PITCH block's Whammy-Wah type: switch it on as one.
-    if (newTarget == ExpressionTargets::whammyWah)
-    {
-        set (ParamIDs::fpOn, 1.0f);
-        set (ParamIDs::fpType, (float) effects::FilterPitch::Type::whammyWah);
-    }
-
-    // TALK BOX plays the FILTER / PITCH block's Talk Box type: switch it on as one.
-    if (newTarget == ExpressionTargets::talkBox)
-    {
-        set (ParamIDs::fpOn, 1.0f);
-        set (ParamIDs::fpType, (float) effects::FilterPitch::Type::talkBox);
-    }
-
-    // GLITCH fades the GLITCH block in, so switch it on.
-    if (newTarget == ExpressionTargets::glitch)
-        set (ParamIDs::glitchOn, 1.0f);
-
-    // LO-FI fades the LO-FI block in, so switch it on.
-    if (newTarget == ExpressionTargets::loFi)
-        set (ParamIDs::lofiOn, 1.0f);
 
     attachment.setValueAsCompleteGesture ((float) newTarget);
 }
@@ -286,6 +248,8 @@ void ExpressionAssign::paint (juce::Graphics& g)
     for (size_t i = 0; i < rows.size(); ++i)
     {
         const auto line = firstRow + (int) i;   // which target this line shows
+        if (line >= numTargets)
+            break;   // a short list: the rest of the screen is empty
         const auto selected = currentTarget == line + 1;
         if (selected)
         {
@@ -349,7 +313,8 @@ void ExpressionAssign::mouseUp (const juce::MouseEvent& event)
 
     const auto rows = screenRows();
     for (size_t i = 0; i < rows.size(); ++i)
-        if (rows[i].withX (screenGlass().getX()).withWidth (screenGlass().getWidth()).contains (event.position))
+        if (rows[i].withX (screenGlass().getX()).withWidth (screenGlass().getWidth()).contains (event.position)
+            && firstRow + (int) i < numTargets)
             select (firstRow + (int) i + 1);
 }
 

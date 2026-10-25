@@ -75,7 +75,7 @@ class ExpressionAssign final : public juce::Component,
 {
 public:
     enum class Style { pedal, list };
-    static constexpr int numTargets = 8;    // what the pedal can control: everything but "Off"
+    static constexpr int numTargets = 1;    // what the pedal can control: everything but "Off" (VOLUME, for now)
     static constexpr int visibleRows = 6;   // the screen's lines; the list scrolls
 
     ExpressionAssign (juce::AudioProcessorValueTreeState&, Style);
