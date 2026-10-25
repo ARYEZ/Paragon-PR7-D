@@ -4,6 +4,7 @@
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 #include "ui/EqDisplay.h"
+#include "ui/EqPage.h"
 #include "ui/Finish.h"
 #include "ui/Footswitch.h"
 
@@ -127,6 +128,8 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
     const auto showEq = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_EQ", {}) == "1";
     juce::Random random (7);
     double pinkState[2][3] {};
+    auto referenceTone = false;   // EQ Match's snapshot: brighter and thinner than the track
+    double lowState[2] {};
     const auto playNoise = [&] (int blocks)
     {
         juce::AudioBuffer<float> buffer (2, 256);
@@ -142,7 +145,13 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                     b[0] = 0.99765 * b[0] + white * 0.0990460;
                     b[1] = 0.96300 * b[1] + white * 0.2965164;
                     b[2] = 0.57000 * b[2] + white * 1.0526913;
-                    buffer.setSample (ch, i, (float) (0.05 * (b[0] + b[1] + b[2] + white * 0.1848)));
+                    auto sample = 0.05 * (b[0] + b[1] + b[2] + white * 0.1848);
+                    if (referenceTone)
+                    {
+                        lowState[ch] += 0.03 * (sample - lowState[ch]);   // the lows (below about 230 Hz)...
+                        sample = sample - 0.6 * lowState[ch] + 0.012 * white;   // ...turned down, and more top
+                    }
+                    buffer.setSample (ch, i, (float) sample);
                 }
             processor.processBlock (buffer, midi);
         }
@@ -217,6 +226,32 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 display->refresh();
             }
     }
+    // PARAGON_SNAPSHOT_MATCH=1 (with PAGE=eq): EQ Match open, having heard
+    // pink noise as the track and a brighter, thinner noise as the reference.
+    if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_MATCH", {}) == "1")
+        if (auto* page = findType<EqPage> (*editor))
+        {
+            page->showMatch (true);
+            auto& match = processor.getEqMatch();
+            const auto listen = [&] (eq::match::Session::Recording what, bool reference)
+            {
+                match.setRecording (what);
+                referenceTone = reference;
+                for (int i = 0; i < 28; ++i)   // 5 seconds, read as the timer would
+                {
+                    playNoise (32);
+                    match.update (processor.getEqInputTap());
+                }
+            };
+            listen (eq::match::Session::Recording::track, false);
+            listen (eq::match::Session::Recording::reference, true);
+            match.setRecording (eq::match::Session::Recording::none);
+            referenceTone = false;
+            page->getMatchPanel().refresh();
+            if (auto* display = findType<EqDisplay> (*editor))
+                display->refresh();
+        }
+
     // PARAGON_SNAPSHOT_BLOCK=n opens block n's panel in the dock (0 = the EQ overview, 1 = the TUNER panel).
     if (const auto block = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_BLOCK", {}); block.isNotEmpty())
         if (auto* chain = findType<SignalChain> (*editor))

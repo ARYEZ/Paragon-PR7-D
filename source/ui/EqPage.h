@@ -1,10 +1,11 @@
 #pragma once
 
 #include "ui/EqDisplay.h"
+#include "ui/EqMatchPanel.h"
 
 // The EQ's own page (stomp 4), over the pedal and the dock: a top bar (ON,
 // OUTPUT, GAIN SCALE, AUTO GAIN, the analyser's IN and OUT, the display
-// range, and BACK TO PEDAL), the big display, and the selected band's
+// range, MATCH (EQ Match, see EqMatchPanel), and BACK TO PEDAL), the big display, and the selected band's
 // controls (ON, SHAPE, SLOPE, FREQ, GAIN, DYN RANGE, Q, STEREO placement,
 // SOLO while held, DELETE, and arrows to step through the bands). While the
 // band is dynamic, a second row: AUTO, THRESHOLD, ATTACK, RELEASE, and a
@@ -19,6 +20,9 @@ public:
     std::function<void()> onClose;
     EqDisplay& getDisplay() noexcept { return display; }
     bool isShowingDynamics() const noexcept { return dynamicRow; }
+    void showMatch (bool);   // EQ Match's panel in place of the band controls
+    bool isShowingMatch() const noexcept { return matching; }
+    EqMatchPanel& getMatchPanel() noexcept { return matchPanel; }
     void refreshControls() { timerCallback(); }   // what the timer does (30 times a second)
 
     void paint (juce::Graphics&) override;
@@ -39,7 +43,7 @@ private:
                  gainScale { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxRight };
     juce::AudioProcessorValueTreeState::SliderAttachment outputAttachment, gainScaleAttachment;
     juce::ComboBox range;
-    juce::TextButton back { "BACK TO PEDAL" };
+    juce::TextButton back { "BACK TO PEDAL" }, match { "MATCH" };
     juce::Label outputLabel { {}, "OUTPUT" }, gainScaleLabel { {}, "GAIN SCALE" }, analyserLabel { {}, "ANALYSER" }, rangeLabel { {}, "RANGE" };
 
     // The selected band
@@ -66,7 +70,8 @@ private:
                 releaseLabel { {}, "RELEASE" };
     std::unique_ptr<juce::SliderParameterAttachment> dynRangeAttachment, thresholdAttachment, attackAttachment, releaseAttachment;
     std::unique_ptr<juce::ButtonParameterAttachment> dynAutoAttachment;
-    bool dynamicRow = false;
+    bool dynamicRow = false, matching = false;
+    EqMatchPanel matchPanel { processor, display };
     std::vector<juce::Component*> dynamicRowComponents() noexcept;
     void paintDynamics (juce::Graphics&);
 

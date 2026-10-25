@@ -70,11 +70,20 @@ EqPage::EqPage (ParagonX1AudioProcessor& p)
     range.onChange = [this] { display.setRangeDb (std::array<double, 4> { 3.0, 6.0, 12.0, 30.0 }[(size_t) juce::jmax (0, range.getSelectedItemIndex())]); };
     styleButton (back);
     back.onClick = [this] { if (onClose) onClose(); };
+    styleButton (match);
+    match.setClickingTogglesState (false);
+    match.setColour (juce::TextButton::buttonOnColourId, ParagonColours::accentDim.withAlpha (0.8f));
+    match.setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
+    match.setTooltip ("EQ Match: listen to your track and a reference (another part of the song, a song file, or a saved one), "
+                      "then add bands that make your track's tone like the reference's");
+    match.onClick = [this] { showMatch (! matching); };
+    matchPanel.onClose = [this] { showMatch (false); };
+    addChildComponent (matchPanel);
     for (auto* label : { &outputLabel, &gainScaleLabel, &analyserLabel, &rangeLabel })
         styleLabel (*label);
 
     for (auto* component : std::initializer_list<juce::Component*> { &onButton, &autoGain, &showInput, &showOutput, &output, &gainScale, &range,
-                                                                      &back, &outputLabel, &gainScaleLabel, &analyserLabel, &rangeLabel })
+                                                                      &back, &match, &outputLabel, &gainScaleLabel, &analyserLabel, &rangeLabel })
         addAndMakeVisible (component);
 
     // The band controls.
@@ -131,6 +140,18 @@ EqPage::EqPage (ParagonX1AudioProcessor& p)
     startTimerHz (30);
 }
 
+void EqPage::showMatch (bool shouldShow)
+{
+    if (shouldShow == matching)
+        return;
+    matching = shouldShow;
+    match.setToggleState (matching, juce::dontSendNotification);
+    matchPanel.setVisible (matching);
+    showBand (band);   // the band controls hide while matching, and come back after
+    resized();
+    repaint();
+}
+
 std::vector<juce::Component*> EqPage::dynamicRowComponents() noexcept
 {
     return { &dynAuto, &threshold, &attack, &release, &thresholdLabel, &attackLabel, &releaseLabel };
@@ -158,7 +179,7 @@ void EqPage::showBand (int newBand)
     dynAutoAttachment.reset();
     processor.setEqSolo (-1);
 
-    const auto visible = band >= 0;
+    const auto visible = band >= 0 && ! matching;
     for (auto* component : std::initializer_list<juce::Component*> { &bandOn, &shape, &slope, &placement, &frequency, &gain, &q,
                                                                       &frequencyLabel, &gainLabel, &qLabel, &shapeLabel, &slopeLabel,
                                                                       &placementLabel, &previous, &next, &solo, &remove,
@@ -217,7 +238,7 @@ void EqPage::timerCallback()
         slope.setEnabled (eq::usesSlope (b.shape));
         q.setEnabled (eq::usesQ (b.shape, b.slope));
         threshold.setEnabled (! b.autoThreshold);
-        wantDynamics = b.used && eq::usesGain (b.shape) && std::abs (b.dynamicRangeDb) >= 0.01;
+        wantDynamics = ! matching && b.used && eq::usesGain (b.shape) && std::abs (b.dynamicRangeDb) >= 0.01;
     }
     if (wantDynamics != dynamicRow)
     {
@@ -238,7 +259,8 @@ void EqPage::resized()
     auto area = getLocalBounds().reduced (12);
     topBar = area.removeFromTop (46);
     area.removeFromTop (8);
-    controlsArea = area.removeFromBottom (dynamicRow ? 206 : 112);
+    controlsArea = area.removeFromBottom (matching ? 150 : dynamicRow ? 206 : 112);
+    matchPanel.setBounds (controlsArea);
     area.removeFromBottom (8);
     display.setBounds (area);
     auto rows = controlsArea;
@@ -257,6 +279,7 @@ void EqPage::resized()
     bar.removeFromLeft (12);
     autoGain.setBounds (bar.removeFromLeft (104));
     bar.removeFromLeft (70);   // AUTO GAIN's correction, drawn
+    match.setBounds (bar.removeFromLeft (86).reduced (0, 3));
     back.setBounds (bar.removeFromRight (140).reduced (0, 3));
     bar.removeFromRight (20);
     range.setBounds (bar.removeFromRight (92).reduced (0, 4));
@@ -328,6 +351,8 @@ void EqPage::paint (juce::Graphics& g)
                     autoGain.getBounds().translated (autoGain.getWidth(), 0).withWidth (68), juce::Justification::centredLeft, false);
     }
 
+    if (matching)
+        return;   // EQ Match's panel is there
     auto controls = controlsArea.reduced (14, 10);
     auto name = controls.removeFromLeft (118);
     if (band < 0)

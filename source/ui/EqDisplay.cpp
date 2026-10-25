@@ -1,6 +1,7 @@
 #include "EqDisplay.h"
 
 #include "Parameters.h"
+#include "dsp/eq/EqMatch.h"
 #include "ParagonLookAndFeel.h"
 
 namespace
@@ -210,6 +211,13 @@ void EqDisplay::select (int band)
     selected = band;
     if (onSelect)
         onSelect (band);
+    repaint();
+}
+
+void EqDisplay::setMatchPreview (std::vector<double> wantedDb, std::vector<double> proposedDb)
+{
+    matchWanted = std::move (wantedDb);
+    matchProposed = std::move (proposedDb);
     repaint();
 }
 
@@ -426,6 +434,35 @@ void EqDisplay::paint (juce::Graphics& g)
         g.strokePath (path, juce::PathStrokeType (placement == eq::Placement::stereo ? 2.4f : 1.8f));
     }
 
+    // EQ Match: the curve that would match, and the one the proposed bands give.
+    if (! matchWanted.empty())
+    {
+        const auto& grid = eq::match::grid();
+        const auto matchPath = [&] (const std::vector<double>& db)
+        {
+            juce::Path path;
+            for (size_t i = 0; i < grid.size() && i < db.size(); ++i)
+            {
+                const juce::Point<float> point { xForFrequency (grid[i]), yForDb (juce::jlimit (-rangeDb * 1.15, rangeDb * 1.15, db[i])) };
+                if (i == 0)
+                    path.startNewSubPath (point);
+                else
+                    path.lineTo (point);
+            }
+            return path;
+        };
+        g.setColour (juce::Colours::white.withAlpha (0.35f));
+        g.strokePath (matchPath (matchWanted), juce::PathStrokeType (7.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        if (! matchProposed.empty())
+        {
+            juce::Path dashed;
+            const float dashes[] = { 6.0f, 4.0f };
+            juce::PathStrokeType (2.2f).createDashedStroke (dashed, matchPath (matchProposed), dashes, 2);
+            g.setColour (ParagonColours::accent);
+            g.fillPath (dashed);
+        }
+    }
+
     // Dynamic bands: a line from the dot to the range handle, and a ring where the gain is now.
     for (int band = 0; band < (int) shown.bands.size(); ++band)
     {
@@ -519,7 +556,7 @@ void EqDisplay::paint (juce::Graphics& g)
         g.drawText (readout, box, juce::Justification::centred, false);
     }
 
-    if (std::none_of (shown.bands.begin(), shown.bands.end(), [] (const eq::Band& b) { return b.used; }))
+    if (matchWanted.empty() && std::none_of (shown.bands.begin(), shown.bands.end(), [] (const eq::Band& b) { return b.used; }))
     {
         g.setColour (ParagonColours::textDim);
         g.setFont (juce::FontOptions (13.0f));

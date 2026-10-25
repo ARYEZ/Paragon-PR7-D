@@ -25,7 +25,7 @@ stomps are still being planned, one at a time with the owner.
 | **1 Tuner** | Checks the pitch of recorded parts (a vocal, a bass line) | Works: note, 30-second trace, average |
 | **2 Open** | To plan: ideas so far are loudness/analysis, a channel utility, an A/B reference player | Placeholder |
 | **3 Inserts** | Host other plugins in slots inside PR7-E and open their editors (a mini rack) | Placeholder |
-| **4 EQ** | An EQ inspired by FabFilter Pro-Q 4 (our own design) | Works: 24 bands on its own page, any of them dynamic; EQ Match next |
+| **4 EQ** | An EQ inspired by FabFilter Pro-Q 4 (our own design) | Works: 24 bands on its own page, any of them dynamic, and EQ Match |
 | **5 Resonance** | Resonance suppression inspired by oeksound soothe (our own design) | Placeholder |
 | **6 Auto EQ** | Adaptive EQ inspired by Soundtheory Gullfoss (a "maybe"; our own design) | Placeholder |
 | **7 Limiter** | The output trim / limiter from PR7-C, ported | Placeholder |
@@ -47,6 +47,9 @@ none of those products' names or branding go on the plugin.
     makes one; drag its range handle, or Alt + mouse wheel. **AUTO** (on by default) sets the threshold from the band's
     usual level; switch it off to set **THRESHOLD** yourself. **ATTACK** and **RELEASE** at 50% are automatic (from the
     band's frequency); lower is faster, higher slower. The curve moves as the band does.
+  - **EQ Match** (MATCH, top of the page): listens to your track and a reference (another part of the song, a song
+    file, or a saved reference), then proposes bands that make your track's tone like the reference's. DETAIL (a few
+    broad bands or more, finer ones) and AMOUNT (how much of the difference), then ADD BANDS.
 - **Tuner (stomp 1):** for checking the pitch of a recorded part as it plays, one note at a time, up to 1,500 Hz. It
   hears both channels and never changes the sound. Its panel shows the current note and cents, the pitch over the last
   30 seconds against the notes (green within 5 cents, orange within 15, red beyond), and the **average**: how sharp or

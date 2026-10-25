@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.24)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "macOS architectures")
 
-project(ParagonX1 VERSION 0.6.0 LANGUAGES C CXX)
+project(ParagonX1 VERSION 0.7.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -52,6 +52,8 @@ target_sources(ParagonX1
         source/dsp/Tuner.cpp
         source/dsp/eq/EqDesign.cpp
         source/dsp/eq/ParametricEq.cpp
+        source/dsp/eq/EqMatch.cpp
+        source/dsp/eq/EqMatchSession.cpp
         source/rigs/Rig.cpp
         source/rigs/FactoryRigs.cpp
         source/rigs/RigLibrary.cpp
@@ -68,6 +70,7 @@ target_sources(ParagonX1
         source/ui/DockPanels.cpp
         source/ui/EqDisplay.cpp
         source/ui/EqPage.cpp
+        source/ui/EqMatchPanel.cpp
         source/ui/TunerPanel.cpp
         source/ui/PerformanceControls.cpp
         source/ui/MainView.cpp
@@ -80,7 +83,8 @@ target_compile_definitions(ParagonX1
     PUBLIC
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
-        JUCE_VST3_CAN_REPLACE_VST2=0)
+        JUCE_VST3_CAN_REPLACE_VST2=0
+        JUCE_USE_MP3AUDIOFORMAT=1)   # EQ Match can load MP3s as references
 
 target_link_libraries(ParagonX1
     PRIVATE

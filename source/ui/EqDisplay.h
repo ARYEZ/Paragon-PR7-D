@@ -82,6 +82,11 @@ public:
     void select (int band);
     std::function<void (int)> onSelect;
 
+    // EQ Match's preview, on eq::match::grid(): the curve that would match
+    // (a thick line) and the curve with the proposed bands (dashed). Empty: none.
+    void setMatchPreview (std::vector<double> wantedDb, std::vector<double> proposedDb);
+    bool hasMatchPreview() const noexcept { return ! matchWanted.empty(); }
+
     // Display range: +-3, 6, 12 or 30 dB. And which spectrums show.
     void setRangeDb (double);
     double getRangeDb() const noexcept { return rangeDb; }
@@ -117,6 +122,7 @@ private:
     SpectrumAnalyser input, output;
     eq::ParametricEq::Settings shown;   // the settings drawn last
     std::array<eq::ParametricEq::DynamicReading, eq::ParametricEq::numBands> dynamics {};
+    std::vector<double> matchWanted, matchProposed;
     juce::Rectangle<float> plot;
     double rangeDb = 12.0;
     int selected = -1, hovered = -1, dragging = -1;

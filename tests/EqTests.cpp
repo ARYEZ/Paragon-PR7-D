@@ -1008,3 +1008,296 @@ TEST_CASE ("Factory rigs: Vocal De-Esser acts only on loud sibilance; Mix Wider 
         CHECK_THAT (levelDb (out[0], 10000.0), WithinAbs (-20.0 + lift, 0.05));
     }
 }
+
+//==============================================================================
+// EQ Match (0.7.0)
+namespace
+{
+    // Paul Kellet's economy pink filter: falls 3 dB an octave.
+    struct Pink
+    {
+        juce::Random random { 11 };
+        double b0 = 0.0, b1 = 0.0, b2 = 0.0;
+        float operator()()
+        {
+            const auto white = random.nextFloat() * 2.0 - 1.0;
+            b0 = 0.99765 * b0 + white * 0.0990460;
+            b1 = 0.96300 * b1 + white * 0.2965164;
+            b2 = 0.57000 * b2 + white * 1.0526913;
+            return (float) (0.05 * (b0 + b1 + b2 + white * 0.1848));
+        }
+    };
+
+    eq::match::Spectrum analyse (const std::function<float()>& source, double seconds, double sampleRate = 48000.0)
+    {
+        eq::match::Analyser analyser;
+        std::vector<float> samples ((size_t) (seconds * sampleRate));
+        for (auto& s : samples)
+            s = source();
+        analyser.add (samples.data(), (int) samples.size(), sampleRate);
+        return analyser.spectrum();
+    }
+
+    double atHz (const std::vector<double>& onGrid, double hz)
+    {
+        const auto& g = eq::match::grid();
+        const auto i = (size_t) std::distance (g.begin(), std::min_element (g.begin(), g.end(), [hz] (double a, double b) { return std::abs (std::log (a / hz)) < std::abs (std::log (b / hz)); }));
+        return onGrid[i];
+    }
+
+    const std::vector<eq::Band> knownCurve { band (eq::Shape::lowShelf, 120.0, -3.0, 0.7), band (eq::Shape::bell, 1000.0, 4.0, 1.0),
+                                             band (eq::Shape::bell, 3000.0, -2.5, 2.0), band (eq::Shape::highShelf, 8000.0, 3.0, 0.7) };
+}
+
+TEST_CASE ("EQ Match: the analyser hears a spectrum's shape and ignores silence", "[eq][match]")
+{
+    juce::Random random (5);
+    const auto white = analyse ([&random] { return random.nextFloat() * 0.5f - 0.25f; }, 8.0);
+    Pink pink;
+    const auto pinkSpectrum = analyse ([&pink] { return pink(); }, 8.0);
+    REQUIRE (white.isValid());
+    REQUIRE (pinkSpectrum.isValid());
+
+    // Pink falls 3 dB an octave against white: 6 octaves, 100 Hz to 6.4 kHz, 18 dB.
+    const auto tilt = (atHz (pinkSpectrum.db, 6400.0) - atHz (white.db, 6400.0)) - (atHz (pinkSpectrum.db, 100.0) - atHz (white.db, 100.0));
+    CHECK_THAT (tilt, WithinAbs (-18.0, 1.5));
+
+    // 2 seconds of silence, then 4 of noise: 4 seconds heard.
+    int n = 0;
+    const auto withPause = analyse ([&] { return n++ < 96000 ? 0.0f : random.nextFloat() * 0.5f - 0.25f; }, 6.0);
+    CHECK_THAT (withPause.seconds, WithinAbs (4.0, 0.3));
+
+    // Saved and loaded again, it's the same.
+    const auto loaded = eq::match::Spectrum::fromXml (*pinkSpectrum.toXml ("Pink"));
+    REQUIRE (loaded.has_value());
+    for (size_t i = 0; i < loaded->db.size(); ++i)
+        REQUIRE_THAT (loaded->db[i], WithinAbs (pinkSpectrum.db[i], 1.0e-6));
+}
+
+TEST_CASE ("EQ Match: the target is the tone difference, not the level, minus what the EQ already does", "[eq][match]")
+{
+    juce::Random random (6);
+    auto track = analyse ([&random] { return random.nextFloat() * 0.5f - 0.25f; }, 5.0);
+    const auto bell = eq::match::curveOnGrid ({ band (eq::Shape::bell, 1000.0, 4.0, 1.0) }, 48000.0);
+
+    // The same sound, 6 dB louder: nothing to match.
+    auto louder = track;
+    for (auto& db : louder.db)
+        db += 6.0;
+    for (const auto value : eq::match::target (track, louder, {}, 0.5))
+        REQUIRE (std::abs (value) < 0.01);
+    CHECK (eq::match::fit (eq::match::target (track, louder, {}, 0.5), {}).empty());
+
+    // A reference with a 1 kHz lift, when the EQ already has that lift: nothing left to do.
+    auto lifted = track;
+    for (size_t i = 0; i < lifted.db.size(); ++i)
+        lifted.db[i] += bell[i];
+    CHECK (atHz (eq::match::target (track, lifted, {}, 0.5), 1000.0) > 2.0);
+    for (const auto value : eq::match::target (track, lifted, bell, 0.5))
+        REQUIRE (std::abs (value) < 0.3);
+
+    // Where the reference has nothing (below 60 Hz, 80 dB down), it isn't followed.
+    auto noLows = track;
+    for (size_t i = 0; i < noLows.db.size(); ++i)
+        if (eq::match::grid()[i] < 60.0)
+            noLows.db[i] -= 80.0;
+    CHECK (std::abs (atHz (eq::match::target (track, noLows, {}, 0.5), 25.0)) < 1.0);
+}
+
+TEST_CASE ("EQ Match: the bands it adds follow the difference; DETAIL and AMOUNT", "[eq][match]")
+{
+    const auto target = eq::match::curveOnGrid (knownCurve, 48000.0);
+    const auto worstMiss = [&] (const std::vector<eq::Band>& bands, double scale)
+    {
+        const auto curve = eq::match::curveOnGrid (bands, 48000.0);
+        double worst = 0.0;
+        for (size_t i = 0; i < curve.size(); ++i)
+            if (eq::match::grid()[i] <= 16000.0)
+                worst = std::max (worst, std::abs (curve[i] - target[i] * scale));
+        return worst;
+    };
+
+    eq::match::Options options;
+    const auto bands = eq::match::fit (target, options);
+    WARN ("Matched with " << bands.size() << " bands, within " << worstMiss (bands, 1.0) << " dB");
+    CHECK (bands.size() <= 8);
+    CHECK (worstMiss (bands, 1.0) < 1.0);
+
+    // Less detail: fewer, broader bands, still the overall shape.
+    options.detail = 0.0;
+    const auto broad = eq::match::fit (target, options);
+    CHECK (broad.size() <= 4);
+    CHECK (worstMiss (broad, 1.0) < 2.5);
+
+    // Half the amount: half the curve.
+    options.detail = 0.5;
+    options.amount = 0.5;
+    CHECK (worstMiss (eq::match::fit (target, options), 0.5) < 0.75);
+
+    // No more bands than there are free slots.
+    options.amount = 1.0;
+    options.maxBands = 2;
+    CHECK (eq::match::fit (target, options).size() <= 2);
+}
+
+TEST_CASE ("EQ Match: your track, matched to a reference file, comes out with the reference's tone", "[eq][match]")
+{
+    // The reference: the same kind of noise through a known EQ, as a WAV file.
+    juce::TemporaryFile wav (".wav");
+    {
+        EqRig shaper;
+        for (size_t i = 0; i < knownCurve.size(); ++i)
+            shaper.setBand ((int) i, knownCurve[i]);
+        shaper.play (0.3, silence(), silence());
+        juce::Random random (8);
+        const auto noise = [&random] (int) { return random.nextFloat() * 0.4f - 0.2f; };
+        const auto out = shaper.play (8.0, noise, noise);
+        juce::WavAudioFormat format;
+        std::unique_ptr<juce::AudioFormatWriter> writer (format.createWriterFor (new juce::FileOutputStream (wav.getFile()), 48000.0, 2, 24, {}, 0));
+        REQUIRE (writer != nullptr);
+        const float* channels[] = { out[0].data(), out[1].data() };
+        writer->writeFromFloatArrays (channels, 2, (int) out[0].size());
+    }
+
+    EqRig rig;
+    auto& match = rig.processor.getEqMatch();
+    juce::Random random (9);
+    const auto noise = [&random] (int) { return random.nextFloat() * 0.4f - 0.2f; };
+
+    // Your track: plain noise, recorded from the EQ's input as it plays.
+    match.setRecording (eq::match::Session::Recording::track);
+    for (int i = 0; i < 60; ++i)
+    {
+        rig.play (0.1, noise, noise);
+        match.update (rig.processor.getEqInputTap());
+    }
+    match.setRecording (eq::match::Session::Recording::none);
+    CHECK (match.getTrack().seconds > 5.0);
+
+    match.loadFile (wav.getFile());
+    for (int i = 0; i < 500 && match.isLoading(); ++i)
+    {
+        juce::Thread::sleep (10);
+        match.update (rig.processor.getEqInputTap());
+    }
+    REQUIRE (match.getReference().isValid());
+    CHECK (match.getReferenceName() == wav.getFile().getFileNameWithoutExtension());
+
+    const auto bands = eq::match::fit (eq::match::target (match.getTrack(), match.getReference(), {}, 0.5), {});
+    REQUIRE (! bands.empty());
+    for (size_t i = 0; i < bands.size(); ++i)
+        rig.setBand ((int) i, bands[i]);
+    rig.play (0.3, noise, noise);
+
+    // What comes out now, against the reference: the same tone within a dB or so (smoothed to a third of an octave).
+    eq::match::Analyser out;
+    const auto played = rig.play (8.0, noise, noise);
+    out.add (played[0].data(), (int) played[0].size(), 48000.0);
+    const auto difference = eq::match::target (out.spectrum(), match.getReference(), {}, 0.75);
+    double worst = 0.0;
+    for (size_t i = 0; i < difference.size(); ++i)
+        if (eq::match::grid()[i] >= 50.0 && eq::match::grid()[i] <= 15000.0)
+            worst = std::max (worst, std::abs (difference[i]));
+    WARN ("After matching, the output is within " << worst << " dB of the reference's tone");
+    CHECK (worst < 1.5);
+}
+
+TEST_CASE ("EQ Match: references save and load, and a file that isn't audio is refused", "[eq][match]")
+{
+    const auto folder = juce::File::createTempFile ("refs");
+    eq::match::Session session (folder);
+    Pink pink;
+    const auto spectrum = analyse ([&pink] { return pink(); }, 5.0);
+    REQUIRE (session.save (spectrum, "Album Master"));
+    REQUIRE (session.getSavedReferences().size() == 1);
+    CHECK (session.useSaved (session.getSavedReferences()[0]));
+    CHECK (session.getReferenceName() == "Album Master");
+    CHECK_THAT (session.getReference().db[50], WithinAbs (spectrum.db[50], 1.0e-6));
+
+    juce::TemporaryFile notAudio (".wav");
+    notAudio.getFile().replaceWithText ("not audio");
+    session.loadFile (notAudio.getFile());
+    InputTap tap;
+    for (int i = 0; i < 300 && session.isLoading(); ++i)
+    {
+        juce::Thread::sleep (10);
+        session.update (tap);
+    }
+    CHECK (session.getProblem().isNotEmpty());
+    CHECK (session.getReferenceName() == "Album Master");   // the reference it had is kept
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("EQ Match on the page: MATCH opens it in place of the band controls; ADD BANDS adds them, switches the EQ on, and one undo takes them back", "[eq][match][ui]")
+{
+    EqRig rig;
+    rig.set (ParamIDs::eqOn, 0.0f);
+    EqPage page (rig.processor);
+    page.setBounds (0, 0, 1422, 750);
+    page.getDisplay().select (-1);
+
+    page.showMatch (true);
+    CHECK (page.isShowingMatch());
+    CHECK (page.getMatchPanel().isVisible());
+    auto& match = rig.processor.getEqMatch();
+    CHECK (match.getRecording() == eq::match::Session::Recording::track);   // opening it starts listening
+
+    // Your track: pink noise. The reference: white noise (much brighter).
+    Pink pink;
+    juce::Random random (4);
+    for (int i = 0; i < 50; ++i)
+    {
+        rig.play (0.1, [&pink] (int) { return pink(); }, silence());
+        match.update (rig.processor.getEqInputTap());
+    }
+    match.setRecording (eq::match::Session::Recording::reference);
+    for (int i = 0; i < 50; ++i)
+    {
+        rig.play (0.1, [&random] (int) { return random.nextFloat() * 0.2f - 0.1f; }, silence());
+        match.update (rig.processor.getEqInputTap());
+    }
+    match.setRecording (eq::match::Session::Recording::none);
+    auto& panel = page.getMatchPanel();
+    panel.refresh();
+    REQUIRE_FALSE (panel.getProposal().empty());
+    CHECK (page.getDisplay().hasMatchPreview());
+
+    // White is brighter than pink: the bands lift the top against the bottom.
+    const auto proposal = panel.getProposal();
+    const auto curve = eq::match::curveOnGrid (proposal, 48000.0);
+    CHECK (atHz (curve, 8000.0) - atHz (curve, 100.0) > 9.0);
+
+    rig.processor.flushUndoStep();
+    panel.addBands();
+    CHECK_FALSE (page.isShowingMatch());
+    CHECK_FALSE (page.getDisplay().hasMatchPreview());
+    const auto settings = rig.processor.getEqSettings();
+    CHECK (settings.on);
+    CHECK ((size_t) std::count_if (settings.bands.begin(), settings.bands.end(), [] (const eq::Band& b) { return b.used; }) == proposal.size());
+
+    rig.processor.flushUndoStep();
+    rig.processor.undo();
+    const auto undone = rig.processor.getEqSettings();
+    CHECK (std::none_of (undone.bands.begin(), undone.bands.end(), [] (const eq::Band& b) { return b.used; }));
+    CHECK_FALSE (undone.on);
+}
+
+TEST_CASE ("EQ Match: fitting is quick enough to follow DETAIL and AMOUNT as they turn", "[eq][match][performance]")
+{
+    Pink pink;
+    juce::Random random (12);
+    const auto track = analyse ([&pink] { return pink(); }, 5.0);
+    const auto reference = analyse ([&random] { return random.nextFloat() * 0.2f - 0.1f; }, 5.0);
+    // The worst case: a jagged difference (a random walk, +-8 dB) that needs many bands.
+    auto jagged = eq::match::target (track, reference, {}, 1.0);
+    double walk = 0.0;
+    for (auto& value : jagged)
+        value = (walk = juce::jlimit (-8.0, 8.0, walk + (random.nextFloat() - 0.5f) * 3.0));
+    eq::match::Options options;
+    options.detail = 1.0;
+    const auto start = juce::Time::getMillisecondCounterHiRes();
+    const auto bands = eq::match::fit (jagged, options);
+    const auto ms = juce::Time::getMillisecondCounterHiRes() - start;
+    WARN ("At full detail: " << bands.size() << " bands in " << juce::String (ms, 1) << " ms");
+    CHECK (ms < 150.0);
+}

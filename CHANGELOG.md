@@ -2,6 +2,17 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.7.0
+
+- **EQ Match: make your track's tone like a reference's.** Click **MATCH** at the top of the EQ page. It listens to your track and to a reference, compares their overall tone (how much low end, middle and top each has, averaged over time), and proposes EQ bands that make your track sound like the reference. Inspired by Pro-Q 4's EQ Match, as its manual describes it; how ours analyses and picks bands is our own design.
+  - **YOUR TRACK:** opening MATCH starts listening (RECORDING). Play the part you want to match for a few seconds or more (longer is steadier). CLEAR starts again. Pauses and silence don't count.
+  - **REFERENCE**, three ways: **RECORD INPUT** (move to another part of your song and play it, e.g. last week's vocal take to match today's punch-ins), **LOAD FILE...** (a song: WAV, AIFF, FLAC, Ogg or MP3), or **SAVED...** (a reference saved before). SAVED also saves your track or the reference for another time; they're kept beside your rigs, in "Match References".
+  - **On the display:** a thick line where the EQ would need to be to match, and a dashed line for the bands it proposes. **DETAIL** chooses a few broad bands (the overall tone) or more, finer ones. **AMOUNT** chooses how much of the difference to make up: 100% all of it, 50% halfway.
+  - **ADD BANDS** adds them as ordinary bands, to change or delete like any others (and switches the EQ on if it was off). One undo takes them all back.
+  - It matches tone, not loudness, and it allows for the bands you already have. It doesn't follow the reference where either one has next to nothing (a reference with no deep bass doesn't cut yours away), and no band it proposes goes past 12 dB.
+- **In the tests:** noise matched to a file of the same noise through a known EQ comes out within 0.7 dB of the reference's tone, from 50 Hz to 15 kHz.
+- **Not included:** listening to another track live (that would need a sidechain, left out for now) and dragging a file onto the plugin.
+
 ## 0.6.0
 
 - **Factory rigs: 30 starting points for the EQ**, in the PRESETS tab, filed by what they're for (search their tags, e.g. "vocal" or "dynamic"). Each says what it does in its notes.

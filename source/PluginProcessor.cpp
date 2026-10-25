@@ -35,6 +35,7 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
             eqBandParameters[(size_t) band].values[i] = parameters.getRawParameterValue (ParamIDs::eqBand (band, ParamIDs::eqBandSettings[i]));
 
     rigLibrary = std::make_unique<RigLibrary>();
+    eqMatch.setReferencesFolder (rigLibrary->getFolder().getChildFile ("Match References"));
 
     // Any change to a parameter that rigs store marks the rig as modified,
     // and finishing an edit to one records an undo step.
@@ -321,6 +322,7 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, in
 void ParagonX1AudioProcessor::timerCallback()
 {
     updateTuner();
+    eqMatch.update (eqInputTap);   // EQ Match listens with the window closed too
     syncMidiExpressionToParameter();
     recordCheckpointIfReady();
 }
@@ -417,6 +419,7 @@ void ParagonX1AudioProcessor::parameterChanged (const juce::String&, float)
 void ParagonX1AudioProcessor::useRigFolder (const juce::File& folder)
 {
     rigLibrary = std::make_unique<RigLibrary> (folder);
+    eqMatch.setReferencesFolder (folder.getChildFile ("Match References"));
     rigBroadcaster.sendChangeMessage();
 }
 
