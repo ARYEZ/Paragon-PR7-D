@@ -188,6 +188,11 @@ namespace eq
             || shape == Shape::tiltShelf || shape == Shape::flatTilt;
     }
 
+    bool Band::isDynamic() const noexcept
+    {
+        return isActive() && usesGain (shape) && std::abs (dynamicRangeDb) >= 0.01;
+    }
+
     bool usesSlope (Shape shape) noexcept
     {
         return shape == Shape::lowCut || shape == Shape::highCut || shape == Shape::lowShelf || shape == Shape::highShelf

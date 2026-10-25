@@ -18,7 +18,7 @@ namespace
     // Which version's parameters a project was saved with, as for rigs (see
     // Rig.cpp). Projects from before 0.3.0 don't say: 0.
     const juce::Identifier parameterVersionKey { "parameterVersion" };
-    constexpr int parameterVersion = 30;
+    constexpr int parameterVersion = 31;
 
 }
 
@@ -123,6 +123,11 @@ eq::ParametricEq::Settings ParagonX1AudioProcessor::getEqSettings() const noexce
         band.q = values[5]->load();
         band.slope = juce::roundToInt (values[6]->load());
         band.placement = (eq::Placement) juce::roundToInt (values[7]->load());
+        band.dynamicRangeDb = values[8]->load();
+        band.autoThreshold = values[9]->load() > 0.5f;
+        band.thresholdDb = values[10]->load();
+        band.attack = values[11]->load();
+        band.release = values[12]->load();
     }
     return settings;
 }

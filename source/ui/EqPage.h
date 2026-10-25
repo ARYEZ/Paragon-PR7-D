@@ -5,8 +5,10 @@
 // The EQ's own page (stomp 4), over the pedal and the dock: a top bar (ON,
 // OUTPUT, GAIN SCALE, AUTO GAIN, the analyser's IN and OUT, the display
 // range, and BACK TO PEDAL), the big display, and the selected band's
-// controls (ON, SHAPE, SLOPE, FREQ, GAIN, Q, STEREO placement, SOLO while
-// held, DELETE, and arrows to step through the bands).
+// controls (ON, SHAPE, SLOPE, FREQ, GAIN, DYN RANGE, Q, STEREO placement,
+// SOLO while held, DELETE, and arrows to step through the bands). While the
+// band is dynamic, a second row: AUTO, THRESHOLD, ATTACK, RELEASE, and a
+// meter of what it hears and how far it's moving.
 class EqPage final : public juce::Component,
                      private juce::Timer
 {
@@ -16,6 +18,8 @@ public:
 
     std::function<void()> onClose;
     EqDisplay& getDisplay() noexcept { return display; }
+    bool isShowingDynamics() const noexcept { return dynamicRow; }
+    void refreshControls() { timerCallback(); }   // what the timer does (30 times a second)
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -51,7 +55,22 @@ private:
     std::unique_ptr<juce::ButtonParameterAttachment> bandOnAttachment;
     std::unique_ptr<juce::ComboBoxParameterAttachment> shapeAttachment, slopeAttachment, placementAttachment;
     std::unique_ptr<juce::SliderParameterAttachment> frequencyAttachment, gainAttachment, qAttachment;
-    juce::Rectangle<int> topBar, controlsArea;
+
+    // Its dynamics
+    juce::Slider dynRange { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow },
+                 threshold { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow },
+                 attack { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow },
+                 release { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow };
+    juce::ToggleButton dynAuto { "AUTO" };
+    juce::Label dynRangeLabel { {}, "DYN RANGE" }, thresholdLabel { {}, "THRESHOLD" }, attackLabel { {}, "ATTACK" },
+                releaseLabel { {}, "RELEASE" };
+    std::unique_ptr<juce::SliderParameterAttachment> dynRangeAttachment, thresholdAttachment, attackAttachment, releaseAttachment;
+    std::unique_ptr<juce::ButtonParameterAttachment> dynAutoAttachment;
+    bool dynamicRow = false;
+    std::vector<juce::Component*> dynamicRowComponents() noexcept;
+    void paintDynamics (juce::Graphics&);
+
+    juce::Rectangle<int> topBar, controlsArea, dynamicArea, meterArea;
 };
 
 // The dock's EQ panel (where the graphic EQ was): the EQ's curve, how many

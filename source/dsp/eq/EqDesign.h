@@ -59,10 +59,18 @@ namespace eq
         int slope = defaultSlope;   // index into slopes
         Placement placement = Placement::stereo;
 
+        // Dynamic EQ (see Dynamics.h), for the shapes with a gain. A range
+        // of 0 is an ordinary, static band.
+        double dynamicRangeDb = 0.0;   // how far the gain moves when the band's part of the sound gets loud (- cuts, + boosts)
+        bool autoThreshold = true;     // the threshold follows the band's own level
+        double thresholdDb = -24.0;    // when it doesn't
+        double attack = 0.5, release = 0.5;   // 0 to 1: 0.5 automatic, lower faster, higher slower
+
         bool isActive() const noexcept { return used && on; }
+        bool isDynamic() const noexcept;
     };
 
-    bool usesGain (Shape) noexcept;     // bell, shelves, tilts
+    bool usesGain (Shape) noexcept;     // bell, shelves, tilts (and so can be dynamic)
     bool usesSlope (Shape) noexcept;    // cuts, shelves, tilt shelf, band pass, all pass
     bool usesQ (Shape, int slope) noexcept;
     int minSlope (Shape) noexcept;      // index: shelves and cuts go down to 6 dB/oct, the rest 12

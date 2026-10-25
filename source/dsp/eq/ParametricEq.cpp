@@ -16,6 +16,8 @@ namespace eq
             slot.frequency.reset (sampleRate, glideSeconds);
             slot.q.reset (sampleRate, glideSeconds);
             slot.gain.reset (sampleRate, glideSeconds);
+            slot.range.reset (sampleRate, glideSeconds);
+            slot.threshold.reset (sampleRate, glideSeconds);
         }
         gainScale.reset (sampleRate, glideSeconds);
         soloAmount.reset (sampleRate, 0.02);
@@ -37,6 +39,15 @@ namespace eq
             slot.current = {};
             slot.previous = {};
             slot.fade = 1.0;
+            slot.detector = {};
+            slot.range.setCurrentAndTargetValue (0.0);
+            slot.threshold.setCurrentAndTargetValue (0.0);
+            slot.changeDb = 0.0;
+        }
+        for (auto& reading : readings)
+        {
+            reading.active = false;
+            reading.changeDb = 0.0f;
         }
         gainScale.setCurrentAndTargetValue (1.0);
         solo = {};
@@ -126,7 +137,105 @@ namespace eq
         }
     }
 
-    void ParametricEq::updateBand (int index, const Band& target, double scale, bool scaleMoved, int numSamples) noexcept
+    ParametricEq::DynamicReading ParametricEq::getDynamics (int band) const noexcept
+    {
+        if (band < 0 || band >= numBands)
+            return {};
+        const auto& reading = readings[(size_t) band];
+        return { reading.active.load(), reading.changeDb.load(), reading.levelDb.load(), reading.thresholdDb.load() };
+    }
+
+    void ParametricEq::detect (BandSlot& slot, const Band& target, const float* left, const float* right, int numSamples, int numChannels) noexcept
+    {
+        auto& d = slot.detector;
+        const auto hz = slot.applied.frequency;
+        const auto measure = 1.0 - std::exp (-1.0 / (dynamics::measureSeconds (hz) * sampleRate));
+        const auto stereo = numChannels > 1 && right != nullptr;
+
+        for (int i = 0; i < numSamples; ++i)
+        {
+            // The power of the band's part of what it works on.
+            double power = 0.0;
+            switch (target.placement)
+            {
+                case Placement::stereo:
+                {
+                    const auto l = tick (d.filter, d.states[0], left[i]);
+                    if (! stereo)
+                    {
+                        power = l * l;
+                        break;
+                    }
+                    const auto r = tick (d.filter, d.states[1], right[i]);
+                    power = 0.5 * (l * l + r * r);
+                    break;
+                }
+                case Placement::left:
+                case Placement::right:
+                case Placement::side:
+                {
+                    if (! stereo)
+                        break;   // the band does nothing on a mono track
+                    const auto x = target.placement == Placement::left    ? (double) left[i]
+                                 : target.placement == Placement::right   ? (double) right[i]
+                                                                          : 0.5 * ((double) left[i] - right[i]);
+                    const auto y = tick (d.filter, d.states[0], x);
+                    power = y * y;
+                    break;
+                }
+                case Placement::mid:
+                {
+                    const auto y = tick (d.filter, d.states[0], stereo ? 0.5 * ((double) left[i] + right[i]) : (double) left[i]);
+                    power = y * y;
+                    break;
+                }
+            }
+            d.power += measure * (power - d.power);
+        }
+
+        // A sine's power is half its peak squared: doubled, a full-scale sine reads 0 dB.
+        d.levelDb = std::max (dynamics::floorDb, 10.0 * std::log10 (2.0 * d.power + 1.0e-30));
+
+        // AUTO's sense of the band's typical level: the average of what it's
+        // heard so far for its first few seconds (so it's right from the
+        // start, not dragged down by the first note's onset), then following
+        // over a few seconds; barely following pauses and silence.
+        const auto seconds = numSamples / sampleRate;
+        if (! d.heard)
+        {
+            if (d.levelDb > dynamics::floorDb + 30.0)
+            {
+                d.typicalDb = d.levelDb;
+                d.heard = true;
+                d.heardSeconds = seconds;
+            }
+        }
+        else
+        {
+            const auto quiet = d.levelDb < d.typicalDb - dynamics::autoIgnoreBelowDb;
+            d.heardSeconds += seconds;
+            const auto follow = d.heardSeconds < dynamics::autoSeconds ? seconds / d.heardSeconds
+                                                                      : 1.0 - std::exp (-seconds / dynamics::autoSeconds);
+            d.typicalDb += (d.levelDb - d.typicalDb) * follow * (quiet ? 0.1 : 1.0);
+        }
+
+        const auto threshold = target.autoThreshold ? (d.heard ? d.typicalDb + dynamics::autoAboveDb : dynamics::maxThresholdDb)
+                                                    : juce::jlimit (dynamics::minThresholdDb, dynamics::maxThresholdDb, target.thresholdDb);
+        slot.threshold.setTargetValue (threshold);
+        slot.range.setTargetValue (target.isDynamic() ? juce::jlimit (-dynamics::maxRangeDb, dynamics::maxRangeDb, target.dynamicRangeDb) : 0.0);
+        const auto thresholdNow = slot.threshold.skip (numSamples);
+        const auto rangeNow = slot.range.skip (numSamples);
+
+        // The gain moves towards where the level says over the attack time
+        // when it's doing more, over the release time when it's letting go.
+        const auto wanted = dynamics::gainChangeDb (d.levelDb, thresholdNow, rangeNow);
+        const auto more = std::abs (wanted) > std::abs (slot.changeDb);
+        const auto tau = more ? dynamics::attackSeconds (hz, target.attack) : dynamics::releaseSeconds (hz, target.release);
+        slot.changeDb += (wanted - slot.changeDb) * (1.0 - std::exp (-seconds / tau));
+    }
+
+    void ParametricEq::updateBand (int index, const Band& target, double scale, bool scaleMoved,
+                                   const float* dryLeft, const float* dryRight, int numSamples, int numChannels) noexcept
     {
         auto& slot = slots[(size_t) index];
         auto redesign = scaleMoved;
@@ -170,13 +279,36 @@ namespace eq
         // where it's set, for a band just switched on).
         slot.applied.frequency = slot.frequency.getCurrentValue();
         slot.applied.q = slot.q.getCurrentValue();
-        slot.applied.gainDb = slot.gain.getCurrentValue();
+
+        // Dynamics: listening from when the band becomes dynamic until its
+        // range has glided back to 0 after it stops being.
+        const auto changeWas = slot.changeDb;
+        auto& detector = slot.detector;
+        if (target.isDynamic() && ! detector.running)
+        {
+            detector = {};
+            detector.running = true;
+            detector.filter = soloDesign (slot.applied, sampleRate);
+            slot.range.setCurrentAndTargetValue (0.0);
+            slot.threshold.setCurrentAndTargetValue (target.autoThreshold ? dynamics::maxThresholdDb : target.thresholdDb);
+        }
+        if (detector.running)
+        {
+            if (redesign)
+                detector.filter = soloDesign (slot.applied, sampleRate);
+            detect (slot, target, dryLeft, dryRight, numSamples, numChannels);
+            if (! target.isDynamic() && ! slot.range.isSmoothing() && std::abs (slot.changeDb) < 0.001)
+            {
+                detector.running = false;
+                slot.changeDb = 0.0;
+            }
+        }
+        slot.applied.gainDb = juce::jlimit (-maxGainDb, maxGainDb, slot.gain.getCurrentValue() + slot.changeDb);
 
         if (redesign)
-        {
+            autoGainStale = true;   // the set curve moved (AUTO GAIN ignores the dynamics)
+        if (redesign || ! juce::exactlyEqual (slot.changeDb, changeWas))
             slot.current.design = design (slot.applied, sampleRate, scale);
-            autoGainStale = true;
-        }
     }
 
     void ParametricEq::process (juce::dsp::AudioBlock<float> block, const Settings& settings) noexcept
@@ -208,7 +340,9 @@ namespace eq
             }
             soloAmount.setTargetValue (soloTarget ? 1.0f : 0.0f);
             const auto soloing = soloAmount.isSmoothing() || soloTarget;
-            if (soloing)
+            const auto anyDynamic = std::any_of (settings.bands.begin(), settings.bands.end(), [] (const Band& b) { return b.isDynamic(); })
+                                 || std::any_of (slots.begin(), slots.end(), [] (const BandSlot& slot) { return slot.detector.running; });
+            if (soloing || anyDynamic)   // the EQ's input, for SOLO and for the dynamic bands to listen to
                 for (int ch = 0; ch < numChannels; ++ch)
                     dry.copyFrom (ch, 0, wet.getChannelPointer ((size_t) ch), numSamples);
 
@@ -221,7 +355,8 @@ namespace eq
 
                 for (int band = 0; band < numBands; ++band)
                 {
-                    updateBand (band, settings.bands[(size_t) band], scale, scaleMoved, count);
+                    updateBand (band, settings.bands[(size_t) band], scale, scaleMoved, dry.getReadPointer (0, start),
+                                numChannels > 1 ? dry.getReadPointer (1, start) : nullptr, count, numChannels);
                     auto& slot = slots[(size_t) band];
                     float* l = left + start;
                     float* r = right != nullptr ? right + start : nullptr;
@@ -251,6 +386,16 @@ namespace eq
                             r[i] = oldRight[i] + (r[i] - oldRight[i]) * f;
                     }
                 }
+            }
+
+            for (size_t band = 0; band < slots.size(); ++band)
+            {
+                const auto& slot = slots[band];
+                auto& reading = readings[band];
+                reading.active = slot.detector.running;
+                reading.changeDb = (float) slot.changeDb;
+                reading.levelDb = (float) slot.detector.levelDb;
+                reading.thresholdDb = (float) slot.threshold.getCurrentValue();
             }
 
             if (soloing)

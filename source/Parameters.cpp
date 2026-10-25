@@ -1,5 +1,6 @@
 #include "Parameters.h"
 
+#include "dsp/eq/Dynamics.h"
 #include "dsp/eq/EqDesign.h"
 
 namespace
@@ -99,6 +100,23 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         layout.add (makeFloat (id ("Q").toRawUTF8(), name ("Q"), logRange (eq::minQ, eq::maxQ), (float) defaults.q, v30, asQ));
         layout.add (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { id ("Slope"), v30 }, name ("Slope"), eq::slopeNames, eq::defaultSlope));
         layout.add (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { id ("Place"), v30 }, name ("Placement"), eq::placementNames, 0));
+    }
+    // Dynamic EQ (0.5.0), each band's, after all the bands' settings above
+    // so those keep their places in the host's list.
+    constexpr int v31 = 31;
+    for (int band = 0; band < ParamIDs::eqNumBands; ++band)
+    {
+        const auto id = [band] (const char* what) { return ParamIDs::eqBand (band, what); };
+        const auto name = [band] (const juce::String& what) { return "EQ Band " + juce::String (band + 1) + " " + what; };
+        const eq::Band defaults;
+        layout.add (makeFloat (id ("Dyn").toRawUTF8(), name ("Dynamic Range"),
+                               { (float) -eq::dynamics::maxRangeDb, (float) eq::dynamics::maxRangeDb, 0.01f }, 0.0f, v31, asDb));
+        layout.add (makeSwitch (id ("DynAuto").toRawUTF8(), name ("Auto Threshold"), v31, defaults.autoThreshold));
+        layout.add (makeFloat (id ("Thresh").toRawUTF8(), name ("Threshold"),
+                               { (float) eq::dynamics::minThresholdDb, (float) eq::dynamics::maxThresholdDb, 0.1f },
+                               (float) defaults.thresholdDb, v31, asDb));
+        layout.add (makeFloat (id ("Attack").toRawUTF8(), name ("Attack"), { 0.0f, 1.0f, 0.01f }, (float) defaults.attack, v31, asPercent));
+        layout.add (makeFloat (id ("Release").toRawUTF8(), name ("Release"), { 0.0f, 1.0f, 0.01f }, (float) defaults.release, v31, asPercent));
     }
     layout.add (makeFloat (ParamIDs::eqOutput, "EQ Output", { -36.0f, 36.0f, 0.01f }, 0.0f, v30, asDb));
     layout.add (makeFloat (ParamIDs::eqGainScale, "EQ Gain Scale", { 0.0f, 2.0f, 0.01f }, 1.0f, v30, asPercent));

@@ -13,6 +13,8 @@ public:
     explicit EqBands (ParagonX1AudioProcessor&);
 
     eq::ParametricEq::Settings settings() const { return processor.getEqSettings(); }
+    // The settings with each dynamic band at its gain now, as it sounds.
+    eq::ParametricEq::Settings live() const;
     juce::RangedAudioParameter& parameter (int band, const char* what) const;
     float get (int band, const char* what) const;
     void set (int band, const char* what, float plainValue) const;   // a complete gesture
@@ -20,8 +22,9 @@ public:
     void change (int band, const char* what, float plainValue) const;   // during a gesture
     void end (int band, const char* what) const;
 
-    // Creates a band in the first free slot; returns it, or -1 if all 24 are in use.
-    int create (eq::Shape, double frequency, double gainDb) const;
+    // Creates a band in the first free slot (dynamic when `dynamicRangeDb`
+    // isn't 0); returns it, or -1 if all 24 are in use.
+    int create (eq::Shape, double frequency, double gainDb, double dynamicRangeDb = 0.0) const;
     void remove (int band) const;
 
     static juce::Colour colourFor (int band);
@@ -58,9 +61,12 @@ private:
 // side when bands work on those), and a dot for each band to drag.
 //
 //   - Double-click: a new band there (a bell at that height; a low cut at
-//     the far left, a high cut at the far right).
+//     the far left, a high cut at the far right). Alt+double-click: a
+//     dynamic bell, its range to that height.
 //   - Drag a dot: frequency and gain (Q for shapes without a gain). Shift: finer.
-//   - Mouse wheel over a band: Q (the slope for cuts).
+//   - A dynamic band: a dashed curve where its range takes it, a handle
+//     there to drag, and a ring where its gain is now (the curves follow it).
+//   - Mouse wheel over a band: Q (the slope for cuts). With Alt: the dynamic range.
 //   - Alt-click a dot: switch the band on or off. Right-click: its menu.
 //   - Delete or Backspace: remove the selected band.
 class EqDisplay final : public juce::Component,
@@ -86,6 +92,7 @@ public:
     float yForDb (double db) const noexcept;
     double dbForY (float y) const noexcept;
     juce::Point<float> dotFor (const eq::Band&) const noexcept;   // where a band's dot sits
+    juce::Point<float> rangeHandleFor (const eq::Band&) const noexcept;   // a dynamic band's range handle
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -101,6 +108,7 @@ public:
 private:
     void timerCallback() override { if (isShowing()) refresh(); }
     int bandAt (juce::Point<float>) const;
+    int rangeHandleAt (juce::Point<float>) const;   // a dynamic band whose range handle is there, or -1
     void showMenu (int band);
     void paintGrid (juce::Graphics&);
     void paintSpectrum (juce::Graphics&, const SpectrumAnalyser&, bool filled);
@@ -108,10 +116,11 @@ private:
     EqBands bands;
     SpectrumAnalyser input, output;
     eq::ParametricEq::Settings shown;   // the settings drawn last
+    std::array<eq::ParametricEq::DynamicReading, eq::ParametricEq::numBands> dynamics {};
     juce::Rectangle<float> plot;
     double rangeDb = 12.0;
     int selected = -1, hovered = -1, dragging = -1;
     juce::Point<float> hoverPoint;
-    double dragStartFrequency = 0.0, dragStartGain = 0.0, dragStartQ = 1.0;
-    bool dragHasGain = true;
+    double dragStartFrequency = 0.0, dragStartGain = 0.0, dragStartQ = 1.0, dragStartRange = 0.0;
+    bool dragHasGain = true, draggingRange = false;
 };

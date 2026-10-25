@@ -2,6 +2,17 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.5.0
+
+- **Dynamic EQ.** Any bell, shelf or tilt band can now be **dynamic**: its gain moves only when its own part of the sound gets loud, like a compressor working on just that part of the spectrum. Inspired by Pro-Q 4's dynamic EQ, as its manual describes it; how ours listens and reacts is our own design (FabFilter doesn't publish theirs).
+  - **DYN RANGE** (beside GAIN): how far the band moves, from -30 to +30 dB. **Below 0 it cuts** when its part gets loud: tame a harsh note, sibilance, a boomy bass note, only when they happen. **Above 0 it boosts**: bring out a snare's crack or a pick's attack. 0 is an ordinary band. A band can have both: say +6 dB of gain that falls back to level when its part gets loud.
+  - **It listens to its own part of the spectrum** (the same part SOLO plays), on the channel it works on: a loud bass note doesn't set off a 5 kHz de-esser, and a left-only band listens to the left.
+  - **AUTO** (on by default): the threshold sits 6 dB above the band's usual level over the last few seconds, so it acts on what stands out, whatever the track's level. Switch AUTO off to set **THRESHOLD** yourself.
+  - **ATTACK** and **RELEASE**: at 50% they're set from the band's frequency (low bands need longer to measure a note: 2 ms high up, up to 50 ms in the lows; release 15 times that). Lower is faster, higher slower, from a quarter to four times.
+  - **On the display:** a dynamic band shows a dashed curve where its whole range would take it, a handle there to drag, and a white ring where its gain is right now; the curves move as it works. **Alt+double-click** makes a dynamic band, **Alt + mouse wheel** sets the range, and the right-click menu has **Make dynamic / Make static**. While a band is dynamic its controls get a second row: AUTO, THRESHOLD, ATTACK, RELEASE, and a meter of what it hears (against its threshold) and how far it's moving.
+  - Moving it to and from dynamic glides, without clicks. Cutting a held low note adds no audible distortion (the harmonics measure 87 dB down at the fastest attack).
+- **Not yet:** a sidechain input (a band listening to another track) isn't included. AUTO GAIN works from the bands' set gains, not their dynamic moves. EQ Match comes next.
+
 ## 0.4.0
 
 - **The EQ stomp: a new EQ, inspired by FabFilter Pro-Q 4.** It replaces the 9-band graphic EQ. Our own design, from Pro-Q's manual and published filter methods (not FabFilter's code). Click stomp 4's name (or OPEN EQ in the dock) for its page.

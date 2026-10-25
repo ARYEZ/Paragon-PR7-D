@@ -11,6 +11,7 @@
 #include "ui/Footswitch.h"
 
 #include <complex>
+#include <optional>
 
 using Catch::Matchers::WithinAbs;
 
@@ -611,4 +612,288 @@ TEST_CASE ("EQ page: stomp 4's name opens it; BACK returns to the pedal", "[eq][
     pages[0]->onClose();
     CHECK_FALSE (pages[0]->isVisible());
     CHECK (stomps[3]->isVisible());
+}
+
+//==============================================================================
+// Dynamic EQ (0.5.0)
+namespace
+{
+    // Makes band `index` dynamic: its range, and a manual threshold (or AUTO).
+    void setDynamic (EqRig& rig, int index, double rangeDb, std::optional<double> thresholdDb, double attack = 0.5, double release = 0.5)
+    {
+        rig.set (ParamIDs::eqBand (index, "Dyn"), (float) rangeDb);
+        rig.set (ParamIDs::eqBand (index, "DynAuto"), thresholdDb.has_value() ? 0.0f : 1.0f);
+        if (thresholdDb.has_value())
+            rig.set (ParamIDs::eqBand (index, "Thresh"), (float) *thresholdDb);
+        rig.set (ParamIDs::eqBand (index, "Attack"), (float) attack);
+        rig.set (ParamIDs::eqBand (index, "Release"), (float) release);
+    }
+
+    // A tone at a level in dB (a full-scale sine is 0 dB, as on the analyser).
+    std::function<float (int)> toneDb (double hz, double db) { return tone (hz, (float) std::pow (10.0, db / 20.0)); }
+
+    double outDb (EqRig& rig, double seconds, double hz, double db)
+    {
+        return levelDb (rig.play (seconds, toneDb (hz, db), toneDb (hz, db))[0], hz);
+    }
+}
+
+TEST_CASE ("Dynamic EQ: the gain curve, with its soft knee and range", "[eq][dynamic]")
+{
+    using eq::dynamics::gainChangeDb;
+    CHECK (gainChangeDb (-40.0, -30.0, -12.0) == 0.0);                    // well under: nothing
+    CHECK_THAT (gainChangeDb (-33.0, -30.0, -12.0), WithinAbs (0.0, 1.0e-9));   // the knee starts 3 dB under
+    CHECK_THAT (gainChangeDb (-30.0, -30.0, -12.0), WithinAbs (-0.75, 1.0e-9));
+    CHECK_THAT (gainChangeDb (-27.0, -30.0, -12.0), WithinAbs (-3.0, 1.0e-9)); // then a dB for each dB over...
+    CHECK_THAT (gainChangeDb (-22.0, -30.0, -12.0), WithinAbs (-8.0, 1.0e-9));
+    CHECK_THAT (gainChangeDb (0.0, -30.0, -12.0), WithinAbs (-12.0, 1.0e-9));  // ...up to the range
+    CHECK_THAT (gainChangeDb (0.0, -30.0, 6.0), WithinAbs (6.0, 1.0e-9));      // a positive range boosts
+
+    // Automatic timing follows the band's frequency; the knobs scale it 1/4 to 4 times.
+    CHECK_THAT (eq::dynamics::attackSeconds (1000.0, 0.5), WithinAbs (0.004, 1.0e-9));
+    CHECK_THAT (eq::dynamics::attackSeconds (50.0, 0.5), WithinAbs (0.05, 1.0e-9));
+    CHECK_THAT (eq::dynamics::attackSeconds (1000.0, 0.0), WithinAbs (0.001, 1.0e-9));
+    CHECK_THAT (eq::dynamics::releaseSeconds (1000.0, 1.0), WithinAbs (0.32, 1.0e-9));
+}
+
+TEST_CASE ("Dynamic EQ: a cut works only when the band's part is loud, by as much as it's over, up to its range", "[eq][dynamic]")
+{
+    EqRig rig;
+    rig.setBand (0, band (eq::Shape::bell, 1000.0, 0.0, 2.0));
+    setDynamic (rig, 0, -12.0, -30.0);
+
+    // 10 dB under the threshold: untouched.
+    CHECK_THAT (outDb (rig, 0.5, 1000.0, -40.0), WithinAbs (-40.0, 0.05));
+    // 6 dB over: 6 dB down.
+    CHECK_THAT (outDb (rig, 0.5, 1000.0, -24.0), WithinAbs (-30.0, 0.3));
+    // 24 dB over: the whole range, 12 dB.
+    CHECK_THAT (outDb (rig, 0.5, 1000.0, -6.0), WithinAbs (-18.0, 0.3));
+    // And back when it's quiet again.
+    CHECK_THAT (outDb (rig, 1.0, 1000.0, -40.0), WithinAbs (-40.0, 0.05));
+
+    // With a gain of its own: +6 dB when quiet, back to level (+6 - 6) when loud.
+    rig.set (ParamIDs::eqBand (0, "Gain"), 6.0f);
+    rig.set (ParamIDs::eqBand (0, "Dyn"), -6.0f);
+    CHECK_THAT (outDb (rig, 0.5, 1000.0, -40.0), WithinAbs (-34.0, 0.1));
+    CHECK_THAT (outDb (rig, 0.5, 1000.0, -6.0), WithinAbs (-6.0, 0.3));
+}
+
+TEST_CASE ("Dynamic EQ: a positive range boosts when loud", "[eq][dynamic]")
+{
+    EqRig rig;
+    rig.setBand (0, band (eq::Shape::bell, 1000.0, 0.0, 2.0));
+    setDynamic (rig, 0, 6.0, -30.0);
+    CHECK_THAT (outDb (rig, 0.5, 1000.0, -40.0), WithinAbs (-40.0, 0.05));
+    CHECK_THAT (outDb (rig, 0.5, 1000.0, -10.0), WithinAbs (-4.0, 0.3));
+}
+
+TEST_CASE ("Dynamic EQ: a band listens only to its own part of the spectrum", "[eq][dynamic]")
+{
+    // A 5 kHz de-esser-like band; a loud bass note doesn't set it off.
+    EqRig rig;
+    rig.setBand (0, band (eq::Shape::bell, 5000.0, 0.0, 2.0));
+    setDynamic (rig, 0, -12.0, -30.0);
+    const auto quietHighs = [] (int n) { return toneDb (100.0, -6.0) (n) + toneDb (5000.0, -40.0) (n); };
+    auto out = rig.play (0.5, quietHighs, quietHighs);
+    CHECK_THAT (levelDb (out[0], 5000.0), WithinAbs (-40.0, 0.1));
+    CHECK_THAT (levelDb (out[0], 100.0), WithinAbs (-6.0, 0.05));
+    CHECK (rig.processor.getEqDynamics (0).changeDb > -0.1f);
+
+    // Loud highs do.
+    const auto loudHighs = [] (int n) { return toneDb (100.0, -6.0) (n) + toneDb (5000.0, -6.0) (n); };
+    out = rig.play (0.5, loudHighs, loudHighs);
+    CHECK_THAT (levelDb (out[0], 5000.0), WithinAbs (-18.0, 0.5));
+    CHECK_THAT (levelDb (out[0], 100.0), WithinAbs (-6.0, 0.05));
+}
+
+TEST_CASE ("Dynamic EQ: AUTO's threshold settles above the band's usual level, and acts on what stands out", "[eq][dynamic]")
+{
+    EqRig rig;
+    rig.setBand (0, band (eq::Shape::bell, 1000.0, 0.0, 2.0));
+    setDynamic (rig, 0, -12.0, std::nullopt);
+
+    // A steady part: left alone.
+    rig.play (4.0, toneDb (1000.0, -30.0), toneDb (1000.0, -30.0));
+    CHECK_THAT (outDb (rig, 0.5, 1000.0, -30.0), WithinAbs (-30.0, 0.2));
+    CHECK_THAT (rig.processor.getEqDynamics (0).thresholdDb, WithinAbs (-24.0, 0.5));
+
+    // A passage 18 dB louder is pulled down at once...
+    rig.play (0.15, toneDb (1000.0, -12.0), toneDb (1000.0, -12.0));
+    CHECK (rig.processor.getEqDynamics (0).changeDb < -8.0f);
+
+    // ...and as it carries on, the threshold follows it up and lets go.
+    rig.play (15.0, toneDb (1000.0, -12.0), toneDb (1000.0, -12.0));
+    CHECK_THAT (outDb (rig, 0.5, 1000.0, -12.0), WithinAbs (-12.0, 0.5));
+}
+
+TEST_CASE ("Dynamic EQ: ATTACK and RELEASE set how quickly it acts and lets go", "[eq][dynamic]")
+{
+    const auto block = EqRig::blockSize / EqRig::sampleRate;   // 5.3 ms
+
+    // The first 5 ms of a loud note.
+    const auto afterOnset = [&] (double attack)
+    {
+        EqRig rig;
+        rig.setBand (0, band (eq::Shape::bell, 1000.0, 0.0, 2.0));
+        setDynamic (rig, 0, -12.0, -30.0, attack);
+        rig.play (0.2, toneDb (1000.0, -60.0), toneDb (1000.0, -60.0));
+        rig.play (block, toneDb (1000.0, -6.0), toneDb (1000.0, -6.0));
+        return rig.processor.getEqDynamics (0).changeDb;
+    };
+    CHECK (afterOnset (0.0) < -8.0f);   // fast: most of the way already
+    CHECK (afterOnset (1.0) > -5.0f);   // slow: still moving
+
+    // 64 ms after a loud note stops.
+    const auto afterStop = [&] (double release)
+    {
+        EqRig rig;
+        rig.setBand (0, band (eq::Shape::bell, 1000.0, 0.0, 2.0));
+        setDynamic (rig, 0, -12.0, -30.0, 0.5, release);
+        rig.play (0.5, toneDb (1000.0, -6.0), toneDb (1000.0, -6.0));
+        rig.play (12 * block, toneDb (1000.0, -60.0), toneDb (1000.0, -60.0));
+        return rig.processor.getEqDynamics (0).changeDb;
+    };
+    CHECK (afterStop (0.0) > -1.5f);    // fast: let go
+    CHECK (afterStop (1.0) < -7.0f);    // slow: still holding most of it
+}
+
+TEST_CASE ("Dynamic EQ: a band on one channel listens to and works on just that", "[eq][dynamic][stereo]")
+{
+    EqRig rig;
+    auto b = band (eq::Shape::bell, 1000.0, 0.0, 2.0);
+    b.placement = eq::Placement::left;
+    rig.setBand (0, b);
+    setDynamic (rig, 0, -12.0, -30.0);
+    const auto out = rig.play (0.5, toneDb (1000.0, -6.0), toneDb (1000.0, -6.0));
+    CHECK_THAT (levelDb (out[0], 1000.0), WithinAbs (-18.0, 0.3));
+    CHECK_THAT (levelDb (out[1], 1000.0), WithinAbs (-6.0, 0.01));
+
+    // Loud on the right only: the left band stays put.
+    const auto quietLeft = rig.play (1.0, toneDb (1000.0, -40.0), toneDb (1000.0, -6.0));
+    CHECK_THAT (levelDb (quietLeft[0], 1000.0), WithinAbs (-40.0, 0.05));
+}
+
+TEST_CASE ("Dynamic EQ: becoming dynamic, and static again, glides; cuts and other shapes can't be dynamic", "[eq][dynamic]")
+{
+    EqRig rig;
+    rig.setBand (0, band (eq::Shape::bell, 1000.0, 0.0, 2.0));
+    const auto loud = toneDb (1000.0, -6.0);
+    rig.play (0.3, loud, loud);
+    const auto normal = largestStep (rig.play (0.1, loud, loud)[0]);
+
+    setDynamic (rig, 0, -12.0, -30.0);
+    CHECK (largestStep (rig.play (0.2, loud, loud)[0]) <= normal * 1.01f);   // it only turns down, smoothly
+    CHECK (rig.processor.getEqDynamics (0).active);
+
+    rig.set (ParamIDs::eqBand (0, "Dyn"), 0.0f);
+    CHECK (largestStep (rig.play (0.5, loud, loud)[0]) < normal * 1.05f);
+    CHECK_THAT (outDb (rig, 0.5, 1000.0, -6.0), WithinAbs (-6.0, 0.01));
+    CHECK_FALSE (rig.processor.getEqDynamics (0).active);
+
+    // A low cut with a range set is just a low cut.
+    EqRig cut;
+    cut.setBand (0, band (eq::Shape::lowCut, 100.0));
+    setDynamic (cut, 0, -12.0, -60.0);
+    CHECK_THAT (outDb (cut, 0.5, 1000.0, -6.0), WithinAbs (-6.0 + at (band (eq::Shape::lowCut, 100.0), 1000.0), 0.01));
+    CHECK_FALSE (cut.processor.getEqDynamics (0).active);
+}
+
+TEST_CASE ("Dynamic EQ: 24 dynamic bands still run in real time comfortably", "[eq][dynamic][performance]")
+{
+    EqRig rig;
+    for (int i = 0; i < ParamIDs::eqNumBands; ++i)
+    {
+        auto b = band (i % 2 == 0 ? eq::Shape::bell : eq::Shape::highShelf, 100.0 + 400.0 * i, 3.0, 1.0, slopeIndex (96));
+        b.placement = (eq::Placement) (i % 5);
+        rig.setBand (i, b);
+        setDynamic (rig, i, i % 2 == 0 ? -12.0 : 6.0, std::nullopt);
+    }
+    const auto start = juce::Time::getMillisecondCounterHiRes();
+    const auto out = rig.play (3.0, tone (440.0), tone (550.0));
+    const auto fraction = (juce::Time::getMillisecondCounterHiRes() - start) / 3000.0;
+    WARN ("24 dynamic bands use " << juce::String (fraction * 100.0, 1) << "% of one core in real time");
+    CHECK (fraction < 0.5);
+    for (const auto& channel : out)
+        for (const auto sample : channel)
+            REQUIRE (std::isfinite (sample));
+}
+
+TEST_CASE ("Dynamic EQ: cutting a held low note doesn't distort it", "[eq][dynamic]")
+{
+    // A gain that moved within each cycle would add harmonics; measuring
+    // over a couple of cycles keeps it steady. 6 dB over the threshold, so
+    // the gain follows the level (at full range it couldn't move at all).
+    for (const auto attack : { 0.0, 0.5 })
+    {
+        EqRig rig;
+        rig.setBand (0, band (eq::Shape::bell, 60.0, 0.0, 1.0));
+        setDynamic (rig, 0, -12.0, -30.0, attack);
+        const auto out = rig.play (1.5, toneDb (60.0, -24.0), toneDb (60.0, -24.0));
+        const auto fundamental = levelDb (out[0], 60.0);
+        CHECK_THAT (fundamental, WithinAbs (-30.0, 0.5));
+        for (const auto harmonic : { 120.0, 180.0, 240.0 })
+        {
+            INFO ("attack " << attack << ", " << harmonic << " Hz: " << levelDb (out[0], harmonic) - fundamental << " dB");
+            CHECK (levelDb (out[0], harmonic) - fundamental < -60.0);
+        }
+    }
+}
+
+TEST_CASE ("Dynamic EQ display and page: Alt+double-click, the range handle, Alt+wheel, the dynamics row", "[eq][dynamic][ui]")
+{
+    ParagonX1AudioProcessor processor;
+    processor.setPlayConfigDetails (2, 2, 48000.0, 256);
+    processor.prepareToPlay (48000.0, 256);
+    EqPage page (processor);
+    page.setBounds (0, 0, 1422, 750);
+    auto& display = page.getDisplay();
+    EqBands bands (processor);
+
+    const auto event = [&] (juce::Point<float> at, juce::ModifierKeys mods = {}, int clicks = 1)
+    {
+        const auto now = juce::Time::getCurrentTime();
+        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, mods, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                 &display, &display, now, at, now, clicks, false);
+    };
+
+    // A slot once used by a dynamic band comes back static.
+    bands.create (eq::Shape::bell, 500.0, 0.0, -9.0);
+    bands.remove (0);
+    REQUIRE (bands.create (eq::Shape::bell, 500.0, 3.0) == 0);
+    CHECK (bands.get (0, "Dyn") == 0.0f);
+    bands.remove (0);
+
+    // Alt+double-click: a flat bell whose range goes to where you clicked.
+    display.mouseDoubleClick (event ({ display.xForFrequency (2000.0), display.yForDb (-8.0) }, juce::ModifierKeys::altModifier, 2));
+    REQUIRE (bands.get (0, "Used") > 0.5f);
+    CHECK_THAT (bands.get (0, "Gain"), WithinAbs (0.0, 1.0e-6));
+    CHECK_THAT (bands.get (0, "Dyn"), WithinAbs (-8.0, 0.1));
+
+    // The dynamics row shows for it, and goes when it's static.
+    page.resized();
+    page.refreshControls();
+    CHECK (page.isShowingDynamics());
+
+    // Drag the range handle up to +4 dB.
+    display.refresh();
+    const auto handle = display.rangeHandleFor (processor.getEqSettings().bands[0]);
+    display.mouseDown (event (handle));
+    const juce::Point<float> to { handle.x, display.yForDb (4.0) };
+    const auto now = juce::Time::getCurrentTime();
+    display.mouseDrag (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), to, juce::ModifierKeys::leftButtonModifier,
+                                         0.0f, 0.0f, 0.0f, 0.0f, 0.0f, &display, &display, now, handle, now, 1, true));
+    display.mouseUp (event (to));
+    CHECK_THAT (bands.get (0, "Dyn"), WithinAbs (4.0, 0.1));
+    CHECK_THAT (bands.get (0, "Freq"), WithinAbs (2000.0, 30.0));   // the band itself stays put
+
+    // Alt+wheel turns the range; down to 0 makes it an ordinary band again.
+    display.refresh();
+    const auto dot = display.dotFor (processor.getEqSettings().bands[0]);
+    display.mouseMove (event (dot));
+    juce::MouseWheelDetails wheel {};
+    wheel.deltaY = -0.4f;
+    display.mouseWheelMove (event (dot, juce::ModifierKeys::altModifier), wheel);
+    CHECK_THAT (bands.get (0, "Dyn"), WithinAbs (0.0, 0.1));
+    page.refreshControls();
+    CHECK_FALSE (page.isShowingDynamics());
 }

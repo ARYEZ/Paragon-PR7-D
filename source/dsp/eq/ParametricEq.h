@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Dynamics.h"
 #include "EqDesign.h"
 #include "dsp/effects/EffectUtils.h"
 
@@ -14,6 +15,9 @@
 //     it never clicks.
 //   - SOLO plays only the part of the spectrum one band works on (see
 //     eq::soloDesign), crossfading in and out.
+//   - Dynamic bands (see Dynamics.h) listen to the EQ's input and move
+//     their gain every 32 samples, without the glide (their attack and
+//     release are the smoothing). RANGE and THRESHOLD glide as gain does.
 //   - AUTO GAIN is an estimate from the curve, as in Pro-Q: the curve's
 //     average change in level over the audible range, taken off. Not a
 //     measurement of the music.
@@ -44,6 +48,16 @@ namespace eq
         // AUTO GAIN's current correction, in dB (0 when it's off).
         double getAutoGainDb() const noexcept { return autoGainDb; }
 
+        // A band's dynamics now, for the display (any thread): how far its
+        // gain has moved, the level it hears and the threshold it uses, in
+        // dB. `active` is false for a static band.
+        struct DynamicReading
+        {
+            bool active = false;
+            float changeDb = 0.0f, levelDb = (float) dynamics::floorDb, thresholdDb = 0.0f;
+        };
+        DynamicReading getDynamics (int band) const noexcept;
+
         // The EQ's curve, in dB at `hz`, as heard on `which`: the stereo
         // bands, plus that placement's own (all bands except left, right,
         // mid and side ones for Placement::stereo). For the display.
@@ -51,7 +65,7 @@ namespace eq
 
         // The estimate AUTO GAIN takes off: the stereo curve's average dB
         // from 20 Hz to 20 kHz, each octave counted equally (bands on one
-        // side count half).
+        // side count half). Dynamic bands count at their set gain.
         static double averageChangeDb (const Settings&, double sampleRate) noexcept;
 
     private:
@@ -69,6 +83,17 @@ namespace eq
             std::array<State, effects::maxChannels> states {};
         };
 
+        // What a dynamic band hears (see Dynamics.h).
+        struct Detector
+        {
+            bool running = false;
+            Design filter;   // SOLO's filter for the band
+            std::array<State, 2> states {};
+            double power = 0.0, levelDb = dynamics::floorDb;
+            double typicalDb = 0.0, heardSeconds = 0.0;   // for AUTO
+            bool heard = false;       // typicalDb has been set
+        };
+
         struct BandSlot
         {
             Band applied;   // the band as currently designed (smoothed values in frequency, gain, q)
@@ -76,15 +101,23 @@ namespace eq
             juce::SmoothedValue<double> gain;
             Running current, previous;
             double fade = 1.0;   // 1: only `current`; below 1: still crossfading from `previous`
+
+            Detector detector;
+            juce::SmoothedValue<double> range, threshold;
+            double changeDb = 0.0;   // the dynamic gain now
         };
 
         static bool sameStructure (const Band& a, const Band& b) noexcept;
-        void updateBand (int index, const Band& target, double gainScale, bool gainScaleMoved, int numSamples) noexcept;
+        void updateBand (int index, const Band& target, double gainScale, bool gainScaleMoved,
+                         const float* dryLeft, const float* dryRight, int numSamples, int numChannels) noexcept;
+        void detect (BandSlot&, const Band& target, const float* left, const float* right, int numSamples, int numChannels) noexcept;
         static void run (Running&, float* left, float* right, int numSamples, int numChannels) noexcept;
         static double tick (const Design&, State&, double x) noexcept;
 
         double sampleRate = 48000.0;
         std::array<BandSlot, numBands> slots;
+        struct Reading { std::atomic<bool> active { false }; std::atomic<float> changeDb { 0.0f }, levelDb { 0.0f }, thresholdDb { 0.0f }; };
+        std::array<Reading, numBands> readings;
         juce::SmoothedValue<double> gainScale;
         juce::AudioBuffer<float> scratch, dry;
 

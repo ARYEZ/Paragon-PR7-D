@@ -52,7 +52,16 @@ void EqBands::change (int band, const char* what, float plainValue) const
     p.setValueNotifyingHost (p.convertTo0to1 (plainValue));
 }
 
-int EqBands::create (eq::Shape shape, double frequency, double gainDb) const
+eq::ParametricEq::Settings EqBands::live() const
+{
+    auto result = settings();
+    for (int band = 0; band < (int) result.bands.size(); ++band)
+        if (auto& b = result.bands[(size_t) band]; b.isDynamic())
+            b.gainDb = juce::jlimit (-eq::maxGainDb, eq::maxGainDb, b.gainDb + processor.getEqDynamics (band).changeDb);
+    return result;
+}
+
+int EqBands::create (eq::Shape shape, double frequency, double gainDb, double dynamicRangeDb) const
 {
     for (int band = 0; band < ParamIDs::eqNumBands; ++band)
     {
@@ -65,6 +74,13 @@ int EqBands::create (eq::Shape shape, double frequency, double gainDb) const
         set (band, "Q", 1.0f);
         set (band, "Slope", (float) eq::defaultSlope);
         set (band, "Place", (float) eq::Placement::stereo);
+        // A slot used before may have kept a dynamic band's settings.
+        const eq::Band defaults;
+        set (band, "Dyn", (float) dynamicRangeDb);
+        set (band, "DynAuto", defaults.autoThreshold ? 1.0f : 0.0f);
+        set (band, "Thresh", (float) defaults.thresholdDb);
+        set (band, "Attack", (float) defaults.attack);
+        set (band, "Release", (float) defaults.release);
         set (band, "On", 1.0f);
         set (band, "Used", 1.0f);
         return band;
@@ -178,6 +194,8 @@ void EqDisplay::refresh()
     if (showOutput)
         output.update (bands.processor.getEqOutputTap());
     shown = bands.settings();
+    for (int band = 0; band < (int) dynamics.size(); ++band)
+        dynamics[(size_t) band] = bands.processor.getEqDynamics (band);
 
     // A band removed elsewhere (undo, a rig, the DAW) can't stay selected.
     if (selected >= 0 && ! shown.bands[(size_t) selected].used)
@@ -230,6 +248,19 @@ juce::Point<float> EqDisplay::dotFor (const eq::Band& band) const noexcept
 {
     const auto y = eq::usesGain (band.shape) ? yForDb (juce::jlimit (-rangeDb, rangeDb, band.gainDb)) : yForDb (0.0);
     return { xForFrequency (band.frequency), y };
+}
+
+juce::Point<float> EqDisplay::rangeHandleFor (const eq::Band& band) const noexcept
+{
+    return { xForFrequency (band.frequency), yForDb (juce::jlimit (-rangeDb, rangeDb, band.gainDb + band.dynamicRangeDb)) };
+}
+
+int EqDisplay::rangeHandleAt (juce::Point<float> position) const
+{
+    for (int band = 0; band < (int) shown.bands.size(); ++band)
+        if (const auto& b = shown.bands[(size_t) band]; b.isDynamic() && rangeHandleFor (b).getDistanceFrom (position) < 9.0f)
+            return band;
+    return -1;
 }
 
 int EqDisplay::bandAt (juce::Point<float> position) const
@@ -319,10 +350,15 @@ void EqDisplay::paint (juce::Graphics& g)
     if (showOutput)
         paintSpectrum (g, output, false);
 
+    // Dynamic bands are drawn where their gain is now.
     const auto sampleRate = bands.processor.getSampleRate() > 0.0 ? bands.processor.getSampleRate() : 48000.0;
+    auto now = shown;
+    for (size_t i = 0; i < now.bands.size(); ++i)
+        if (auto& b = now.bands[i]; b.isDynamic())
+            b.gainDb = juce::jlimit (-eq::maxGainDb, eq::maxGainDb, b.gainDb + dynamics[i].changeDb);
     std::array<eq::Design, eq::ParametricEq::numBands> designs;
     for (size_t i = 0; i < designs.size(); ++i)
-        designs[i] = eq::design (shown.bands[i], sampleRate, shown.gainScale);
+        designs[i] = eq::design (now.bands[i], sampleRate, now.gainScale);
 
     const auto curvePath = [&] (auto&& dbAt)
     {
@@ -351,6 +387,20 @@ void EqDisplay::paint (juce::Graphics& g)
         g.fillPath (area);
         g.setColour (colour.withAlpha (band == selected ? 0.8f : 0.35f));
         g.strokePath (path, juce::PathStrokeType (1.0f));
+
+        if (b.isDynamic())
+        {
+            // Where the whole range takes it: dashed.
+            auto full = b;
+            full.gainDb = juce::jlimit (-eq::maxGainDb, eq::maxGainDb, b.gainDb + b.dynamicRangeDb);
+            const auto fullDesign = eq::design (full, sampleRate, shown.gainScale);
+            const auto fullPath = curvePath ([&] (double hz) { return eq::responseDb (fullDesign, hz, sampleRate); });
+            juce::Path dashed;
+            const float dashes[] = { 4.0f, 3.0f };
+            juce::PathStrokeType (1.0f).createDashedStroke (dashed, fullPath, dashes, 2);
+            g.setColour (colour.withAlpha (band == selected ? 0.9f : 0.5f));
+            g.fillPath (dashed);
+        }
     }
 
     // The overall curve, and one for each channel (or mid, or side) that has bands of its own.
@@ -374,6 +424,32 @@ void EqDisplay::paint (juce::Graphics& g)
         g.strokePath (path, juce::PathStrokeType (placement == eq::Placement::stereo ? 6.0f : 4.0f));
         g.setColour (colour);
         g.strokePath (path, juce::PathStrokeType (placement == eq::Placement::stereo ? 2.4f : 1.8f));
+    }
+
+    // Dynamic bands: a line from the dot to the range handle, and a ring where the gain is now.
+    for (int band = 0; band < (int) shown.bands.size(); ++band)
+    {
+        const auto& b = shown.bands[(size_t) band];
+        if (! b.isDynamic())
+            continue;
+        const auto colour = EqBands::colourFor (band);
+        const auto dot = dotFor (b), handle = rangeHandleFor (b);
+        g.setColour (colour.withAlpha (0.55f));
+        g.drawLine ({ dot, handle }, 2.0f);
+        const auto pill = juce::Rectangle<float> (18.0f, 6.0f).withCentre (handle);
+        g.setColour (colour);
+        g.fillRoundedRectangle (pill, 3.0f);
+        if (band == selected || band == hovered)
+        {
+            g.setColour (juce::Colours::white.withAlpha (0.8f));
+            g.drawRoundedRectangle (pill.expanded (1.0f), 3.5f, 1.0f);
+        }
+        if (dynamics[(size_t) band].active)
+        {
+            const auto nowY = yForDb (juce::jlimit (-rangeDb, rangeDb, b.gainDb + dynamics[(size_t) band].changeDb));
+            g.setColour (juce::Colours::white);
+            g.drawEllipse (juce::Rectangle<float> (11.0f, 11.0f).withCentre ({ dot.x, nowY }), 1.6f);
+        }
     }
 
     // The dots, numbered as the bands are (numbers stay put when one is removed).
@@ -412,6 +488,8 @@ void EqDisplay::paint (juce::Graphics& g)
         readout << (readoutBand + 1) << "  " << eq::shapeNames[(int) b.shape] << "  " << frequencyText (b.frequency);
         if (eq::usesGain (b.shape))
             readout << "  " << (b.gainDb > 0.0 ? "+" : "") << juce::String (b.gainDb, 1) << " dB";
+        if (b.isDynamic())
+            readout << "  dynamic " << (b.dynamicRangeDb > 0.0 ? "+" : "") << juce::String (b.dynamicRangeDb, 1) << " dB";
         if (eq::usesQ (b.shape, b.slope))
             readout << "  Q " << juce::String (b.q, 2);
         if (eq::usesSlope (b.shape))
@@ -445,7 +523,7 @@ void EqDisplay::paint (juce::Graphics& g)
     {
         g.setColour (ParagonColours::textDim);
         g.setFont (juce::FontOptions (13.0f));
-        g.drawText ("Double-click to add a band. Drag a dot to move it; mouse wheel for Q; right-click for its menu.",
+        g.drawText ("Double-click to add a band (Alt: a dynamic one). Drag a dot to move it; mouse wheel for Q; right-click for its menu.",
                     plot.withTrimmedTop (plot.getHeight() * 0.62f).withHeight (20.0f), juce::Justification::centred, false);
     }
 }
@@ -454,7 +532,8 @@ void EqDisplay::paint (juce::Graphics& g)
 void EqDisplay::mouseMove (const juce::MouseEvent& event)
 {
     hoverPoint = event.position;
-    const auto band = bandAt (event.position);
+    const auto onHandle = rangeHandleAt (event.position);
+    const auto band = onHandle >= 0 ? onHandle : bandAt (event.position);
     if (band != hovered)
         hovered = band;
     repaint();
@@ -470,6 +549,18 @@ void EqDisplay::mouseExit (const juce::MouseEvent&)
 void EqDisplay::mouseDown (const juce::MouseEvent& event)
 {
     grabKeyboardFocus();
+
+    // A dynamic band's range handle (unless its dot is right there too).
+    if (const auto handle = rangeHandleAt (event.position); handle >= 0 && bandAt (event.position) < 0 && ! event.mods.isPopupMenu())
+    {
+        select (handle);
+        dragging = handle;
+        draggingRange = true;
+        dragStartRange = shown.bands[(size_t) handle].dynamicRangeDb;
+        bands.begin (handle, "Dyn");
+        return;
+    }
+
     const auto band = bandAt (event.position);
     if (band < 0)
     {
@@ -509,6 +600,15 @@ void EqDisplay::mouseDrag (const juce::MouseEvent& event)
     const auto dx = (float) event.getDistanceFromDragStartX() * fine;
     const auto dy = (float) event.getDistanceFromDragStartY() * fine;
 
+    if (draggingRange)
+    {
+        bands.change (dragging, "Dyn", (float) juce::jlimit (-eq::dynamics::maxRangeDb, eq::dynamics::maxRangeDb,
+                                                             dragStartRange - (double) dy / (plot.getHeight() * 0.46) * rangeDb));
+        shown = bands.settings();
+        repaint();
+        return;
+    }
+
     bands.change (dragging, "Freq", (float) frequencyForX (xForFrequency (dragStartFrequency) + dx));
     if (dragHasGain)
         bands.change (dragging, "Gain", (float) juce::jlimit (-eq::maxGainDb, eq::maxGainDb,
@@ -523,6 +623,13 @@ void EqDisplay::mouseUp (const juce::MouseEvent&)
 {
     if (dragging < 0)
         return;
+    if (draggingRange)
+    {
+        bands.end (dragging, "Dyn");
+        draggingRange = false;
+        dragging = -1;
+        return;
+    }
     bands.end (dragging, "Freq");
     bands.end (dragging, dragHasGain ? "Gain" : "Q");
     dragging = -1;
@@ -535,8 +642,15 @@ void EqDisplay::mouseDoubleClick (const juce::MouseEvent& event)
     // Where you click decides the shape: the far ends make cuts.
     const auto hz = frequencyForX (event.position.x);
     const auto shape = hz < 30.0 ? eq::Shape::lowCut : hz > 15000.0 ? eq::Shape::highCut : eq::Shape::bell;
-    const auto gain = shape == eq::Shape::bell ? juce::jlimit (-eq::maxGainDb, eq::maxGainDb, dbForY (event.position.y)) : 0.0;
-    const auto band = bands.create (shape, hz, gain);
+    const auto db = juce::jlimit (-eq::maxGainDb, eq::maxGainDb, dbForY (event.position.y));
+    const auto band = [&]
+    {
+        // With Alt, a dynamic bell: flat until its part gets loud, then as
+        // far as where you clicked (a 6 dB cut if that's about level).
+        if (event.mods.isAltDown() && shape == eq::Shape::bell)
+            return bands.create (shape, hz, 0.0, std::abs (db) < 1.0 ? -6.0 : db);
+        return bands.create (shape, hz, shape == eq::Shape::bell ? db : 0.0);
+    }();
     shown = bands.settings();
     if (band >= 0)
         select (band);
@@ -545,10 +659,20 @@ void EqDisplay::mouseDoubleClick (const juce::MouseEvent& event)
 void EqDisplay::mouseWheelMove (const juce::MouseEvent& event, const juce::MouseWheelDetails& wheel)
 {
     const auto band = hovered >= 0 ? hovered : selected;
-    if (band < 0 || std::abs (wheel.deltaY) < 1.0e-4f)
+    if (band < 0 || std::abs (wheel.deltaY) + std::abs (wheel.deltaX) < 1.0e-4f)
         return;
     const auto& b = shown.bands[(size_t) band];
-    if (isCut (b.shape))
+    if (event.mods.isAltDown())
+    {
+        // The dynamic range (shapes with a gain). Some systems turn Alt+wheel sideways.
+        if (eq::usesGain (b.shape))
+        {
+            const auto delta = std::abs (wheel.deltaY) > std::abs (wheel.deltaX) ? wheel.deltaY : wheel.deltaX;
+            bands.set (band, "Dyn", (float) juce::jlimit (-eq::dynamics::maxRangeDb, eq::dynamics::maxRangeDb,
+                                                          b.dynamicRangeDb + (double) delta * (event.mods.isShiftDown() ? 2.0 : 10.0)));
+        }
+    }
+    else if (isCut (b.shape))
     {
         // Cuts: the slope, a step at a time.
         const auto step = wheel.deltaY > 0.0f ? 1 : -1;
@@ -590,6 +714,8 @@ void EqDisplay::showMenu (int band)
     menu.addSubMenu ("Slope", slopes, eq::usesSlope (b.shape));
     menu.addSubMenu ("Stereo placement", placements);
     menu.addSeparator();
+    if (eq::usesGain (b.shape))
+        menu.addItem (3, std::abs (b.dynamicRangeDb) >= 0.01 ? "Make static" : "Make dynamic");
     menu.addItem (1, b.on ? "Switch off" : "Switch on");
     menu.addItem (2, "Delete");
 
@@ -604,6 +730,8 @@ void EqDisplay::showMenu (int band)
                                 bands.set (band, "Shape", (float) (chosen - 100));
                             else if (chosen == 1)
                                 bands.set (band, "On", bands.get (band, "On") > 0.5f ? 0.0f : 1.0f);
+                            else if (chosen == 3)   // dynamic: a 6 dB cut when its part gets loud
+                                bands.set (band, "Dyn", std::abs (bands.get (band, "Dyn")) >= 0.01f ? 0.0f : -6.0f);
                             else if (chosen == 2)
                             {
                                 bands.remove (band);

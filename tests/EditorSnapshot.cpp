@@ -120,7 +120,7 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
     }
 
     // PARAGON_SNAPSHOT_EQ=1: the EQ on with a typical mix-bus set of bands
-    // (a low cut, a mud cut, presence, air, a side-only high shelf), after
+    // (a low cut, a mud cut, a dynamic presence lift, air, a side-only high shelf), after
     // a few seconds of noise shaped like music (falling 3 dB an octave), so
     // the analyser has something to show. PARAGON_SNAPSHOT_PAGE=eq opens
     // the EQ's page; PARAGON_SNAPSHOT_EQ_BAND=n selects band n (from 1).
@@ -155,7 +155,9 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         bands.set (0, "Slope", 3.0f);   // 24 dB/oct
         bands.create (eq::Shape::bell, 280.0, -3.5);
         bands.set (1, "Q", 1.6f);
-        bands.create (eq::Shape::bell, 3200.0, 2.5);
+        bands.create (eq::Shape::bell, 3200.0, 2.5, -5.0);   // dynamic: pulls back when the presence gets loud
+        bands.set (2, "DynAuto", 0.0f);
+        bands.set (2, "Thresh", -42.0f);
         bands.create (eq::Shape::highShelf, 11000.0, 3.0);
         bands.set (3, "Q", 0.7f);
         bands.create (eq::Shape::highShelf, 6000.0, 2.0);

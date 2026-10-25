@@ -37,8 +37,10 @@ namespace ParamIDs
     inline constexpr auto eqAutoGain  = "eqAutoGain";
     inline constexpr int eqNumBands = 24;
     // Each band's settings: "eqB1Used", "eqB1Freq"... `what` is one of the names below.
+    // From 0.5.0, its dynamics: Dyn (the range), DynAuto, Thresh, Attack, Release.
     inline juce::String eqBand (int band, const char* what) { return "eqB" + juce::String (band + 1) + what; }
-    inline constexpr const char* eqBandSettings[] = { "Used", "On", "Shape", "Freq", "Gain", "Q", "Slope", "Place" };
+    inline constexpr const char* eqBandSettings[] = { "Used", "On", "Shape", "Freq", "Gain", "Q", "Slope", "Place",
+                                                      "Dyn", "DynAuto", "Thresh", "Attack", "Release" };
 
     // Global settings: kept when switching rigs. Everything else is part of a rig.
     // The expression pedal's position is global for the same reason a real

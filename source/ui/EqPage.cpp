@@ -81,12 +81,24 @@ EqPage::EqPage (ParagonX1AudioProcessor& p)
     styleCombo (shape, eq::shapeNames);
     styleCombo (slope, eq::slopeNames);
     styleCombo (placement, eq::placementNames);
-    for (auto* knob : { &frequency, &gain, &q })
+    for (auto* knob : { &frequency, &gain, &q, &dynRange, &threshold, &attack, &release })
         styleKnob (*knob, 70);
     frequency.setDoubleClickReturnValue (true, 1000.0);
     gain.setDoubleClickReturnValue (true, 0.0);
     q.setDoubleClickReturnValue (true, 1.0);
-    for (auto* label : { &frequencyLabel, &gainLabel, &qLabel, &shapeLabel, &slopeLabel, &placementLabel })
+    const eq::Band defaults;
+    dynRange.setDoubleClickReturnValue (true, 0.0);
+    threshold.setDoubleClickReturnValue (true, defaults.thresholdDb);
+    attack.setDoubleClickReturnValue (true, defaults.attack);
+    release.setDoubleClickReturnValue (true, defaults.release);
+    dynRange.setTooltip ("Makes the band dynamic: how far its gain moves when its part of the sound gets loud "
+                         "(below 0 it cuts, above 0 it boosts). 0: an ordinary band");
+    dynAuto.setTooltip ("The threshold follows the band's own level, so it acts on what stands out above its usual level");
+    threshold.setTooltip ("How loud the band's part must get before the band moves (with AUTO off)");
+    attack.setTooltip ("How quickly it acts: 50% is automatic (set from the band's frequency); lower is faster, higher slower");
+    release.setTooltip ("How quickly it lets go: 50% is automatic (set from the band's frequency); lower is faster, higher slower");
+    for (auto* label : { &frequencyLabel, &gainLabel, &qLabel, &shapeLabel, &slopeLabel, &placementLabel,
+                         &dynRangeLabel, &thresholdLabel, &attackLabel, &releaseLabel })
     {
         styleLabel (*label);
         label->setJustificationType (juce::Justification::centred);
@@ -109,11 +121,19 @@ EqPage::EqPage (ParagonX1AudioProcessor& p)
     };
     for (auto* component : std::initializer_list<juce::Component*> { &bandOn, &shape, &slope, &placement, &frequency, &gain, &q,
                                                                       &frequencyLabel, &gainLabel, &qLabel, &shapeLabel, &slopeLabel,
-                                                                      &placementLabel, &previous, &next, &solo, &remove })
+                                                                      &placementLabel, &previous, &next, &solo, &remove,
+                                                                      &dynRange, &dynRangeLabel })
+        addChildComponent (component);
+    for (auto* component : dynamicRowComponents())
         addChildComponent (component);
 
     showBand (-1);
-    startTimerHz (10);
+    startTimerHz (30);
+}
+
+std::vector<juce::Component*> EqPage::dynamicRowComponents() noexcept
+{
+    return { &dynAuto, &threshold, &attack, &release, &thresholdLabel, &attackLabel, &releaseLabel };
 }
 
 EqPage::~EqPage()
@@ -131,15 +151,22 @@ void EqPage::showBand (int newBand)
     frequencyAttachment.reset();
     gainAttachment.reset();
     qAttachment.reset();
+    dynRangeAttachment.reset();
+    thresholdAttachment.reset();
+    attackAttachment.reset();
+    releaseAttachment.reset();
+    dynAutoAttachment.reset();
     processor.setEqSolo (-1);
 
     const auto visible = band >= 0;
     for (auto* component : std::initializer_list<juce::Component*> { &bandOn, &shape, &slope, &placement, &frequency, &gain, &q,
                                                                       &frequencyLabel, &gainLabel, &qLabel, &shapeLabel, &slopeLabel,
-                                                                      &placementLabel, &previous, &next, &solo, &remove })
+                                                                      &placementLabel, &previous, &next, &solo, &remove,
+                                                                      &dynRange, &dynRangeLabel })
         component->setVisible (visible);
     if (! visible)
     {
+        timerCallback();   // hides the dynamics row
         repaint();
         return;
     }
@@ -152,6 +179,11 @@ void EqPage::showBand (int newBand)
     frequencyAttachment = std::make_unique<juce::SliderParameterAttachment> (bands.parameter (band, "Freq"), frequency);
     gainAttachment = std::make_unique<juce::SliderParameterAttachment> (bands.parameter (band, "Gain"), gain);
     qAttachment = std::make_unique<juce::SliderParameterAttachment> (bands.parameter (band, "Q"), q);
+    dynRangeAttachment = std::make_unique<juce::SliderParameterAttachment> (bands.parameter (band, "Dyn"), dynRange);
+    thresholdAttachment = std::make_unique<juce::SliderParameterAttachment> (bands.parameter (band, "Thresh"), threshold);
+    attackAttachment = std::make_unique<juce::SliderParameterAttachment> (bands.parameter (band, "Attack"), attack);
+    releaseAttachment = std::make_unique<juce::SliderParameterAttachment> (bands.parameter (band, "Release"), release);
+    dynAutoAttachment = std::make_unique<juce::ButtonParameterAttachment> (bands.parameter (band, "DynAuto"), dynAuto);
     timerCallback();
     repaint();
 }
@@ -174,16 +206,31 @@ void EqPage::step (int direction)
 
 void EqPage::timerCallback()
 {
+    auto wantDynamics = false;
     if (band >= 0)
     {
         // Only what the shape uses can be turned (a cut has no gain, a 6 dB/oct shelf no Q...).
         const auto settings = processor.getEqSettings();
         const auto& b = settings.bands[(size_t) band];
         gain.setEnabled (eq::usesGain (b.shape));
+        dynRange.setEnabled (eq::usesGain (b.shape));
         slope.setEnabled (eq::usesSlope (b.shape));
         q.setEnabled (eq::usesQ (b.shape, b.slope));
+        threshold.setEnabled (! b.autoThreshold);
+        wantDynamics = b.used && eq::usesGain (b.shape) && std::abs (b.dynamicRangeDb) >= 0.01;
+    }
+    if (wantDynamics != dynamicRow)
+    {
+        // The dynamics row comes and goes with the band's range, as in Pro-Q.
+        dynamicRow = wantDynamics;
+        for (auto* component : dynamicRowComponents())
+            component->setVisible (dynamicRow);
+        resized();
+        repaint();
     }
     repaint (topBar);
+    if (dynamicRow)
+        repaint (meterArea);
 }
 
 void EqPage::resized()
@@ -191,9 +238,12 @@ void EqPage::resized()
     auto area = getLocalBounds().reduced (12);
     topBar = area.removeFromTop (46);
     area.removeFromTop (8);
-    controlsArea = area.removeFromBottom (112);
+    controlsArea = area.removeFromBottom (dynamicRow ? 206 : 112);
     area.removeFromBottom (8);
     display.setBounds (area);
+    auto rows = controlsArea;
+    rows.removeFromTop (112);
+    dynamicArea = rows;
 
     auto bar = topBar.reduced (12, 6);
     bar.removeFromLeft (52);   // "EQ"
@@ -216,7 +266,7 @@ void EqPage::resized()
     showInput.setBounds (bar.removeFromRight (52));
     analyserLabel.setBounds (bar.removeFromRight (70));
 
-    auto controls = controlsArea.reduced (14, 10);
+    auto controls = controlsArea.withHeight (112).reduced (14, 10);
     controls.removeFromLeft (118);   // the band's name, drawn
     auto arrows = controls.removeFromLeft (64);
     previous.setBounds (arrows.removeFromLeft (30).withSizeKeepingCentre (30, 26));
@@ -236,11 +286,23 @@ void EqPage::resized()
     labelled (slopeLabel, slope, 112, false);
     labelled (frequencyLabel, frequency, 92, true);
     labelled (gainLabel, gain, 92, true);
+    labelled (dynRangeLabel, dynRange, 92, true);
     labelled (qLabel, q, 92, true);
     labelled (placementLabel, placement, 104, false);
     remove.setBounds (controls.removeFromRight (90).withSizeKeepingCentre (90, 28));
     controls.removeFromRight (10);
     solo.setBounds (controls.removeFromRight (90).withSizeKeepingCentre (90, 28));
+
+    // The dynamics row: under the band's name, "DYNAMICS"; AUTO under ON.
+    controls = dynamicArea.reduced (14, 0).withTrimmedBottom (10);
+    controls.removeFromLeft (118 + 64 + 14);
+    dynAuto.setBounds (controls.removeFromLeft (72).withSizeKeepingCentre (72, 26));
+    controls.removeFromLeft (8);
+    labelled (thresholdLabel, threshold, 92, true);
+    labelled (attackLabel, attack, 92, true);
+    labelled (releaseLabel, release, 92, true);
+    controls.removeFromLeft (16);
+    meterArea = controls.removeFromLeft (520).withSizeKeepingCentre (520, 64);
 }
 
 void EqPage::paint (juce::Graphics& g)
@@ -277,12 +339,71 @@ void EqPage::paint (juce::Graphics& g)
         return;
     }
     const auto colour = EqBands::colourFor (band);
+    name = name.withHeight (92);
     g.setColour (colour);
     g.fillEllipse (name.removeFromLeft (22).toFloat().withSizeKeepingCentre (14.0f, 14.0f));
     name.removeFromLeft (6);
     g.setColour (ParagonColours::text);
     g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
     g.drawText ("BAND " + juce::String (band + 1), name, juce::Justification::centredLeft, false);
+
+    if (dynamicRow)
+        paintDynamics (g);
+}
+
+void EqPage::paintDynamics (juce::Graphics& g)
+{
+    // A line between the rows, and the row's name.
+    g.setColour (ParagonColours::panelEdge);
+    g.drawHorizontalLine (dynamicArea.getY(), (float) dynamicArea.getX() + 14.0f, (float) dynamicArea.getRight() - 14.0f);
+    auto title = dynamicArea.reduced (14, 0).withTrimmedBottom (10).removeFromLeft (118);
+    g.setColour (ParagonColours::text);
+    g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    g.drawText ("DYNAMICS", title.withTrimmedLeft (28), juce::Justification::centredLeft, false);
+
+    // What it hears against its threshold, and how far its gain has moved
+    // (of its range).
+    const auto settings = processor.getEqSettings();
+    const auto& b = settings.bands[(size_t) band];
+    const auto reading = processor.getEqDynamics (band);
+    const auto colour = EqBands::colourFor (band);
+    auto area = meterArea;
+    const auto rowHeight = area.getHeight() / 2;
+
+    const auto bar = [&] (juce::Rectangle<int> row, const juce::String& name, const juce::String& text)
+    {
+        g.setColour (ParagonColours::textDim);
+        g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        g.drawText (name, row.removeFromLeft (78), juce::Justification::centredLeft, false);
+        g.setColour (ParagonColours::accent);
+        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        g.drawText (text, row.removeFromRight (200), juce::Justification::centredLeft, false);
+        row.removeFromRight (10);
+        const auto track = row.toFloat().withSizeKeepingCentre ((float) row.getWidth(), 10.0f);
+        g.setColour (juce::Colour (0xff09070a));
+        g.fillRoundedRectangle (track, 3.0f);
+        g.setColour (ParagonColours::panelEdge);
+        g.drawRoundedRectangle (track, 3.0f, 1.0f);
+        return track;
+    };
+
+    // HEARS: -60 to 0 dB, with the threshold marked.
+    using namespace eq::dynamics;
+    const auto levelText = reading.levelDb <= floorDb + 1.0f ? juce::String ("-") : juce::String (reading.levelDb, 1) + " dB";
+    const auto hears = bar (area.removeFromTop (rowHeight), "HEARS",
+                            levelText + "  (threshold " + juce::String (reading.thresholdDb, 1) + (b.autoThreshold ? ", auto)" : ")"));
+    const auto xForLevel = [&] (double db) { return hears.getX() + (float) ((juce::jlimit (minThresholdDb, maxThresholdDb, db) - minThresholdDb) / (maxThresholdDb - minThresholdDb)) * hears.getWidth(); };
+    g.setColour (colour.withAlpha (0.8f));
+    g.fillRoundedRectangle (hears.withRight (xForLevel (reading.levelDb)).reduced (1.5f), 2.0f);
+    g.setColour (juce::Colours::white);
+    g.fillRect (juce::Rectangle<float> (2.0f, hears.getHeight() + 6.0f).withCentre ({ xForLevel (reading.thresholdDb), hears.getCentreY() }));
+
+    // MOVING: 0 to the range, from the left.
+    const auto rangeText = (b.dynamicRangeDb > 0.0 ? "+" : "") + juce::String (b.dynamicRangeDb, 1);
+    const auto moving = bar (area, "MOVING", (reading.changeDb > 0.05f ? "+" : "") + juce::String (reading.changeDb, 1) + " of " + rangeText + " dB");
+    const auto fraction = std::abs (b.dynamicRangeDb) > 0.01 ? juce::jlimit (0.0, 1.0, reading.changeDb / b.dynamicRangeDb) : 0.0;
+    g.setColour (colour);
+    g.fillRoundedRectangle (moving.withWidth (moving.getWidth() * (float) fraction).reduced (1.5f), 2.0f);
 }
 
 //==============================================================================
@@ -319,7 +440,7 @@ void EqOverview::mouseUp (const juce::MouseEvent& event)
 void EqOverview::paint (juce::Graphics& g)
 {
     DockStyle::drawPanel (g, getLocalBounds().toFloat());
-    const auto settings = processor.getEqSettings();
+    const auto settings = EqBands (processor).live();   // dynamic bands where they are now
     const auto numBands = std::count_if (settings.bands.begin(), settings.bands.end(), [] (const eq::Band& b) { return b.used; });
 
     auto header = getLocalBounds().reduced (16, 10).removeFromTop (26).toFloat();

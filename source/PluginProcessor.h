@@ -137,6 +137,7 @@ public:
     void setEqSolo (int band) noexcept { eqSoloBand = band; }
     int getEqSolo() const noexcept { return eqSoloBand.load(); }
     double getEqAutoGainDb() const noexcept { return parametricEq.getAutoGainDb(); }
+    eq::ParametricEq::DynamicReading getEqDynamics (int band) const noexcept { return parametricEq.getDynamics (band); }
     void resetTuner() noexcept { tuner.clear(); }
     void updateTuner();   // the timer calls this; tests call it to step the tuner
 
