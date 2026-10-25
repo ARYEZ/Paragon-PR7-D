@@ -12,7 +12,8 @@
 // different: they're meant to be tweaked by ear. Problems that come and go
 // (sibilance, boomy notes, harsh hits) use dynamic bands with AUTO, so they
 // only act when the problem is there. Mastering rigs move a dB or two at
-// most. None of them touch PRESENCE or RIG LEVEL.
+// most, and end with the LIMITER as a -1 dB safety ceiling. None of them
+// touch PRESENCE or RIG LEVEL.
 namespace
 {
     using eq::Shape;
@@ -201,7 +202,7 @@ std::vector<Rig> makeFactoryRigs()
     rigs.push_back (makeRig ("Mix Brighter", mix, 6, { "Mix", "Tilt", "Bright" },
         "Tilts the whole mix brighter: 0.6 dB an octave, the highs up and the lows down round 1 kHz.", { tilt (6.0) }));
 
-    // E: mastering (a dB or two at most; no limiter yet: that's stomp 7)
+    // E: mastering (a dB or two at most), each finished by the LIMITER (below)
     rigs.push_back (makeRig ("Master Gentle Polish", mastering, 1, { "Mastering" },
         "Small, broad moves: a touch of weight and air, a little less low-mid, and sub-sonic rumble (below 18 Hz) cut.",
         { cut (Shape::lowCut, 18.0, 24), shelf (Shape::lowShelf, 60.0, 0.8), bell (250.0, -0.8, 0.7),
@@ -221,6 +222,17 @@ std::vector<Rig> makeFactoryRigs()
         "A gentle darker tilt for a bright master: 0.3 dB an octave.", { tilt (-3.0) }));
     rigs.push_back (makeRig ("Master Bright Tilt", mastering, 6, { "Mastering", "Tilt", "Bright" },
         "A gentle brighter tilt for a dull master: 0.3 dB an octave.", { tilt (3.0) }));
+
+    // The mastering rigs end with the LIMITER (0.8.0): BRICK, a -1 dB ceiling,
+    // as a safety net against overs rather than to make it louder.
+    for (auto& rig : rigs)
+        if (rig.bank == mastering)
+        {
+            rig.parameters[ParamIDs::limitOn] = 1.0f;
+            rig.parameters[ParamIDs::limitThreshold] = -1.0f;
+            rig.parameters[ParamIDs::limitMode] = 0.0f;   // Brick
+            rig.notes << " The LIMITER (stomp 7) holds a -1 dB ceiling.";
+        }
 
     return rigs;
 }

@@ -28,7 +28,7 @@ stomps are still being planned, one at a time with the owner.
 | **4 EQ** | An EQ inspired by FabFilter Pro-Q 4 (our own design) | Works: 24 bands on its own page, any of them dynamic, and EQ Match |
 | **5 Resonance** | Resonance suppression inspired by oeksound soothe (our own design) | Placeholder |
 | **6 Auto EQ** | Adaptive EQ inspired by Soundtheory Gullfoss (a "maybe"; our own design) | Placeholder |
-| **7 Limiter** | The output trim / limiter from PR7-C, ported | Placeholder |
+| **7 Limiter** | The output trim / limiter from PR7-C, ported | Works: Brick, Soft and Auto, make up, mix, link, output trim |
 
 Placeholder stomps show their name, keep their light off, and do nothing when pressed. Final names are the owner's;
 none of those products' names or branding go on the plugin.
@@ -50,13 +50,16 @@ none of those products' names or branding go on the plugin.
   - **EQ Match** (MATCH, top of the page): listens to your track and a reference (another part of the song, a song
     file, or a saved reference), then proposes bands that make your track's tone like the reference's. DETAIL (a few
     broad bands or more, finer ones) and AMOUNT (how much of the difference), then ADD BANDS.
+- **LIMITER (stomp 7)**, PR7-C's limiter: THRESHOLD (the ceiling), MAKE UP, MIX, LINK, and MODE (Brick, Soft or Auto),
+  then OUTPUT TRIM. It's last in the chain, after OUTPUT, so nothing can push a peak past it; no look-ahead, so no delay.
+  Its panel shows the gain reduction.
 - **Tuner (stomp 1):** for checking the pitch of a recorded part as it plays, one note at a time, up to 1,500 Hz. It
   hears both channels and never changes the sound. Its panel shows the current note and cents, the pitch over the last
   30 seconds against the notes (green within 5 cents, orange within 15, red beyond), and the **average**: how sharp or
   flat the part sits overall. **RESET** (in the panel, or the key on the unit) starts the trace and average again. It
   keeps listening with the window closed. The reference pitch for A4 is in SETTINGS.
 - **Stereo throughout:** both channels pass through as they came in, apart from what the stomps do (a mono track plays on
-  both speakers). **Signal chain** (bottom strip): input → EQ → output, growing as the stomps are built.
+  both speakers). **Signal chain** (bottom strip): input → EQ → LIMITER → output, growing as the stomps are built.
 - **PRESENCE** cuts or boosts the top end (above about 3.5 kHz).
 - **Rigs:** SAVE in the header saves the current sound as a rig; **<** and **>** step through rigs; a `*` after the name
   means it's changed since loading. The **PRESETS** tab browses, files (banks A-E), tags and favourites rigs. The factory

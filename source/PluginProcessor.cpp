@@ -18,7 +18,7 @@ namespace
     // Which version's parameters a project was saved with, as for rigs (see
     // Rig.cpp). Projects from before 0.3.0 don't say: 0.
     const juce::Identifier parameterVersionKey { "parameterVersion" };
-    constexpr int parameterVersion = 31;
+    constexpr int parameterVersion = 32;
 
 }
 
@@ -81,6 +81,9 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     bypassAmount.reset (sampleRate, gainRampSeconds);
     bypassAmount.setCurrentAndTargetValue (isOn (ParamIDs::bypass) ? 1.0f : 0.0f);
     parametricEq.prepare (sampleRate, preparedBlockSize);
+    limiter.prepare (sampleRate, preparedBlockSize);
+    limitTrim.reset (sampleRate, gainRampSeconds);
+    limitTrimFresh = true;
     eqInputTap.setSampleRate (sampleRate);
     eqOutputTap.setSampleRate (sampleRate);
     for (auto& shelf : presence)
@@ -298,6 +301,27 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, in
         for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
             block.getChannelPointer (channel)[i] *= gain;
     }
+
+    // Stomp 7, the LIMITER (PR7-C's): last, so nothing after it can push a
+    // peak past its ceiling. OUTPUT, RIG LEVEL and the volume pedal come
+    // before it, so turning OUTPUT up drives into it, as into a mastering
+    // limiter. Then its OUTPUT TRIM (which moves the ceiling with it, as on PR7-C).
+    const auto limiterOn = isOn (ParamIDs::limitOn);
+    limiter.process (block, { limiterOn, param (ParamIDs::limitThreshold), param (ParamIDs::limitMakeUp),
+                              (effects::Limiter::Mode) juce::jlimit (0, 2, juce::roundToInt (param (ParamIDs::limitMode))),
+                              param (ParamIDs::limitMix) / 100.0f, isOn (ParamIDs::limitLink) });
+    const auto trimTarget = limiterOn ? juce::Decibels::decibelsToGain (param (ParamIDs::limitTrim)) : 1.0f;
+    if (limitTrimFresh)   // playback is starting: at the setting from the first sample (as the limiter is)
+        limitTrim.setCurrentAndTargetValue (trimTarget);
+    limitTrimFresh = false;
+    limitTrim.setTargetValue (trimTarget);
+    if (limitTrim.isSmoothing() || ! juce::approximatelyEqual (limitTrim.getTargetValue(), 1.0f))
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const auto gain = limitTrim.getNextValue();
+            for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
+                block.getChannelPointer (channel)[i] *= gain;
+        }
 
     // BYPASS crossfades to the clean input, channel by channel.
     bypassAmount.setTargetValue (isOn (ParamIDs::bypass) ? 1.0f : 0.0f);

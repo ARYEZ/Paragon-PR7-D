@@ -213,16 +213,18 @@ TEST_CASE ("Seven stomps, three over four, labelled from the plan", "[ui]")
     stomps[3]->onSelect();
     CHECK_FALSE (tunerPanels[0]->isVisible());
 
-    // TUNER and EQ switch what PR7-E already has.
+    // TUNER, EQ and LIMITER switch what PR7-E already has.
     const auto isOn = [&] (const char* id) { return processor.getParameters().getRawParameterValue (id)->load() > 0.5f; };
     REQUIRE_FALSE (isOn (ParamIDs::tunerOn));
     stomps[0]->toggle();
     CHECK (isOn (ParamIDs::tunerOn));
     stomps[3]->toggle();
     CHECK (isOn (ParamIDs::eqOn));
+    stomps[6]->toggle();
+    CHECK (isOn (ParamIDs::limitOn));
 
     // The rest aren't built yet: their pads change nothing and their names open nothing.
-    for (const auto i : { 1, 2, 4, 5, 6 })
+    for (const auto i : { 1, 2, 4, 5 })
     {
         INFO (names[i]);
         auto& stomp = *stomps[(size_t) i];

@@ -76,9 +76,9 @@ public:
 private:
     // The blocks in signal-chain order; footswitches, the chain strip and
     // the summary cards select these to show their knobs.
-    // The signal chain's blocks (just the EQ, until more stomps are built).
+    // The signal chain's blocks (the EQ and the LIMITER, so far).
     // tunerBlock isn't in the chain (the tuner only listens): it's the TUNER stomp's panel.
-    enum Block { eqBlock, numBlocks, tunerBlock = numBlocks };
+    enum Block { eqBlock, limiterBlock, numBlocks, tunerBlock = numBlocks };
 
     enum class Page { processor, presets, settings, eq };   // eq: the EQ stomp's own page
 
@@ -144,6 +144,7 @@ private:
     ExpressionPanel expressionPanel;
     EqOverview eqPanel;   // the dock's default: the EQ's curve, and OPEN EQ
     TunerPanel tunerPanel;
+    EffectPanel limiterPanel;   // stomp 7's knobs, with its gain-reduction meter
     juce::TextButton closePanel { "EQ" };   // back to the EQ overview, the dock's default
     SignalChain signalChain;
     int selectedBlock = eqBlock;

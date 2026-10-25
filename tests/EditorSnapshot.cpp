@@ -252,7 +252,7 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 display->refresh();
         }
 
-    // PARAGON_SNAPSHOT_BLOCK=n opens block n's panel in the dock (0 = the EQ overview, 1 = the TUNER panel).
+    // PARAGON_SNAPSHOT_BLOCK=n opens block n's panel in the dock (0 = the EQ overview, 1 = the LIMITER, 2 = the TUNER panel).
     if (const auto block = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_BLOCK", {}); block.isNotEmpty())
         if (auto* chain = findType<SignalChain> (*editor))
             chain->onSelect (block.getIntValue());

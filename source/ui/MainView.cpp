@@ -125,8 +125,13 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
       eqPanel (processorToShow),
       tunerPanel (processorToShow),
       // The blocks that shape the sound, in order; it grows as the stomps are built.
+      limiterPanel (processorToShow.getParameters(),
+                    { { "LIMIT", { { ParamIDs::limitOn, "ON" }, { ParamIDs::limitThreshold, "THRESHOLD" }, { ParamIDs::limitMakeUp, "MAKE UP" },
+                                   { ParamIDs::limitMode, "MODE" }, { ParamIDs::limitMix, "MIX" }, { ParamIDs::limitLink, "LINK" } } },
+                      { "OUTPUT", { { ParamIDs::limitTrim, "OUTPUT TRIM" } } } }),
       signalChain (processorToShow.getParameters(), {
-          { "EQ", Icons::Type::eq, ParagonColours::eq, ParamIDs::eqOn } }),
+          { "EQ", Icons::Type::eq, ParagonColours::eq, ParamIDs::eqOn },
+          { "LIMITER", Icons::Type::comp, ParagonColours::comp, ParamIDs::limitOn } }),
       rigBrowser (processorToShow),
       settingsPage (processorToShow),
       eqPage (processorToShow)
@@ -269,7 +274,12 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     footswitches[3]->onSelect = [this] { showPage (Page::eq); };
     addStomp (5, "RESONANCE", {}, noBlock, planned ("Resonance suppression: to plan"));
     addStomp (6, "AUTO EQ", {}, noBlock, planned ("Adaptive EQ: to plan"));
-    addStomp (7, "LIMITER", {}, noBlock, planned ("Output trim and limiter, from PR7-C: to port"));
+    // LIMITER: PR7-C's limiter and output trim, last in the chain; its name opens its knobs.
+    addStomp (7, "LIMITER", { ParamIDs::limitOn }, limiterBlock, [this]
+    {
+        const auto ceiling = rawValue (ParamIDs::limitThreshold) + rawValue (ParamIDs::limitMakeUp) + rawValue (ParamIDs::limitTrim);
+        return "Ceiling " + juce::String (ceiling, 1) + " dB, " + valueText (ParamIDs::limitMode).toUpperCase();
+    });
 
     addAndMakeVisible (pedal);   // first, so everything on the pedal sits on top of it
     processorPage = { &pedal, &display, &rigUp, &rigDown, &pedalSave, &pedalSaveAs, &bypassButton,
@@ -285,6 +295,12 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
 
     addChildComponent (eqPanel);
     addChildComponent (tunerPanel);
+    addChildComponent (limiterPanel);
+    limiterPanel.setHeader (Icons::Type::comp, ParagonColours::comp, "LIMITER");
+    limiterPanel.setMeter ([this]
+    {
+        return -juce::jmax (audioProcessor.getLimiterReductionDb (0), audioProcessor.getLimiterReductionDb (1));
+    });
 
     eqPanel.onOpen = [this] { showPage (Page::eq); };
     eqPage.onClose = [this] { showPage (Page::processor); };
@@ -346,11 +362,12 @@ void MainView::selectBlock (int block)
     const auto onProcessorPage = page == Page::processor;
     eqPanel.setVisible (block == eqBlock && onProcessorPage);
     tunerPanel.setVisible (block == tunerBlock && onProcessorPage);
+    limiterPanel.setVisible (block == limiterBlock && onProcessorPage);
     closePanel.setVisible (block != eqBlock && onProcessorPage);
     if (block != eqBlock)
         closePanel.toFront (false);
 
-    const int footswitchBlocks[] = { tunerBlock, noBlock, noBlock, eqBlock, noBlock, noBlock, noBlock };
+    const int footswitchBlocks[] = { tunerBlock, noBlock, noBlock, eqBlock, noBlock, noBlock, limiterBlock };
     static_assert (std::size (footswitchBlocks) == std::tuple_size_v<decltype (footswitches)>);
     for (size_t i = 0; i < footswitches.size(); ++i)
         footswitches[i]->setSelected (footswitchBlocks[i] == block);
@@ -640,6 +657,7 @@ void MainView::resized()
     const auto summaryArea = mock (662, 568, 1334, 822);
     eqPanel.setBounds (summaryArea);
     tunerPanel.setBounds (summaryArea);
+    limiterPanel.setBounds (summaryArea);
     closePanel.setBounds (summaryArea.withSizeKeepingCentre (0, 0).withX (summaryArea.getRight() - 130).withY (summaryArea.getY() + 10)
                               .withSize (118, 24));
     expressionPanel.setBounds (mock (1344, 568, 1662, 822));

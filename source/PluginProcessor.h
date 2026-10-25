@@ -7,6 +7,7 @@
 #include "dsp/InputTap.h"
 #include "dsp/TapTempo.h"
 #include "dsp/Tuner.h"
+#include "dsp/effects/Limiter.h"
 #include "dsp/eq/EqMatchSession.h"
 #include "dsp/eq/ParametricEq.h"
 #include "dsp/effects/Presence.h"
@@ -140,6 +141,9 @@ public:
     double getEqAutoGainDb() const noexcept { return parametricEq.getAutoGainDb(); }
     eq::ParametricEq::DynamicReading getEqDynamics (int band) const noexcept { return parametricEq.getDynamics (band); }
     eq::match::Session& getEqMatch() noexcept { return eqMatch; }
+
+    // The LIMITER's gain reduction on a channel in the last block (dB, 0 or more).
+    float getLimiterReductionDb (int channel) const noexcept { return limiter.getReductionDb (channel); }
     void resetTuner() noexcept { tuner.clear(); }
     void updateTuner();   // the timer calls this; tests call it to step the tuner
 
@@ -214,7 +218,10 @@ private:
     std::array<EqBandParameters, ParamIDs::eqNumBands> eqBandParameters {};
     std::atomic<int> eqSoloBand { -1 };
     InputTap eqInputTap { 16384 }, eqOutputTap { 16384 };   // what goes into and comes out of the EQ, for its analyser
-    eq::match::Session eqMatch { {} };   // EQ Match's listening (its folder is set with the rigs folder)
+    eq::match::Session eqMatch { {} };
+    effects::Limiter limiter;   // stomp 7, ported from PR7-C
+    juce::SmoothedValue<float> limitTrim { 1.0f };   // its OUTPUT TRIM (1 while it's off)
+    bool limitTrimFresh = true;   // EQ Match's listening (its folder is set with the rigs folder)
     std::array<effects::Presence, effects::maxChannels> presence;
 
     std::unique_ptr<RigLibrary> rigLibrary;

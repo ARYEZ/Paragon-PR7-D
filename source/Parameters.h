@@ -42,6 +42,16 @@ namespace ParamIDs
     inline constexpr const char* eqBandSettings[] = { "Used", "On", "Shape", "Freq", "Gain", "Q", "Slope", "Place",
                                                       "Dyn", "DynAuto", "Thresh", "Attack", "Release" };
 
+    // Stomp 7, the LIMITER (0.8.0): PR7-C's limiter and output trim, ported.
+    // The last thing in the chain, after OUTPUT, RIG LEVEL and the volume pedal.
+    inline constexpr auto limitOn        = "limitOn";
+    inline constexpr auto limitThreshold = "limitThreshold";   // dBFS
+    inline constexpr auto limitMakeUp    = "limitMakeUp";      // dB
+    inline constexpr auto limitMode      = "limitMode";        // choice: Brick, Soft, Auto
+    inline constexpr auto limitMix       = "limitMix";         // %
+    inline constexpr auto limitLink      = "limitLink";        // both channels together
+    inline constexpr auto limitTrim      = "limitTrim";        // OUTPUT TRIM, dB, after the limiter
+
     // Global settings: kept when switching rigs. Everything else is part of a rig.
     // The expression pedal's position is global for the same reason a real
     // pedal's is: it's where your foot is, not part of the sound. What the
@@ -60,6 +70,11 @@ namespace ExpressionTargets
 
 namespace ParamRanges
 {
+    // The LIMITER's, as on PR7-C.
+    inline constexpr float limitThresholdMin = -20.0f, limitMakeUpMax = 12.0f;
+    inline constexpr float limitTrimMin = -12.0f, limitTrimMax = 12.0f;
+    inline const juce::StringArray limitModes { "Brick", "Soft", "Auto" };   // saved by index: only append
+
     inline constexpr float gainMinDb = -24.0f;
     inline constexpr float gainMaxDb = 24.0f;
 }

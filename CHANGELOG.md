@@ -2,6 +2,18 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.8.0
+
+- **The LIMITER stomp (7): PR7-C's limiter and output trim, ported.** The same limiter as on PR7-C, code and tests, so it behaves the same. Press stomp 7 to switch it on; click its name for its knobs in the dock.
+  - **THRESHOLD** (-20 to 0 dB, -1 to start): the ceiling. **MAKE UP** (0 to 12 dB) turns up the limited sound, raising the ceiling with it. **MIX** blends in the unlimited sound (below 100%, some of the original peaks come back). **LINK** turns both sides down together, so the stereo picture stays put.
+  - **MODE:** **Brick**, a hard ceiling; **Soft**, which eases in from 3 dB below the threshold and lets go more gently; **Auto**, Brick's ceiling, letting go quickly after short peaks and slowly under steady limiting.
+  - **OUTPUT TRIM** (+-12 dB) after it, as on PR7-C: it moves the ceiling with it. It only applies while the stomp is on.
+  - The panel's **GAIN REDUCTION** meter shows how much it's turning down, and the stomp shows the ceiling (threshold + make up + trim).
+- **It's last in the chain**, after OUTPUT, RIG LEVEL and the volume pedal, so nothing after it can push a peak past the ceiling. Turning OUTPUT up drives into it, as into a mastering limiter.
+- **No look-ahead, so no delay** (the same trade-off as on PR7-C): when it limits hard, the very start of each peak is squared off a little. It limits the samples, not the peaks between them, so a converter can still see a peak a fraction of a dB over (the reason for -1 dB rather than 0).
+- **The mastering factory rigs** (bank E) now end with it: Brick, a -1 dB ceiling, as a safety net against overs rather than to make them louder.
+- The signal chain at the bottom now shows EQ, then LIMITER.
+
 ## 0.7.0
 
 - **EQ Match: make your track's tone like a reference's.** Click **MATCH** at the top of the EQ page. It listens to your track and to a reference, compares their overall tone (how much low end, middle and top each has, averaged over time), and proposes EQ bands that make your track sound like the reference. Inspired by Pro-Q 4's EQ Match, as its manual describes it; how ours analyses and picks bands is our own design.

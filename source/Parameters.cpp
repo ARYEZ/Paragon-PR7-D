@@ -118,6 +118,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         layout.add (makeFloat (id ("Attack").toRawUTF8(), name ("Attack"), { 0.0f, 1.0f, 0.01f }, (float) defaults.attack, v31, asPercent));
         layout.add (makeFloat (id ("Release").toRawUTF8(), name ("Release"), { 0.0f, 1.0f, 0.01f }, (float) defaults.release, v31, asPercent));
     }
+    // Stomp 7, the LIMITER (0.8.0): ranges and defaults as on PR7-C.
+    constexpr int v32 = 32;
+    layout.add (makeSwitch (ParamIDs::limitOn, "Limiter", v32, false));
+    layout.add (makeFloat (ParamIDs::limitThreshold, "Limit Threshold", { ParamRanges::limitThresholdMin, 0.0f, 0.1f }, -1.0f, v32, asDb));
+    layout.add (makeFloat (ParamIDs::limitMakeUp, "Limit Make Up", { 0.0f, ParamRanges::limitMakeUpMax, 0.1f }, 0.0f, v32, asDb));
+    layout.add (makeChoice (ParamIDs::limitMode, "Limit Mode", v32, ParamRanges::limitModes, 0));
+    layout.add (makeFloat (ParamIDs::limitMix, "Limit Mix", { 0.0f, 100.0f, 1.0f }, 100.0f, v32,
+                           [] (float v, int) { return juce::String (juce::roundToInt (v)) + "%"; }));
+    layout.add (makeSwitch (ParamIDs::limitLink, "Limit Link", v32, true));
+    layout.add (makeFloat (ParamIDs::limitTrim, "Output Trim", { ParamRanges::limitTrimMin, ParamRanges::limitTrimMax, 0.1f }, 0.0f, v32, asDb));
+
     layout.add (makeFloat (ParamIDs::eqOutput, "EQ Output", { -36.0f, 36.0f, 0.01f }, 0.0f, v30, asDb));
     layout.add (makeFloat (ParamIDs::eqGainScale, "EQ Gain Scale", { 0.0f, 2.0f, 0.01f }, 1.0f, v30, asPercent));
     layout.add (makeSwitch (ParamIDs::eqAutoGain, "EQ Auto Gain", v30, false));
