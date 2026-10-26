@@ -39,6 +39,7 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
 
     rigLibrary = std::make_unique<RigLibrary>();
     eqMatch.setReferencesFolder (rigLibrary->getFolder().getChildFile ("Match References"));
+    dominionPresets.setFolder (rigLibrary->getFolder().getChildFile ("Dominion Presets"));
 
     // Any change to a parameter that rigs store marks the rig as modified,
     // and finishing an edit to one records an undo step.
@@ -180,6 +181,12 @@ dominion::Settings ParagonX1AudioProcessor::getDominionSettings() const noexcept
     }
     s.listenBand = dominionListen.load();
     return s;
+}
+
+void ParagonX1AudioProcessor::loadDominionPreset (const DominionPreset& preset)
+{
+    DominionPresets::apply (preset, parameters);
+    dominionPreset = preset;
 }
 
 void ParagonX1AudioProcessor::readHostTempo()
@@ -513,6 +520,7 @@ void ParagonX1AudioProcessor::useRigFolder (const juce::File& folder)
 {
     rigLibrary = std::make_unique<RigLibrary> (folder);
     eqMatch.setReferencesFolder (folder.getChildFile ("Match References"));
+    dominionPresets.setFolder (folder.getChildFile ("Dominion Presets"));
     rigBroadcaster.sendChangeMessage();
 }
 

@@ -32,6 +32,10 @@ public:
     double dbForY (float y) const noexcept;
     juce::Point<float> dotFor (const dominion::Band&) const noexcept;
 
+    // The red to pink to orange gradient (the menus' highlight) at a
+    // frequency, as the graph spreads it: red in the lows, orange in the highs.
+    static juce::Colour colourAt (double hz);
+
     // Its bands, through their parameters (each change a gesture).
     void setBand (int band, const char* what, float plainValue);
     int createBand (dominion::Shape, double frequency, double depthDb);
@@ -95,6 +99,8 @@ private:
     };
 
     void timerCallback() override;
+    void showPresetMenu();
+    void saveAsPreset();
     void showBand (int band);
     void step (int direction);
     std::vector<juce::Component*> bandComponents();
@@ -107,7 +113,8 @@ private:
     Choice mode, stereo;
     Knob depth, detail, attack, release, link, focus, detailLow, detailHigh, attackLow, attackHigh, releaseLow, releaseHigh,
          maxCut, wetTrim, mix, out;
-    juce::TextButton back { "BACK TO PEDAL" };
+    juce::TextButton back { "BACK TO PEDAL" }, preset;
+    juce::Label presetLabel { {}, "PRESET" };
 
     // The selected band
     int band = -1;

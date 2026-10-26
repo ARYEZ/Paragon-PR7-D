@@ -54,6 +54,8 @@ none of those products' names or branding go on the plugin.
   turns just that down. MODE (Soft: what sticks out, at any level; Hard: what's loud), DEPTH, DETAIL, ATTACK, RELEASE; a
   graph of what it's cutting, with a depth curve of up to 8 bands to steer it; stereo or mid/side, LINK and FOCUS; tilts
   for the lows and highs; MAX CUT, WET TRIM, DELTA, MIX and OUT. Click its name for its page. Zero latency.
+  **PRESET** (on its page): its own presets, apart from the rigs (vocals, drums, instruments, mix and master, creative),
+  and your own, saved in "Dominion Presets" beside your rigs. A preset changes only DOMINION's settings.
 - **COMP (stomp 2)**, PR7-C's compressor, after the EQ: CHARACTER (VCA clean, OPTO smooth, FET fast with a little grit),
   THRESHOLD, RATIO (from Soft, a curve that firms up with level, to infinite), ATTACK, RELEASE, AUTO release, MAKE UP and
   LINK. Its panel shows the gain reduction.

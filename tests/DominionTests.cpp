@@ -7,6 +7,7 @@
 #include "dsp/dominion/Dominion.h"
 #include "ui/DominionPage.h"
 #include "ui/Footswitch.h"
+#include "rigs/DominionPresets.h"
 #include "dsp/eq/EqMatch.h"
 
 using Catch::Matchers::WithinAbs;
@@ -513,4 +514,122 @@ TEST_CASE ("DOMINION in the factory rigs: it tames a resonance and leaves the re
         CHECK (toneDb (on, 4000.0) - toneDb (off, 4000.0) < -3.0);
         CHECK (std::abs (at (spectrum (on), 800.0) - at (spectrum (off), 800.0)) < 1.0);
     }
+}
+
+//==============================================================================
+// DOMINION's own presets (0.10.3)
+TEST_CASE ("DOMINION presets: the factory ones hold only DOMINION's settings, all in range", "[dominion][presets]")
+{
+    ParagonX1AudioProcessor processor;
+    juce::StringArray names;
+    REQUIRE (DominionPresets::factory().front().name == "Default");
+    for (const auto& preset : DominionPresets::factory())
+    {
+        INFO (preset.name);
+        names.addIfNotAlreadyThere (preset.name);
+        for (const auto& [id, value] : preset.parameters)
+        {
+            INFO (id);
+            CHECK (DominionPresets::holds (id));
+            CHECK (id != ParamIDs::domOn);
+            auto* parameter = dynamic_cast<juce::RangedAudioParameter*> (processor.getParameters().getParameter (id));
+            REQUIRE (parameter != nullptr);
+            CHECK (value >= parameter->getNormalisableRange().start);
+            CHECK (value <= parameter->getNormalisableRange().end);
+        }
+    }
+    CHECK (names.size() == (int) DominionPresets::factory().size());
+    CHECK (names.size() >= 12);
+}
+
+TEST_CASE ("DOMINION presets: loading one sets DOMINION and nothing else, and one undo takes it back", "[dominion][presets]")
+{
+    ParagonX1AudioProcessor processor;
+    auto& state = processor.getParameters();
+    // Knob moves as the UI makes them: a gesture each, so undo records them.
+    const auto set = [&] (const char* id, float value)
+    {
+        auto* p = state.getParameter (id);
+        p->beginChangeGesture();
+        p->setValueNotifyingHost (p->convertTo0to1 (value));
+        p->endChangeGesture();
+    };
+    const auto value = [&] (const juce::String& id) { return state.getRawParameterValue (id)->load(); };
+    set (ParamIDs::eqOn, 1.0f);
+    set (ParamIDs::domOn, 1.0f);
+    set (ParamIDs::domFocus, 40.0f);   // not in the preset: back to its default
+    processor.flushUndoStep();
+
+    const auto* sibilance = processor.getDominionPresets().findFactory ("Vocal Sibilance");
+    REQUIRE (sibilance != nullptr);
+    processor.loadDominionPreset (*sibilance);
+    processor.flushUndoStep();
+    CHECK (value (ParamIDs::domDepth) == 7.0f);
+    CHECK (value (ParamIDs::domFocus) == 0.0f);
+    CHECK (value (ParamIDs::domBand (1, "Used")) > 0.5f);
+    CHECK_THAT (value (ParamIDs::domBand (1, "Freq")), WithinAbs (7000.0, 1.0));
+    CHECK (value (ParamIDs::domOn) > 0.5f);   // its switch, and the rest of the rig, are left alone
+    CHECK (value (ParamIDs::eqOn) > 0.5f);
+    CHECK (processor.getDominionPresetName() == "Vocal Sibilance");
+    CHECK_FALSE (processor.isDominionPresetModified());
+    set (ParamIDs::domDepth, 9.0f);
+    CHECK (processor.isDominionPresetModified());
+
+    processor.flushUndoStep();
+    processor.undo();
+    processor.undo();
+    CHECK_THAT (value (ParamIDs::domFocus), WithinAbs (40.0, 0.5));
+    CHECK (value (ParamIDs::domBand (0, "Used")) < 0.5f);
+}
+
+TEST_CASE ("DOMINION presets: yours are saved, listed, loaded and deleted", "[dominion][presets]")
+{
+    ParagonX1AudioProcessor processor;
+    const auto folder = juce::File::createTempFile ("dominion-presets");
+    processor.getDominionPresets().setFolder (folder);
+    auto& state = processor.getParameters();
+    state.getParameter (ParamIDs::domDetail)->setValueNotifyingHost (state.getParameter (ParamIDs::domDetail)->convertTo0to1 (83.0f));
+
+    auto& presets = processor.getDominionPresets();
+    REQUIRE (presets.save (DominionPresets::capture (state, "My Snare")));
+    const auto yours = presets.user();
+    REQUIRE (yours.size() == 1);
+    CHECK (yours[0].name == "My Snare");
+    CHECK (yours[0].parameters.count (ParamIDs::domOn) == 0);
+
+    processor.loadDominionPreset (*presets.findFactory ("Default"));
+    CHECK_THAT (state.getRawParameterValue (ParamIDs::domDetail)->load(), WithinAbs (50.0, 0.01));
+    processor.loadDominionPreset (yours[0]);
+    CHECK_THAT (state.getRawParameterValue (ParamIDs::domDetail)->load(), WithinAbs (83.0, 0.01));
+
+    CHECK (presets.remove (yours[0]));
+    CHECK (presets.user().empty());
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("DOMINION presets do what they're for: Vocal Sibilance and Kick Boom", "[dominion][presets]")
+{
+    // Two resonances, one where the preset should work and one where it shouldn't.
+    const auto play = [] (const char* name, double workHz, double leaveHz)
+    {
+        dominion::Settings settings;
+        ParagonX1AudioProcessor processor;
+        processor.loadDominionPreset (*processor.getDominionPresets().findFactory (name));
+        settings = processor.getDominionSettings();
+        settings.on = true;
+        Pink pink (9);
+        const auto work = sine (workHz, -20.0), leave = sine (leaveHz, -20.0);
+        std::vector<float> input;
+        DominionRig rig;
+        rig.settings = settings;
+        const auto out = rig.play (6.0, [&] (int n) { const auto x = pink() + work (n) + leave (n); input.push_back (x); return x; },
+                                        [&] (int n) { return input[(size_t) n]; });
+        return std::pair { toneDb (out[0], workHz) - toneDb (input, workHz), toneDb (out[0], leaveHz) - toneDb (input, leaveHz) };
+    };
+    const auto [sibilance, voice] = play ("Vocal Sibilance", 7000.0, 1500.0);
+    CHECK (sibilance < -4.0);
+    CHECK (std::abs (voice) < 1.0);
+    const auto [boom, click] = play ("Kick Boom", 120.0, 3000.0);
+    CHECK (boom < -3.0);
+    CHECK (std::abs (click) < 1.0);
 }

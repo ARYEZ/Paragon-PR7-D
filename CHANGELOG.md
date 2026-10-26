@@ -2,6 +2,15 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.10.3
+
+- **DOMINION's own presets.** A **PRESET** button on DOMINION's page (top right, before BACK TO PEDAL) opens a menu of presets for DOMINION alone, apart from PR7-E's rigs. Loading one changes only DOMINION's settings (mode, depth, detail, timing, tilts, stereo, output and its depth-curve bands); it leaves the EQ, COMP, the LIMITER, everything else in the rig, and whether DOMINION is switched on, alone. One undo takes it back.
+  - **Factory presets**, by category: *Vocals* (Vocal De-Harsh, Vocal Sibilance, Vocal Mud & Boom), *Drums* (Overheads Ring, Snare Ring, Kick Boom), *Instruments* (Acoustic Guitar, Electric Guitar Fizz, Bass Smoother, Piano & Keys), *Mix & Master* (Mix Bus Gentle, Master Polish) and *Creative* (Hard Carve), plus Default. Our own starting points: the depth curve steers each one to where that kind of problem usually lives (sibilance at 4 kHz and up, boom under 250 Hz on a kick...). They're settings chosen on paper and checked in the tests, not tuned by ear on your material, so treat them as places to start.
+  - **Your own:** *Save as...* keeps DOMINION's settings as a preset under "Your presets"; *Delete* removes one of yours; *Show the presets folder* opens "Dominion Presets", beside your rigs (small `.pr7dom` files you can copy to another computer).
+  - The button shows the preset's name, with a `*` once you've changed something.
+- **DOMINION's band dots and title in the gradient.** The depth-curve band dots (and the dot by the selected band's name) take the red to pink to orange gradient at their frequency, red in the lows to orange in the highs, as the cuts do; the DOMINION title on its page is filled with the gradient too. They were violet.
+- **0.10.2 wasn't published:** its Linux build crashed in one of the plugin checks (pluginval's parameter fuzzing), and the same check with the same random seed passes here every time. Its change (the cuts in the gradient) is in this release. A new test now does the same kind of fuzzing inside our own test suite (random settings on half the parameters, changed as audio plays, mono and stereo, 1,500 rounds) and the output stays clean. A build with memory and undefined-behaviour checking switched on (which stops at the first bad memory access) also passes CI's whole check, with CI's own random seed. So the crash isn't something wrong with our code that we could find; it may be in the checker itself or in the CI machine. If it comes back, we'll look again.
+
 ## 0.10.2
 
 - **DOMINION's cuts in the menus' colours.** On its graph, what DOMINION is cutting is now drawn in the same red to pink to orange gradient as the menus' highlight (left to right across the spectrum: red in the lows, pink in the middle, orange in the highs) instead of violet. With stereo or mid/side unlinked, the second channel's cuts show fainter behind.

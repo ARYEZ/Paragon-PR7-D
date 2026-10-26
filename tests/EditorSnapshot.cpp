@@ -249,9 +249,16 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             if (auto* display = findType<DominionDisplay> (*editor))
             {
                 processor.getParameters().getParameter (ParamIDs::domOn)->setValueNotifyingHost (1.0f);
-                display->createBand (dominion::Shape::lowCut, 60.0, 0.0);
-                display->createBand (dominion::Shape::bell, 2800.0, 6.0);
-                display->createBand (dominion::Shape::highShelf, 9000.0, -6.0);
+                // PARAGON_SNAPSHOT_DOMINION_PRESET=name loads one of its factory presets instead of the three bands.
+                const auto presetName = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_DOMINION_PRESET", {});
+                if (const auto* preset = processor.getDominionPresets().findFactory (presetName))
+                    processor.loadDominionPreset (*preset);
+                else
+                {
+                    display->createBand (dominion::Shape::lowCut, 60.0, 0.0);
+                    display->createBand (dominion::Shape::bell, 2800.0, 6.0);
+                    display->createBand (dominion::Shape::highShelf, 9000.0, -6.0);
+                }
                 juce::Random random (3);
                 double b[3] {};
                 juce::AudioBuffer<float> buffer (2, 256);

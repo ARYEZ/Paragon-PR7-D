@@ -8,7 +8,6 @@
 namespace
 {
     constexpr double lowestHz = 20.0, highestHz = 20000.0, rangeDb = 24.0;
-    const juce::Colour dominionColour { 0xffb86dff };   // violet: the chain block's colour too
 
     bool isCut (dominion::Shape s) { return s == dominion::Shape::lowCut || s == dominion::Shape::highCut; }
     bool usesDepth (dominion::Shape s)
@@ -107,6 +106,12 @@ double DominionDisplay::dbForY (float y) const noexcept
 {
     const auto zero = plot.getY() + plot.getHeight() * 0.36f;
     return (double) ((zero - y) / (plot.getHeight() * 0.36f)) * rangeDb;
+}
+
+juce::Colour DominionDisplay::colourAt (double hz)
+{
+    const auto proportion = std::log (juce::jlimit (lowestHz, highestHz, hz) / lowestHz) / std::log (highestHz / lowestHz);
+    return ParagonLookAndFeel::menuHighlight ({ 0.0f, 0.0f, 1.0f, 1.0f }).getColourAtPosition (proportion);
 }
 
 juce::Point<float> DominionDisplay::dotFor (const dominion::Band& b) const noexcept
@@ -251,9 +256,10 @@ void DominionDisplay::paint (juce::Graphics& g)
         if (! b.used)
             continue;
         const auto dot = juce::Rectangle<float> (16.0f, 16.0f).withCentre (dotFor (b));
+        const auto colour = colourAt (b.frequency);   // the gradient where it sits
         if (i == selected || i == hovered)
         {
-            g.setColour (dominionColour.withAlpha (0.35f));
+            g.setColour (colour.withAlpha (0.4f));
             g.fillEllipse (dot.expanded (5.0f));
         }
         if (b.on)
@@ -268,7 +274,7 @@ void DominionDisplay::paint (juce::Graphics& g)
         }
         if (i == selected)
         {
-            g.setColour (dominionColour);
+            g.setColour (colour);
             g.drawEllipse (dot.expanded (1.5f), 2.0f);
         }
         g.setColour (b.on ? juce::Colour (0xff120d10) : juce::Colours::white);
@@ -516,6 +522,12 @@ DominionPage::DominionPage (ParagonX1AudioProcessor& p)
     delta.setTooltip ("Hear only what DOMINION takes away");
     styleButton (back);
     back.onClick = [this] { if (onClose) onClose(); };
+    styleButton (preset);
+    preset.setTooltip ("DOMINION's own presets (apart from the rigs): they change only DOMINION's settings. Save your own here too");
+    preset.onClick = [this] { showPresetMenu(); };
+    styleLabel (presetLabel);
+    addAndMakeVisible (preset);
+    addAndMakeVisible (presetLabel);
 
     for (auto* component : std::initializer_list<juce::Component*> { &onButton, &delta, &back, &mode.box, &mode.label, &stereo.box, &stereo.label })
         addAndMakeVisible (component);
@@ -594,6 +606,85 @@ void DominionPage::showBand (int newBand)
     repaint();
 }
 
+void DominionPage::showPresetMenu()
+{
+    // The factory presets by category, then yours, then saving and deleting.
+    auto& presets = processor.getDominionPresets();
+    const auto& factory = DominionPresets::factory();
+    const auto yours = presets.user();
+    const auto current = processor.getDominionPresetName();
+    juce::PopupMenu menu;
+    juce::String category = "-";
+    for (int i = 0; i < (int) factory.size(); ++i)
+    {
+        if (factory[(size_t) i].category != category)
+        {
+            category = factory[(size_t) i].category;
+            if (category.isNotEmpty())
+                menu.addSectionHeader (category.toUpperCase());
+        }
+        menu.addItem (100 + i, factory[(size_t) i].name, true, factory[(size_t) i].name == current);
+    }
+    menu.addSectionHeader ("YOUR PRESETS");
+    if (yours.empty())
+        menu.addItem (99, "(none yet: SAVE AS... adds one)", false);
+    for (int i = 0; i < (int) yours.size(); ++i)
+        menu.addItem (1000 + i, yours[(size_t) i].name, true, yours[(size_t) i].name == current);
+    menu.addSeparator();
+    menu.addItem (1, "Save as...");
+    const auto mine = std::find_if (yours.begin(), yours.end(), [&] (const DominionPreset& p) { return p.name == current; });
+    menu.addItem (2, "Delete \"" + current + "\"", mine != yours.end());
+    menu.addItem (3, "Show the presets folder");
+
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&preset), [this, factory, yours] (int chosen)
+    {
+        if (chosen >= 1000 && chosen - 1000 < (int) yours.size())
+            processor.loadDominionPreset (yours[(size_t) (chosen - 1000)]);
+        else if (chosen >= 100 && chosen - 100 < (int) factory.size())
+            processor.loadDominionPreset (factory[(size_t) (chosen - 100)]);
+        else if (chosen == 1)
+            saveAsPreset();
+        else if (chosen == 2)
+        {
+            const auto name = processor.getDominionPresetName();
+            for (const auto& p : yours)
+                if (p.name == name && processor.getDominionPresets().remove (p))
+                {
+                    auto unsaved = DominionPresets::capture (processor.getParameters(), "Untitled");
+                    processor.rememberDominionPreset (unsaved);
+                }
+        }
+        else if (chosen == 3)
+        {
+            processor.getDominionPresets().getFolder().createDirectory();
+            processor.getDominionPresets().getFolder().revealToUser();
+        }
+        timerCallback();
+    });
+}
+
+void DominionPage::saveAsPreset()
+{
+    auto* window = new juce::AlertWindow ("Save a DOMINION preset", "A name for it (kept with your DOMINION presets):",
+                                          juce::MessageBoxIconType::NoIcon, this);
+    const auto current = processor.getDominionPresetName();
+    window->addTextEditor ("name", current == "Default" || current == "Untitled" ? juce::String ("My Preset") : current);
+    window->addButton ("SAVE", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    window->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    window->enterModalState (true, juce::ModalCallbackFunction::create ([this, window] (int result)
+    {
+        if (result != 1)
+            return;
+        const auto name = window->getTextEditorContents ("name").trim();
+        if (name.isEmpty())
+            return;
+        const auto saved = DominionPresets::capture (processor.getParameters(), name);
+        if (processor.getDominionPresets().save (saved))
+            processor.rememberDominionPreset (saved);
+        timerCallback();
+    }), true);
+}
+
 void DominionPage::step (int direction)
 {
     const auto settings = processor.getDominionSettings();
@@ -611,12 +702,18 @@ void DominionPage::step (int direction)
 
 void DominionPage::timerCallback()
 {
+    // The preset's name, with * once its settings have been changed.
+    const auto name = processor.getDominionPresetName() + (processor.isDominionPresetModified() ? " *" : "");
+    if (preset.getButtonText() != name)
+        preset.setButtonText (name);
+
     if (band < 0)
         return;
     const auto b = processor.getDominionSettings().bands[(size_t) band];
     bandDepth.setEnabled (usesDepth (b.shape));
     slope.setEnabled (usesSlope (b.shape));
     q.setEnabled (! isCut (b.shape));
+    repaint (controlsArea.withWidth (140));   // the band's dot follows its frequency's colour
 }
 
 void DominionPage::resized()
@@ -651,6 +748,10 @@ void DominionPage::resized()
         bar.removeFromLeft (10);
     }
     back.setBounds (bar.removeFromRight (140).withSizeKeepingCentre (140, 30));
+    bar.removeFromRight (24);
+    auto presetColumn = bar.removeFromRight (220);
+    presetLabel.setBounds (presetColumn.removeFromTop (14));
+    preset.setBounds (presetColumn.withSizeKeepingCentre (220, 30));
 
     // The side panel: STEREO, TILT, SCALE, then DELTA, MIX and OUT.
     auto side = sidePanel.reduced (12, 10);
@@ -720,10 +821,14 @@ void DominionPage::paint (juce::Graphics& g)
     for (auto area : { topBar, sidePanel, controlsArea })
         DockStyle::drawPanel (g, area.toFloat());
 
+    // The name in the red to pink to orange gradient, across its letters.
     auto title = topBar.reduced (14, 8).removeFromLeft (150);
-    g.setColour (dominionColour);
-    g.setFont (juce::FontOptions (19.0f, juce::Font::bold));
-    g.drawText ("DOMINION", title.removeFromTop (title.getHeight() / 2 + 6), juce::Justification::bottomLeft, false);
+    const auto titleFont = juce::FontOptions (19.0f, juce::Font::bold);
+    const auto titleArea = title.removeFromTop (title.getHeight() / 2 + 6);
+    const auto titleWidth = (float) juce::GlyphArrangement::getStringWidthInt (titleFont, "DOMINION");
+    g.setGradientFill (ParagonLookAndFeel::menuHighlight (titleArea.toFloat().withWidth (titleWidth)));
+    g.setFont (titleFont);
+    g.drawText ("DOMINION", titleArea, juce::Justification::bottomLeft, false);
     g.setColour (ParagonColours::textDim);
     g.setFont (juce::FontOptions (10.5f));
     g.drawText ("Resonance suppression", title, juce::Justification::topLeft, false);
@@ -755,7 +860,7 @@ void DominionPage::paint (juce::Graphics& g)
                     juce::Justification::centred, false);
         return;
     }
-    g.setColour (dominionColour);
+    g.setColour (DominionDisplay::colourAt (processor.getDominionSettings().bands[(size_t) band].frequency));
     g.fillEllipse (name.removeFromLeft (20).toFloat().withSizeKeepingCentre (13.0f, 13.0f));
     name.removeFromLeft (6);
     g.setColour (ParagonColours::text);
