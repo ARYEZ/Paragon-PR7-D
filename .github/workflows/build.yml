@@ -64,7 +64,22 @@ jobs:
           PLUGIN="build/ParagonX1_artefacts/Release/VST3/Paragon PR7-E.vst3"
           RUN="${{ matrix.pluginval_bin }} --strictness-level 10 --validate-in-process --validate"
           if [ "$RUNNER_OS" = "Linux" ]; then
+            # pluginval's own Linux VST3 host now and then crashes as it shuts
+            # down after its last test (a segfault, exit 139, in its run loop's
+            # event-handler map, juce::RunLoop::Impl::registerEventHandler,
+            # with none of the plugin's code on any thread: caught under gdb in
+            # October 2026, about 1 run in 14). That alone gets one more try; a
+            # second failure, or any other failure, fails the build.
+            set +e
             xvfb-run -a $RUN "$PLUGIN"
+            status=$?
+            set -e
+            if [ $status -eq 139 ]; then
+              echo "pluginval crashed (exit 139, its known Linux shutdown crash): running it once more"
+              xvfb-run -a $RUN "$PLUGIN"
+            elif [ $status -ne 0 ]; then
+              exit $status
+            fi
           else
             $RUN "$PLUGIN"
           fi
