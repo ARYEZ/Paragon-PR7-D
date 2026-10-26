@@ -109,6 +109,15 @@ void GainColumn::resized()
     meter.setBounds (juce::Rectangle<int> (46, 0).withX (area.getCentreX() - 26).withY (146).withBottom (area.getBottom() - 22));
 }
 
+namespace
+{
+    // The menus' gradient at block `index` of `count` across the signal chain.
+    juce::Colour chainColour (int index, int count)
+    {
+        return ParagonLookAndFeel::menuHighlight ({ 0.0f, 0.0f, 1.0f, 1.0f }).getColourAtPosition ((double) index / juce::jmax (1, count - 1));
+    }
+}
+
 //==============================================================================
 MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     : audioProcessor (processorToShow),
@@ -132,11 +141,13 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
                     { { "LIMIT", { { ParamIDs::limitOn, "ON" }, { ParamIDs::limitThreshold, "THRESHOLD" }, { ParamIDs::limitMakeUp, "MAKE UP" },
                                    { ParamIDs::limitMode, "MODE" }, { ParamIDs::limitMix, "MIX" }, { ParamIDs::limitLink, "LINK" } } },
                       { "OUTPUT", { { ParamIDs::limitTrim, "OUTPUT TRIM" } } } }),
+      // Each block in the red to pink to orange of the menus and DOMINION's
+      // and ORACLE's pages, by its place in the chain: red first, orange last.
       signalChain (processorToShow.getParameters(), {
-          { "EQ", Icons::Type::eq, ParagonColours::eq, ParamIDs::eqOn },
-          { "DOMINION", Icons::Type::filterPitch, juce::Colour (0xffb86dff), ParamIDs::domOn },
-          { "COMP", Icons::Type::comp, ParagonColours::delay, ParamIDs::compOn },
-          { "LIMITER", Icons::Type::comp, ParagonColours::comp, ParamIDs::limitOn } }),
+          { "EQ", Icons::Type::eq, chainColour (0, 4), ParamIDs::eqOn },
+          { "DOMINION", Icons::Type::filterPitch, chainColour (1, 4), ParamIDs::domOn },
+          { "COMP", Icons::Type::comp, chainColour (2, 4), ParamIDs::compOn },
+          { "LIMITER", Icons::Type::comp, chainColour (3, 4), ParamIDs::limitOn } }),
       rigBrowser (processorToShow),
       settingsPage (processorToShow),
       eqPage (processorToShow),
