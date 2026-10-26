@@ -319,11 +319,6 @@ SettingsPage::SettingsPage (ParagonX1AudioProcessor& p)
     reference.onValueChange = [this] { processor.setTunerReferenceHz (reference.getValue()); };
     reference.setTooltip ("The pitch the tuner calls A4. 440 Hz is standard; some recordings are tuned to 432 or 442. Double-click for 440.");
 
-    for (int cc = 1; cc <= 127; ++cc)
-        ccBox.addItem ("CC " + juce::String (cc) + (cc == 11 ? "  (Expression, standard)" : cc == 7 ? "  (Volume)" : cc == 4 ? "  (Foot controller)" : ""), cc);
-    styleCombo (ccBox);
-    ccBox.onChange = [this] { processor.setExpressionCc (ccBox.getSelectedId()); };
-
     styleButton (openFolder, false);
     openFolder.onClick = [this]
     {
@@ -340,7 +335,7 @@ SettingsPage::SettingsPage (ParagonX1AudioProcessor& p)
     Finish::changes().addChangeListener (this);
     showFinish();
 
-    for (auto* component : std::initializer_list<juce::Component*> { &reference, &ccBox, &openFolder, &pearlWhite, &pearlWhiteNeon, &pearlBlack })
+    for (auto* component : std::initializer_list<juce::Component*> { &reference, &openFolder, &pearlWhite, &pearlWhiteNeon, &pearlBlack })
         addAndMakeVisible (component);
 }
 
@@ -362,7 +357,6 @@ void SettingsPage::visibilityChanged()
 {
     // Settings can change from a loaded project, so read them each time the page opens.
     reference.setValue (processor.getTunerReferenceHz(), juce::dontSendNotification);
-    ccBox.setSelectedId (processor.getExpressionCc(), juce::dontSendNotification);
 }
 
 void SettingsPage::paint (juce::Graphics& g)
@@ -379,11 +373,8 @@ void SettingsPage::paint (juce::Graphics& g)
         g.drawFittedText (body, inner.removeFromTop (60), juce::Justification::topLeft, 4, 1.0f);
     };
 
-    section (tunerArea, "TUNER", "Press stomp 1 (TUNER), the TUNER key, or hold TAP, to check the pitch of what's playing. "
-                                 "Click TUNER's name for its trace. Reference pitch for A4:");
-    section (expressionArea, "EXPRESSION PEDAL",
-             "A MIDI expression pedal moves the on-screen pedal. Pick the MIDI controller it sends "
-             "(most send CC 11), and route the MIDI track to Paragon PR7-E in your DAW.");
+    section (tunerArea, "TUNER AND ORACLE", "Press stomp 1 (ORACLE) to show the pitch of what's playing on the screen and "
+                                            "transcribe it to MIDI as your DAW plays. Click ORACLE's name for its notes. Reference pitch for A4:");
     section (finishArea, "FINISH",
              "The unit's colour: pearl white with black keys, or pearl white or pearl black with neon pink-to-orange keys. "
              "Saved on this computer, so every Paragon PR7-E you open uses it.");
@@ -400,17 +391,14 @@ void SettingsPage::resized()
     auto area = getLocalBounds();
     auto top = area.removeFromTop (area.getHeight() / 2 - 6);
     area.removeFromTop (12);
-    const auto third = (top.getWidth() - 24) / 3;
-    tunerArea = top.removeFromLeft (third);
-    expressionArea = top.withTrimmedLeft (12).removeFromLeft (third);
-    finishArea = top.withTrimmedLeft (24 + third);
+    tunerArea = top.removeFromLeft (top.getWidth() / 2 - 6);
+    finishArea = top.withTrimmedLeft (12);
     rigsArea = area.removeFromLeft (area.getWidth() / 2 - 6);
     aboutArea = area.withTrimmedLeft (12);
 
     auto tunerControls = tunerArea.reduced (24, 18).withTrimmedTop (90);
     reference.setBounds (tunerControls.removeFromTop (32).withWidth (juce::jmin (420, tunerControls.getWidth())));
 
-    ccBox.setBounds (expressionArea.reduced (24, 18).withTrimmedTop (100).removeFromTop (30).withWidth (300));
     openFolder.setBounds (rigsArea.reduced (24, 18).withTrimmedTop (100).removeFromTop (32).withWidth (200));
     auto finishButtons = finishArea.reduced (24, 18).withTrimmedTop (100).removeFromTop (32);
     const auto buttonWidth = juce::jmin (150, (finishButtons.getWidth() - 24) / 3);

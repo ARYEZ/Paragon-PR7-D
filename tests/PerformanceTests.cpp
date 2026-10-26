@@ -248,42 +248,22 @@ TEST_CASE ("A 0.1.0 project saved with the tuner on and muting plays out loud", 
     CHECK_THAT (rig.play (0.3), WithinAbs (normal, 0.01));
 }
 
-TEST_CASE ("Expression pedal as a volume pedal, within its MIN and MAX", "[expression]")
+TEST_CASE ("The expression pedal is gone: a project saved with it as a VOLUME pedal at the heel plays at full level", "[expression]")
 {
+    // 0.12.0 took the pedal away (nothing for it to do in a mixing plugin).
+    // Its settings still load from old projects and rigs, but must not
+    // leave a track quiet or silent with no pedal left to fix it.
     TestRig rig;
     const auto full = rig.play (0.3);
-
     rig.turn (ParamIDs::expressionTarget, (float) ExpressionTargets::volume);
-    CHECK (rig.play (0.2) < 1.0e-4f);                       // heel down by default: silent, as a real volume pedal
+    rig.turn (ParamIDs::expression, 0.0f);   // heel down: silent before 0.12.0
+    CHECK_THAT (rig.play (0.2), WithinAbs (full, 0.005));
 
-    rig.turn (ParamIDs::expression, 1.0f);
-    CHECK_THAT (rig.play (0.2), WithinAbs (full, 0.005));   // toe down: full volume
-
-    rig.turn (ParamIDs::expression, 0.5f);
-    CHECK_THAT (rig.play (0.2), WithinAbs (full * 0.25, 0.01));   // audio taper: half way is -12 dB
-
-    rig.turn (ParamIDs::expressionMin, 0.5f);
-    rig.turn (ParamIDs::expression, 0.0f);
-    CHECK_THAT (rig.play (0.2), WithinAbs (full * 0.25, 0.01));   // heel now stops at half volume
-}
-
-TEST_CASE ("MIDI CC 11 moves the expression pedal", "[expression]")
-{
-    TestRig rig;
-    const auto full = rig.play (0.3);   // before assigning VOLUME: the pedal starts heel down, which would be silent
-    rig.turn (ParamIDs::expressionTarget, (float) ExpressionTargets::volume);
-
+    // And a MIDI pedal no longer moves anything.
     juce::MidiBuffer midi;
-    midi.addEvent (juce::MidiMessage::controllerEvent (1, 11, 0), 0);
-    CHECK (rig.play (0.2, midi) < 1.0e-4f);
-    CHECK_THAT (rig.processor.getExpressionPosition(), WithinAbs (0.0, 1.0e-6));
-
-    // Other controllers are ignored.
-    midi.addEvent (juce::MidiMessage::controllerEvent (1, 7, 127), 0);
-    CHECK (rig.play (0.1, midi) < 1.0e-4f);
-
     midi.addEvent (juce::MidiMessage::controllerEvent (1, 11, 127), 0);
     CHECK_THAT (rig.play (0.2, midi), WithinAbs (full, 0.005));
+    CHECK_THAT (rig.value (ParamIDs::expression), WithinAbs (0.0, 1.0e-6));
 }
 
 TEST_CASE ("A project from before 0.3.0 with the pedal on an effect that's gone loads unassigned, not silent", "[expression][state]")
@@ -325,29 +305,13 @@ TEST_CASE ("A project from before 0.3.0 with the pedal on an effect that's gone 
     CHECK (juce::roundToInt (restored.value (ParamIDs::expressionTarget)) == ExpressionTargets::volume);
 }
 
-TEST_CASE ("SETTINGS: the pedal's MIDI CC and the tuner's reference are saved with the project", "[expression][settings]")
+TEST_CASE ("SETTINGS: the tuner's reference is saved with the project", "[settings]")
 {
     TestRig rig;
-    rig.turn (ParamIDs::expressionTarget, (float) ExpressionTargets::volume);
-    rig.turn (ParamIDs::expression, 1.0f);   // toe down, so there's sound until CC 4 moves it
-    rig.processor.setExpressionCc (4);
     rig.processor.setTunerReferenceHz (432.0);
-
-    // CC 4 now moves the pedal; CC 11 no longer does.
-    juce::MidiBuffer midi;
-    midi.addEvent (juce::MidiMessage::controllerEvent (1, 11, 0), 0);
-    CHECK (rig.play (0.2, midi) > 0.05f);
-    midi.addEvent (juce::MidiMessage::controllerEvent (1, 4, 0), 0);
-    CHECK (rig.play (0.2, midi) < 1.0e-4f);
-
     juce::MemoryBlock state;
     rig.processor.getStateInformation (state);
     ParagonX1AudioProcessor restored;
     restored.setStateInformation (state.getData(), (int) state.getSize());
-    CHECK (restored.getExpressionCc() == 4);
     CHECK_THAT (restored.getTunerReferenceHz(), WithinAbs (432.0, 1.0e-9));
-
-    // Out-of-range values are kept sensible.
-    restored.setExpressionCc (500);
-    CHECK (restored.getExpressionCc() == 127);
 }

@@ -156,7 +156,7 @@ TEST_CASE ("The chain and the stomps pick what the dock shows; the graphic EQ is
     // COMP's name shows its knobs; the EQ button goes back.
     std::vector<Footswitch*> footswitches;
     findAll (*editor, footswitches);
-    REQUIRE (footswitches.size() == 7);
+    REQUIRE (footswitches.size() == 14);   // the seven stomps first, then the rig row
     footswitches[1]->onSelect();
     CHECK_FALSE (eqPanels[0]->isVisible());
 
@@ -170,32 +170,34 @@ TEST_CASE ("The chain and the stomps pick what the dock shows; the graphic EQ is
     CHECK_FALSE ((*back)->isVisible());
 }
 
-TEST_CASE ("Seven stomps, three over four, labelled from the plan", "[ui]")
+TEST_CASE ("Seven stomps in a row over the rig row, labelled from the plan", "[ui]")
 {
     ParagonX1AudioProcessor processor;
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
     editor->setSize (1600, 900);
 
-    std::vector<Footswitch*> stomps;
-    findAll (*editor, stomps);
-    REQUIRE (stomps.size() == 7);
+    // Laid out as a DigiTech GSP21's foot controller: the seven stomps in a
+    // row, and under them five rigs, BANK down and BANK up.
+    std::vector<Footswitch*> switches;
+    findAll (*editor, switches);
+    REQUIRE (switches.size() == 14);
+    const std::vector<Footswitch*> stomps (switches.begin(), switches.begin() + 7);
 
     const juce::StringArray names { "ORACLE", "COMP", "INSERTS", "EQ", "DOMINION", "AUTO EQ", "LIMITER" };
     for (size_t i = 0; i < stomps.size(); ++i)
         CHECK (stomps[i]->getTitle() == names[(int) i] + " footswitch");
 
-    // 1-3 on a row above 4-7, each top stomp in a gap between two below it,
-    // so a foot on one can't catch another.
-    const auto bounds = [&] (size_t i) { return stomps[i]->getBoundsInParent(); };
-    for (size_t top = 0; top < 3; ++top)
+    const auto bounds = [&] (size_t i) { return switches[i]->getBoundsInParent(); };
+    for (size_t i = 0; i < 7; ++i)
     {
-        INFO ("Stomp " << top + 1);
-        CHECK (bounds (top).getY() < bounds (3).getY());
-        CHECK (bounds (top).getCentreX() > bounds (top + 3).getCentreX());
-        CHECK (bounds (top).getCentreX() < bounds (top + 4).getCentreX());
+        INFO ("Column " << i + 1);
+        CHECK (bounds (i).getY() == bounds (0).getY());              // the stomps in one row
+        CHECK (bounds (i + 7).getY() == bounds (7).getY());          // the rig row under it
+        CHECK (bounds (i + 7).getY() >= bounds (i).getBottom());     // not overlapping
+        CHECK (bounds (i + 7).getX() == bounds (i).getX());          // in columns
+        if (i > 0)
+            CHECK (bounds (i).getX() >= bounds (i - 1).getRight());  // side by side, not overlapping
     }
-    for (size_t bottom = 4; bottom < 7; ++bottom)
-        CHECK (bounds (bottom).getY() == bounds (3).getY());
 
     // ORACLE's name opens its own page, over the pedal; BACK TO PEDAL closes it.
     std::vector<OraclePage*> oraclePages;
@@ -305,89 +307,47 @@ TEST_CASE ("BYPASS is global: rigs don't change it and it doesn't mark them modi
     folder.deleteRecursively();
 }
 
-TEST_CASE ("The expression screen: click a line to assign the pedal, again to unassign; scroll to step", "[ui]")
+TEST_CASE ("The rig row: five rigs of a bank, BANK down and up change the five shown, a pad loads its rig", "[ui][rigs]")
 {
     ParagonX1AudioProcessor processor;
-    auto& state = processor.getParameters();
-    ExpressionAssign screen (state, ExpressionAssign::Style::pedal);
-    screen.setBounds (0, 0, 88, 101);   // about its size on the unit
+    const auto folder = juce::File::createTempFile ("rigRow");
+    processor.useRigFolder (folder);
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
 
-    const auto target = [&] { return juce::roundToInt (state.getRawParameterValue (ParamIDs::expressionTarget)->load()); };
-    const auto rowCentre = [&] (int line)
-    {
-        // The glass's content: the heading at the top, the position bar at
-        // the bottom, the lines showing evenly between (as the screen lays them out).
-        const auto glass = screen.getLocalBounds().toFloat().reduced (7.0f).reduced (5.0f, 4.0f);
-        const auto top = glass.getY() + 15.0f, height = (glass.getHeight() - 25.0f) / (float) ExpressionAssign::visibleRows;
-        return juce::Point<float> (glass.getCentreX(), top + height * ((float) line + 0.5f));
-    };
-    const auto click = [&] (int line)
-    {
-        const auto position = rowCentre (line);
-        const auto now = juce::Time::getCurrentTime();
-        screen.mouseUp (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), position, {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-                                          &screen, &screen, now, position, now, 1, false));
-    };
-    const auto scroll = [&] (float deltaY)
-    {
-        juce::MouseWheelDetails wheel {};
-        wheel.deltaY = deltaY;
-        const auto now = juce::Time::getCurrentTime();
-        screen.mouseWheelMove (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), {}, {}, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-                                                 &screen, &screen, now, {}, now, 0, false), wheel);
-    };
+    std::vector<Footswitch*> switches;
+    findAll (*editor, switches);
+    REQUIRE (switches.size() == 14);
+    const std::vector<Footswitch*> rigs (switches.begin() + 7, switches.begin() + 12);
+    auto& bankDown = *switches[12];
+    auto& bankUp = *switches[13];
+    CHECK (bankDown.getName() == "BANK");
+    CHECK (bankUp.getName() == "BANK");
 
-    REQUIRE (target() == ExpressionTargets::off);
+    // The library's rigs, five to a page within each bank.
+    std::vector<const RigLibrary::Entry*> bankA;
+    for (const auto& e : processor.getRigLibrary().getEntries())
+        if (e.rig.bank == 0)
+            bankA.push_back (&e);
+    REQUIRE (bankA.size() > 5);
 
-    // VOLUME is the only target now (PR7-B's effects went in 0.3.0): the
-    // other lines are empty, and clicking them does nothing.
-    click (0);
-    CHECK (target() == ExpressionTargets::volume);
-    click (0);
-    CHECK (target() == ExpressionTargets::off);
-    for (int line = 1; line < ExpressionAssign::visibleRows; ++line)
-        click (line);
-    CHECK (target() == ExpressionTargets::off);
+    // Starting on the page with the current rig (none yet: the first page): bank A's first five.
+    for (size_t i = 0; i < rigs.size(); ++i)
+        CHECK (rigs[i]->getName() == bankA[i]->rig.name.toUpperCase());
 
-    // Scrolling down from unassigned starts at the top, and stops at the end.
-    scroll (-1.0f);
-    CHECK (target() == ExpressionTargets::volume);
-    scroll (-1.0f);
-    CHECK (target() == ExpressionTargets::volume);
+    // A pad loads its rig and lights its LED.
+    rigs[2]->toggle();
+    CHECK (processor.getCurrentRig().name == bankA[2]->rig.name);
+    CHECK (rigs[2]->isAnyOn());
+    CHECK_FALSE (rigs[0]->isAnyOn());
 
-    // The screen draws with its short list, at both styles' sizes.
-    juce::Image image (juce::Image::ARGB, 88, 101, true);
-    juce::Graphics g (image);
-    screen.paintEntireComponent (g, false);
+    // BANK up shows the next five without loading one; BANK down goes back.
+    bankUp.toggle();
+    CHECK (rigs[0]->getName() == bankA[5]->rig.name.toUpperCase());
+    CHECK (processor.getCurrentRig().name == bankA[2]->rig.name);
+    CHECK_FALSE (rigs[2]->isAnyOn());
+    bankDown.toggle();
+    CHECK (rigs[2]->getName() == bankA[2]->rig.name.toUpperCase());
+    CHECK (rigs[2]->isAnyOn());
+
+    folder.deleteRecursively();
 }
-
-TEST_CASE ("The dock's expression screen scrolls with the buttons beside it", "[ui]")
-{
-    ParagonX1AudioProcessor processor;
-    ExpressionAssign screen (processor.getParameters(), ExpressionAssign::Style::list);
-    screen.setBounds (0, 0, 272, 160);   // about its size in the EXPRESSION ASSIGN panel
-
-    std::vector<juce::Button*> buttons;
-    findAll (screen, buttons);
-    REQUIRE (buttons.size() == 2);
-    auto* up = buttons[0];
-    auto* down = buttons[1];
-    // Both inside the component, to the right of the screen.
-    for (auto* button : buttons)
-    {
-        CHECK (screen.getLocalBounds().contains (button->getBounds()));
-        CHECK (button->getX() > screen.getWidth() / 2);
-    }
-
-    // The list (just VOLUME) fits on the screen: neither scrolls.
-    CHECK (! up->isEnabled());
-    CHECK (! down->isEnabled());
-    down->onClick();
-    juce::Image image (juce::Image::ARGB, 272, 160, true);
-    juce::Graphics g (image);
-    screen.paintEntireComponent (g, false);   // and still draws
-
-    // Scrolling never assigns the pedal.
-    CHECK (juce::roundToInt (processor.getParameters().getRawParameterValue (ParamIDs::expressionTarget)->load()) == ExpressionTargets::off);
-}
-

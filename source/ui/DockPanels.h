@@ -79,9 +79,8 @@ private:
 };
 
 //==============================================================================
-// SETTINGS: the tuner's reference pitch, the expression pedal's MIDI
-// controller, the unit's finish, where rigs are kept, and what the plugin
-// is built from.
+// SETTINGS: the tuner's reference pitch, the unit's finish, where rigs are
+// kept, and what the plugin is built from.
 class SettingsPage final : public juce::Component,
                            private juce::ChangeListener
 {
@@ -96,10 +95,9 @@ public:
 private:
     ParagonX1AudioProcessor& processor;
     juce::Slider reference { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
-    juce::ComboBox ccBox;
     juce::TextButton openFolder { "OPEN RIGS FOLDER" };
     juce::TextButton pearlWhite { "PEARL WHITE" }, pearlWhiteNeon { "WHITE + NEON" }, pearlBlack { "PEARL BLACK" };
-    juce::Rectangle<int> tunerArea, expressionArea, finishArea, rigsArea, aboutArea;
+    juce::Rectangle<int> tunerArea, finishArea, rigsArea, aboutArea;
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override { showFinish(); }
     void showFinish();

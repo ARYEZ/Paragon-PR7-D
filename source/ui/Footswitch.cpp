@@ -5,7 +5,7 @@
 
 Footswitch::Footswitch (int numberToShow, const juce::String& nameToShow, juce::AudioProcessorValueTreeState& parametersToUse,
                         juce::StringArray onParameterIdsToUse)
-    : number (numberToShow),
+    : number (juce::String (numberToShow)),
       name (nameToShow),
       parameters (parametersToUse),
       onParameterIds (std::move (onParameterIdsToUse))
@@ -18,8 +18,31 @@ Footswitch::Footswitch (int numberToShow, const juce::String& nameToShow, juce::
     startTimerHz (15);
 }
 
+void Footswitch::setNumberText (const juce::String& text)
+{
+    if (text != number)
+    {
+        number = text;
+        repaint();
+    }
+}
+
+void Footswitch::setName (const juce::String& text)
+{
+    if (text != name)
+    {
+        name = text;
+        setTitle (name + " footswitch");
+        summary = "-";   // the tooltip follows on the next refresh
+        refresh();
+        repaint();
+    }
+}
+
 bool Footswitch::isAnyOn() const
 {
+    if (isLit)
+        return isLit();
     for (const auto& id : onParameterIds)
         if (parameters.getRawParameterValue (id)->load() > 0.5f)
             return true;
@@ -28,6 +51,12 @@ bool Footswitch::isAnyOn() const
 
 void Footswitch::toggle()
 {
+    if (onPress)
+    {
+        onPress();
+        refresh();
+        return;
+    }
     const auto newValue = isAnyOn() ? 0.0f : 1.0f;
     for (const auto& id : onParameterIds)
     {
@@ -57,6 +86,7 @@ void Footswitch::refresh()
         // The settings show on hover; the RIG SUMMARY cards in the dock show them too.
         setTooltip (name + (summary.isNotEmpty() ? ":  " + summary : juce::String())
                     + (isPlaceholder() ? juce::String ("\nNot built yet: this stomp is still being planned.")
+                       : onPress       ? juce::String()
                                        : juce::String ("\nPress the pad to switch on or off; click the name to edit.")));
         repaint();
     }
@@ -64,13 +94,14 @@ void Footswitch::refresh()
 
 void Footswitch::resized()
 {
-    // LED bar on top, the pad with its number to the left, the name underneath.
+    // As on the GSP21's controller: the number and LED on a line above the
+    // pad, the pad, the name underneath.
     auto area = getLocalBounds();
-    ledArea = area.removeFromTop (14);
-    area.removeFromTop (9);
+    ledArea = area.removeFromTop (22);
+    area.removeFromTop (4);
     nameArea = area.removeFromBottom (22);
-    area.removeFromBottom (5);
-    switchArea = area.withTrimmedLeft (46).withTrimmedRight (10);
+    area.removeFromBottom (4);
+    switchArea = area.reduced (12, 0);
 }
 
 void Footswitch::paint (juce::Graphics& g)
@@ -78,7 +109,7 @@ void Footswitch::paint (juce::Graphics& g)
     // Status LED: a short neon bar above the pad, as in the mockup, behind a
     // recessed lens: a dark slot with a chrome rim round it.
     {
-        const auto bar = ledArea.toFloat().withSizeKeepingCentre (26.0f, 5.0f).withX ((float) switchArea.getCentreX() - 13.0f);
+        const auto bar = ledArea.toFloat().withSizeKeepingCentre (26.0f, 5.0f).withX ((float) switchArea.getRight() - 40.0f);
         const auto lens = bar.expanded (5.0f, 3.5f);
         g.setGradientFill (juce::ColourGradient (juce::Colour (0xff5a4a52), 0.0f, lens.getY(),
                                                  juce::Colour (0xfff3e9ee), 0.0f, lens.getBottom(), false));
@@ -107,15 +138,19 @@ void Footswitch::paint (juce::Graphics& g)
     {
         ParagonLookAndFeel::drawStampedText (g, text, area.toFloat(), juce::Justification::centred, colour);
     };
-    g.setFont (juce::FontOptions (32.0f, juce::Font::bold));
-    stamped (juce::String (number), switchArea.withX (0).withWidth (switchArea.getX() - 8).withTrimmedLeft (switchArea.getX() - 34),
-             Finish::ink());
+    // The number above the pad's left corner, the LED at its right.
+    g.setFont (juce::FontOptions (20.0f, juce::Font::bold));
+    ParagonLookAndFeel::drawStampedText (g, number, ledArea.toFloat().withX ((float) switchArea.getX() + 4.0f).withWidth (80.0f),
+                                         juce::Justification::centredLeft, Finish::ink());
 
-    // Name under the pad; the selected block's is underlined in red.
+    // Name under the pad; the selected block's is underlined in red. A long
+    // one (a rig's name) is set a little smaller rather than cut off.
     const auto nameBox = nameArea.withX (switchArea.getX()).withWidth (switchArea.getWidth());
-    const auto font = juce::FontOptions (14.5f, juce::Font::bold);
+    const auto fullFont = juce::FontOptions (14.5f, juce::Font::bold);
+    const auto fits = (float) juce::GlyphArrangement::getStringWidthInt (fullFont, name) <= (float) nameBox.getWidth();
+    const auto font = fits ? fullFont : juce::FontOptions (12.0f, juce::Font::bold);
     g.setFont (font);
-    stamped (name, nameBox, selected ? ParagonColours::glow : Finish::ink());
+    stamped (fits ? name : name.substring (0, 22) + (name.length() > 22 ? "..." : ""), nameBox, selected ? ParagonColours::glow : Finish::ink());
     if (selected)
     {
         const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, name);

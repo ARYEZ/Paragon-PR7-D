@@ -13,7 +13,6 @@ namespace
     const juce::Identifier rigFactoryKey { "rigFactory" };
     const juce::Identifier rigModifiedKey { "rigModified" };
     const juce::Identifier tappedBpmKey { "tappedBpm" };
-    const juce::Identifier expressionCcKey { "expressionCc" };
     const juce::Identifier tunerReferenceKey { "tunerReferenceHz" };
     // Which version's parameters a project was saved with, as for rigs (see
     // Rig.cpp). Projects from before 0.3.0 don't say: 0.
@@ -52,7 +51,7 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
             }
 
     // Housekeeping off the audio thread: show MIDI pedal moves and record
-    // undo steps. 30 Hz so a MIDI expression pedal moves smoothly on screen.
+    // undo steps.
     startTimerHz (30);
 
     // The starting point, so the first edit can be undone.
@@ -97,8 +96,6 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
         shelf.prepare (sampleRate, preparedBlockSize);
     inputTap.setSampleRate (sampleRate);
 
-    expressionVolume.reset (sampleRate, gainRampSeconds);
-    expressionVolume.setCurrentAndTargetValue (1.0f);
     setLatencySamples (0);   // nothing in the chain looks ahead (the NAM amp, which did, went with PR7-B's bass blocks)
 }
 
@@ -233,57 +230,10 @@ double ParagonX1AudioProcessor::getTempoBpm() const noexcept
     return tapped > 0.0 ? tapped : hostBpm.load();
 }
 
-void ParagonX1AudioProcessor::readMidiExpression (const juce::MidiBuffer& midi) noexcept
-{
-    // CC 11 is "expression" in the MIDI spec, and what most MIDI expression
-    // pedals send; SETTINGS can pick another. Only the latest value in the block matters.
-    for (const auto metadata : midi)
-    {
-        const auto message = metadata.getMessage();
-        if (message.isControllerOfType (expressionCc.load()))
-            pendingMidiExpression = (float) message.getControllerValue() / 127.0f;
-    }
-}
-
-float ParagonX1AudioProcessor::getExpressionPosition() const noexcept
-{
-    // A MIDI pedal move is used straight away, before the timer has copied it
-    // into the parameter, so the pedal responds without the timer's delay.
-    const auto midi = pendingMidiExpression.load();
-    return midi >= 0.0f ? midi : param (ParamIDs::expression);
-}
-
-float ParagonX1AudioProcessor::expressionAmount() const noexcept
-{
-    // MIN and MAX set where the heel and toe land, so the pedal can, say,
-    // sweep only the top half of the wah, or never quite reach silence.
-    const auto heel = param (ParamIDs::expressionMin), toe = param (ParamIDs::expressionMax);
-    return heel + (toe - heel) * getExpressionPosition();
-}
-
-void ParagonX1AudioProcessor::syncMidiExpressionToParameter()
-{
-    auto midi = pendingMidiExpression.load();
-    if (midi < 0.0f)
-        return;
-
-    if (auto* pedal = parameters.getParameter (ParamIDs::expression))
-    {
-        pedal->beginChangeGesture();
-        pedal->setValueNotifyingHost (pedal->convertTo0to1 (midi));
-        pedal->endChangeGesture();
-    }
-
-    // Only clear it if no newer MIDI value arrived meanwhile; that one is
-    // picked up on the next tick.
-    pendingMidiExpression.compare_exchange_strong (midi, -1.0f);
-}
-
 void ParagonX1AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
-
-    readMidiExpression (midi);
+    juce::ignoreUnused (midi);
 
     if (buffer.getNumChannels() == 0 || buffer.getNumSamples() == 0)
         return;
@@ -397,23 +347,19 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, in
     for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
         presence[channel].process (block.getSingleChannelBlock (channel), param (ParamIDs::presence));
 
-    // The master OUTPUT knob plus the rig's own RIG LEVEL, and the
-    // expression pedal when it's a VOLUME pedal. Squaring the position gives
-    // the "audio taper" of a real volume pedal: half way down is about
-    // -12 dB rather than -6 dB, so the quiet end of the travel is usable.
-    const auto expressionTarget = (int) param (ParamIDs::expressionTarget);
-    const auto pedal = expressionAmount();
+    // The master OUTPUT knob plus the rig's own RIG LEVEL. (The expression
+    // pedal's VOLUME came before 0.12.0, when the pedal went: its parameters
+    // are still read from old projects and rigs, but do nothing.)
     outputGain.setTargetValue (juce::Decibels::decibelsToGain (outputGainDb->load() + param (ParamIDs::rigLevel)));
-    expressionVolume.setTargetValue (expressionTarget == ExpressionTargets::volume ? pedal * pedal : 1.0f);
     for (int i = 0; i < numSamples; ++i)
     {
-        const auto gain = outputGain.getNextValue() * expressionVolume.getNextValue();
+        const auto gain = outputGain.getNextValue();
         for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
             block.getChannelPointer (channel)[i] *= gain;
     }
 
     // Stomp 7, the LIMITER (PR7-C's): last, so nothing after it can push a
-    // peak past its ceiling. OUTPUT, RIG LEVEL and the volume pedal come
+    // peak past its ceiling. OUTPUT and RIG LEVEL come
     // before it, so turning OUTPUT up drives into it, as into a mastering
     // limiter. Then its OUTPUT TRIM (which moves the ceiling with it, as on PR7-C).
     const auto limiterOn = isOn (ParamIDs::limitOn);
@@ -458,7 +404,6 @@ void ParagonX1AudioProcessor::timerCallback()
     updateTuner();
     updateOracle();
     eqMatch.update (eqInputTap);   // EQ Match listens with the window closed too
-    syncMidiExpressionToParameter();
     recordCheckpointIfReady();
 }
 
@@ -739,7 +684,6 @@ void ParagonX1AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     state.setProperty (rigFactoryKey, currentRig.factoryName, nullptr);
     state.setProperty (rigModifiedKey, rigModified.load(), nullptr);
     state.setProperty (tappedBpmKey, tappedBpm.load(), nullptr);
-    state.setProperty (expressionCcKey, expressionCc.load(), nullptr);
     state.setProperty (tunerReferenceKey, tunerReferenceHz.load(), nullptr);
     state.appendChild (oracle.toValueTree(), nullptr);   // ORACLE's transcription, kept with the project
 
@@ -780,7 +724,6 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
                    state[rigFactoryKey].toString() };
     rigModified = (bool) state.getProperty (rigModifiedKey, false);
     tappedBpm = (double) state.getProperty (tappedBpmKey, 0.0);
-    setExpressionCc ((int) state.getProperty (expressionCcKey, 11));
     setTunerReferenceHz ((double) state.getProperty (tunerReferenceKey, 440.0));
 
     // A different project or preset: start the undo history afresh from it.

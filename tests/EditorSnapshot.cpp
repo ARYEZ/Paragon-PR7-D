@@ -215,7 +215,7 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 collect (*child);
         };
         collect (*editor);
-        REQUIRE (stomps.size() == 7);
+        REQUIRE (stomps.size() >= 7);   // the stomps come first, then the rig row
         stomps[3]->onSelect();
     }
     if (auto* display = findType<EqDisplay> (*editor))
@@ -244,7 +244,7 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 collect (*child);
         };
         collect (*editor);
-        REQUIRE (stomps.size() == 7);
+        REQUIRE (stomps.size() >= 7);   // the stomps come first, then the rig row
         stomps[4]->onSelect();
         if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_DOMINION", {}) == "1")
             if (auto* display = findType<DominionDisplay> (*editor))
@@ -365,7 +365,7 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 collect (*child);
         };
         collect (*editor);
-        REQUIRE (stomps.size() == 7);
+        REQUIRE (stomps.size() >= 7);   // the stomps come first, then the rig row
         stomps[0]->onSelect();
         if (auto* page = findType<OraclePage> (*editor))
         {

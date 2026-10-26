@@ -51,7 +51,7 @@ public:
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return JucePlugin_Name; }
-    bool acceptsMidi() const override { return true; }   // MIDI CC 11 moves the expression pedal
+    bool acceptsMidi() const override { return true; }   // kept as it was (hosts remember a plugin's MIDI input); nothing uses MIDI since 0.12.0
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
@@ -176,15 +176,10 @@ public:
     void resetTuner() noexcept { tuner.clear(); }
     void updateTuner();   // the timer calls this; tests call it to step the tuner
 
-    // The expression pedal's position after MIDI (0 heel to 1 toe), for the UI.
-    float getExpressionPosition() const noexcept;
 
     //==========================================================================
     // SETTINGS page. Saved with the project.
 
-    // Which MIDI controller moves the expression pedal (11 = "expression").
-    int getExpressionCc() const noexcept { return expressionCc.load(); }
-    void setExpressionCc (int cc) noexcept { expressionCc = juce::jlimit (1, 127, cc); }
 
     // The tuner's reference pitch for A4 (440 Hz unless the band tunes otherwise).
     double getTunerReferenceHz() const noexcept { return tunerReferenceHz.load(); }
@@ -227,9 +222,6 @@ private:
     void parameterValueChanged (int, float) override {}
     void parameterGestureChanged (int parameterIndex, bool gestureIsStarting) override;
 
-    void readMidiExpression (const juce::MidiBuffer&) noexcept;
-    void syncMidiExpressionToParameter();
-    float expressionAmount() const noexcept;   // position mapped through MIN/MAX
 
     juce::AudioProcessorValueTreeState parameters;
     std::atomic<float>* inputGainDb = nullptr;
@@ -272,12 +264,7 @@ private:
     juce::AudioBuffer<float> bypassDry;
     juce::SmoothedValue<float> bypassAmount;
 
-    // The expression pedal's VOLUME, and the tuner's mute.
-    juce::SmoothedValue<float> expressionVolume;
 
-    // The last MIDI expression value not yet copied into the expression parameter (-1 = none).
-    std::atomic<float> pendingMidiExpression { -1.0f };
-    std::atomic<int> expressionCc { 11 };
     std::atomic<double> tunerReferenceHz { 440.0 };
 
     // The tuner reads the newest of it; ORACLE every sample in turn, so it

@@ -346,7 +346,7 @@ TEST_CASE ("Compressor in PR7-E: stomp 2 switches it, and its name opens its kno
             collect (*child);
     };
     collect (*editor);
-    REQUIRE (stomps.size() == 7);
+    REQUIRE (stomps.size() >= 7);   // the stomps first, then the rig row
     CHECK_FALSE (stomps[1]->isPlaceholder());
     stomps[1]->toggle();
     CHECK (processor.getParameters().getRawParameterValue (ParamIDs::compOn)->load() > 0.5f);

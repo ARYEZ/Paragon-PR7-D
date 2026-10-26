@@ -3,7 +3,7 @@
 [![Build](https://github.com/ARYEZ/Paragon-PR7-E/actions/workflows/build.yml/badge.svg)](https://github.com/ARYEZ/Paragon-PR7-E/actions/workflows/build.yml)
 [![Latest release](https://img.shields.io/github/v/release/ARYEZ/Paragon-PR7-E)](https://github.com/ARYEZ/Paragon-PR7-E/releases/latest)
 
-The utility processor of the Paragon PR7 family: a VST3 plugin drawn as a floor unit with an expression pedal.
+The utility processor of the Paragon PR7 family: a VST3 plugin drawn as a floor unit, laid out like a DigiTech GSP21's foot controller.
 Built with [JUCE](https://juce.com).
 
 Paragon PR7-E starts from [Paragon PR7-B](https://github.com/ARYEZ/Paragon-PR7-B) 0.11.0, the bass processor. Its
@@ -35,7 +35,11 @@ none of those products' names or branding go on the plugin.
 
 ## Using it
 
-- **Stomps 1-7:** three on the top row, four below. Press a pad to switch it on or off; click its name to show its knobs
+- **The unit**, laid out like a DigiTech GSP21's foot controller: the screen centred along the top, the seven stomps in
+  a row, and under them five rigs, **BANK ▼** and **BANK ▲**. A rig pad loads that rig (its light shows the one loaded);
+  BANK steps through the rigs five at a time (within a bank, then on to the next) without loading one, and the row turns
+  to the loaded rig's five when you load one elsewhere.
+- **Stomps 1-7:** press a pad to switch it on or off; click its name to show its knobs
   in the dock (ORACLE, EQ and DOMINION open their own pages).
 - **EQ (stomp 4)**, inspired by FabFilter Pro-Q 4: up to 24 bands (bell, shelves, cuts, notch, band pass, tilt shelf,
   flat tilt, all pass; 6 to 96 dB/oct), each on the stereo signal or only its left, right, mid or side. Analog-matched
@@ -81,12 +85,9 @@ none of those products' names or branding go on the plugin.
   rigs are EQ starting points: **A** vocals and voice (with **Init**, everything off, at A01), **B** drums, **C** bass,
   guitars and keys, **D** the full mix, **E** mastering. INPUT and OUTPUT stay put when you switch rigs; each rig has its
   own **RIG LEVEL**, which adds to OUTPUT.
-- **TAP** (header or pedal): holding it switches the tuner on. Tapping still sets a tempo, but nothing uses one since
-  the delay went in 0.3.0.
-- **Undo / redo:** the header arrows, UNDO / REDO on the pedal, or Ctrl+Z / Ctrl+Shift+Z (Cmd on a Mac).
-- **Expression pedal** (right of the unit): drag it, use the mouse wheel, or send MIDI CC 11 (or the CC chosen in
-  SETTINGS). Assign it as a **VOLUME** pedal on the EXPRESSION ASSIGN screen in the dock.
-- **SETTINGS:** the tuner's reference pitch, the expression pedal's MIDI CC, and the unit's finish.
+- **Undo / redo:** the header arrows, UNDO / REDO on the unit, or Ctrl+Z / Ctrl+Shift+Z (Cmd on a Mac). **BYPASS** on
+  the unit bypasses the whole plugin.
+- **SETTINGS:** the tuner's reference pitch and the unit's finish.
 - No latency: nothing in the chain looks ahead.
 
 ## Download

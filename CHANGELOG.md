@@ -2,6 +2,17 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.12.0
+
+- **The unit laid out like a DigiTech GSP21's foot controller**, as you asked. The screen is centred along the top; the seven stomps sit in one row, and under them, as on the GSP in its five-preset mode, five rigs and **BANK ▼** / **BANK ▲**. Each switch has its number and light above it and its name under it, as on the GSP.
+  - **The rig row:** a pad loads its rig, and its light shows which one is loaded. The numbers are the rigs' slots (A01, A02...) and the names are under the pads. BANK steps through the rigs five at a time, within a bank and then on to the next, without loading one, so you can look before you switch, as on the GSP. Load a rig any other way (the arrows, the browser, a project) and the row turns to its five.
+  - Our own finish and colours, the GSP's arrangement; no DigiTech branding.
+- **No expression pedal.** In PR7-E it could only be a volume pedal, and your DAW's fader and automation do that better, so the pedal, its EXPRESSION ASSIGN panel and its MIDI setting in SETTINGS are gone, and the unit takes the full width. Old projects and rigs still load: one saved with the volume pedal pulled back now plays at full level instead of quiet (the pedal no longer does anything), so check the level of such a project once.
+- **Fewer small keys:** UNDO, REDO and BYPASS stay. TUNER (stomp 1, ORACLE, does it), RESET and TAP went, and so did the BPM and TAP in the header: nothing in PR7-E has used a tempo since the delay went in 0.3.0.
+- **The dock's middle panel** (the EQ's curve, or COMP's or the LIMITER's knobs) is wider, into the space the pedal's panel had.
+- **The signal chain in the gradient:** EQ red, DOMINION deep pink, COMP hot pink, LIMITER orange, following the red to pink to orange of the menus and of DOMINION's and ORACLE's pages, instead of four unrelated colours.
+- CI: pluginval's own Linux shutdown crash (which stopped 0.10.2) gets one more try; any other failure, or a second crash, still fails the build.
+
 ## 0.11.0
 
 - **ORACLE (stomp 1): melody to MIDI.** The tuner grows into ORACLE: it listens to a part as your DAW plays it, writes down its notes, lets you fix them, and hands them over as a MIDI file you drag onto a track. Inspired by what Melodyne and VariAudio do with a single line; our own design (theirs isn't published). One voice or instrument at a time, as the tuner was.

@@ -292,7 +292,7 @@ TEST_CASE ("Limiter in PR7-E: stomp 7 switches it, and its name opens its knobs 
             collect (*child);
     };
     collect (*editor);
-    REQUIRE (stomps.size() == 7);
+    REQUIRE (stomps.size() >= 7);   // the stomps first, then the rig row
     CHECK_FALSE (stomps[6]->isPlaceholder());
     CHECK (std::none_of (panels.begin(), panels.end(), [] (EffectPanel* p) { return p->isVisible(); }));
     stomps[6]->onSelect();

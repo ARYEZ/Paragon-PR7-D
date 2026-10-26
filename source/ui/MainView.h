@@ -55,9 +55,10 @@ private:
 // the mockup at (x, y) is drawn at (x, y) * 0.957. The editor then scales
 // the whole view to the window size, staying sharp (everything is vectors).
 //
-//   header:  logo | PROCESSOR PRESETS SETTINGS | < rig > | BPM TAP | undo redo save settings
-//   middle:  INPUT | the pedal unit (7 stomps: 3 over 4) with its expression pedal | OUTPUT
-//   dock:    RIG BROWSER | SELECTED RIG | TAGS + RIG SUMMARY (or a block's knobs) | EXPRESSION ASSIGN
+//   header:  logo | PROCESSOR PRESETS SETTINGS | < rig > | undo redo save settings
+//   middle:  INPUT | the unit, laid out as a DigiTech GSP21's foot controller:
+//            the display along the top, the 7 stomps over RIG 1-5, BANK down, BANK up | OUTPUT
+//   dock:    RIG BROWSER | SELECTED RIG | the EQ's overview (or a block's knobs)
 //   bottom:  SIGNAL CHAIN
 class MainView final : public juce::Component,
                        private juce::ChangeListener,
@@ -90,8 +91,11 @@ private:
 
     void selectBlock (int block);
     void refreshPerformance();
-    void toggleTuner();
-    void tap();
+    // The bottom row: which five rigs it shows (pages of five within each
+    // bank, in the order the rig arrows step), and the page with the current rig.
+    std::vector<std::vector<const RigLibrary::Entry*>> rigPages() const;
+    void showRigPage (int page);
+    void followCurrentRig();
     void showPage (Page);
     void refreshRig();
     void saveRig();
@@ -105,12 +109,10 @@ private:
                presetsTab { "Browse, save and organise rigs", Icons::Type::presets, "PRESETS" },
                settingsTab { "Tuner, MIDI and other settings", Icons::Type::settings, "SETTINGS" };
     IconButton previousRig { "Previous rig", Icons::Type::chevronLeft }, nextRig { "Next rig", Icons::Type::chevronRight };
-    juce::TextButton rigNameButton, tempoButton;
-    IconButton tapButton { "Tap the tempo for the delay. Hold to open the tuner.", Icons::Type::tap, "TAP" },
-               undoButton { "Undo (Ctrl+Z)", Icons::Type::undo }, redoButton { "Redo (Ctrl+Shift+Z)", Icons::Type::redo },
+    juce::TextButton rigNameButton;
+    IconButton undoButton { "Undo (Ctrl+Z)", Icons::Type::undo }, redoButton { "Redo (Ctrl+Shift+Z)", Icons::Type::redo },
                saveButton { "Save the rig (as a new rig if it's a factory rig or not saved yet)", Icons::Type::save },
                settingsButton { "Settings", Icons::Type::settings };
-    HoldDetector headerTapHold, pedalTapHold;
 
     GainColumn inputColumn, outputColumn;
 
@@ -121,21 +123,24 @@ private:
     juce::TextButton pedalSave { "SAVE" }, pedalSaveAs { "SAVE AS..." }, bypassButton;
     juce::AudioProcessorValueTreeState::ButtonAttachment bypassAttachment;
 
-    // The 2 x 3 button cluster: UNDO REDO BYPASS / TUNER RESET TAP
-    juce::TextButton undoPedal, redoPedal, tunerPedal, resetPedal, tapPedal;
-    juce::AudioProcessorValueTreeState::ButtonAttachment tunerAttachment;
-    juce::Label undoLabel { {}, "UNDO" }, redoLabel { {}, "REDO" }, bypassLabel { {}, "BYPASS" },
-                tunerLabel { {}, "TUNER" }, resetLabel { {}, "RESET" }, tapLabel { {}, "TAP" }, holdLabel { {}, "HOLD TO TUNER" };
+    // The small keys: UNDO REDO BYPASS
+    juce::TextButton undoPedal, redoPedal;
+    juce::Label undoLabel { {}, "UNDO" }, redoLabel { {}, "REDO" }, bypassLabel { {}, "BYPASS" };
 
     juce::Slider rigLevelKnob { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox },
                  presenceKnob { juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::NoTextBox };
     juce::AudioProcessorValueTreeState::SliderAttachment rigLevelAttachment, presenceAttachment;
     juce::Label rigLevelLabel { {}, "RIG LEVEL" }, presenceLabel { {}, "PRESENCE" };
-    // The seven stomps: 1-3 on the top row, 4-7 on the bottom.
+    // The seven stomps along the top row.
     std::array<std::unique_ptr<Footswitch>, 7> footswitches;
+    // The bottom row: five rigs, then BANK down and BANK up.
+    std::array<std::unique_ptr<Footswitch>, 5> rigSwitches;
+    std::unique_ptr<Footswitch> bankDown, bankUp;
+    int rigPage = 0;
+    juce::File followedRig;   // the current rig the bottom row last followed
+    juce::String followedRigName;
 
-    // Expression pedal and tuner
-    ExpressionPedal expressionPedal;
+    // The tuner's note for the screen
     TunerReader tunerReader;
     LedDisplay::Contents::Tuner tunerState;
     int ticks = 0;
@@ -143,7 +148,6 @@ private:
     // Dock and signal chain
     RigNavigator rigNavigator;
     SelectedRigPanel selectedRig;
-    ExpressionPanel expressionPanel;
     EqOverview eqPanel;   // the dock's default: the EQ's curve, and OPEN EQ
     EffectPanel compPanel;      // stomp 2's knobs, with its gain-reduction meter
     EffectPanel limiterPanel;   // stomp 7's

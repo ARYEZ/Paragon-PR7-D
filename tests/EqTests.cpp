@@ -602,7 +602,7 @@ TEST_CASE ("EQ page: stomp 4's name opens it; BACK returns to the pedal", "[eq][
             collect (*child);
     };
     collect (*editor);
-    REQUIRE (stomps.size() == 7);
+    REQUIRE (stomps.size() >= 7);   // the stomps first, then the rig row
     REQUIRE (pages.size() == 1);
     CHECK_FALSE (pages[0]->isVisible());
 
