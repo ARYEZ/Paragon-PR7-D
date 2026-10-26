@@ -13,7 +13,9 @@ namespace
     // 32: PR7-E 0.8.0, the LIMITER (off by default: nothing to migrate).
     // 33: PR7-E 0.9.0, COMP (off by default: nothing to migrate).
     // 34: PR7-E 0.10.0, DOMINION (off by default: nothing to migrate).
-    constexpr int parameterVersion = 34;
+    // 35: PR7-E 0.13.0, COMP's bands (none by default) and compWide (on by
+    //     default, so an older rig, which doesn't mention it, sounds as it did).
+    constexpr int parameterVersion = 35;
 
     const juce::Identifier rigTag { "ParagonRig" };
     const juce::Identifier parameterTag { "Param" };

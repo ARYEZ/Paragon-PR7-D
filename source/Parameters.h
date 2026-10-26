@@ -52,6 +52,18 @@ namespace ParamIDs
     inline constexpr auto compMakeUp    = "compMakeUp";      // dB
     inline constexpr auto compCharacter = "compCharacter";   // choice: VCA, OPTO, FET
     inline constexpr auto compLink      = "compLink";        // both channels together
+    // COMP's bands (0.13.0): multiband compression and expansion, inspired by
+    // FabFilter Pro-MB (our own design, see dsp/effects/MultibandComp.h).
+    // The bands come first, then the full-band compressor above, which
+    // compWide switches (on by default, so older rigs sound as they did).
+    inline constexpr auto compWide    = "compWide";
+    inline constexpr auto mbLookahead = "mbLookahead";   // COMP 20 ms late, the bands hearing ahead
+    inline constexpr auto mbMix       = "mbMix";         // %, 0 to 200
+    inline constexpr int mbNumBands = 6;
+    // "mbB1Used", "mbB1Low"... `what` is one of the names below.
+    inline juce::String mbBand (int band, const char* what) { return "mbB" + juce::String (band + 1) + what; }
+    inline constexpr const char* mbBandSettings[] = { "Used", "On", "Low", "High", "Slope", "Thresh", "Range", "Mode", "Ratio",
+                                                      "Knee", "Attack", "Release", "Char", "Stereo", "Link", "Out", "Look" };
 
     // Stomp 5, DOMINION (0.10.0): dynamic resonance suppression, inspired by
     // oeksound soothe 3 (our own design, see dsp/dominion/Dominion.h). After

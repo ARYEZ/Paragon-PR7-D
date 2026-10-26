@@ -53,6 +53,7 @@ target_sources(ParagonX1
         source/dsp/dominion/Dominion.cpp
         source/dsp/oracle/Oracle.cpp
         source/dsp/effects/Compressor.cpp
+        source/dsp/effects/MultibandComp.cpp
         source/dsp/effects/Limiter.cpp
         source/dsp/eq/EqDesign.cpp
         source/dsp/eq/ParametricEq.cpp

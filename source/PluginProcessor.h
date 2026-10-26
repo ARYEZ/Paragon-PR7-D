@@ -8,6 +8,7 @@
 #include "dsp/TapTempo.h"
 #include "dsp/Tuner.h"
 #include "dsp/oracle/Oracle.h"
+#include "dsp/effects/MultibandComp.h"
 #include "dsp/dominion/Dominion.h"
 #include "rigs/DominionPresets.h"
 #include "dsp/effects/Compressor.h"
@@ -169,6 +170,13 @@ public:
     bool isDominionPresetModified() { return ! DominionPresets::matches (dominionPreset, parameters); }
     void rememberDominionPreset (const DominionPreset& preset) { dominionPreset = preset; }   // after saving it
 
+    // COMP's bands as set now (any thread), and each band now (the page's
+    // meters). Look-ahead's delay is reported to the DAW from the timer.
+    effects::multiband::Settings getMultibandSettings() const noexcept;
+    effects::multiband::Processor::Reading getMultibandReading (int band) const noexcept { return multiband.getReading (band); }
+    void setMultibandSolo (int band) noexcept { multibandSolo = band; }
+    void updateLatency();   // the timer calls this; tests too
+
     // COMP's gain reduction on a channel in the last block (dB, 0 or more).
     float getCompressorReductionDb (int channel) const noexcept { return compressor.getReductionDb (channel); }
     // The LIMITER's gain reduction on a channel in the last block (dB, 0 or more).
@@ -247,6 +255,10 @@ private:
     DominionPresets dominionPresets { {} };   // its folder is set with the rigs folder
     DominionPreset dominionPreset = DominionPresets::factory().front();   // "Default"
     effects::Compressor compressor;   // stomp 2, ported from PR7-C
+    effects::multiband::Processor multiband;   // stomp 2's bands, before it
+    struct MultibandBandParameters { std::atomic<float>* values[std::size (ParamIDs::mbBandSettings)] {}; };
+    std::array<MultibandBandParameters, ParamIDs::mbNumBands> multibandBandParameters {};
+    std::atomic<int> multibandSolo { -1 };
     juce::AudioBuffer<float> compSidechain;   // what it listens to: the audio itself
     effects::Limiter limiter;   // stomp 7, ported from PR7-C
     juce::SmoothedValue<float> limitTrim { 1.0f };   // its OUTPUT TRIM (1 while it's off)

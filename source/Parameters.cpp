@@ -1,5 +1,7 @@
 #include "Parameters.h"
 
+#include "dsp/effects/MultibandComp.h"
+
 #include "dsp/dominion/Dominion.h"
 #include "dsp/eq/Dynamics.h"
 #include "dsp/eq/EqDesign.h"
@@ -183,6 +185,48 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         layout.add (makeFloat (ParamIDs::compMakeUp, "Comp Make Up", { 0.0f, compMakeUpMax, 0.1f }, 0.0f, v33, asDb));
         layout.add (makeChoice (ParamIDs::compCharacter, "Comp Character", v33, compCharacters, 0));
         layout.add (makeSwitch (ParamIDs::compLink, "Comp Link", v33, true));
+    }
+    // COMP's bands (0.13.0).
+    {
+        namespace mb = effects::multiband;
+        constexpr int v35 = 35;
+        const ToText percent = [] (float v, int) { return juce::String (juce::roundToInt (v)) + "%"; };
+        const ToText ratio = [] (float r, int) { return r >= 29.5f ? juce::String ("Inf:1") : juce::String (r, r < 10.0f ? 1 : 0) + ":1"; };
+        const ToText edge = [] (float hz, int)
+        {
+            if (hz <= mb::minHz * 1.001f || hz >= mb::maxHz * 0.999f)
+                return juce::String ("End");
+            return hz < 1000.0f ? juce::String (juce::roundToInt (hz)) + " Hz" : juce::String (hz / 1000.0f, hz < 10000.0f ? 2 : 1) + " kHz";
+        };
+        juce::StringArray slopeNames;
+        for (int i = 0; i < mb::numSlopes; ++i)
+            slopeNames.add (eq::slopeNames[i]);
+        layout.add (makeSwitch (ParamIDs::compWide, "Comp Full Band", v35, true));
+        layout.add (makeSwitch (ParamIDs::mbLookahead, "Comp Look-ahead", v35, false));
+        layout.add (makeFloat (ParamIDs::mbMix, "Comp Bands Mix", { 0.0f, 200.0f, 1.0f }, 100.0f, v35, percent));
+        for (int band = 0; band < ParamIDs::mbNumBands; ++band)
+        {
+            const auto id = [band] (const char* what) { return ParamIDs::mbBand (band, what); };
+            const auto name = [band] (const juce::String& what) { return "Comp Band " + juce::String (band + 1) + " " + what; };
+            const mb::Band defaults;
+            layout.add (makeSwitch (id ("Used").toRawUTF8(), name ("Used"), v35, false));
+            layout.add (makeSwitch (id ("On").toRawUTF8(), name ("On"), v35, true));
+            layout.add (makeFloat (id ("Low").toRawUTF8(), name ("Low"), logRange (mb::minHz, mb::maxHz), defaults.lowHz, v35, edge));
+            layout.add (makeFloat (id ("High").toRawUTF8(), name ("High"), logRange (mb::minHz, mb::maxHz), defaults.highHz, v35, edge));
+            layout.add (makeChoice (id ("Slope").toRawUTF8(), name ("Slope"), v35, slopeNames, mb::defaultSlope));
+            layout.add (makeFloat (id ("Thresh").toRawUTF8(), name ("Threshold"), { -60.0f, 0.0f, 0.1f }, defaults.thresholdDb, v35, asDb));
+            layout.add (makeFloat (id ("Range").toRawUTF8(), name ("Range"), { -mb::maxRangeDb, mb::maxRangeDb, 0.1f }, defaults.rangeDb, v35, asDb));
+            layout.add (makeChoice (id ("Mode").toRawUTF8(), name ("Mode"), v35, mb::modeNames, 0));
+            layout.add (makeFloat (id ("Ratio").toRawUTF8(), name ("Ratio"), logRange (1.0, 30.0), defaults.ratio, v35, ratio));
+            layout.add (makeFloat (id ("Knee").toRawUTF8(), name ("Knee"), { 0.0f, 30.0f, 0.1f }, defaults.kneeDb, v35, asDb));
+            layout.add (makeFloat (id ("Attack").toRawUTF8(), name ("Attack"), logRange (0.1, 100.0), defaults.attackMs, v35, asMs));
+            layout.add (makeFloat (id ("Release").toRawUTF8(), name ("Release"), logRange (5.0, 3000.0), defaults.releaseMs, v35, asMs));
+            layout.add (makeChoice (id ("Char").toRawUTF8(), name ("Character"), v35, ParamRanges::compCharacters, 0));
+            layout.add (makeChoice (id ("Stereo").toRawUTF8(), name ("Stereo"), v35, mb::stereoNames, 0));
+            layout.add (makeFloat (id ("Link").toRawUTF8(), name ("Link"), { 0.0f, 100.0f, 1.0f }, 100.0f, v35, percent));
+            layout.add (makeFloat (id ("Out").toRawUTF8(), name ("Output"), { -24.0f, 24.0f, 0.1f }, 0.0f, v35, asDb));
+            layout.add (makeFloat (id ("Look").toRawUTF8(), name ("Look-ahead"), { 0.0f, 20.0f, 0.1f }, 0.0f, v35, asMs));
+        }
     }
 
     // Stomp 5, DOMINION (0.10.0).

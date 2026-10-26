@@ -17,7 +17,7 @@ namespace
     // Which version's parameters a project was saved with, as for rigs (see
     // Rig.cpp). Projects from before 0.3.0 don't say: 0.
     const juce::Identifier parameterVersionKey { "parameterVersion" };
-    constexpr int parameterVersion = 34;
+    constexpr int parameterVersion = 35;
 
 }
 
@@ -35,6 +35,9 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
     for (int band = 0; band < ParamIDs::domNumBands; ++band)
         for (size_t i = 0; i < std::size (ParamIDs::domBandSettings); ++i)
             dominionBandParameters[(size_t) band].values[i] = parameters.getRawParameterValue (ParamIDs::domBand (band, ParamIDs::domBandSettings[i]));
+    for (int band = 0; band < ParamIDs::mbNumBands; ++band)
+        for (size_t i = 0; i < std::size (ParamIDs::mbBandSettings); ++i)
+            multibandBandParameters[(size_t) band].values[i] = parameters.getRawParameterValue (ParamIDs::mbBand (band, ParamIDs::mbBandSettings[i]));
 
     rigLibrary = std::make_unique<RigLibrary>();
     eqMatch.setReferencesFolder (rigLibrary->getFolder().getChildFile ("Match References"));
@@ -86,6 +89,7 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     parametricEq.prepare (sampleRate, preparedBlockSize);
     dominionProcessor.prepare (sampleRate, preparedBlockSize);
     compressor.prepare (sampleRate, preparedBlockSize);
+    multiband.prepare (sampleRate, preparedBlockSize);
     compSidechain.setSize (2, preparedBlockSize);
     limiter.prepare (sampleRate, preparedBlockSize);
     limitTrim.reset (sampleRate, gainRampSeconds);
@@ -96,7 +100,47 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
         shelf.prepare (sampleRate, preparedBlockSize);
     inputTap.setSampleRate (sampleRate);
 
-    setLatencySamples (0);   // nothing in the chain looks ahead (the NAM amp, which did, went with PR7-B's bass blocks)
+    updateLatency();
+}
+
+void ParagonX1AudioProcessor::updateLatency()
+{
+    // Only COMP's LOOK-AHEAD delays the sound (the NAM amp, which also did, went with PR7-B's bass blocks).
+    const auto latency = isOn (ParamIDs::mbLookahead) ? (int) std::lround (effects::multiband::lookaheadSeconds * inputTap.getSampleRate()) : 0;
+    if (latency != getLatencySamples())
+        setLatencySamples (latency);
+}
+
+effects::multiband::Settings ParagonX1AudioProcessor::getMultibandSettings() const noexcept
+{
+    namespace mb = effects::multiband;
+    mb::Settings settings;
+    settings.lookahead = isOn (ParamIDs::mbLookahead);
+    settings.mix = param (ParamIDs::mbMix) / 100.0f;
+    settings.soloBand = multibandSolo.load();
+    for (size_t i = 0; i < settings.bands.size(); ++i)
+    {
+        const auto& v = multibandBandParameters[i].values;   // in mbBandSettings' order
+        auto& band = settings.bands[i];
+        band.used = v[0]->load() > 0.5f;
+        band.on = v[1]->load() > 0.5f;
+        band.lowHz = v[2]->load();
+        band.highHz = v[3]->load();
+        band.slope = juce::jlimit (0, mb::numSlopes - 1, juce::roundToInt (v[4]->load()));
+        band.thresholdDb = v[5]->load();
+        band.rangeDb = v[6]->load();
+        band.mode = (mb::Mode) juce::jlimit (0, 1, juce::roundToInt (v[7]->load()));
+        band.ratio = v[8]->load();
+        band.kneeDb = v[9]->load();
+        band.attackMs = v[10]->load();
+        band.releaseMs = v[11]->load();
+        band.character = (effects::Compressor::Character) juce::jlimit (0, 2, juce::roundToInt (v[12]->load()));
+        band.stereo = (mb::Stereo) juce::jlimit (0, 2, juce::roundToInt (v[13]->load()));
+        band.link = v[14]->load() / 100.0f;
+        band.outputDb = v[15]->load();
+        band.lookaheadMs = v[16]->load();
+    }
+    return settings;
 }
 
 juce::AudioProcessorParameter* ParagonX1AudioProcessor::getBypassParameter() const
@@ -323,9 +367,12 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, in
     // Stomp 5, DOMINION, after the EQ (so it hears what the EQ made) and before COMP.
     dominionProcessor.process (block, getDominionSettings());
 
-    // Stomp 2, COMP (PR7-C's), after the EQ, so what the EQ cuts doesn't
-    // drive it. It takes whole buffers, so it gets this piece's channels as
-    // one, and the same audio to listen to (PR7-E has no sidechain filters).
+    // Stomp 2, COMP, after the EQ, so what the EQ cuts doesn't drive it.
+    // First its bands (0.13.0; with LOOK-AHEAD on, everything from here is
+    // 20 ms late, which the DAW makes up for), then the full-band compressor
+    // (PR7-C's). That takes whole buffers, so it gets this piece's channels
+    // as one, and the same audio to listen to (PR7-E has no sidechain filters).
+    multiband.process (block, getMultibandSettings(), isOn (ParamIDs::compOn));
     {
         float* channels[effects::maxChannels] {};
         for (int channel = 0; channel < numOutputChannels; ++channel)
@@ -336,7 +383,7 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, in
         juce::AudioBuffer<float> audio (channels, numOutputChannels, numSamples);
         const juce::AudioBuffer<float> detector (compSidechain.getArrayOfWritePointers(), numOutputChannels, numSamples);
         compressor.process (audio, detector, numSamples,
-                            { isOn (ParamIDs::compOn), param (ParamIDs::compThreshold), param (ParamIDs::compRatio),
+                            { isOn (ParamIDs::compOn) && isOn (ParamIDs::compWide), param (ParamIDs::compThreshold), param (ParamIDs::compRatio),
                               param (ParamIDs::compAttack), param (ParamIDs::compRelease), isOn (ParamIDs::compAuto),
                               param (ParamIDs::compMakeUp),
                               (effects::Compressor::Character) juce::jlimit (0, 2, juce::roundToInt (param (ParamIDs::compCharacter))),
@@ -403,6 +450,7 @@ void ParagonX1AudioProcessor::timerCallback()
 {
     updateTuner();
     updateOracle();
+    updateLatency();
     eqMatch.update (eqInputTap);   // EQ Match listens with the window closed too
     recordCheckpointIfReady();
 }
