@@ -58,8 +58,8 @@ none of those products' names or branding go on the plugin.
   turns just that down. MODE (Soft: what sticks out, at any level; Hard: what's loud), DEPTH, DETAIL, ATTACK, RELEASE; a
   graph of what it's cutting, with a depth curve of up to 8 bands to steer it; stereo or mid/side, LINK and FOCUS; tilts
   for the lows and highs; MAX CUT, WET TRIM, DELTA, MIX and OUT. Click its name for its page. Zero latency.
-  **PRESET** (on its page): its own presets, apart from the rigs (vocals, drums, instruments, mix and master, creative),
-  and your own, saved in "Dominion Presets" beside your rigs. A preset changes only DOMINION's settings.
+  **PRESET** (on its page): its own presets, apart from the rigs (vocals, drums, instruments, mix and master, creative,
+  and under GENRES the vocal, guitars and mix of each genre the genre rigs use), and your own, saved in "Dominion Presets" beside your rigs. A preset changes only DOMINION's settings.
 - **COMP (stomp 2)**, after the EQ; click its name for its page.
   - **Bands** (up to six, inspired by FabFilter Pro-MB, our own design): each works on its own part of the spectrum.
     Double-click the graph to add one; drag its dot sideways to move it and up or down for RANGE, drag its edges.
@@ -72,7 +72,7 @@ none of those products' names or branding go on the plugin.
     FET fast with a little grit), THRESHOLD, RATIO (from Soft to infinite), ATTACK, RELEASE, AUTO release, MAKE UP and
     LINK, with its gain-reduction meter.
   - **PRESET** (on its page): COMP's own presets, apart from the rigs (vocals, drums, instruments, mix and master,
-    creative), and your own, saved in "Comp Presets" beside your rigs. A preset changes only COMP's settings.
+    creative, and under GENRES the vocal, drums, bass, mix bus and master of each genre the genre rigs use), and your own, saved in "Comp Presets" beside your rigs. A preset changes only COMP's settings.
 - **LIMITER (stomp 7)**, PR7-C's limiter: THRESHOLD (the ceiling), MAKE UP, MIX, LINK, and MODE (Brick, Soft or Auto),
   then OUTPUT TRIM. It's last in the chain, after OUTPUT, so nothing can push a peak past it; no look-ahead, so no delay.
   Its panel shows the gain reduction.
@@ -95,6 +95,10 @@ none of those products' names or branding go on the plugin.
   rigs are EQ starting points: **A** vocals and voice (with **Init**, everything off, at A01), **B** drums, **C** bass,
   guitars and keys, **D** the full mix, **E** mastering. INPUT and OUTPUT stay put when you switch rigs; each rig has its
   own **RIG LEVEL**, which adds to OUTPUT.
+  - **Genre rigs:** a rig for each part of a song in nine heavy styles (modern metal, metalcore, djent, nu metal,
+    argent metal, hard rock, grunge, symphonic metal, industrial), at the genre's number in every bank: **x11** modern
+    metal to **x19** industrial, so A11 is the modern metal vocal, B11 its drums, C11 its guitars, C21 its bass, D11
+    its mix and E11 its master. Each uses the EQ and the genre's COMP and DOMINION presets.
 - **Undo / redo:** the header arrows, UNDO / REDO on the unit, or Ctrl+Z / Ctrl+Shift+Z (Cmd on a Mac). **BYPASS** on
   the unit bypasses the whole plugin.
 - **SETTINGS:** the tuner's reference pitch and the unit's finish.

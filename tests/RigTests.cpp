@@ -3,6 +3,8 @@
 
 #include "Parameters.h"
 #include "PluginProcessor.h"
+#include "rigs/CompPresets.h"
+#include "rigs/DominionPresets.h"
 #include "rigs/FactoryRigs.h"
 
 using Catch::Matchers::WithinAbs;
@@ -128,6 +130,72 @@ TEST_CASE ("PR7-E's factory rigs: Init at A01, then vocals, drums, instruments, 
     RigRig r;
     for (const auto* bassRig : { "Clean DI", "Studio Bass", "Chorus Bass", "Dub Delay", "Hysteria (Muse)", "Absolomb (Periphery)" })
         CHECK (r.processor.getRigLibrary().findFactory (bassRig) == nullptr);
+}
+
+TEST_CASE ("Genre rigs (0.15.0): six parts in nine genres, at the genre's number in each bank, with the genre's presets", "[rigs][genres]")
+{
+    const juce::StringArray genres { "Modern Metal", "Metalcore", "Djent", "Nu Metal", "Argent Metal",
+                                     "Hard Rock", "Grunge", "Symphonic Metal", "Industrial" };
+    const auto rigs = makeFactoryRigs();
+    const auto find = [&rigs] (const juce::String& name) -> const Rig*
+    {
+        for (const auto& rig : rigs)
+            if (rig.name == name)
+                return &rig;
+        return nullptr;
+    };
+    // Every parameter a preset sets is the rig's, and the rest of that stomp's at its default (not mentioned).
+    const auto matches = [] (const Rig& rig, const std::vector<StompPreset>& presets, const juce::String& genre, const juce::String& presetName,
+                             bool (*holds) (const juce::String&))
+    {
+        const auto preset = std::find_if (presets.begin(), presets.end(), [&] (const StompPreset& p) { return p.name == presetName; });
+        REQUIRE (preset != presets.end());
+        CHECK (preset->category == "Genres/" + genre);
+        for (const auto& [id, value] : rig.parameters)
+            if (holds (id))
+            {
+                INFO (id);
+                REQUIRE (preset->parameters.count (id) == 1);
+                CHECK (preset->parameters.at (id) == value);
+            }
+        for (const auto& [id, value] : preset->parameters)
+            CHECK (rig.parameters.count (id) == 1);
+    };
+
+    for (int g = 0; g < genres.size(); ++g)
+    {
+        const auto genre = genres[g];
+        INFO (genre);
+        struct Part { const char* name; const char* slot; const char* comp; const char* dominion; };
+        const Part parts[] = { { "Vocal", "A", "Vocal", "Vocal" }, { "Drums", "B", "Drums", nullptr }, { "Guitars", "C", nullptr, "Guitars" },
+                               { "Bass", "C", "Bass", nullptr }, { "Mix", "D", "Mix Bus", "Mix" }, { "Master", "E", "Master", nullptr } };
+        for (const auto& part : parts)
+        {
+            INFO (part.name);
+            const auto* rig = find (genre + " " + part.name);
+            REQUIRE (rig != nullptr);
+            const auto number = (juce::String (part.name) == "Bass" ? 21 : 11) + g;
+            CHECK (rig->getSlotName() == juce::String (part.slot) + juce::String (number));
+            CHECK (rig->tags.contains (genre));
+            CHECK (rig->tags.contains ("Genre"));
+
+            CHECK ((rig->parameters.count (ParamIDs::compOn) == 1) == (part.comp != nullptr));
+            if (part.comp != nullptr)
+            {
+                CHECK (rig->parameters.at (ParamIDs::compOn) == 1.0f);
+                matches (*rig, CompPresets::factory(), genre, genre + " " + part.comp, &CompPresets::holds);
+                CHECK (rig->notes.contains (genre + " " + part.comp));
+            }
+            CHECK ((rig->parameters.count (ParamIDs::domOn) == 1) == (part.dominion != nullptr));
+            if (part.dominion != nullptr)
+            {
+                CHECK (rig->parameters.at (ParamIDs::domOn) == 1.0f);
+                matches (*rig, DominionPresets::factory(), genre, genre + " " + part.dominion, &DominionPresets::holds);
+            }
+            if (juce::String (part.name) == "Master")
+                CHECK (rig->parameters.at (ParamIDs::limitOn) == 1.0f);
+        }
+    }
 }
 
 TEST_CASE ("A rig's notes are saved with it and kept by Save As", "[rigs]")
@@ -333,11 +401,14 @@ TEST_CASE ("< and > step through the rigs in order", "[rigs]")
     r.processor.stepRig (1);
     CHECK (r.processor.getCurrentRig().name == "Second");
     r.processor.stepRig (1);
+    r.processor.stepRig (1);   // on to bank A's genre rigs (A11)
+    CHECK (r.processor.getCurrentRig().name == "Modern Metal Vocal");
+    r.processor.loadRig (r.entryNamed ("Industrial Vocal"));   // A19
     r.processor.stepRig (1);   // on into bank B
     CHECK (r.processor.getCurrentRig().name == "Kick Punch");
     r.processor.loadRig (r.entryNamed ("Init"));
     r.processor.stepRig (-1);   // wraps round to the last rig
-    CHECK (r.processor.getCurrentRig().name == "Master Bright Tilt");
+    CHECK (r.processor.getCurrentRig().name == "Industrial Master");
 }
 
 TEST_CASE ("Deleting the loaded rig keeps the sound, now unsaved", "[rigs]")

@@ -2,6 +2,16 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.15.0
+
+- **Genre rigs and presets for nine heavy styles:** modern metal, metalcore, djent, nu metal, argent metal, hard rock, grunge, symphonic metal and industrial. Our own reading of how each style is usually mixed, not any producer's settings (none are published as mixing presets), and not tuned by ear: starting points to adjust on your tracks.
+  - **A rig for each part of a song**, at the genre's number in every bank, so they're easy to find: **x11** modern metal, **x12** metalcore, **x13** djent, **x14** nu metal, **x15** argent metal, **x16** hard rock, **x17** grunge, **x18** symphonic metal, **x19** industrial. **A** the vocal, **B** the drum bus, **C11-C19** the guitars, **C21-C29** the bass, **D** the mix bus, **E** the master (finished by the LIMITER at -1 dB, as the other mastering rigs are). So A13 is the djent vocal and E13 the djent master.
+  - **What makes them differ**, for example: hard rock's guitars are mid-forward (body at 1 kHz) where nu metal's are scooped (700 Hz down); djent's and argent metal's guitars keep their low strings (low cut at 70 and 60 Hz) and turn down the palm-mute boom only when it blooms; symphonic metal's guitars and drums leave room for an orchestra and a soprano (lows cut higher, a dip at 2.5 kHz), and its mix is wider on top; argent metal's mix and bass carry a big sub, and its choir sits darker behind the guitars; grunge is darker and mid-heavy; industrial is hard, mid-forward and pumping.
+  - **Matching COMP and DOMINION presets:** each genre rig's COMP and DOMINION settings are presets of the same name, so you can put just a genre's compressor or resonance control on a track without loading the whole rig. In COMP's PRESET menu, under **GENRES**, each genre has its vocal, drums, bass, mix bus and master; in DOMINION's, its vocal, guitars and mix. Each genre is a submenu, so the menus stay short.
+  - **Long rig names fit on the pads:** a name like SYMPHONIC METAL GUITARS is set a little smaller to fit whole, rather than cut off.
+  - **The rig row** starts a new page of five at each ten, so BANK ▲ goes from a bank's own rigs straight to its genre rigs (A11-A15, then A16-A19). Rigs you save still go in the first free slot (A08 on), on the page before them.
+  - In the tests: every genre rig stays within the factory limits (at most +4.5 dB anywhere; masters within ±2 dB and holding -1 dB), plays noise cleanly, holds exactly its presets' settings, and does what its notes say (the curves checked at the frequencies named, and the guitars' boom band acting only on loud chugs). Every new COMP preset keeps typical material clean and near its level. Not checked here: how they sound on your music (I can't listen). Compressor thresholds assume tracks peaking around -10 dBFS, so move THRESHOLD if yours are louder or quieter.
+
 ## 0.14.0
 
 - **COMP's own presets**, as DOMINION has: a **PRESET** button at the top of COMP's page (beside BACK TO PEDAL), apart from PR7-E's rigs. Loading one sets all of COMP's settings (the full band and whether it's in use, the bands, LOOK-AHEAD and MIX); it leaves whether COMP is on, and everything else in the rig, alone. One undo takes it back.

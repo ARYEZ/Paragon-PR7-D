@@ -144,13 +144,19 @@ void Footswitch::paint (juce::Graphics& g)
                                          juce::Justification::centredLeft, Finish::ink());
 
     // Name under the pad; the selected block's is underlined in red. A long
-    // one (a rig's name) is set a little smaller rather than cut off.
+    // one (a rig's name, e.g. SYMPHONIC METAL GUITARS) is set smaller, down to
+    // 10 pt, to fit whole; only a name too long even then is cut off.
     const auto nameBox = nameArea.withX (switchArea.getX()).withWidth (switchArea.getWidth());
-    const auto fullFont = juce::FontOptions (14.5f, juce::Font::bold);
-    const auto fits = (float) juce::GlyphArrangement::getStringWidthInt (fullFont, name) <= (float) nameBox.getWidth();
-    const auto font = fits ? fullFont : juce::FontOptions (12.0f, juce::Font::bold);
+    const auto widthOf = [this] (float size) { return (float) juce::GlyphArrangement::getStringWidthInt (juce::FontOptions (size, juce::Font::bold), name); };
+    auto size = 14.5f;
+    if (widthOf (size) > (float) nameBox.getWidth())
+        for (size = 12.0f; size > 10.0f && widthOf (size) > (float) nameBox.getWidth() - 4.0f; size -= 0.5f) {}
+    const auto font = juce::FontOptions (size, juce::Font::bold);
     g.setFont (font);
-    stamped (fits ? name : name.substring (0, 22) + (name.length() > 22 ? "..." : ""), nameBox, selected ? ParagonColours::glow : Finish::ink());
+    auto shown = name;
+    while (shown.length() > 4 && (float) juce::GlyphArrangement::getStringWidthInt (font, shown + (shown == name ? "" : "...")) > (float) nameBox.getWidth())
+        shown = shown.dropLastCharacters (1).trimEnd();
+    stamped (shown == name ? name : shown + "...", nameBox, selected ? ParagonColours::glow : Finish::ink());
     if (selected)
     {
         const auto width = (float) juce::GlyphArrangement::getStringWidthInt (font, name);

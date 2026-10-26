@@ -23,21 +23,43 @@ void PresetButton::refresh()
 void PresetButton::showMenu()
 {
     // The factory presets by category, then yours, then saving and deleting.
+    // A category "Group/Name" (the genres) is a submenu "Name" under a GROUP
+    // header, so a long list of them doesn't make the menu taller than the screen.
     const auto& factory = hooks.factory();
     const auto yours = hooks.user();
     const auto current = hooks.currentName();
     juce::PopupMenu menu;
-    juce::String category = "-";
+    juce::String category = "-", group;
+    juce::PopupMenu submenu;
+    bool submenuTicked = false;
+    const auto endSubmenu = [&]
+    {
+        if (submenu.getNumItems() > 0)
+            menu.addSubMenu (category.fromFirstOccurrenceOf ("/", false, false), submenu, true, juce::Image(), submenuTicked);
+        submenu = {};
+        submenuTicked = false;
+    };
     for (int i = 0; i < (int) factory.size(); ++i)
     {
-        if (factory[(size_t) i].category != category)
+        const auto& preset = factory[(size_t) i];
+        if (preset.category != category)
         {
-            category = factory[(size_t) i].category;
-            if (category.isNotEmpty())
-                menu.addSectionHeader (category.toUpperCase());
+            endSubmenu();
+            category = preset.category;
+            const auto newGroup = category.upToFirstOccurrenceOf ("/", false, false);
+            if (category.contains ("/") ? newGroup != group : category.isNotEmpty())
+                menu.addSectionHeader (newGroup.toUpperCase());
+            group = category.contains ("/") ? newGroup : juce::String();
         }
-        menu.addItem (100 + i, factory[(size_t) i].name, true, factory[(size_t) i].name == current);
+        if (category.contains ("/"))
+        {
+            submenu.addItem (100 + i, preset.name, true, preset.name == current);
+            submenuTicked = submenuTicked || preset.name == current;
+        }
+        else
+            menu.addItem (100 + i, preset.name, true, preset.name == current);
     }
+    endSubmenu();
     menu.addSectionHeader ("YOUR PRESETS");
     if (yours.empty())
         menu.addItem (99, "(none yet: SAVE AS... adds one)", false);

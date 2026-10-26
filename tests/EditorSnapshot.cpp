@@ -511,3 +511,55 @@ TEST_CASE ("Render a drop-down menu to a PNG", "[.][snapshot-menu]")
     REQUIRE (stream.openedOk());
     REQUIRE (juce::PNGImageFormat().writeImageToStream (image, stream));
 }
+
+// PARAGON_SNAPSHOT=menu.png ./ParagonX1Tests "[snapshot-preset-menu]": COMP's
+// PRESET menu from its GENRES header on (0.15.0), with one genre's submenu
+// open beside it, as the plugin's look-and-feel draws them.
+TEST_CASE ("Render COMP's genre preset submenus to a PNG", "[.][snapshot-preset-menu]")
+{
+    const auto path = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT", "menu.png");
+    const auto openGenre = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_GENRE", "Djent");
+    ParagonLookAndFeel look;
+    juce::StringArray genres, inGenre;
+    for (const auto& preset : CompPresets::factory())
+        if (preset.category.startsWith ("Genres/"))
+        {
+            genres.addIfNotAlreadyThere (preset.category.fromFirstOccurrenceOf ("/", false, false));
+            if (preset.category == "Genres/" + openGenre)
+                inGenre.add (preset.name);
+        }
+
+    constexpr int scale = 2, width = 190, itemHeight = 26, headerHeight = 26;
+    const auto mainHeight = headerHeight + itemHeight * genres.size() + 8;
+    juce::Image image (juce::Image::ARGB, width * 2 * scale, mainHeight * scale, true);
+    juce::Graphics g (image);
+    g.addTransform (juce::AffineTransform::scale ((float) scale));
+    g.fillAll (juce::Colours::darkgrey);
+
+    {
+        juce::Graphics::ScopedSaveState state (g);
+        g.reduceClipRegion (0, 0, width, mainHeight);
+        look.drawPopupMenuBackground (g, width, mainHeight);
+        look.drawPopupMenuSectionHeader (g, { 0, 4, width, headerHeight }, "GENRES");
+        for (int i = 0; i < genres.size(); ++i)
+            look.drawPopupMenuItem (g, { 0, 4 + headerHeight + i * itemHeight, width, itemHeight }, false, true,
+                                    genres[i] == openGenre, false, true, genres[i], {}, nullptr, nullptr);
+    }
+    {
+        const auto row = genres.indexOf (openGenre);
+        const auto subHeight = itemHeight * inGenre.size() + 8;
+        juce::Graphics::ScopedSaveState state (g);
+        g.setOrigin (width, juce::jmin (headerHeight + row * itemHeight, mainHeight - subHeight));
+        g.reduceClipRegion (0, 0, width, subHeight);   // the background fills its clip
+        look.drawPopupMenuBackground (g, width, subHeight);
+        for (int i = 0; i < inGenre.size(); ++i)
+            look.drawPopupMenuItem (g, { 0, 4 + i * itemHeight, width, itemHeight }, false, true, false, i == 0, false,
+                                    inGenre[i], {}, nullptr, nullptr);
+    }
+
+    juce::File file (juce::File::getCurrentWorkingDirectory().getChildFile (path));
+    file.deleteFile();
+    juce::FileOutputStream stream (file);
+    REQUIRE (stream.openedOk());
+    REQUIRE (juce::PNGImageFormat().writeImageToStream (image, stream));
+}

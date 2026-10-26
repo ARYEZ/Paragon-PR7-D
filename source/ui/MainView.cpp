@@ -532,13 +532,17 @@ bool MainView::keyPressed (const juce::KeyPress& key)
 std::vector<std::vector<const RigLibrary::Entry*>> MainView::rigPages() const
 {
     // Each bank's rigs in order, five to a page; banks with no rigs have none.
+    // A page also starts at each ten (01, 11, 21...), so the genre rigs (x11
+    // to x19) begin a page of their own whatever comes before them.
     std::vector<std::vector<const RigLibrary::Entry*>> pages;
-    int bank = -1;
+    int bank = -1, tens = -1;
     for (const auto& entry : audioProcessor.getRigLibrary().getEntries())
     {
-        if (entry.rig.bank != bank || pages.back().size() == 5)
+        const auto entryTens = (entry.rig.number - 1) / 10;
+        if (entry.rig.bank != bank || entryTens != tens || pages.back().size() == 5)
             pages.emplace_back();
         bank = entry.rig.bank;
+        tens = entryTens;
         pages.back().push_back (&entry);
     }
     return pages;

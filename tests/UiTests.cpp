@@ -349,5 +349,10 @@ TEST_CASE ("The rig row: five rigs of a bank, BANK down and up change the five s
     CHECK (rigs[2]->getName() == bankA[2]->rig.name.toUpperCase());
     CHECK (rigs[2]->isAnyOn());
 
+    // A page starts at each ten: bank A's genre rigs (A11 on) begin one of their own.
+    bankUp.toggle();
+    bankUp.toggle();
+    CHECK (rigs[0]->getName() == "MODERN METAL VOCAL");
+
     folder.deleteRecursively();
 }

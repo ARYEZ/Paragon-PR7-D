@@ -980,6 +980,57 @@ TEST_CASE ("Factory rigs: Kick Punch, Mix Brighter and Master Gentle Polish chan
     CHECK_THAT (level ("Master Gentle Polish", 1000.0), WithinAbs (0.0, 0.5));
 }
 
+TEST_CASE ("Genre rigs (0.15.0): each genre's EQ does what its notes say", "[eq][rigs][genres]")
+{
+    // The EQ's curve (stereo, mid or side) at `hz`, as the rig sets it.
+    const auto curve = [] (const juce::String& name, double hz, eq::Placement which = eq::Placement::stereo)
+    {
+        EqRig rig;
+        loadFactory (rig, name);
+        return eq::ParametricEq::curveDb (rig.processor.getEqSettings(), hz, EqRig::sampleRate, which);
+    };
+    // Hard rock's guitars are mid-forward; nu metal's are scooped.
+    CHECK (curve ("Hard Rock Guitars", 1000.0) > 1.5);
+    CHECK (curve ("Nu Metal Guitars", 700.0) < -3.0);
+    CHECK (curve ("Hard Rock Guitars", 800.0) - curve ("Nu Metal Guitars", 800.0) > 4.0);
+    // Extended-range guitars keep their low strings; symphonic ones leave the lows to the orchestra.
+    CHECK (curve ("Djent Guitars", 85.0) - curve ("Symphonic Metal Guitars", 85.0) > 6.0);
+    // Argent metal's sub weight; grunge's darker mix and master.
+    CHECK (curve ("Argent Metal Mix", 50.0) > 1.5);
+    CHECK (curve ("Argent Metal Bass", 45.0) > 1.5);
+    CHECK (curve ("Grunge Mix", 12000.0) < -0.5);
+    CHECK (curve ("Grunge Master", 100.0) > 0.4);
+    CHECK (curve ("Grunge Master", 10000.0) < -0.4);
+    // Argent metal's choir sits darker; djent's bass clanks; industrial's vocal is mid-heavy and rolled off on top.
+    CHECK (curve ("Argent Metal Vocal", 12000.0) < -1.5);
+    CHECK (curve ("Djent Bass", 2800.0) > 2.5);
+    CHECK (curve ("Industrial Vocal", 1200.0) > 2.5);
+    CHECK (curve ("Industrial Vocal", 16000.0) < -1.0);
+    // The symphonic mix: wider on top (the sides lifted, not the middle), the sides' lows cut.
+    CHECK (curve ("Symphonic Metal Mix", 10000.0, eq::Placement::side) - curve ("Symphonic Metal Mix", 10000.0, eq::Placement::mid) > 1.0);
+    CHECK (curve ("Symphonic Metal Mix", 60.0, eq::Placement::side) < -6.0);
+    // Djent's master keeps the low strings in the middle.
+    CHECK (curve ("Djent Master", 60.0, eq::Placement::side) < -6.0);
+    CHECK_THAT (curve ("Djent Master", 60.0, eq::Placement::mid), WithinAbs (0.0, 0.5));
+}
+
+TEST_CASE ("Genre rigs (0.15.0): the guitars' palm-mute boom comes down only when it blooms", "[eq][rigs][genres][dynamic]")
+{
+    for (const auto* name : { "Modern Metal Guitars", "Djent Guitars", "Argent Metal Guitars" })
+    {
+        INFO (name);
+        EqRig rig;
+        loadFactory (rig, name);
+        const auto boomHz = (double) rig.processor.getEqSettings().bands[1].frequency;
+        // Quiet and steady: AUTO settles and leaves it alone...
+        rig.play (3.0, toneDb (boomHz, -40.0), toneDb (boomHz, -40.0));
+        CHECK (rig.processor.getEqDynamics (1).changeDb > -0.5f);
+        // ...a loud chug is turned down.
+        rig.play (0.2, toneDb (boomHz, -10.0), toneDb (boomHz, -10.0));
+        CHECK (rig.processor.getEqDynamics (1).changeDb < -2.0f);
+    }
+}
+
 TEST_CASE ("Factory rigs: Vocal De-Esser acts only on loud sibilance; Mix Wider Top leaves the middle alone", "[eq][rigs][dynamic]")
 {
     {
