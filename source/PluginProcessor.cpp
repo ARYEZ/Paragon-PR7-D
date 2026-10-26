@@ -191,10 +191,29 @@ void ParagonX1AudioProcessor::loadDominionPreset (const DominionPreset& preset)
 
 void ParagonX1AudioProcessor::readHostTempo()
 {
+    hostPosition.known = false;
     if (auto* host = getPlayHead())
         if (const auto position = host->getPosition())
+        {
             if (const auto bpm = position->getBpm(); bpm.hasValue() && *bpm > 0.0)
+            {
                 hostBpm = *bpm;
+                hostPosition.bpm = *bpm;
+            }
+            // Where the song is, for ORACLE.
+            if (const auto samples = position->getTimeInSamples())
+            {
+                hostPosition.known = true;
+                hostPosition.playing = position->getIsPlaying() || position->getIsRecording();
+                hostPosition.sample = *samples;
+                hostPosition.ppq = position->getPpqPosition().orFallback ((double) *samples / juce::jmax (1.0, inputTap.getSampleRate()) * hostPosition.bpm / 60.0);
+                if (const auto signature = position->getTimeSignature())
+                {
+                    hostPosition.numerator = signature->numerator;
+                    hostPosition.denominator = signature->denominator;
+                }
+            }
+        }
 }
 
 bool ParagonX1AudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -293,8 +312,23 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, in
                            .getSubBlock ((size_t) start, (size_t) numSamples)
                            .getSubsetChannelBlock (0, (size_t) numOutputChannels);
 
-    // The tuner listens to what comes in, before anything changes it: both
-    // channels of a stereo track (their middle), so a part panned anywhere is heard.
+    // The tuner and ORACLE listen to what comes in, before anything changes
+    // it: both channels of a stereo track (their middle), so a part panned
+    // anywhere is heard. ORACLE first learns where in the song this piece is.
+    {
+        oracle::TimelineMark mark;
+        mark.tapIndex = inputTap.getTotalWritten();
+        mark.known = hostPosition.known;
+        mark.playing = hostPosition.playing;
+        mark.hostSample = hostPosition.sample + start;
+        mark.bpm = hostPosition.bpm;
+        mark.ppq = hostPosition.ppq + (hostPosition.playing ? start / juce::jmax (1.0, inputTap.getSampleRate()) * hostPosition.bpm / 60.0 : 0.0);
+        mark.numerator = hostPosition.numerator;
+        mark.denominator = hostPosition.denominator;
+        if (! hostPosition.playing)
+            mark.hostSample = hostPosition.sample;
+        oracleTimeline.write (mark);
+    }
     if (numOutputChannels > 1)
         inputTap.write (block.getChannelPointer (0), block.getChannelPointer (1), numSamples);
     else
@@ -422,6 +456,7 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, in
 void ParagonX1AudioProcessor::timerCallback()
 {
     updateTuner();
+    updateOracle();
     eqMatch.update (eqInputTap);   // EQ Match listens with the window closed too
     syncMidiExpressionToParameter();
     recordCheckpointIfReady();
@@ -434,6 +469,16 @@ void ParagonX1AudioProcessor::updateTuner()
         tuner.update (inputTap, tunerReferenceHz.load(), juce::Time::getMillisecondCounter());
     else
         tuner.stop();
+}
+
+void ParagonX1AudioProcessor::updateOracle()
+{
+    oracle.update (inputTap, oracleTimeline, isOn (ParamIDs::tunerOn));
+}
+
+juce::File ParagonX1AudioProcessor::getOracleMidiFolder()
+{
+    return juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("Paragon PR7-E ORACLE");
 }
 
 //==============================================================================
@@ -696,6 +741,7 @@ void ParagonX1AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     state.setProperty (tappedBpmKey, tappedBpm.load(), nullptr);
     state.setProperty (expressionCcKey, expressionCc.load(), nullptr);
     state.setProperty (tunerReferenceKey, tunerReferenceHz.load(), nullptr);
+    state.appendChild (oracle.toValueTree(), nullptr);   // ORACLE's transcription, kept with the project
 
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
@@ -708,6 +754,11 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
         return;
 
     auto state = juce::ValueTree::fromXml (*xml);
+
+    // ORACLE's transcription isn't parameters: out of the state before it's applied.
+    const auto transcription = state.getChildWithName ("Oracle");
+    oracle.fromValueTree (transcription);
+    state.removeChild (transcription, nullptr);
 
     // Saved before 0.3.0 with the expression pedal on one of PR7-B's effects
     // (WAH, MORPH, LO-FI...): those are gone, so the pedal comes back

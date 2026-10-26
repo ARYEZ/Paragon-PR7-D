@@ -123,7 +123,6 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
       selectedRig (processorToShow),
       expressionPanel (processorToShow.getParameters()),
       eqPanel (processorToShow),
-      tunerPanel (processorToShow),
       // The blocks that shape the sound, in order; it grows as the stomps are built.
       compPanel (processorToShow.getParameters(),
                  { { "COMP", { { ParamIDs::compOn, "ON" }, { ParamIDs::compThreshold, "THRESHOLD" }, { ParamIDs::compRatio, "RATIO" },
@@ -141,7 +140,8 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
       rigBrowser (processorToShow),
       settingsPage (processorToShow),
       eqPage (processorToShow),
-      dominionPage (processorToShow)
+      dominionPage (processorToShow),
+      oraclePage (processorToShow)
 {
     auto& state = processorToShow.getParameters();
 
@@ -203,8 +203,8 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     undoPedal.onClick = [this] { audioProcessor.undo(); };
     redoPedal.onClick = [this] { audioProcessor.redo(); };
     tunerPedal.setClickingTogglesState (true);
-    tunerPedal.setTooltip ("Tuner: shows the pitch of what's playing on the screen, and its trace in the TUNER panel");
-    resetPedal.setTooltip ("Empty the tuner's trace and start its average again");
+    tunerPedal.setTooltip ("Tuner and ORACLE (stomp 1): shows the pitch of what's playing on the screen, and transcribes it to MIDI as the DAW plays");
+    resetPedal.setTooltip ("Empty the tuner's trace and start its average again (ORACLE's notes stay)");
     resetPedal.onClick = [this] { audioProcessor.resetTuner(); };
     tapPedal.setTooltip ("Tap the tempo for the delay (its light flashes in time). Hold to open the tuner.");
     tapPedal.onClick = [this] { if (! pedalTapHold.consumeHold()) tap(); };
@@ -258,16 +258,15 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     };
     const auto planned = [] (const char* what) { return [what] { return juce::String (what); }; };
 
-    // Top row. TUNER checks the pitch of recorded parts (the TUNER key and
-    // holding TAP switch it too); its name opens its panel: the trace and the average.
-    addStomp (1, "TUNER", { ParamIDs::tunerOn }, tunerBlock, [this]
+    // Top row. ORACLE (with the tuner) transcribes a part to MIDI as the DAW
+    // plays it, and shows its pitch on the screen (the TUNER key and holding
+    // TAP switch it too); its name opens its own page.
+    addStomp (1, "ORACLE", { ParamIDs::tunerOn }, tunerBlock, [this]
     {
-        const auto reference = audioProcessor.getTunerReferenceHz();
-        auto text = "A4 = " + juce::String (reference, 1) + " Hz";
-        if (const auto average = audioProcessor.getTuner().getAverage (reference))
-            text << "  Average " << (average->cents >= 0.5 ? "+" : "") << juce::roundToInt (average->cents) << " cents";
-        return text;
+        const auto notes = audioProcessor.getOracle().getNotes().size();
+        return notes == 0 ? juce::String ("Melody to MIDI") : juce::String ((int) notes) + (notes == 1 ? " note" : " notes");
     });
+    footswitches[0]->onSelect = [this] { showPage (Page::oracle); };
     // COMP: PR7-C's compressor, after the EQ; its name opens its knobs.
     addStomp (2, "COMP", { ParamIDs::compOn }, compBlock, [this]
     {
@@ -310,7 +309,6 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
         addAndMakeVisible (component);
 
     addChildComponent (eqPanel);
-    addChildComponent (tunerPanel);
     addChildComponent (compPanel);
     compPanel.setHeader (Icons::Type::comp, ParagonColours::delay, "COMP");
     compPanel.setMeter ([this]
@@ -329,6 +327,8 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     addChildComponent (eqPage);
     dominionPage.onClose = [this] { showPage (Page::processor); };
     addChildComponent (dominionPage);
+    oraclePage.onClose = [this] { showPage (Page::processor); };
+    addChildComponent (oraclePage);
 
     closePanel.setTooltip ("Back to the EQ");
     closePanel.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff151217));
@@ -391,7 +391,6 @@ void MainView::selectBlock (int block)
     selectedBlock = block;
     const auto onProcessorPage = page == Page::processor;
     eqPanel.setVisible (block == eqBlock && onProcessorPage);
-    tunerPanel.setVisible (block == tunerBlock && onProcessorPage);
     compPanel.setVisible (block == compBlock && onProcessorPage);
     limiterPanel.setVisible (block == limiterBlock && onProcessorPage);
     closePanel.setVisible (block != eqBlock && onProcessorPage);
@@ -423,6 +422,9 @@ void MainView::showPage (Page newPage)
     dominionPage.setVisible (newPage == Page::dominion);
     if (newPage == Page::dominion)
         dominionPage.getDisplay().grabKeyboardFocus();
+    oraclePage.setVisible (newPage == Page::oracle);
+    if (newPage == Page::oracle)
+        oraclePage.getRoll().grabKeyboardFocus();
     selectBlock (selectedBlock);
 }
 
@@ -690,7 +692,6 @@ void MainView::resized()
     selectedRig.setBounds (mock (256, 568, 652, 822));
     const auto summaryArea = mock (662, 568, 1334, 822);
     eqPanel.setBounds (summaryArea);
-    tunerPanel.setBounds (summaryArea);
     compPanel.setBounds (summaryArea);
     limiterPanel.setBounds (summaryArea);
     closePanel.setBounds (summaryArea.withSizeKeepingCentre (0, 0).withX (summaryArea.getRight() - 130).withY (summaryArea.getY() + 10)
@@ -705,4 +706,5 @@ void MainView::resized()
     settingsPage.setBounds (pageArea);
     eqPage.setBounds (pageArea);
     dominionPage.setBounds (pageArea);
+    oraclePage.setBounds (pageArea);
 }

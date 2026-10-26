@@ -6,6 +6,7 @@
 #include "ui/EqDisplay.h"
 #include "ui/DominionPage.h"
 #include "ui/EqPage.h"
+#include "ui/OraclePage.h"
 #include "ui/Finish.h"
 #include "ui/Footswitch.h"
 #include "ui/ParagonLookAndFeel.h"
@@ -284,6 +285,95 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 display->select (1);
                 display->refresh();
             }
+    }
+
+    // PARAGON_SNAPSHOT_PAGE=oracle opens ORACLE's page (stomp 1's name).
+    // PARAGON_SNAPSHOT_ORACLE=1: ORACLE on, having heard a sung line as a
+    // DAW played it at 100 BPM from bar 2 (scoops into some notes, vibrato
+    // on the long ones, some sharp or flat), with one note selected.
+    if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_PAGE", {}) == "oracle")
+    {
+        if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_ORACLE", {}) == "1")
+        {
+            struct Transport final : juce::AudioPlayHead
+            {
+                juce::Optional<PositionInfo> getPosition() const override
+                {
+                    PositionInfo info;
+                    info.setTimeInSamples (sample);
+                    info.setBpm (100.0);
+                    info.setPpqPosition ((double) sample / 48000.0 * 100.0 / 60.0);
+                    info.setTimeSignature (juce::AudioPlayHead::TimeSignature { 4, 4 });
+                    info.setIsPlaying (true);
+                    return info;
+                }
+                juce::int64 sample = 0;
+            } transport;
+            processor.setPlayHead (&transport);
+            processor.getParameters().getParameter (ParamIDs::tunerOn)->setValueNotifyingHost (1.0f);
+
+            // beats, MIDI note, cents off, vibrato (cents), scoop from below (semitones); note 0 is a rest.
+            struct Sung { double beats, note, cents, vibrato, scoop; };
+            const Sung line[] = { { 1.0, 0, 0, 0, 0 }, { 0.5, 64, 4, 0, 0 }, { 0.5, 67, -6, 0, 1.0 }, { 1.0, 69, 8, 0, 0 },
+                                  { 0.5, 67, 0, 0, 0 }, { 1.5, 64, -14, 30, 0 }, { 0.5, 0, 0, 0, 0 }, { 0.5, 62, 2, 0, 0 },
+                                  { 0.5, 64, 6, 0, 0 }, { 0.5, 67, 18, 0, 2.0 }, { 0.5, 67, 10, 0, 0 }, { 2.0, 72, -4, 40, 1.0 },
+                                  { 0.5, 0, 0, 0, 0 }, { 0.5, 71, -8, 0, 0 }, { 0.5, 69, 0, 0, 0 }, { 1.0, 67, 12, 20, 0 },
+                                  { 0.5, 64, -3, 0, 0 }, { 2.5, 62, -10, 35, 0.5 }, { 1.0, 0, 0, 0, 0 } };
+            transport.sample = (juce::int64) (60.0 / 100.0 * 4.0 * 48000.0);   // bar 2
+            juce::AudioBuffer<float> buffer (2, 256);
+            juce::MidiBuffer midi;
+            double phase = 0.0;
+            int block = 0;
+            for (const auto& sung : line)
+            {
+                const auto length = sung.beats * 0.6;
+                const auto samples = (int) (length * 48000.0);
+                for (int done = 0; done < samples; done += 256, ++block)
+                {
+                    buffer.clear();
+                    for (int i = 0; i < 256; ++i)
+                    {
+                        const auto t = (done + i) / 48000.0;
+                        if (sung.note <= 0.0 || done + i >= samples)
+                            continue;
+                        const auto scoop = sung.scoop * std::exp (-t / 0.04);
+                        const auto vibrato = sung.vibrato * std::sin (juce::MathConstants<double>::twoPi * 5.5 * t) * juce::jmin (1.0, t / 0.3);
+                        const auto pitch = sung.note + (sung.cents + vibrato) / 100.0 - scoop;
+                        phase += juce::MathConstants<double>::twoPi * 440.0 * std::pow (2.0, (pitch - 69.0) / 12.0) / 48000.0;
+                        const auto envelope = juce::jmin (1.0, t / 0.01, (length - t) / 0.03);
+                        buffer.setSample (0, i, (float) (envelope * (0.22 * std::sin (phase) + 0.1 * std::sin (2.0 * phase) + 0.04 * std::sin (3.0 * phase))));
+                    }
+                    processor.processBlock (buffer, midi);
+                    transport.sample += 256;
+                    if (block % 6 == 5)
+                    {
+                        processor.updateTuner();
+                        processor.updateOracle();
+                    }
+                }
+            }
+            processor.updateOracle();
+            processor.setPlayHead (nullptr);
+        }
+
+        std::vector<Footswitch*> stomps;
+        std::function<void (juce::Component&)> collect = [&] (juce::Component& c)
+        {
+            if (auto* stomp = dynamic_cast<Footswitch*> (&c))
+                stomps.push_back (stomp);
+            for (auto* child : c.getChildren())
+                collect (*child);
+        };
+        collect (*editor);
+        REQUIRE (stomps.size() == 7);
+        stomps[0]->onSelect();
+        if (auto* page = findType<OraclePage> (*editor))
+        {
+            page->getRoll().fit();
+            const auto& notes = processor.getOracle().getNotes();
+            if (notes.size() > 5)
+                page->getRoll().setSelection ({ notes[5].id });   // the long, flat one with vibrato
+        }
     }
 
     // PARAGON_SNAPSHOT_MATCH=1 (with PAGE=eq): EQ Match open, having heard

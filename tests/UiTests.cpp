@@ -7,7 +7,7 @@
 #include "ui/EqPage.h"
 #include "ui/Finish.h"
 #include "ui/PerformanceControls.h"
-#include "ui/TunerPanel.h"
+#include "ui/OraclePage.h"
 
 using Catch::Matchers::WithinAbs;
 
@@ -144,11 +144,7 @@ TEST_CASE ("The chain and the stomps pick what the dock shows; the graphic EQ is
     std::vector<EqOverview*> eqPanels;
     findAll (*editor, eqPanels);
     REQUIRE (eqPanels.size() == 1);
-    std::vector<TunerPanel*> tunerPanels;
-    findAll (*editor, tunerPanels);
-    REQUIRE (tunerPanels.size() == 1);
     CHECK (eqPanels[0]->isVisible());
-    CHECK_FALSE (tunerPanels[0]->isVisible());
 
     // The chain has just the EQ (PR7-B's effects went in 0.3.0).
     std::vector<SignalChain*> chains;
@@ -157,12 +153,11 @@ TEST_CASE ("The chain and the stomps pick what the dock shows; the graphic EQ is
     chains[0]->onSelect (0);
     CHECK (eqPanels[0]->isVisible());
 
-    // TUNER's name shows its panel; the GRAPHIC EQ button goes back.
+    // COMP's name shows its knobs; the EQ button goes back.
     std::vector<Footswitch*> footswitches;
     findAll (*editor, footswitches);
     REQUIRE (footswitches.size() == 7);
-    footswitches[0]->onSelect();
-    CHECK (tunerPanels[0]->isVisible());
+    footswitches[1]->onSelect();
     CHECK_FALSE (eqPanels[0]->isVisible());
 
     std::vector<juce::TextButton*> buttons;
@@ -172,7 +167,6 @@ TEST_CASE ("The chain and the stomps pick what the dock shows; the graphic EQ is
     CHECK ((*back)->isVisible());
     (*back)->onClick();
     CHECK (eqPanels[0]->isVisible());
-    CHECK_FALSE (tunerPanels[0]->isVisible());
     CHECK_FALSE ((*back)->isVisible());
 }
 
@@ -186,7 +180,7 @@ TEST_CASE ("Seven stomps, three over four, labelled from the plan", "[ui]")
     findAll (*editor, stomps);
     REQUIRE (stomps.size() == 7);
 
-    const juce::StringArray names { "TUNER", "COMP", "INSERTS", "EQ", "DOMINION", "AUTO EQ", "LIMITER" };
+    const juce::StringArray names { "ORACLE", "COMP", "INSERTS", "EQ", "DOMINION", "AUTO EQ", "LIMITER" };
     for (size_t i = 0; i < stomps.size(); ++i)
         CHECK (stomps[i]->getTitle() == names[(int) i] + " footswitch");
 
@@ -203,17 +197,18 @@ TEST_CASE ("Seven stomps, three over four, labelled from the plan", "[ui]")
     for (size_t bottom = 4; bottom < 7; ++bottom)
         CHECK (bounds (bottom).getY() == bounds (3).getY());
 
-    // TUNER's name opens its panel (the trace) in place of the graphic EQ.
-    std::vector<TunerPanel*> tunerPanels;
-    findAll (*editor, tunerPanels);
-    REQUIRE (tunerPanels.size() == 1);
-    CHECK_FALSE (tunerPanels[0]->isVisible());
+    // ORACLE's name opens its own page, over the pedal; BACK TO PEDAL closes it.
+    std::vector<OraclePage*> oraclePages;
+    findAll (*editor, oraclePages);
+    REQUIRE (oraclePages.size() == 1);
+    CHECK_FALSE (oraclePages[0]->isVisible());
     stomps[0]->onSelect();
-    CHECK (tunerPanels[0]->isVisible());
-    stomps[3]->onSelect();
-    CHECK_FALSE (tunerPanels[0]->isVisible());
+    CHECK (oraclePages[0]->isVisible());
+    REQUIRE (oraclePages[0]->onClose);
+    oraclePages[0]->onClose();
+    CHECK_FALSE (oraclePages[0]->isVisible());
 
-    // TUNER, COMP, EQ and LIMITER switch what PR7-E already has.
+    // ORACLE, COMP, EQ and LIMITER switch what PR7-E already has.
     const auto isOn = [&] (const char* id) { return processor.getParameters().getRawParameterValue (id)->load() > 0.5f; };
     REQUIRE_FALSE (isOn (ParamIDs::tunerOn));
     stomps[0]->toggle();

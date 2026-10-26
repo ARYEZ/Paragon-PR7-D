@@ -16,7 +16,7 @@
 #include "ui/PerformanceControls.h"
 #include "ui/RigBrowser.h"
 #include "ui/SignalChain.h"
-#include "ui/TunerPanel.h"
+#include "ui/OraclePage.h"
 
 // A side strip from the mockup: a title, a gain knob with its value
 // underneath, and a level meter.
@@ -79,10 +79,10 @@ private:
     // the summary cards select these to show their knobs.
     // The signal chain's blocks (the EQ, DOMINION, COMP and the LIMITER, so far).
     // DOMINION's block opens its page, as its stomp's name does.
-    // tunerBlock isn't in the chain (the tuner only listens): it's the TUNER stomp's panel.
+    // tunerBlock isn't in the chain (ORACLE, with the tuner, only listens): stomp 1's name opens its page.
     enum Block { eqBlock, dominionBlock, compBlock, limiterBlock, numBlocks, tunerBlock = numBlocks };
 
-    enum class Page { processor, presets, settings, eq, dominion };   // eq, dominion: those stomps' own pages
+    enum class Page { processor, presets, settings, eq, dominion, oracle };   // eq, dominion, oracle: those stomps' own pages
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void applyFinish();   // colours the printed labels and redraws the unit in the current finish
@@ -145,7 +145,6 @@ private:
     SelectedRigPanel selectedRig;
     ExpressionPanel expressionPanel;
     EqOverview eqPanel;   // the dock's default: the EQ's curve, and OPEN EQ
-    TunerPanel tunerPanel;
     EffectPanel compPanel;      // stomp 2's knobs, with its gain-reduction meter
     EffectPanel limiterPanel;   // stomp 7's
     juce::TextButton closePanel { "EQ" };   // back to the EQ overview, the dock's default
@@ -157,6 +156,7 @@ private:
     SettingsPage settingsPage;
     EqPage eqPage;
     DominionPage dominionPage;
+    OraclePage oraclePage;
     std::vector<juce::Component*> processorPage;
     Page page = Page::processor;
 

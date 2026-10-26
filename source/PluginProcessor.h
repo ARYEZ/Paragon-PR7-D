@@ -7,6 +7,7 @@
 #include "dsp/InputTap.h"
 #include "dsp/TapTempo.h"
 #include "dsp/Tuner.h"
+#include "dsp/oracle/Oracle.h"
 #include "dsp/dominion/Dominion.h"
 #include "rigs/DominionPresets.h"
 #include "dsp/effects/Compressor.h"
@@ -131,6 +132,14 @@ public:
     // average (message thread). It updates itself while it's on; RESET empties the trace.
     const InputTap& getInputTap() const noexcept { return inputTap; }
     const Tuner& getTuner() const noexcept { return tuner; }
+
+    // ORACLE (stomp 1, with the tuner): melody to MIDI. While it's on and the
+    // DAW plays, it transcribes what comes in (message thread: its page edits
+    // the notes, and its timer listens).
+    oracle::Transcriber& getOracle() noexcept { return oracle; }
+    void updateOracle();   // the timer calls this; tests call it to step ORACLE
+    // Where the MIDI files to drag onto a track are written.
+    static juce::File getOracleMidiFolder();
 
     //==========================================================================
     // The EQ (stomp 4). Its settings as they are now, read from the
@@ -271,8 +280,20 @@ private:
     std::atomic<int> expressionCc { 11 };
     std::atomic<double> tunerReferenceHz { 440.0 };
 
-    InputTap inputTap { 32768 };   // enough for the tuner's window at 192 kHz
+    // The tuner reads the newest of it; ORACLE every sample in turn, so it
+    // holds a few seconds (10 s at 48 kHz) in case the timer is held up.
+    InputTap inputTap { 1 << 19 };
     Tuner tuner;
+    // Where the DAW is, per block (audio thread only), and for ORACLE.
+    struct HostPosition
+    {
+        bool known = false, playing = false;
+        std::int64_t sample = 0;
+        double ppq = 0.0, bpm = 120.0;
+        int numerator = 4, denominator = 4;
+    } hostPosition;
+    oracle::Timeline oracleTimeline;
+    oracle::Transcriber oracle;
 
     UndoHistory<Snapshot> history;
     std::atomic<int> activeGestures { 0 };

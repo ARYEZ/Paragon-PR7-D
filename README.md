@@ -22,7 +22,7 @@ stomps are still being planned, one at a time with the owner.
 
 | Stomp | Plan | Now |
 |---|---|---|
-| **1 Tuner** | Checks the pitch of recorded parts (a vocal, a bass line) | Works: note, 30-second trace, average |
+| **1 Oracle** | Melody to MIDI (inspired by Melodyne and VariAudio, our own design), with the tuner | Works: transcribes as the DAW plays, note editing, drag the MIDI onto a track |
 | **2 Comp** | PR7-C's compressor, ported (a multiband version inspired by FabFilter Pro-MB is a possible later step) | Works: VCA, OPTO and FET; threshold, ratio, attack, release, auto, make up, link |
 | **3 Inserts** | Host other plugins in slots inside PR7-E and open their editors (a mini rack) | Placeholder |
 | **4 EQ** | An EQ inspired by FabFilter Pro-Q 4 (our own design) | Works: 24 bands on its own page, any of them dynamic, and EQ Match |
@@ -36,7 +36,7 @@ none of those products' names or branding go on the plugin.
 ## Using it
 
 - **Stomps 1-7:** three on the top row, four below. Press a pad to switch it on or off; click its name to show its knobs
-  in the dock (TUNER opens its trace; EQ opens its own page).
+  in the dock (ORACLE, EQ and DOMINION open their own pages).
 - **EQ (stomp 4)**, inspired by FabFilter Pro-Q 4: up to 24 bands (bell, shelves, cuts, notch, band pass, tilt shelf,
   flat tilt, all pass; 6 to 96 dB/oct), each on the stereo signal or only its left, right, mid or side. Analog-matched
   curves with zero latency. On its page: double-click to add a band, drag its dot, mouse wheel for Q (or a cut's slope),
@@ -62,11 +62,17 @@ none of those products' names or branding go on the plugin.
 - **LIMITER (stomp 7)**, PR7-C's limiter: THRESHOLD (the ceiling), MAKE UP, MIX, LINK, and MODE (Brick, Soft or Auto),
   then OUTPUT TRIM. It's last in the chain, after OUTPUT, so nothing can push a peak past it; no look-ahead, so no delay.
   Its panel shows the gain reduction.
-- **Tuner (stomp 1):** for checking the pitch of a recorded part as it plays, one note at a time, up to 1,500 Hz. It
-  hears both channels and never changes the sound. Its panel shows the current note and cents, the pitch over the last
-  30 seconds against the notes (green within 5 cents, orange within 15, red beyond), and the **average**: how sharp or
-  flat the part sits overall. **RESET** (in the panel, or the key on the unit) starts the trace and average again. It
-  keeps listening with the window closed. The reference pitch for A4 is in SETTINGS.
+- **ORACLE (stomp 1)**, melody to MIDI, inspired by what Melodyne and VariAudio do with a single line (our own design):
+  switch it on and play the part in your DAW. It listens as the DAW plays (one voice or instrument at a time, up to
+  1,500 Hz) and finds the notes: where each starts and ends, its pitch (the middle of what was sung, not the scoops or
+  the vibrato) and its velocity. Playing a passage again replaces what it heard there. Click its name for its page: the
+  notes as a piano roll over the pitch line. Drag a note up or down (pitch), drag its ends (start, length), Alt-drag to
+  move it, double-click to split (or to add a note), J to join, Delete; ORACLE has its own UNDO and REDO.
+  **SENSITIVITY** (how readily it splits notes), **MIN NOTE** (the shortest note kept), **QUANTIZE** (for the MIDI
+  file only). **DRAG MIDI**: drag it onto a MIDI track at bar 1 (the file starts at bar 1, at the song's tempo);
+  click it to show the file instead. The transcription is saved with your DAW project. The tuner is part of it: the
+  pedal's screen shows the note and cents, and the page shows the note now and how in tune the notes were sung. The
+  reference pitch for A4 is in SETTINGS.
 - **Stereo throughout:** both channels pass through as they came in, apart from what the stomps do (a mono track plays on
   both speakers). **Signal chain** (bottom strip): input → EQ → DOMINION → COMP → LIMITER → output, growing as the stomps are built.
 - **PRESENCE** cuts or boosts the top end (above about 3.5 kHz).
