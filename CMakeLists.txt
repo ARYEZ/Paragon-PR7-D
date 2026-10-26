@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.24)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "macOS architectures")
 
-project(ParagonX1 VERSION 0.8.0 LANGUAGES C CXX)
+project(ParagonX1 VERSION 0.15.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -50,6 +50,10 @@ target_sources(ParagonX1
         source/PluginEditor.cpp
         source/dsp/PitchDetector.cpp
         source/dsp/Tuner.cpp
+        source/dsp/dominion/Dominion.cpp
+        source/dsp/oracle/Oracle.cpp
+        source/dsp/effects/Compressor.cpp
+        source/dsp/effects/MultibandComp.cpp
         source/dsp/effects/Limiter.cpp
         source/dsp/eq/EqDesign.cpp
         source/dsp/eq/ParametricEq.cpp
@@ -57,6 +61,8 @@ target_sources(ParagonX1
         source/dsp/eq/EqMatchSession.cpp
         source/rigs/Rig.cpp
         source/rigs/FactoryRigs.cpp
+        source/rigs/DominionPresets.cpp
+        source/rigs/CompPresets.cpp
         source/rigs/RigLibrary.cpp
         source/ui/LevelMeter.cpp
         source/ui/Logo.cpp
@@ -72,7 +78,10 @@ target_sources(ParagonX1
         source/ui/EqDisplay.cpp
         source/ui/EqPage.cpp
         source/ui/EqMatchPanel.cpp
-        source/ui/TunerPanel.cpp
+        source/ui/DominionPage.cpp
+        source/ui/OraclePage.cpp
+        source/ui/CompPage.cpp
+        source/ui/PresetButton.cpp
         source/ui/PerformanceControls.cpp
         source/ui/MainView.cpp
         source/ui/ParagonLookAndFeel.cpp

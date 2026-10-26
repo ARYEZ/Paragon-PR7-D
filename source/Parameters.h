@@ -42,6 +42,54 @@ namespace ParamIDs
     inline constexpr const char* eqBandSettings[] = { "Used", "On", "Shape", "Freq", "Gain", "Q", "Slope", "Place",
                                                       "Dyn", "DynAuto", "Thresh", "Attack", "Release" };
 
+    // Stomp 2, COMP (0.9.0): PR7-C's compressor, ported. After the EQ.
+    inline constexpr auto compOn        = "compOn";
+    inline constexpr auto compThreshold = "compThreshold";   // dBFS
+    inline constexpr auto compRatio     = "compRatio";       // 1 = SOFT, 30 = infinite
+    inline constexpr auto compAttack    = "compAttack";      // ms
+    inline constexpr auto compRelease   = "compRelease";     // ms
+    inline constexpr auto compAuto      = "compAuto";        // AUTO release
+    inline constexpr auto compMakeUp    = "compMakeUp";      // dB
+    inline constexpr auto compCharacter = "compCharacter";   // choice: VCA, OPTO, FET
+    inline constexpr auto compLink      = "compLink";        // both channels together
+    // COMP's bands (0.13.0): multiband compression and expansion, inspired by
+    // FabFilter Pro-MB (our own design, see dsp/effects/MultibandComp.h).
+    // The bands come first, then the full-band compressor above, which
+    // compWide switches (on by default, so older rigs sound as they did).
+    inline constexpr auto compWide    = "compWide";
+    inline constexpr auto mbLookahead = "mbLookahead";   // COMP 20 ms late, the bands hearing ahead
+    inline constexpr auto mbMix       = "mbMix";         // %, 0 to 200
+    inline constexpr int mbNumBands = 6;
+    // "mbB1Used", "mbB1Low"... `what` is one of the names below.
+    inline juce::String mbBand (int band, const char* what) { return "mbB" + juce::String (band + 1) + what; }
+    inline constexpr const char* mbBandSettings[] = { "Used", "On", "Low", "High", "Slope", "Thresh", "Range", "Mode", "Ratio",
+                                                      "Knee", "Attack", "Release", "Char", "Stereo", "Link", "Out", "Look" };
+
+    // Stomp 5, DOMINION (0.10.0): dynamic resonance suppression, inspired by
+    // oeksound soothe 3 (our own design, see dsp/dominion/Dominion.h). After
+    // the EQ, before COMP.
+    inline constexpr auto domOn      = "domOn";
+    inline constexpr auto domMode    = "domMode";      // choice: Soft, Hard
+    inline constexpr auto domDepth   = "domDepth";     // 0 to 20
+    inline constexpr auto domDetail  = "domDetail";    // 0 to 100
+    inline constexpr auto domAttack  = "domAttack";    // 0 to 100
+    inline constexpr auto domRelease = "domRelease";   // 0 to 100
+    inline constexpr auto domStereo  = "domStereo";    // choice: L/R, M/S
+    inline constexpr auto domLink    = "domLink";      // %
+    inline constexpr auto domFocus   = "domFocus";     // -100 to 100
+    inline constexpr auto domDetailLow = "domDetailLow", domDetailHigh = "domDetailHigh",
+                          domAttackLow = "domAttackLow", domAttackHigh = "domAttackHigh",
+                          domReleaseLow = "domReleaseLow", domReleaseHigh = "domReleaseHigh";   // the tilts, -100 to 100
+    inline constexpr auto domMaxCut  = "domMaxCut";    // dB (40: no limit)
+    inline constexpr auto domWetTrim = "domWetTrim";   // dB
+    inline constexpr auto domMix     = "domMix";       // %
+    inline constexpr auto domOut     = "domOut";       // dB
+    inline constexpr auto domDelta   = "domDelta";
+    inline constexpr int domNumBands = 8;
+    // The depth curve's bands: "domB1Used", "domB1Freq"... `what` is one of the names below.
+    inline juce::String domBand (int band, const char* what) { return "domB" + juce::String (band + 1) + what; }
+    inline constexpr const char* domBandSettings[] = { "Used", "On", "Shape", "Freq", "Depth", "Q", "Slope", "Focus" };
+
     // Stomp 7, the LIMITER (0.8.0): PR7-C's limiter and output trim, ported.
     // The last thing in the chain, after OUTPUT, RIG LEVEL and the volume pedal.
     inline constexpr auto limitOn        = "limitOn";
@@ -70,6 +118,14 @@ namespace ExpressionTargets
 
 namespace ParamRanges
 {
+    // COMP's, as on PR7-C.
+    inline constexpr float compThresholdMin = -50.0f, compThresholdMax = 0.0f;
+    inline constexpr float compAttackMin = 0.1f, compAttackMax = 30.0f;          // ms
+    inline constexpr float compReleaseMin = 50.0f, compReleaseMax = 3000.0f;     // ms
+    inline constexpr float compMakeUpMax = 20.0f;
+    inline const juce::StringArray compCharacters { "VCA", "OPTO", "FET" };    // saved by index: only append
+    inline constexpr float compRatioMarks[] = { 1.0f, 1.5f, 2.0f, 4.0f, 10.0f, 30.0f };   // SOFT, then to infinite
+
     // The LIMITER's, as on PR7-C.
     inline constexpr float limitThresholdMin = -20.0f, limitMakeUpMax = 12.0f;
     inline constexpr float limitTrimMin = -12.0f, limitTrimMax = 12.0f;

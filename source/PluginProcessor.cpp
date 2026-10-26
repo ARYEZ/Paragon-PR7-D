@@ -13,12 +13,11 @@ namespace
     const juce::Identifier rigFactoryKey { "rigFactory" };
     const juce::Identifier rigModifiedKey { "rigModified" };
     const juce::Identifier tappedBpmKey { "tappedBpm" };
-    const juce::Identifier expressionCcKey { "expressionCc" };
     const juce::Identifier tunerReferenceKey { "tunerReferenceHz" };
     // Which version's parameters a project was saved with, as for rigs (see
     // Rig.cpp). Projects from before 0.3.0 don't say: 0.
     const juce::Identifier parameterVersionKey { "parameterVersion" };
-    constexpr int parameterVersion = 32;
+    constexpr int parameterVersion = 35;
 
 }
 
@@ -33,9 +32,17 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
     for (int band = 0; band < ParamIDs::eqNumBands; ++band)
         for (size_t i = 0; i < std::size (ParamIDs::eqBandSettings); ++i)
             eqBandParameters[(size_t) band].values[i] = parameters.getRawParameterValue (ParamIDs::eqBand (band, ParamIDs::eqBandSettings[i]));
+    for (int band = 0; band < ParamIDs::domNumBands; ++band)
+        for (size_t i = 0; i < std::size (ParamIDs::domBandSettings); ++i)
+            dominionBandParameters[(size_t) band].values[i] = parameters.getRawParameterValue (ParamIDs::domBand (band, ParamIDs::domBandSettings[i]));
+    for (int band = 0; band < ParamIDs::mbNumBands; ++band)
+        for (size_t i = 0; i < std::size (ParamIDs::mbBandSettings); ++i)
+            multibandBandParameters[(size_t) band].values[i] = parameters.getRawParameterValue (ParamIDs::mbBand (band, ParamIDs::mbBandSettings[i]));
 
     rigLibrary = std::make_unique<RigLibrary>();
     eqMatch.setReferencesFolder (rigLibrary->getFolder().getChildFile ("Match References"));
+    dominionPresets.setFolder (rigLibrary->getFolder().getChildFile ("Dominion Presets"));
+    compPresets.setFolder (rigLibrary->getFolder().getChildFile ("Comp Presets"));
 
     // Any change to a parameter that rigs store marks the rig as modified,
     // and finishing an edit to one records an undo step.
@@ -48,7 +55,7 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
             }
 
     // Housekeeping off the audio thread: show MIDI pedal moves and record
-    // undo steps. 30 Hz so a MIDI expression pedal moves smoothly on screen.
+    // undo steps.
     startTimerHz (30);
 
     // The starting point, so the first edit can be undone.
@@ -81,6 +88,10 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     bypassAmount.reset (sampleRate, gainRampSeconds);
     bypassAmount.setCurrentAndTargetValue (isOn (ParamIDs::bypass) ? 1.0f : 0.0f);
     parametricEq.prepare (sampleRate, preparedBlockSize);
+    dominionProcessor.prepare (sampleRate, preparedBlockSize);
+    compressor.prepare (sampleRate, preparedBlockSize);
+    multiband.prepare (sampleRate, preparedBlockSize);
+    compSidechain.setSize (2, preparedBlockSize);
     limiter.prepare (sampleRate, preparedBlockSize);
     limitTrim.reset (sampleRate, gainRampSeconds);
     limitTrimFresh = true;
@@ -90,9 +101,47 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
         shelf.prepare (sampleRate, preparedBlockSize);
     inputTap.setSampleRate (sampleRate);
 
-    expressionVolume.reset (sampleRate, gainRampSeconds);
-    expressionVolume.setCurrentAndTargetValue (1.0f);
-    setLatencySamples (0);   // nothing in the chain looks ahead (the NAM amp, which did, went with PR7-B's bass blocks)
+    updateLatency();
+}
+
+void ParagonX1AudioProcessor::updateLatency()
+{
+    // Only COMP's LOOK-AHEAD delays the sound (the NAM amp, which also did, went with PR7-B's bass blocks).
+    const auto latency = isOn (ParamIDs::mbLookahead) ? (int) std::lround (effects::multiband::lookaheadSeconds * inputTap.getSampleRate()) : 0;
+    if (latency != getLatencySamples())
+        setLatencySamples (latency);
+}
+
+effects::multiband::Settings ParagonX1AudioProcessor::getMultibandSettings() const noexcept
+{
+    namespace mb = effects::multiband;
+    mb::Settings settings;
+    settings.lookahead = isOn (ParamIDs::mbLookahead);
+    settings.mix = param (ParamIDs::mbMix) / 100.0f;
+    settings.soloBand = multibandSolo.load();
+    for (size_t i = 0; i < settings.bands.size(); ++i)
+    {
+        const auto& v = multibandBandParameters[i].values;   // in mbBandSettings' order
+        auto& band = settings.bands[i];
+        band.used = v[0]->load() > 0.5f;
+        band.on = v[1]->load() > 0.5f;
+        band.lowHz = v[2]->load();
+        band.highHz = v[3]->load();
+        band.slope = juce::jlimit (0, mb::numSlopes - 1, juce::roundToInt (v[4]->load()));
+        band.thresholdDb = v[5]->load();
+        band.rangeDb = v[6]->load();
+        band.mode = (mb::Mode) juce::jlimit (0, 1, juce::roundToInt (v[7]->load()));
+        band.ratio = v[8]->load();
+        band.kneeDb = v[9]->load();
+        band.attackMs = v[10]->load();
+        band.releaseMs = v[11]->load();
+        band.character = (effects::Compressor::Character) juce::jlimit (0, 2, juce::roundToInt (v[12]->load()));
+        band.stereo = (mb::Stereo) juce::jlimit (0, 2, juce::roundToInt (v[13]->load()));
+        band.link = v[14]->load() / 100.0f;
+        band.outputDb = v[15]->load();
+        band.lookaheadMs = v[16]->load();
+    }
+    return settings;
 }
 
 juce::AudioProcessorParameter* ParagonX1AudioProcessor::getBypassParameter() const
@@ -136,12 +185,77 @@ eq::ParametricEq::Settings ParagonX1AudioProcessor::getEqSettings() const noexce
     return settings;
 }
 
+dominion::Settings ParagonX1AudioProcessor::getDominionSettings() const noexcept
+{
+    dominion::Settings s;
+    s.on = isOn (ParamIDs::domOn);
+    s.mode = (dominion::Mode) juce::jlimit (0, 1, juce::roundToInt (param (ParamIDs::domMode)));
+    s.depth = param (ParamIDs::domDepth);
+    s.detail = param (ParamIDs::domDetail);
+    s.attack = param (ParamIDs::domAttack);
+    s.release = param (ParamIDs::domRelease);
+    s.stereo = (dominion::StereoMode) juce::jlimit (0, 1, juce::roundToInt (param (ParamIDs::domStereo)));
+    s.link = param (ParamIDs::domLink);
+    s.focus = param (ParamIDs::domFocus);
+    s.detailTiltLow = param (ParamIDs::domDetailLow);
+    s.detailTiltHigh = param (ParamIDs::domDetailHigh);
+    s.attackTiltLow = param (ParamIDs::domAttackLow);
+    s.attackTiltHigh = param (ParamIDs::domAttackHigh);
+    s.releaseTiltLow = param (ParamIDs::domReleaseLow);
+    s.releaseTiltHigh = param (ParamIDs::domReleaseHigh);
+    s.maxCutDb = param (ParamIDs::domMaxCut);
+    s.wetTrimDb = param (ParamIDs::domWetTrim);
+    s.mix = param (ParamIDs::domMix);
+    s.outDb = param (ParamIDs::domOut);
+    s.delta = isOn (ParamIDs::domDelta);
+    for (size_t i = 0; i < s.bands.size(); ++i)
+    {
+        const auto& values = dominionBandParameters[i].values;   // in domBandSettings' order
+        auto& band = s.bands[i];
+        band.used = values[0]->load() > 0.5f;
+        band.on = values[1]->load() > 0.5f;
+        band.shape = (dominion::Shape) juce::jlimit (0, dominion::shapeNames.size() - 1, juce::roundToInt (values[2]->load()));
+        band.frequency = values[3]->load();
+        band.depthDb = values[4]->load();
+        band.q = values[5]->load();
+        band.slope = juce::roundToInt (values[6]->load());
+        band.focus = values[7]->load();
+    }
+    s.listenBand = dominionListen.load();
+    return s;
+}
+
+void ParagonX1AudioProcessor::loadDominionPreset (const DominionPreset& preset)
+{
+    DominionPresets::apply (preset, parameters);
+    dominionPreset = preset;
+}
+
 void ParagonX1AudioProcessor::readHostTempo()
 {
+    hostPosition.known = false;
     if (auto* host = getPlayHead())
         if (const auto position = host->getPosition())
+        {
             if (const auto bpm = position->getBpm(); bpm.hasValue() && *bpm > 0.0)
+            {
                 hostBpm = *bpm;
+                hostPosition.bpm = *bpm;
+            }
+            // Where the song is, for ORACLE.
+            if (const auto samples = position->getTimeInSamples())
+            {
+                hostPosition.known = true;
+                hostPosition.playing = position->getIsPlaying() || position->getIsRecording();
+                hostPosition.sample = *samples;
+                hostPosition.ppq = position->getPpqPosition().orFallback ((double) *samples / juce::jmax (1.0, inputTap.getSampleRate()) * hostPosition.bpm / 60.0);
+                if (const auto signature = position->getTimeSignature())
+                {
+                    hostPosition.numerator = signature->numerator;
+                    hostPosition.denominator = signature->denominator;
+                }
+            }
+        }
 }
 
 bool ParagonX1AudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
@@ -161,57 +275,10 @@ double ParagonX1AudioProcessor::getTempoBpm() const noexcept
     return tapped > 0.0 ? tapped : hostBpm.load();
 }
 
-void ParagonX1AudioProcessor::readMidiExpression (const juce::MidiBuffer& midi) noexcept
-{
-    // CC 11 is "expression" in the MIDI spec, and what most MIDI expression
-    // pedals send; SETTINGS can pick another. Only the latest value in the block matters.
-    for (const auto metadata : midi)
-    {
-        const auto message = metadata.getMessage();
-        if (message.isControllerOfType (expressionCc.load()))
-            pendingMidiExpression = (float) message.getControllerValue() / 127.0f;
-    }
-}
-
-float ParagonX1AudioProcessor::getExpressionPosition() const noexcept
-{
-    // A MIDI pedal move is used straight away, before the timer has copied it
-    // into the parameter, so the pedal responds without the timer's delay.
-    const auto midi = pendingMidiExpression.load();
-    return midi >= 0.0f ? midi : param (ParamIDs::expression);
-}
-
-float ParagonX1AudioProcessor::expressionAmount() const noexcept
-{
-    // MIN and MAX set where the heel and toe land, so the pedal can, say,
-    // sweep only the top half of the wah, or never quite reach silence.
-    const auto heel = param (ParamIDs::expressionMin), toe = param (ParamIDs::expressionMax);
-    return heel + (toe - heel) * getExpressionPosition();
-}
-
-void ParagonX1AudioProcessor::syncMidiExpressionToParameter()
-{
-    auto midi = pendingMidiExpression.load();
-    if (midi < 0.0f)
-        return;
-
-    if (auto* pedal = parameters.getParameter (ParamIDs::expression))
-    {
-        pedal->beginChangeGesture();
-        pedal->setValueNotifyingHost (pedal->convertTo0to1 (midi));
-        pedal->endChangeGesture();
-    }
-
-    // Only clear it if no newer MIDI value arrived meanwhile; that one is
-    // picked up on the next tick.
-    pendingMidiExpression.compare_exchange_strong (midi, -1.0f);
-}
-
 void ParagonX1AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
-
-    readMidiExpression (midi);
+    juce::ignoreUnused (midi);
 
     if (buffer.getNumChannels() == 0 || buffer.getNumSamples() == 0)
         return;
@@ -240,8 +307,23 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, in
                            .getSubBlock ((size_t) start, (size_t) numSamples)
                            .getSubsetChannelBlock (0, (size_t) numOutputChannels);
 
-    // The tuner listens to what comes in, before anything changes it: both
-    // channels of a stereo track (their middle), so a part panned anywhere is heard.
+    // The tuner and ORACLE listen to what comes in, before anything changes
+    // it: both channels of a stereo track (their middle), so a part panned
+    // anywhere is heard. ORACLE first learns where in the song this piece is.
+    {
+        oracle::TimelineMark mark;
+        mark.tapIndex = inputTap.getTotalWritten();
+        mark.known = hostPosition.known;
+        mark.playing = hostPosition.playing;
+        mark.hostSample = hostPosition.sample + start;
+        mark.bpm = hostPosition.bpm;
+        mark.ppq = hostPosition.ppq + (hostPosition.playing ? start / juce::jmax (1.0, inputTap.getSampleRate()) * hostPosition.bpm / 60.0 : 0.0);
+        mark.numerator = hostPosition.numerator;
+        mark.denominator = hostPosition.denominator;
+        if (! hostPosition.playing)
+            mark.hostSample = hostPosition.sample;
+        oracleTimeline.write (mark);
+    }
     if (numOutputChannels > 1)
         inputTap.write (block.getChannelPointer (0), block.getChannelPointer (1), numSamples);
     else
@@ -283,27 +365,49 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, in
     parametricEq.process (block, getEqSettings());
     writeTap (eqOutputTap);
 
+    // Stomp 5, DOMINION, after the EQ (so it hears what the EQ made) and before COMP.
+    dominionProcessor.process (block, getDominionSettings());
+
+    // Stomp 2, COMP, after the EQ, so what the EQ cuts doesn't drive it.
+    // First its bands (0.13.0; with LOOK-AHEAD on, everything from here is
+    // 20 ms late, which the DAW makes up for), then the full-band compressor
+    // (PR7-C's). That takes whole buffers, so it gets this piece's channels
+    // as one, and the same audio to listen to (PR7-E has no sidechain filters).
+    multiband.process (block, getMultibandSettings(), isOn (ParamIDs::compOn));
+    {
+        float* channels[effects::maxChannels] {};
+        for (int channel = 0; channel < numOutputChannels; ++channel)
+        {
+            channels[channel] = block.getChannelPointer ((size_t) channel);
+            compSidechain.copyFrom (channel, 0, channels[channel], numSamples);
+        }
+        juce::AudioBuffer<float> audio (channels, numOutputChannels, numSamples);
+        const juce::AudioBuffer<float> detector (compSidechain.getArrayOfWritePointers(), numOutputChannels, numSamples);
+        compressor.process (audio, detector, numSamples,
+                            { isOn (ParamIDs::compOn) && isOn (ParamIDs::compWide), param (ParamIDs::compThreshold), param (ParamIDs::compRatio),
+                              param (ParamIDs::compAttack), param (ParamIDs::compRelease), isOn (ParamIDs::compAuto),
+                              param (ParamIDs::compMakeUp),
+                              (effects::Compressor::Character) juce::jlimit (0, 2, juce::roundToInt (param (ParamIDs::compCharacter))),
+                              isOn (ParamIDs::compLink) });
+    }
+
     // PRESENCE on the face.
     for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
         presence[channel].process (block.getSingleChannelBlock (channel), param (ParamIDs::presence));
 
-    // The master OUTPUT knob plus the rig's own RIG LEVEL, and the
-    // expression pedal when it's a VOLUME pedal. Squaring the position gives
-    // the "audio taper" of a real volume pedal: half way down is about
-    // -12 dB rather than -6 dB, so the quiet end of the travel is usable.
-    const auto expressionTarget = (int) param (ParamIDs::expressionTarget);
-    const auto pedal = expressionAmount();
+    // The master OUTPUT knob plus the rig's own RIG LEVEL. (The expression
+    // pedal's VOLUME came before 0.12.0, when the pedal went: its parameters
+    // are still read from old projects and rigs, but do nothing.)
     outputGain.setTargetValue (juce::Decibels::decibelsToGain (outputGainDb->load() + param (ParamIDs::rigLevel)));
-    expressionVolume.setTargetValue (expressionTarget == ExpressionTargets::volume ? pedal * pedal : 1.0f);
     for (int i = 0; i < numSamples; ++i)
     {
-        const auto gain = outputGain.getNextValue() * expressionVolume.getNextValue();
+        const auto gain = outputGain.getNextValue();
         for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
             block.getChannelPointer (channel)[i] *= gain;
     }
 
     // Stomp 7, the LIMITER (PR7-C's): last, so nothing after it can push a
-    // peak past its ceiling. OUTPUT, RIG LEVEL and the volume pedal come
+    // peak past its ceiling. OUTPUT and RIG LEVEL come
     // before it, so turning OUTPUT up drives into it, as into a mastering
     // limiter. Then its OUTPUT TRIM (which moves the ceiling with it, as on PR7-C).
     const auto limiterOn = isOn (ParamIDs::limitOn);
@@ -346,8 +450,9 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, in
 void ParagonX1AudioProcessor::timerCallback()
 {
     updateTuner();
+    updateOracle();
+    updateLatency();
     eqMatch.update (eqInputTap);   // EQ Match listens with the window closed too
-    syncMidiExpressionToParameter();
     recordCheckpointIfReady();
 }
 
@@ -358,6 +463,16 @@ void ParagonX1AudioProcessor::updateTuner()
         tuner.update (inputTap, tunerReferenceHz.load(), juce::Time::getMillisecondCounter());
     else
         tuner.stop();
+}
+
+void ParagonX1AudioProcessor::updateOracle()
+{
+    oracle.update (inputTap, oracleTimeline, isOn (ParamIDs::tunerOn));
+}
+
+juce::File ParagonX1AudioProcessor::getOracleMidiFolder()
+{
+    return juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("Paragon PR7-E ORACLE");
 }
 
 //==============================================================================
@@ -444,6 +559,8 @@ void ParagonX1AudioProcessor::useRigFolder (const juce::File& folder)
 {
     rigLibrary = std::make_unique<RigLibrary> (folder);
     eqMatch.setReferencesFolder (folder.getChildFile ("Match References"));
+    dominionPresets.setFolder (folder.getChildFile ("Dominion Presets"));
+    compPresets.setFolder (folder.getChildFile ("Comp Presets"));
     rigBroadcaster.sendChangeMessage();
 }
 
@@ -617,8 +734,8 @@ void ParagonX1AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     state.setProperty (rigFactoryKey, currentRig.factoryName, nullptr);
     state.setProperty (rigModifiedKey, rigModified.load(), nullptr);
     state.setProperty (tappedBpmKey, tappedBpm.load(), nullptr);
-    state.setProperty (expressionCcKey, expressionCc.load(), nullptr);
     state.setProperty (tunerReferenceKey, tunerReferenceHz.load(), nullptr);
+    state.appendChild (oracle.toValueTree(), nullptr);   // ORACLE's transcription, kept with the project
 
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
@@ -631,6 +748,11 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
         return;
 
     auto state = juce::ValueTree::fromXml (*xml);
+
+    // ORACLE's transcription isn't parameters: out of the state before it's applied.
+    const auto transcription = state.getChildWithName ("Oracle");
+    oracle.fromValueTree (transcription);
+    state.removeChild (transcription, nullptr);
 
     // Saved before 0.3.0 with the expression pedal on one of PR7-B's effects
     // (WAH, MORPH, LO-FI...): those are gone, so the pedal comes back
@@ -652,7 +774,6 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
                    state[rigFactoryKey].toString() };
     rigModified = (bool) state.getProperty (rigModifiedKey, false);
     tappedBpm = (double) state.getProperty (tappedBpmKey, 0.0);
-    setExpressionCc ((int) state.getProperty (expressionCcKey, 11));
     setTunerReferenceHz ((double) state.getProperty (tunerReferenceKey, 440.0));
 
     // A different project or preset: start the undo history afresh from it.

@@ -4,9 +4,13 @@
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 #include "ui/EqDisplay.h"
+#include "ui/DominionPage.h"
 #include "ui/EqPage.h"
+#include "ui/OraclePage.h"
+#include "ui/CompPage.h"
 #include "ui/Finish.h"
 #include "ui/Footswitch.h"
+#include "ui/ParagonLookAndFeel.h"
 
 namespace
 {
@@ -212,7 +216,7 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 collect (*child);
         };
         collect (*editor);
-        REQUIRE (stomps.size() == 7);
+        REQUIRE (stomps.size() >= 7);   // the stomps come first, then the rig row
         stomps[3]->onSelect();
     }
     if (auto* display = findType<EqDisplay> (*editor))
@@ -226,6 +230,222 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 display->refresh();
             }
     }
+    // PARAGON_SNAPSHOT_PAGE=dominion opens DOMINION's page (stomp 5's name).
+    // PARAGON_SNAPSHOT_DOMINION=1: DOMINION on, a few depth-curve bands, and
+    // pink noise with three resonances (180 Hz boom, 2.5 kHz ring, 6.3 kHz
+    // whistle) through it, so the graph shows its cuts.
+    if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_PAGE", {}) == "dominion")
+    {
+        std::vector<Footswitch*> stomps;
+        std::function<void (juce::Component&)> collect = [&] (juce::Component& c)
+        {
+            if (auto* stomp = dynamic_cast<Footswitch*> (&c))
+                stomps.push_back (stomp);
+            for (auto* child : c.getChildren())
+                collect (*child);
+        };
+        collect (*editor);
+        REQUIRE (stomps.size() >= 7);   // the stomps come first, then the rig row
+        stomps[4]->onSelect();
+        if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_DOMINION", {}) == "1")
+            if (auto* display = findType<DominionDisplay> (*editor))
+            {
+                processor.getParameters().getParameter (ParamIDs::domOn)->setValueNotifyingHost (1.0f);
+                // PARAGON_SNAPSHOT_DOMINION_PRESET=name loads one of its factory presets instead of the three bands.
+                const auto presetName = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_DOMINION_PRESET", {});
+                if (const auto* preset = processor.getDominionPresets().findFactory (presetName))
+                    processor.loadDominionPreset (*preset);
+                else
+                {
+                    display->createBand (dominion::Shape::lowCut, 60.0, 0.0);
+                    display->createBand (dominion::Shape::bell, 2800.0, 6.0);
+                    display->createBand (dominion::Shape::highShelf, 9000.0, -6.0);
+                }
+                juce::Random random (3);
+                double b[3] {};
+                juce::AudioBuffer<float> buffer (2, 256);
+                juce::MidiBuffer midi;
+                for (int block = 0, n = 0; block < 900; ++block)
+                {
+                    for (int i = 0; i < 256; ++i, ++n)
+                    {
+                        const auto white = random.nextFloat() * 2.0 - 1.0;
+                        b[0] = 0.99765 * b[0] + white * 0.0990460;
+                        b[1] = 0.96300 * b[1] + white * 0.2965164;
+                        b[2] = 0.57000 * b[2] + white * 1.0526913;
+                        const auto t = n / 48000.0;
+                        const auto x = 0.05 * (b[0] + b[1] + b[2] + white * 0.1848)
+                                     + 0.12 * std::sin (2.0 * juce::MathConstants<double>::pi * 180.0 * t)
+                                     + 0.10 * std::sin (2.0 * juce::MathConstants<double>::pi * 2500.0 * t)
+                                     + 0.05 * std::sin (2.0 * juce::MathConstants<double>::pi * 6300.0 * t);
+                        buffer.setSample (0, i, (float) x);
+                        buffer.setSample (1, i, (float) x);
+                    }
+                    processor.processBlock (buffer, midi);
+                }
+                display->select (1);
+                display->refresh();
+            }
+    }
+
+    // PARAGON_SNAPSHOT_PAGE=comp opens COMP's page (stomp 2's name).
+    // PARAGON_SNAPSHOT_COMP=1: COMP on with four bands (the lows tightened,
+    // mud tamed, harshness tamed, the air brought up) and pink noise
+    // with a loud kick-like 60 Hz and a harsh 3 kHz through it, band 3 selected.
+    if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_PAGE", {}) == "comp")
+    {
+        std::vector<Footswitch*> stomps;
+        std::function<void (juce::Component&)> collect = [&] (juce::Component& c)
+        {
+            if (auto* stomp = dynamic_cast<Footswitch*> (&c))
+                stomps.push_back (stomp);
+            for (auto* child : c.getChildren())
+                collect (*child);
+        };
+        collect (*editor);
+        REQUIRE (stomps.size() >= 7);
+        stomps[1]->onSelect();
+        if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_COMP", {}) == "1")
+            if (auto* page = findType<CompPage> (*editor))
+            {
+                auto& display = page->getDisplay();
+                const auto set = [&] (const juce::String& id, float value)
+                {
+                    auto* p = processor.getParameters().getParameter (id);
+                    p->setValueNotifyingHost (p->convertTo0to1 (value));
+                };
+                set (ParamIDs::compOn, 1.0f);
+                // PARAGON_SNAPSHOT_COMP_PRESET=name: one of COMP's factory presets instead of the four bands.
+                const auto presetName = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_COMP_PRESET", {});
+                const auto* preset = processor.getCompPresets().findFactory (presetName);
+                if (preset != nullptr)
+                    processor.loadCompPreset (*preset);
+                struct Spec { float low, high, threshold, range; int mode, stereo; };
+                const Spec specs[] = { { 20.0f, 120.0f, -30.0f, -8.0f, 0, 0 }, { 180.0f, 500.0f, -36.0f, -5.0f, 0, 0 },
+                                       { 2000.0f, 6000.0f, -40.0f, -9.0f, 0, 0 }, { 9000.0f, 20000.0f, -40.0f, 4.0f, 0, 0 } };
+                for (const auto& spec : specs)
+                    if (const auto band = preset != nullptr ? -1 : display.createBand (spec.low, spec.high); band >= 0)
+                    {
+                        display.setBand (band, "Thresh", spec.threshold);
+                        display.setBand (band, "Range", spec.range);
+                        display.setBand (band, "Mode", (float) spec.mode);
+                        display.setBand (band, "Stereo", (float) spec.stereo);
+                    }
+                juce::Random random (5);
+                double b[3] {};
+                juce::AudioBuffer<float> buffer (2, 256);
+                juce::MidiBuffer midi;
+                for (int block = 0, n = 0; block < 400; ++block)
+                {
+                    for (int i = 0; i < 256; ++i, ++n)
+                    {
+                        const auto white = random.nextFloat() * 2.0 - 1.0;
+                        b[0] = 0.99765 * b[0] + white * 0.0990460;
+                        b[1] = 0.96300 * b[1] + white * 0.2965164;
+                        b[2] = 0.57000 * b[2] + white * 1.0526913;
+                        const auto t = n / 48000.0;
+                        const auto x = 0.05 * (b[0] + b[1] + b[2] + white * 0.1848)
+                                     + 0.3 * std::sin (2.0 * juce::MathConstants<double>::pi * 60.0 * t)
+                                     + 0.12 * std::sin (2.0 * juce::MathConstants<double>::pi * 3000.0 * t);
+                        buffer.setSample (0, i, (float) x);
+                        buffer.setSample (1, i, (float) (x * 0.6));
+                    }
+                    processor.processBlock (buffer, midi);
+                }
+                display.select (preset != nullptr ? 0 : 2);
+                display.refresh();
+            }
+    }
+
+    // PARAGON_SNAPSHOT_PAGE=oracle opens ORACLE's page (stomp 1's name).
+    // PARAGON_SNAPSHOT_ORACLE=1: ORACLE on, having heard a sung line as a
+    // DAW played it at 100 BPM from bar 2 (scoops into some notes, vibrato
+    // on the long ones, some sharp or flat), with one note selected.
+    if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_PAGE", {}) == "oracle")
+    {
+        if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_ORACLE", {}) == "1")
+        {
+            struct Transport final : juce::AudioPlayHead
+            {
+                juce::Optional<PositionInfo> getPosition() const override
+                {
+                    PositionInfo info;
+                    info.setTimeInSamples (sample);
+                    info.setBpm (100.0);
+                    info.setPpqPosition ((double) sample / 48000.0 * 100.0 / 60.0);
+                    info.setTimeSignature (juce::AudioPlayHead::TimeSignature { 4, 4 });
+                    info.setIsPlaying (true);
+                    return info;
+                }
+                juce::int64 sample = 0;
+            } transport;
+            processor.setPlayHead (&transport);
+            processor.getParameters().getParameter (ParamIDs::tunerOn)->setValueNotifyingHost (1.0f);
+
+            // beats, MIDI note, cents off, vibrato (cents), scoop from below (semitones); note 0 is a rest.
+            struct Sung { double beats, note, cents, vibrato, scoop; };
+            const Sung line[] = { { 1.0, 0, 0, 0, 0 }, { 0.5, 64, 4, 0, 0 }, { 0.5, 67, -6, 0, 1.0 }, { 1.0, 69, 8, 0, 0 },
+                                  { 0.5, 67, 0, 0, 0 }, { 1.5, 64, -14, 30, 0 }, { 0.5, 0, 0, 0, 0 }, { 0.5, 62, 2, 0, 0 },
+                                  { 0.5, 64, 6, 0, 0 }, { 0.5, 67, 18, 0, 2.0 }, { 0.5, 67, 10, 0, 0 }, { 2.0, 72, -4, 40, 1.0 },
+                                  { 0.5, 0, 0, 0, 0 }, { 0.5, 71, -8, 0, 0 }, { 0.5, 69, 0, 0, 0 }, { 1.0, 67, 12, 20, 0 },
+                                  { 0.5, 64, -3, 0, 0 }, { 2.5, 62, -10, 35, 0.5 }, { 1.0, 0, 0, 0, 0 } };
+            transport.sample = (juce::int64) (60.0 / 100.0 * 4.0 * 48000.0);   // bar 2
+            juce::AudioBuffer<float> buffer (2, 256);
+            juce::MidiBuffer midi;
+            double phase = 0.0;
+            int block = 0;
+            for (const auto& sung : line)
+            {
+                const auto length = sung.beats * 0.6;
+                const auto samples = (int) (length * 48000.0);
+                for (int done = 0; done < samples; done += 256, ++block)
+                {
+                    buffer.clear();
+                    for (int i = 0; i < 256; ++i)
+                    {
+                        const auto t = (done + i) / 48000.0;
+                        if (sung.note <= 0.0 || done + i >= samples)
+                            continue;
+                        const auto scoop = sung.scoop * std::exp (-t / 0.04);
+                        const auto vibrato = sung.vibrato * std::sin (juce::MathConstants<double>::twoPi * 5.5 * t) * juce::jmin (1.0, t / 0.3);
+                        const auto pitch = sung.note + (sung.cents + vibrato) / 100.0 - scoop;
+                        phase += juce::MathConstants<double>::twoPi * 440.0 * std::pow (2.0, (pitch - 69.0) / 12.0) / 48000.0;
+                        const auto envelope = juce::jmin (1.0, t / 0.01, (length - t) / 0.03);
+                        buffer.setSample (0, i, (float) (envelope * (0.22 * std::sin (phase) + 0.1 * std::sin (2.0 * phase) + 0.04 * std::sin (3.0 * phase))));
+                    }
+                    processor.processBlock (buffer, midi);
+                    transport.sample += 256;
+                    if (block % 6 == 5)
+                    {
+                        processor.updateTuner();
+                        processor.updateOracle();
+                    }
+                }
+            }
+            processor.updateOracle();
+            processor.setPlayHead (nullptr);
+        }
+
+        std::vector<Footswitch*> stomps;
+        std::function<void (juce::Component&)> collect = [&] (juce::Component& c)
+        {
+            if (auto* stomp = dynamic_cast<Footswitch*> (&c))
+                stomps.push_back (stomp);
+            for (auto* child : c.getChildren())
+                collect (*child);
+        };
+        collect (*editor);
+        REQUIRE (stomps.size() >= 7);   // the stomps come first, then the rig row
+        stomps[0]->onSelect();
+        if (auto* page = findType<OraclePage> (*editor))
+        {
+            page->getRoll().fit();
+            const auto& notes = processor.getOracle().getNotes();
+            if (notes.size() > 5)
+                page->getRoll().setSelection ({ notes[5].id });   // the long, flat one with vibrato
+        }
+    }
+
     // PARAGON_SNAPSHOT_MATCH=1 (with PAGE=eq): EQ Match open, having heard
     // pink noise as the track and a brighter, thinner noise as the reference.
     if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_MATCH", {}) == "1")
@@ -252,7 +472,7 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 display->refresh();
         }
 
-    // PARAGON_SNAPSHOT_BLOCK=n opens block n's panel in the dock (0 = the EQ overview, 1 = the LIMITER, 2 = the TUNER panel).
+    // PARAGON_SNAPSHOT_BLOCK=n opens block n's panel in the dock (0 = the EQ overview, 1 = DOMINION's page, 2 = COMP, 3 = the LIMITER, 4 = the TUNER panel).
     if (const auto block = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_BLOCK", {}); block.isNotEmpty())
         if (auto* chain = findType<SignalChain> (*editor))
             chain->onSelect (block.getIntValue());
@@ -260,6 +480,82 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         editor->setSize (width, width * 9 / 16);
     editor->resized();
     const auto image = editor->createComponentSnapshot (editor->getLocalBounds());
+
+    juce::File file (juce::File::getCurrentWorkingDirectory().getChildFile (path));
+    file.deleteFile();
+    juce::FileOutputStream stream (file);
+    REQUIRE (stream.openedOk());
+    REQUIRE (juce::PNGImageFormat().writeImageToStream (image, stream));
+}
+
+// PARAGON_SNAPSHOT=menu.png ./ParagonX1Tests "[snapshot-menu]": a drop-down
+// menu as the plugin draws it (menus open in their own window, so the editor
+// snapshot can't show one): DOMINION's band shapes, Bell ticked, one highlighted.
+TEST_CASE ("Render a drop-down menu to a PNG", "[.][snapshot-menu]")
+{
+    const auto path = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT", "menu.png");
+    ParagonLookAndFeel look;
+    const juce::StringArray items { "Low Cut", "Low Shelf", "High Shelf", "High Cut", "Bell", "Band Pass", "Band Reject", "Tilt" };
+    constexpr int scale = 2, width = 150, itemHeight = 26;
+    juce::Image image (juce::Image::ARGB, width * scale, (itemHeight * items.size() + 8) * scale, true);
+    juce::Graphics g (image);
+    g.addTransform (juce::AffineTransform::scale ((float) scale));
+    look.drawPopupMenuBackground (g, width, itemHeight * items.size() + 8);
+    for (int i = 0; i < items.size(); ++i)
+        look.drawPopupMenuItem (g, { 0, 4 + i * itemHeight, width, itemHeight }, false, true, i == 2, items[i] == "Bell", false,
+                                items[i], {}, nullptr, nullptr);
+
+    juce::File file (juce::File::getCurrentWorkingDirectory().getChildFile (path));
+    file.deleteFile();
+    juce::FileOutputStream stream (file);
+    REQUIRE (stream.openedOk());
+    REQUIRE (juce::PNGImageFormat().writeImageToStream (image, stream));
+}
+
+// PARAGON_SNAPSHOT=menu.png ./ParagonX1Tests "[snapshot-preset-menu]": COMP's
+// PRESET menu from its GENRES header on (0.15.0), with one genre's submenu
+// open beside it, as the plugin's look-and-feel draws them.
+TEST_CASE ("Render COMP's genre preset submenus to a PNG", "[.][snapshot-preset-menu]")
+{
+    const auto path = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT", "menu.png");
+    const auto openGenre = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_GENRE", "Djent");
+    ParagonLookAndFeel look;
+    juce::StringArray genres, inGenre;
+    for (const auto& preset : CompPresets::factory())
+        if (preset.category.startsWith ("Genres/"))
+        {
+            genres.addIfNotAlreadyThere (preset.category.fromFirstOccurrenceOf ("/", false, false));
+            if (preset.category == "Genres/" + openGenre)
+                inGenre.add (preset.name);
+        }
+
+    constexpr int scale = 2, width = 190, itemHeight = 26, headerHeight = 26;
+    const auto mainHeight = headerHeight + itemHeight * genres.size() + 8;
+    juce::Image image (juce::Image::ARGB, width * 2 * scale, mainHeight * scale, true);
+    juce::Graphics g (image);
+    g.addTransform (juce::AffineTransform::scale ((float) scale));
+    g.fillAll (juce::Colours::darkgrey);
+
+    {
+        juce::Graphics::ScopedSaveState state (g);
+        g.reduceClipRegion (0, 0, width, mainHeight);
+        look.drawPopupMenuBackground (g, width, mainHeight);
+        look.drawPopupMenuSectionHeader (g, { 0, 4, width, headerHeight }, "GENRES");
+        for (int i = 0; i < genres.size(); ++i)
+            look.drawPopupMenuItem (g, { 0, 4 + headerHeight + i * itemHeight, width, itemHeight }, false, true,
+                                    genres[i] == openGenre, false, true, genres[i], {}, nullptr, nullptr);
+    }
+    {
+        const auto row = genres.indexOf (openGenre);
+        const auto subHeight = itemHeight * inGenre.size() + 8;
+        juce::Graphics::ScopedSaveState state (g);
+        g.setOrigin (width, juce::jmin (headerHeight + row * itemHeight, mainHeight - subHeight));
+        g.reduceClipRegion (0, 0, width, subHeight);   // the background fills its clip
+        look.drawPopupMenuBackground (g, width, subHeight);
+        for (int i = 0; i < inGenre.size(); ++i)
+            look.drawPopupMenuItem (g, { 0, 4 + i * itemHeight, width, itemHeight }, false, true, false, i == 0, false,
+                                    inGenre[i], {}, nullptr, nullptr);
+    }
 
     juce::File file (juce::File::getCurrentWorkingDirectory().getChildFile (path));
     file.deleteFile();

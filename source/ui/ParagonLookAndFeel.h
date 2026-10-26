@@ -83,6 +83,15 @@ public:
     // fit a narrow box rather than being cut off with "...".
     void positionComboBoxText (juce::ComboBox&, juce::Label&) override;
 
+    // Menus (every drop-down, right-click menu and the SAVE dialog's): black,
+    // white text, the item under the mouse lit with a red to pink to orange
+    // gradient (as PR7-C's menus are black and white).
+    void drawPopupMenuBackground (juce::Graphics&, int width, int height) override;
+    void drawPopupMenuItem (juce::Graphics&, const juce::Rectangle<int>& area, bool isSeparator, bool isActive, bool isHighlighted,
+                            bool isTicked, bool hasSubMenu, const juce::String& text, const juce::String& shortcutKeyText,
+                            const juce::Drawable* icon, const juce::Colour* textColour) override;
+    static juce::ColourGradient menuHighlight (juce::Rectangle<float> area);
+
     // The two-thumb MIN / MAX slider: a thin track with round glowing thumbs.
     void drawLinearSlider (juce::Graphics&, int x, int y, int width, int height,
                            float sliderPos, float minSliderPos, float maxSliderPos,

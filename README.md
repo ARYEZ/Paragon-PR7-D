@@ -3,7 +3,7 @@
 [![Build](https://github.com/ARYEZ/Paragon-PR7-E/actions/workflows/build.yml/badge.svg)](https://github.com/ARYEZ/Paragon-PR7-E/actions/workflows/build.yml)
 [![Latest release](https://img.shields.io/github/v/release/ARYEZ/Paragon-PR7-E)](https://github.com/ARYEZ/Paragon-PR7-E/releases/latest)
 
-The utility processor of the Paragon PR7 family: a VST3 plugin drawn as a floor unit with an expression pedal.
+The utility processor of the Paragon PR7 family: a VST3 plugin drawn as a floor unit, laid out like a DigiTech GSP21's foot controller.
 Built with [JUCE](https://juce.com).
 
 Paragon PR7-E starts from [Paragon PR7-B](https://github.com/ARYEZ/Paragon-PR7-B) 0.11.0, the bass processor. Its
@@ -22,11 +22,11 @@ stomps are still being planned, one at a time with the owner.
 
 | Stomp | Plan | Now |
 |---|---|---|
-| **1 Tuner** | Checks the pitch of recorded parts (a vocal, a bass line) | Works: note, 30-second trace, average |
-| **2 Open** | To plan: ideas so far are loudness/analysis, a channel utility, an A/B reference player | Placeholder |
+| **1 Oracle** | Melody to MIDI (inspired by Melodyne and VariAudio, our own design), with the tuner | Works: transcribes as the DAW plays, note editing, drag the MIDI onto a track |
+| **2 Comp** | PR7-C's compressor, plus up to six bands inspired by FabFilter Pro-MB (our own design) | Works: full band, and bands that compress or expand, down or up, with look-ahead, on its own page |
 | **3 Inserts** | Host other plugins in slots inside PR7-E and open their editors (a mini rack) | Placeholder |
 | **4 EQ** | An EQ inspired by FabFilter Pro-Q 4 (our own design) | Works: 24 bands on its own page, any of them dynamic, and EQ Match |
-| **5 Resonance** | Resonance suppression inspired by oeksound soothe (our own design) | Placeholder |
+| **5 Dominion** | Resonance suppression inspired by oeksound soothe 3 (our own design) | Works: Soft and Hard, the depth curve, stereo/mid-side, tilts, delta and band listen, on its own page |
 | **6 Auto EQ** | Adaptive EQ inspired by Soundtheory Gullfoss (a "maybe"; our own design) | Placeholder |
 | **7 Limiter** | The output trim / limiter from PR7-C, ported | Works: Brick, Soft and Auto, make up, mix, link, output trim |
 
@@ -35,8 +35,12 @@ none of those products' names or branding go on the plugin.
 
 ## Using it
 
-- **Stomps 1-7:** three on the top row, four below. Press a pad to switch it on or off; click its name to show its knobs
-  in the dock (TUNER opens its trace; EQ opens its own page).
+- **The unit**, laid out like a DigiTech GSP21's foot controller: the screen centred along the top, the seven stomps in
+  a row, and under them five rigs, **BANK ▼** and **BANK ▲**. A rig pad loads that rig (its light shows the one loaded);
+  BANK steps through the rigs five at a time (within a bank, then on to the next) without loading one, and the row turns
+  to the loaded rig's five when you load one elsewhere.
+- **Stomps 1-7:** press a pad to switch it on or off; click its name to show its knobs
+  in the dock (ORACLE, EQ and DOMINION open their own pages).
 - **EQ (stomp 4)**, inspired by FabFilter Pro-Q 4: up to 24 bands (bell, shelves, cuts, notch, band pass, tilt shelf,
   flat tilt, all pass; 6 to 96 dB/oct), each on the stereo signal or only its left, right, mid or side. Analog-matched
   curves with zero latency. On its page: double-click to add a band, drag its dot, mouse wheel for Q (or a cut's slope),
@@ -50,28 +54,54 @@ none of those products' names or branding go on the plugin.
   - **EQ Match** (MATCH, top of the page): listens to your track and a reference (another part of the song, a song
     file, or a saved reference), then proposes bands that make your track's tone like the reference's. DETAIL (a few
     broad bands or more, finer ones) and AMOUNT (how much of the difference), then ADD BANDS.
+- **DOMINION (stomp 5)**, inspired by oeksound soothe 3: finds what rings, whistles or builds up as the track plays and
+  turns just that down. MODE (Soft: what sticks out, at any level; Hard: what's loud), DEPTH, DETAIL, ATTACK, RELEASE; a
+  graph of what it's cutting, with a depth curve of up to 8 bands to steer it; stereo or mid/side, LINK and FOCUS; tilts
+  for the lows and highs; MAX CUT, WET TRIM, DELTA, MIX and OUT. Click its name for its page. Zero latency.
+  **PRESET** (on its page): its own presets, apart from the rigs (vocals, drums, instruments, mix and master, creative,
+  and under GENRES the vocal, guitars and mix of each genre the genre rigs use), and your own, saved in "Dominion Presets" beside your rigs. A preset changes only DOMINION's settings.
+- **COMP (stomp 2)**, after the EQ; click its name for its page.
+  - **Bands** (up to six, inspired by FabFilter Pro-MB, our own design): each works on its own part of the spectrum.
+    Double-click the graph to add one; drag its dot sideways to move it and up or down for RANGE, drag its edges.
+    MODE and RANGE give four kinds: COMPRESS turns loud parts down (RANGE below 0) or brings quiet parts up (above 0);
+    EXPAND turns quiet parts down, like a gate (below 0), or brings loud parts up for punch (above 0). THRESHOLD, RATIO,
+    KNEE, ATTACK, RELEASE, CHARACTER (VCA, OPTO, FET), STEREO (both with LINK, mid or side), OUTPUT, SLOPE, LISTEN.
+    A band that isn't working leaves the sound exactly as it was. **LOOK-AHEAD** lets each band hear up to 20 ms ahead
+    (COMP is then 20 ms late, which your DAW makes up for on playback); **MIX** 0 to 200%.
+  - **Full band**, PR7-C's compressor, after the bands (switch it with FULL BAND): CHARACTER (VCA clean, OPTO smooth,
+    FET fast with a little grit), THRESHOLD, RATIO (from Soft to infinite), ATTACK, RELEASE, AUTO release, MAKE UP and
+    LINK, with its gain-reduction meter.
+  - **PRESET** (on its page): COMP's own presets, apart from the rigs (vocals, drums, instruments, mix and master,
+    creative, and under GENRES the vocal, drums, bass, mix bus and master of each genre the genre rigs use), and your own, saved in "Comp Presets" beside your rigs. A preset changes only COMP's settings.
 - **LIMITER (stomp 7)**, PR7-C's limiter: THRESHOLD (the ceiling), MAKE UP, MIX, LINK, and MODE (Brick, Soft or Auto),
   then OUTPUT TRIM. It's last in the chain, after OUTPUT, so nothing can push a peak past it; no look-ahead, so no delay.
   Its panel shows the gain reduction.
-- **Tuner (stomp 1):** for checking the pitch of a recorded part as it plays, one note at a time, up to 1,500 Hz. It
-  hears both channels and never changes the sound. Its panel shows the current note and cents, the pitch over the last
-  30 seconds against the notes (green within 5 cents, orange within 15, red beyond), and the **average**: how sharp or
-  flat the part sits overall. **RESET** (in the panel, or the key on the unit) starts the trace and average again. It
-  keeps listening with the window closed. The reference pitch for A4 is in SETTINGS.
+- **ORACLE (stomp 1)**, melody to MIDI, inspired by what Melodyne and VariAudio do with a single line (our own design):
+  switch it on and play the part in your DAW. It listens as the DAW plays (one voice or instrument at a time, up to
+  1,500 Hz) and finds the notes: where each starts and ends, its pitch (the middle of what was sung, not the scoops or
+  the vibrato) and its velocity. Playing a passage again replaces what it heard there. Click its name for its page: the
+  notes as a piano roll over the pitch line. Drag a note up or down (pitch), drag its ends (start, length), Alt-drag to
+  move it, double-click to split (or to add a note), J to join, Delete; ORACLE has its own UNDO and REDO.
+  **SENSITIVITY** (how readily it splits notes), **MIN NOTE** (the shortest note kept), **QUANTIZE** (for the MIDI
+  file only). **DRAG MIDI**: drag it onto a MIDI track at bar 1 (the file starts at bar 1, at the song's tempo);
+  click it to show the file instead. The transcription is saved with your DAW project. The tuner is part of it: the
+  pedal's screen shows the note and cents, and the page shows the note now and how in tune the notes were sung. The
+  reference pitch for A4 is in SETTINGS.
 - **Stereo throughout:** both channels pass through as they came in, apart from what the stomps do (a mono track plays on
-  both speakers). **Signal chain** (bottom strip): input → EQ → LIMITER → output, growing as the stomps are built.
+  both speakers). **Signal chain** (bottom strip): input → EQ → DOMINION → COMP → LIMITER → output, growing as the stomps are built.
 - **PRESENCE** cuts or boosts the top end (above about 3.5 kHz).
 - **Rigs:** SAVE in the header saves the current sound as a rig; **<** and **>** step through rigs; a `*` after the name
   means it's changed since loading. The **PRESETS** tab browses, files (banks A-E), tags and favourites rigs. The factory
   rigs are EQ starting points: **A** vocals and voice (with **Init**, everything off, at A01), **B** drums, **C** bass,
   guitars and keys, **D** the full mix, **E** mastering. INPUT and OUTPUT stay put when you switch rigs; each rig has its
   own **RIG LEVEL**, which adds to OUTPUT.
-- **TAP** (header or pedal): holding it switches the tuner on. Tapping still sets a tempo, but nothing uses one since
-  the delay went in 0.3.0.
-- **Undo / redo:** the header arrows, UNDO / REDO on the pedal, or Ctrl+Z / Ctrl+Shift+Z (Cmd on a Mac).
-- **Expression pedal** (right of the unit): drag it, use the mouse wheel, or send MIDI CC 11 (or the CC chosen in
-  SETTINGS). Assign it as a **VOLUME** pedal on the EXPRESSION ASSIGN screen in the dock.
-- **SETTINGS:** the tuner's reference pitch, the expression pedal's MIDI CC, and the unit's finish.
+  - **Genre rigs:** a rig for each part of a song in nine heavy styles (modern metal, metalcore, djent, nu metal,
+    argent metal, hard rock, grunge, symphonic metal, industrial), at the genre's number in every bank: **x11** modern
+    metal to **x19** industrial, so A11 is the modern metal vocal, B11 its drums, C11 its guitars, C21 its bass, D11
+    its mix and E11 its master. Each uses the EQ and the genre's COMP and DOMINION presets.
+- **Undo / redo:** the header arrows, UNDO / REDO on the unit, or Ctrl+Z / Ctrl+Shift+Z (Cmd on a Mac). **BYPASS** on
+  the unit bypasses the whole plugin.
+- **SETTINGS:** the tuner's reference pitch and the unit's finish.
 - No latency: nothing in the chain looks ahead.
 
 ## Download
@@ -129,5 +159,5 @@ It uses:
 - [JUCE](https://github.com/juce-framework/JUCE): AGPLv3
 - The Inter typeface (in `resources/fonts`) by Rasmus Andersson, under the SIL Open Font License
 
-FabFilter Pro-Q, oeksound soothe and Soundtheory Gullfoss are their makers' products. PR7-E's stomps are only inspired
+FabFilter Pro-Q and Pro-MB, oeksound soothe and Soundtheory Gullfoss are their makers' products. PR7-E's stomps are only inspired
 by how they're described and behave; it isn't affiliated with or endorsed by any of them.

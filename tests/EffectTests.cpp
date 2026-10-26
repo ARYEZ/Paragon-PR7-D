@@ -266,6 +266,10 @@ TEST_CASE ("Full chain runs comfortably faster than real time", "[effects][perfo
     rig.set (ParamIDs::eqOn, 1.0f);
     rig.set (ParamIDs::presence, 5.0f);
     rig.set (ParamIDs::tunerOn, 1.0f);
+    rig.set (ParamIDs::domOn, 1.0f);      // the heaviest stomp
+    rig.set (ParamIDs::compOn, 1.0f);
+    rig.set (ParamIDs::compCharacter, 2.0f);   // FET, with its grit
+    rig.set (ParamIDs::limitOn, 1.0f);
 
     const auto input = sine (220.0, 0.3f, 5.0);
     const auto startMs = juce::Time::getMillisecondCounterHiRes();
@@ -311,3 +315,30 @@ TEST_CASE ("Presence boosts the top end and leaves the lows alone", "[effects][p
     CHECK_THAT (dB (rms (rig.runMono (lows), 0.2) / rms (lows, 0.2)), WithinAbs (0.0, 0.5));
 }
 
+
+TEST_CASE ("Fuzz: any settings at all, changed as it plays, never crash it or make it blow up", "[effects][fuzz]")
+{
+    // As pluginval's "Fuzz parameters": every parameter set at random, again and again, while audio runs.
+    for (const auto inputs : { 1, 2 })
+    {
+        ParagonX1AudioProcessor processor;
+        processor.setPlayConfigDetails (inputs, 2, 48000.0, 256);
+        processor.prepareToPlay (48000.0, 256);
+        juce::Random random (inputs * 977);
+        juce::AudioBuffer<float> buffer (2, 256);
+        juce::MidiBuffer midi;
+        for (int round = 0; round < 1500; ++round)
+        {
+            for (auto* parameter : processor.AudioProcessor::getParameters())
+                if (random.nextFloat() < 0.5f)
+                    parameter->setValue (random.nextFloat());
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < 256; ++i)
+                    buffer.setSample (ch, i, random.nextFloat() * 2.0f - 1.0f);
+            processor.processBlock (buffer, midi);
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < 256; ++i)
+                    REQUIRE (std::isfinite (buffer.getSample (ch, i)));
+        }
+    }
+}

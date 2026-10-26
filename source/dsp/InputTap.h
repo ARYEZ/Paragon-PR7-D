@@ -55,6 +55,21 @@ public:
             destination[i] = samples[(size_t) ((end - count + i + capacity * 2) % capacity)].load (std::memory_order_relaxed);
     }
 
+    // Any other thread: copies `count` samples starting at `start` (counted
+    // as getTotalWritten() counts them), for a reader that needs every sample
+    // in turn (ORACLE). False if they aren't all there: not written yet, or
+    // already written over.
+    bool readAt (std::int64_t start, float* destination, int count) const noexcept
+    {
+        const auto capacity = (std::int64_t) samples.size();
+        const auto total = getTotalWritten();
+        if (start < 0 || start + count > total || start < total - capacity + 4096)
+            return false;
+        for (int i = 0; i < count; ++i)
+            destination[i] = samples[(size_t) ((start + i) % capacity)].load (std::memory_order_relaxed);
+        return getTotalWritten() - capacity + 4096 <= start;   // and not written over while copying
+    }
+
     int capacity() const noexcept { return (int) samples.size(); }
 
     // The sample rate the audio is written at (0 before the plugin is prepared).

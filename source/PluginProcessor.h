@@ -7,6 +7,12 @@
 #include "dsp/InputTap.h"
 #include "dsp/TapTempo.h"
 #include "dsp/Tuner.h"
+#include "dsp/oracle/Oracle.h"
+#include "dsp/effects/MultibandComp.h"
+#include "dsp/dominion/Dominion.h"
+#include "rigs/CompPresets.h"
+#include "rigs/DominionPresets.h"
+#include "dsp/effects/Compressor.h"
 #include "dsp/effects/Limiter.h"
 #include "dsp/eq/EqMatchSession.h"
 #include "dsp/eq/ParametricEq.h"
@@ -47,7 +53,7 @@ public:
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return JucePlugin_Name; }
-    bool acceptsMidi() const override { return true; }   // MIDI CC 11 moves the expression pedal
+    bool acceptsMidi() const override { return true; }   // kept as it was (hosts remember a plugin's MIDI input); nothing uses MIDI since 0.12.0
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
@@ -129,6 +135,14 @@ public:
     const InputTap& getInputTap() const noexcept { return inputTap; }
     const Tuner& getTuner() const noexcept { return tuner; }
 
+    // ORACLE (stomp 1, with the tuner): melody to MIDI. While it's on and the
+    // DAW plays, it transcribes what comes in (message thread: its page edits
+    // the notes, and its timer listens).
+    oracle::Transcriber& getOracle() noexcept { return oracle; }
+    void updateOracle();   // the timer calls this; tests call it to step ORACLE
+    // Where the MIDI files to drag onto a track are written.
+    static juce::File getOracleMidiFolder();
+
     //==========================================================================
     // The EQ (stomp 4). Its settings as they are now, read from the
     // parameters (any thread), the audio going into and out of it (for the
@@ -142,20 +156,46 @@ public:
     eq::ParametricEq::DynamicReading getEqDynamics (int band) const noexcept { return parametricEq.getDynamics (band); }
     eq::match::Session& getEqMatch() noexcept { return eqMatch; }
 
+    // DOMINION (stomp 5): its settings, what it's cutting (for its page), and
+    // listening to one of its depth-curve bands (-1: none) while held.
+    dominion::Settings getDominionSettings() const noexcept;
+    const dominion::Processor& getDominion() const noexcept { return dominionProcessor; }
+    void setDominionListen (int band) noexcept { dominionListen = band; }
+    int getDominionListen() const noexcept { return dominionListen.load(); }
+
+    // DOMINION's own presets (message thread): the one loaded last (and
+    // whether its settings have been changed since), loading one, and yours.
+    DominionPresets& getDominionPresets() noexcept { return dominionPresets; }
+    void loadDominionPreset (const DominionPreset&);
+    juce::String getDominionPresetName() const { return dominionPreset.name; }
+    bool isDominionPresetModified() { return ! DominionPresets::matches (dominionPreset, parameters); }
+    void rememberDominionPreset (const DominionPreset& preset) { dominionPreset = preset; }   // after saving it
+
+    // COMP's own presets (0.14.0), as DOMINION's.
+    CompPresets& getCompPresets() noexcept { return compPresets; }
+    void loadCompPreset (const CompPreset& preset) { CompPresets::apply (preset, parameters); compPreset = preset; }
+    juce::String getCompPresetName() const { return compPreset.name; }
+    bool isCompPresetModified() { return ! CompPresets::matches (compPreset, parameters); }
+    void rememberCompPreset (const CompPreset& preset) { compPreset = preset; }
+
+    // COMP's bands as set now (any thread), and each band now (the page's
+    // meters). Look-ahead's delay is reported to the DAW from the timer.
+    effects::multiband::Settings getMultibandSettings() const noexcept;
+    effects::multiband::Processor::Reading getMultibandReading (int band) const noexcept { return multiband.getReading (band); }
+    void setMultibandSolo (int band) noexcept { multibandSolo = band; }
+    void updateLatency();   // the timer calls this; tests too
+
+    // COMP's gain reduction on a channel in the last block (dB, 0 or more).
+    float getCompressorReductionDb (int channel) const noexcept { return compressor.getReductionDb (channel); }
     // The LIMITER's gain reduction on a channel in the last block (dB, 0 or more).
     float getLimiterReductionDb (int channel) const noexcept { return limiter.getReductionDb (channel); }
     void resetTuner() noexcept { tuner.clear(); }
     void updateTuner();   // the timer calls this; tests call it to step the tuner
 
-    // The expression pedal's position after MIDI (0 heel to 1 toe), for the UI.
-    float getExpressionPosition() const noexcept;
 
     //==========================================================================
     // SETTINGS page. Saved with the project.
 
-    // Which MIDI controller moves the expression pedal (11 = "expression").
-    int getExpressionCc() const noexcept { return expressionCc.load(); }
-    void setExpressionCc (int cc) noexcept { expressionCc = juce::jlimit (1, 127, cc); }
 
     // The tuner's reference pitch for A4 (440 Hz unless the band tunes otherwise).
     double getTunerReferenceHz() const noexcept { return tunerReferenceHz.load(); }
@@ -198,9 +238,6 @@ private:
     void parameterValueChanged (int, float) override {}
     void parameterGestureChanged (int parameterIndex, bool gestureIsStarting) override;
 
-    void readMidiExpression (const juce::MidiBuffer&) noexcept;
-    void syncMidiExpressionToParameter();
-    float expressionAmount() const noexcept;   // position mapped through MIN/MAX
 
     juce::AudioProcessorValueTreeState parameters;
     std::atomic<float>* inputGainDb = nullptr;
@@ -219,6 +256,20 @@ private:
     std::atomic<int> eqSoloBand { -1 };
     InputTap eqInputTap { 16384 }, eqOutputTap { 16384 };   // what goes into and comes out of the EQ, for its analyser
     eq::match::Session eqMatch { {} };
+    dominion::Processor dominionProcessor;   // stomp 5
+    struct DominionBandParameters { std::atomic<float>* values[std::size (ParamIDs::domBandSettings)] {}; };
+    std::array<DominionBandParameters, ParamIDs::domNumBands> dominionBandParameters {};
+    std::atomic<int> dominionListen { -1 };
+    DominionPresets dominionPresets { {} };   // its folder is set with the rigs folder
+    DominionPreset dominionPreset = DominionPresets::factory().front();   // "Default"
+    CompPresets compPresets { {} };
+    CompPreset compPreset = CompPresets::factory().front();
+    effects::Compressor compressor;   // stomp 2, ported from PR7-C
+    effects::multiband::Processor multiband;   // stomp 2's bands, before it
+    struct MultibandBandParameters { std::atomic<float>* values[std::size (ParamIDs::mbBandSettings)] {}; };
+    std::array<MultibandBandParameters, ParamIDs::mbNumBands> multibandBandParameters {};
+    std::atomic<int> multibandSolo { -1 };
+    juce::AudioBuffer<float> compSidechain;   // what it listens to: the audio itself
     effects::Limiter limiter;   // stomp 7, ported from PR7-C
     juce::SmoothedValue<float> limitTrim { 1.0f };   // its OUTPUT TRIM (1 while it's off)
     bool limitTrimFresh = true;   // EQ Match's listening (its folder is set with the rigs folder)
@@ -235,16 +286,23 @@ private:
     juce::AudioBuffer<float> bypassDry;
     juce::SmoothedValue<float> bypassAmount;
 
-    // The expression pedal's VOLUME, and the tuner's mute.
-    juce::SmoothedValue<float> expressionVolume;
 
-    // The last MIDI expression value not yet copied into the expression parameter (-1 = none).
-    std::atomic<float> pendingMidiExpression { -1.0f };
-    std::atomic<int> expressionCc { 11 };
     std::atomic<double> tunerReferenceHz { 440.0 };
 
-    InputTap inputTap { 32768 };   // enough for the tuner's window at 192 kHz
+    // The tuner reads the newest of it; ORACLE every sample in turn, so it
+    // holds a few seconds (10 s at 48 kHz) in case the timer is held up.
+    InputTap inputTap { 1 << 19 };
     Tuner tuner;
+    // Where the DAW is, per block (audio thread only), and for ORACLE.
+    struct HostPosition
+    {
+        bool known = false, playing = false;
+        std::int64_t sample = 0;
+        double ppq = 0.0, bpm = 120.0;
+        int numerator = 4, denominator = 4;
+    } hostPosition;
+    oracle::Timeline oracleTimeline;
+    oracle::Transcriber oracle;
 
     UndoHistory<Snapshot> history;
     std::atomic<int> activeGestures { 0 };
