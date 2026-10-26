@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "PluginProcessor.h"
+#include "ui/PresetButton.h"
 
 // DOMINION's graph: what it's cutting right now, across the spectrum (filled
 // down from the line, per channel: left or mid, and right or side when they
@@ -99,8 +100,6 @@ private:
     };
 
     void timerCallback() override;
-    void showPresetMenu();
-    void saveAsPreset();
     void showBand (int band);
     void step (int direction);
     std::vector<juce::Component*> bandComponents();
@@ -113,7 +112,8 @@ private:
     Choice mode, stereo;
     Knob depth, detail, attack, release, link, focus, detailLow, detailHigh, attackLow, attackHigh, releaseLow, releaseHigh,
          maxCut, wetTrim, mix, out;
-    juce::TextButton back { "BACK TO PEDAL" }, preset;
+    juce::TextButton back { "BACK TO PEDAL" };
+    PresetButton preset;
     juce::Label presetLabel { {}, "PRESET" };
 
     // The selected band

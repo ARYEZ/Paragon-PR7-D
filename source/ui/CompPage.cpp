@@ -560,6 +560,29 @@ CompPage::CompPage (ParagonX1AudioProcessor& p)
       release (p.getParameters(), ParamIDs::compRelease, "RELEASE", "How quickly it lets go"),
       makeUp (p.getParameters(), ParamIDs::compMakeUp, "MAKE UP", "Level back up after compressing"),
       characterAttachment (p.getParameters(), ParamIDs::compCharacter, filled (character, ParamRanges::compCharacters)),
+      preset (PresetButton::Hooks {
+          "COMP",
+          [] () -> const std::vector<StompPreset>& { return CompPresets::factory(); },
+          [&p] { return p.getCompPresets().user(); },
+          [&p] { return p.getCompPresetName(); },
+          [&p] { return p.isCompPresetModified(); },
+          [&p] (const StompPreset& chosen) { p.loadCompPreset (chosen); },
+          [&p] (const juce::String& name)
+          {
+              const auto saved = CompPresets::capture (p.getParameters(), name);
+              if (! p.getCompPresets().save (saved))
+                  return false;
+              p.rememberCompPreset (saved);
+              return true;
+          },
+          [&p] (const StompPreset& gone)
+          {
+              if (! p.getCompPresets().remove (gone))
+                  return false;
+              p.rememberCompPreset (CompPresets::capture (p.getParameters(), "Untitled"));
+              return true;
+          },
+          [&p] { return p.getCompPresets().getFolder(); } }),
       mode ("MODE", "Mode", mb::modeNames, "COMPRESS: evens out (with RANGE below 0, turns loud parts down; above 0, brings quiet parts up). "
                                            "EXPAND: widens (below 0, turns quiet parts down, a gate; above 0, brings loud parts up, more punch)"),
       stereo ("STEREO", "Stereo", mb::stereoNames, "Both channels (LINK: how much they share one reading), or the middle or the sides only"),
@@ -588,7 +611,9 @@ CompPage::CompPage (ParagonX1AudioProcessor& p)
     styleButton (back);
     back.onClick = [this] { if (onClose) onClose(); };
 
-    for (auto* component : std::initializer_list<juce::Component*> { &onButton, &lookahead, &wide, &autoRelease, &link, &character, &back })
+    styleLabel (presetLabel);
+    for (auto* component : std::initializer_list<juce::Component*> { &onButton, &lookahead, &wide, &autoRelease, &link, &character, &back,
+                                                                    &preset, &presetLabel })
         addAndMakeVisible (component);
     for (auto* knob : { &mix, &threshold, &ratio, &attack, &release, &makeUp })
     {
@@ -677,6 +702,8 @@ void CompPage::step (int direction)
 
 void CompPage::timerCallback()
 {
+    preset.refresh();   // its name, with * once COMP's settings have been changed
+
     // LINK matters only on both channels; LOOK-AHEAD only while it's on.
     if (band >= 0)
     {
@@ -714,6 +741,10 @@ void CompPage::resized()
     bar.removeFromLeft (16);
     place (mix.label, mix.slider, bar.removeFromLeft (92));
     back.setBounds (bar.removeFromRight (140).withSizeKeepingCentre (140, 30));
+    bar.removeFromRight (24);
+    auto presetColumn = bar.removeFromRight (220);
+    presetLabel.setBounds (presetColumn.removeFromTop (14));
+    preset.setBounds (presetColumn.withSizeKeepingCentre (220, 30));
 
     // The side panel: the full-band compressor.
     auto side = sidePanel.reduced (12, 10);

@@ -315,11 +315,16 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                     p->setValueNotifyingHost (p->convertTo0to1 (value));
                 };
                 set (ParamIDs::compOn, 1.0f);
+                // PARAGON_SNAPSHOT_COMP_PRESET=name: one of COMP's factory presets instead of the four bands.
+                const auto presetName = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_COMP_PRESET", {});
+                const auto* preset = processor.getCompPresets().findFactory (presetName);
+                if (preset != nullptr)
+                    processor.loadCompPreset (*preset);
                 struct Spec { float low, high, threshold, range; int mode, stereo; };
                 const Spec specs[] = { { 20.0f, 120.0f, -30.0f, -8.0f, 0, 0 }, { 180.0f, 500.0f, -36.0f, -5.0f, 0, 0 },
                                        { 2000.0f, 6000.0f, -40.0f, -9.0f, 0, 0 }, { 9000.0f, 20000.0f, -40.0f, 4.0f, 0, 0 } };
                 for (const auto& spec : specs)
-                    if (const auto band = display.createBand (spec.low, spec.high); band >= 0)
+                    if (const auto band = preset != nullptr ? -1 : display.createBand (spec.low, spec.high); band >= 0)
                     {
                         display.setBand (band, "Thresh", spec.threshold);
                         display.setBand (band, "Range", spec.range);
@@ -347,7 +352,7 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                     }
                     processor.processBlock (buffer, midi);
                 }
-                display.select (2);
+                display.select (preset != nullptr ? 0 : 2);
                 display.refresh();
             }
     }

@@ -544,10 +544,10 @@ std::vector<std::vector<const RigLibrary::Entry*>> MainView::rigPages() const
     return pages;
 }
 
-void MainView::showRigPage (int page)
+void MainView::showRigPage (int index)
 {
     const auto pages = rigPages();
-    rigPage = pages.empty() ? 0 : ((page % (int) pages.size()) + (int) pages.size()) % (int) pages.size();
+    rigPage = pages.empty() ? 0 : ((index % (int) pages.size()) + (int) pages.size()) % (int) pages.size();
     for (size_t i = 0; i < rigSwitches.size(); ++i)
     {
         const auto* entry = rigPage < (int) pages.size() && i < pages[(size_t) rigPage].size() ? pages[(size_t) rigPage][i] : nullptr;
@@ -574,11 +574,11 @@ void MainView::followCurrentRig()
     }
     followedRig = file;
     followedRigName = name;
-    for (size_t page = 0; page < pages.size(); ++page)
-        for (const auto* entry : pages[page])
+    for (size_t index = 0; index < pages.size(); ++index)
+        for (const auto* entry : pages[index])
             if (entry == current)
             {
-                showRigPage ((int) page);
+                showRigPage ((int) index);
                 return;
             }
     showRigPage (rigPage);

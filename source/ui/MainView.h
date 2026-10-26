@@ -95,7 +95,7 @@ private:
     // The bottom row: which five rigs it shows (pages of five within each
     // bank, in the order the rig arrows step), and the page with the current rig.
     std::vector<std::vector<const RigLibrary::Entry*>> rigPages() const;
-    void showRigPage (int page);
+    void showRigPage (int index);
     void followCurrentRig();
     void showPage (Page);
     void refreshRig();

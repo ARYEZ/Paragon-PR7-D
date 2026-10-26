@@ -24,10 +24,10 @@ namespace
     }
 
     // A factory preset: the settings it changes from the defaults, and its depth-curve bands.
-    DominionPreset make (const juce::String& category, const juce::String& name,
+    StompPreset make (const juce::String& category, const juce::String& name,
                          std::initializer_list<std::pair<const char*, float>> settings, std::initializer_list<BandSpec> bands)
     {
-        DominionPreset preset;
+        StompPreset preset;
         preset.category = category;
         preset.name = name;
         preset.isFactory = true;
@@ -49,19 +49,17 @@ namespace
     }
 }
 
-DominionPresets::DominionPresets (juce::File f) : folder (std::move (f)) {}
-
-bool DominionPresets::holds (const juce::String& id)
+bool DominionPresetTraits::holds (const juce::String& id)
 {
     return id.startsWith ("dom") && id != ParamIDs::domOn;
 }
 
-const std::vector<DominionPreset>& DominionPresets::factory()
+std::vector<StompPreset> DominionPresetTraits::makeFactory()
 {
     // Our own starting points, not copies of anyone's presets. The depth
     // curve does most of the steering: where to work, and where to leave alone.
     using namespace ParamIDs;
-    static const std::vector<DominionPreset> presets {
+    return {
         make ("", "Default", {}, {}),
 
         make ("Vocals", "Vocal De-Harsh", { { domDepth, 5.0f }, { domDetail, 60.0f }, { domAttack, 40.0f } },
@@ -91,96 +89,4 @@ const std::vector<DominionPreset>& DominionPresets::factory()
 
         make ("Creative", "Hard Carve", { { domMode, 1.0f }, { domDepth, 12.0f }, { domDetail, 85.0f }, { domAttack, 10.0f }, { domRelease, 20.0f } }, {}),
     };
-    return presets;
-}
-
-const DominionPreset* DominionPresets::findFactory (const juce::String& name) const
-{
-    for (const auto& preset : factory())
-        if (preset.name == name)
-            return &preset;
-    return nullptr;
-}
-
-std::vector<DominionPreset> DominionPresets::user() const
-{
-    std::vector<DominionPreset> presets;
-    for (const auto& file : folder.findChildFiles (juce::File::findFiles, false, juce::String ("*") + fileExtension))
-    {
-        const auto xml = juce::XmlDocument::parse (file);
-        if (xml == nullptr || ! xml->hasTagName ("DominionPreset"))
-            continue;
-        DominionPreset preset;
-        preset.name = xml->getStringAttribute ("name", file.getFileNameWithoutExtension());
-        preset.file = file;
-        for (const auto* p : xml->getChildWithTagNameIterator ("Param"))
-            if (const auto id = p->getStringAttribute ("id"); holds (id))
-                preset.parameters[id] = (float) p->getDoubleAttribute ("value");
-        presets.push_back (std::move (preset));
-    }
-    std::sort (presets.begin(), presets.end(), [] (const auto& a, const auto& b) { return a.name.compareNatural (b.name) < 0; });
-    return presets;
-}
-
-DominionPreset DominionPresets::capture (juce::AudioProcessorValueTreeState& state, const juce::String& name)
-{
-    DominionPreset preset;
-    preset.name = name;
-    for (auto* parameter : state.processor.getParameters())
-        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter); ranged != nullptr && holds (ranged->paramID))
-            preset.parameters[ranged->paramID] = ranged->convertFrom0to1 (ranged->getValue());
-    return preset;
-}
-
-void DominionPresets::apply (const DominionPreset& preset, juce::AudioProcessorValueTreeState& state)
-{
-    for (auto* parameter : state.processor.getParameters())
-    {
-        auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter);
-        if (ranged == nullptr || ! holds (ranged->paramID))
-            continue;
-        const auto found = preset.parameters.find (ranged->paramID);
-        const auto normalised = found != preset.parameters.end() ? ranged->convertTo0to1 (found->second) : ranged->getDefaultValue();
-        if (juce::approximatelyEqual (ranged->getValue(), normalised))
-            continue;
-        ranged->beginChangeGesture();
-        ranged->setValueNotifyingHost (normalised);
-        ranged->endChangeGesture();
-    }
-}
-
-bool DominionPresets::matches (const DominionPreset& preset, juce::AudioProcessorValueTreeState& state)
-{
-    for (auto* parameter : state.processor.getParameters())
-    {
-        auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter);
-        if (ranged == nullptr || ! holds (ranged->paramID))
-            continue;
-        const auto found = preset.parameters.find (ranged->paramID);
-        const auto wanted = found != preset.parameters.end() ? ranged->convertTo0to1 (found->second) : ranged->getDefaultValue();
-        if (std::abs (ranged->getValue() - wanted) > 1.0e-4f)
-            return false;
-    }
-    return true;
-}
-
-bool DominionPresets::save (const DominionPreset& preset) const
-{
-    if (preset.name.trim().isEmpty() || ! folder.createDirectory())
-        return false;
-    juce::XmlElement xml ("DominionPreset");
-    xml.setAttribute ("version", 1);
-    xml.setAttribute ("name", preset.name.trim());
-    for (const auto& [id, value] : preset.parameters)
-    {
-        auto* p = xml.createNewChildElement ("Param");
-        p->setAttribute ("id", id);
-        p->setAttribute ("value", value);
-    }
-    return xml.writeTo (folder.getChildFile (juce::File::createLegalFileName (preset.name.trim()) + fileExtension));
-}
-
-bool DominionPresets::remove (const DominionPreset& preset) const
-{
-    return ! preset.isFactory && preset.file.existsAsFile() && preset.file.deleteFile();
 }

@@ -71,6 +71,8 @@ none of those products' names or branding go on the plugin.
   - **Full band**, PR7-C's compressor, after the bands (switch it with FULL BAND): CHARACTER (VCA clean, OPTO smooth,
     FET fast with a little grit), THRESHOLD, RATIO (from Soft to infinite), ATTACK, RELEASE, AUTO release, MAKE UP and
     LINK, with its gain-reduction meter.
+  - **PRESET** (on its page): COMP's own presets, apart from the rigs (vocals, drums, instruments, mix and master,
+    creative), and your own, saved in "Comp Presets" beside your rigs. A preset changes only COMP's settings.
 - **LIMITER (stomp 7)**, PR7-C's limiter: THRESHOLD (the ceiling), MAKE UP, MIX, LINK, and MODE (Brick, Soft or Auto),
   then OUTPUT TRIM. It's last in the chain, after OUTPUT, so nothing can push a peak past it; no look-ahead, so no delay.
   Its panel shows the gain reduction.

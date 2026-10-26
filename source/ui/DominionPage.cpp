@@ -513,7 +513,30 @@ DominionPage::DominionPage (ParagonX1AudioProcessor& p)
       maxCut (p.getParameters(), ParamIDs::domMaxCut, "MAX CUT", "The most it may cut anywhere (at the top: no limit)"),
       wetTrim (p.getParameters(), ParamIDs::domWetTrim, "WET TRIM", "The level of the processed sound, before MIX"),
       mix (p.getParameters(), ParamIDs::domMix, "MIX", "Processed against the original: 100% all processed"),
-      out (p.getParameters(), ParamIDs::domOut, "OUT", "The final level, after MIX")
+      out (p.getParameters(), ParamIDs::domOut, "OUT", "The final level, after MIX"),
+      preset (PresetButton::Hooks {
+          "DOMINION",
+          [] () -> const std::vector<StompPreset>& { return DominionPresets::factory(); },
+          [&p] { return p.getDominionPresets().user(); },
+          [&p] { return p.getDominionPresetName(); },
+          [&p] { return p.isDominionPresetModified(); },
+          [&p] (const StompPreset& chosen) { p.loadDominionPreset (chosen); },
+          [&p] (const juce::String& name)
+          {
+              const auto saved = DominionPresets::capture (p.getParameters(), name);
+              if (! p.getDominionPresets().save (saved))
+                  return false;
+              p.rememberDominionPreset (saved);
+              return true;
+          },
+          [&p] (const StompPreset& gone)
+          {
+              if (! p.getDominionPresets().remove (gone))
+                  return false;
+              p.rememberDominionPreset (DominionPresets::capture (p.getParameters(), "Untitled"));
+              return true;
+          },
+          [&p] { return p.getDominionPresets().getFolder(); } })
 {
     addAndMakeVisible (display);
     display.onSelect = [this] (int selected) { showBand (selected); };
@@ -522,9 +545,6 @@ DominionPage::DominionPage (ParagonX1AudioProcessor& p)
     delta.setTooltip ("Hear only what DOMINION takes away");
     styleButton (back);
     back.onClick = [this] { if (onClose) onClose(); };
-    styleButton (preset);
-    preset.setTooltip ("DOMINION's own presets (apart from the rigs): they change only DOMINION's settings. Save your own here too");
-    preset.onClick = [this] { showPresetMenu(); };
     styleLabel (presetLabel);
     addAndMakeVisible (preset);
     addAndMakeVisible (presetLabel);
@@ -606,85 +626,6 @@ void DominionPage::showBand (int newBand)
     repaint();
 }
 
-void DominionPage::showPresetMenu()
-{
-    // The factory presets by category, then yours, then saving and deleting.
-    auto& presets = processor.getDominionPresets();
-    const auto& factory = DominionPresets::factory();
-    const auto yours = presets.user();
-    const auto current = processor.getDominionPresetName();
-    juce::PopupMenu menu;
-    juce::String category = "-";
-    for (int i = 0; i < (int) factory.size(); ++i)
-    {
-        if (factory[(size_t) i].category != category)
-        {
-            category = factory[(size_t) i].category;
-            if (category.isNotEmpty())
-                menu.addSectionHeader (category.toUpperCase());
-        }
-        menu.addItem (100 + i, factory[(size_t) i].name, true, factory[(size_t) i].name == current);
-    }
-    menu.addSectionHeader ("YOUR PRESETS");
-    if (yours.empty())
-        menu.addItem (99, "(none yet: SAVE AS... adds one)", false);
-    for (int i = 0; i < (int) yours.size(); ++i)
-        menu.addItem (1000 + i, yours[(size_t) i].name, true, yours[(size_t) i].name == current);
-    menu.addSeparator();
-    menu.addItem (1, "Save as...");
-    const auto mine = std::find_if (yours.begin(), yours.end(), [&] (const DominionPreset& p) { return p.name == current; });
-    menu.addItem (2, "Delete \"" + current + "\"", mine != yours.end());
-    menu.addItem (3, "Show the presets folder");
-
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&preset), [this, factory, yours] (int chosen)
-    {
-        if (chosen >= 1000 && chosen - 1000 < (int) yours.size())
-            processor.loadDominionPreset (yours[(size_t) (chosen - 1000)]);
-        else if (chosen >= 100 && chosen - 100 < (int) factory.size())
-            processor.loadDominionPreset (factory[(size_t) (chosen - 100)]);
-        else if (chosen == 1)
-            saveAsPreset();
-        else if (chosen == 2)
-        {
-            const auto name = processor.getDominionPresetName();
-            for (const auto& p : yours)
-                if (p.name == name && processor.getDominionPresets().remove (p))
-                {
-                    auto unsaved = DominionPresets::capture (processor.getParameters(), "Untitled");
-                    processor.rememberDominionPreset (unsaved);
-                }
-        }
-        else if (chosen == 3)
-        {
-            processor.getDominionPresets().getFolder().createDirectory();
-            processor.getDominionPresets().getFolder().revealToUser();
-        }
-        timerCallback();
-    });
-}
-
-void DominionPage::saveAsPreset()
-{
-    auto* window = new juce::AlertWindow ("Save a DOMINION preset", "A name for it (kept with your DOMINION presets):",
-                                          juce::MessageBoxIconType::NoIcon, this);
-    const auto current = processor.getDominionPresetName();
-    window->addTextEditor ("name", current == "Default" || current == "Untitled" ? juce::String ("My Preset") : current);
-    window->addButton ("SAVE", 1, juce::KeyPress (juce::KeyPress::returnKey));
-    window->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
-    window->enterModalState (true, juce::ModalCallbackFunction::create ([this, window] (int result)
-    {
-        if (result != 1)
-            return;
-        const auto name = window->getTextEditorContents ("name").trim();
-        if (name.isEmpty())
-            return;
-        const auto saved = DominionPresets::capture (processor.getParameters(), name);
-        if (processor.getDominionPresets().save (saved))
-            processor.rememberDominionPreset (saved);
-        timerCallback();
-    }), true);
-}
-
 void DominionPage::step (int direction)
 {
     const auto settings = processor.getDominionSettings();
@@ -702,10 +643,7 @@ void DominionPage::step (int direction)
 
 void DominionPage::timerCallback()
 {
-    // The preset's name, with * once its settings have been changed.
-    const auto name = processor.getDominionPresetName() + (processor.isDominionPresetModified() ? " *" : "");
-    if (preset.getButtonText() != name)
-        preset.setButtonText (name);
+    preset.refresh();   // its name, with * once its settings have been changed
 
     if (band < 0)
         return;

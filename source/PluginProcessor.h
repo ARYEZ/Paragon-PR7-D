@@ -10,6 +10,7 @@
 #include "dsp/oracle/Oracle.h"
 #include "dsp/effects/MultibandComp.h"
 #include "dsp/dominion/Dominion.h"
+#include "rigs/CompPresets.h"
 #include "rigs/DominionPresets.h"
 #include "dsp/effects/Compressor.h"
 #include "dsp/effects/Limiter.h"
@@ -170,6 +171,13 @@ public:
     bool isDominionPresetModified() { return ! DominionPresets::matches (dominionPreset, parameters); }
     void rememberDominionPreset (const DominionPreset& preset) { dominionPreset = preset; }   // after saving it
 
+    // COMP's own presets (0.14.0), as DOMINION's.
+    CompPresets& getCompPresets() noexcept { return compPresets; }
+    void loadCompPreset (const CompPreset& preset) { CompPresets::apply (preset, parameters); compPreset = preset; }
+    juce::String getCompPresetName() const { return compPreset.name; }
+    bool isCompPresetModified() { return ! CompPresets::matches (compPreset, parameters); }
+    void rememberCompPreset (const CompPreset& preset) { compPreset = preset; }
+
     // COMP's bands as set now (any thread), and each band now (the page's
     // meters). Look-ahead's delay is reported to the DAW from the timer.
     effects::multiband::Settings getMultibandSettings() const noexcept;
@@ -254,6 +262,8 @@ private:
     std::atomic<int> dominionListen { -1 };
     DominionPresets dominionPresets { {} };   // its folder is set with the rigs folder
     DominionPreset dominionPreset = DominionPresets::factory().front();   // "Default"
+    CompPresets compPresets { {} };
+    CompPreset compPreset = CompPresets::factory().front();
     effects::Compressor compressor;   // stomp 2, ported from PR7-C
     effects::multiband::Processor multiband;   // stomp 2's bands, before it
     struct MultibandBandParameters { std::atomic<float>* values[std::size (ParamIDs::mbBandSettings)] {}; };

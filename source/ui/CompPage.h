@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "PluginProcessor.h"
+#include "ui/PresetButton.h"
 
 // COMP's bands, drawn across the spectrum: each band its part of it, in
 // the menus' red to pink to orange at its frequency. Faint: how far it can
@@ -123,6 +124,8 @@ private:
     juce::ComboBox character;
     juce::AudioProcessorValueTreeState::ComboBoxAttachment characterAttachment;
     juce::TextButton back { "BACK TO PEDAL" };
+    PresetButton preset;
+    juce::Label presetLabel { {}, "PRESET" };
 
     // The selected band
     int band = -1;

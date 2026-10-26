@@ -407,3 +407,169 @@ TEST_CASE ("COMP's bands in the plugin: set from their parameters, they work on 
     CHECK_THAT (levelDb (out, 0, 800.0), WithinAbs (-25.0, 1.5));   // -10 dBFS, 20 over at 4:1
     CHECK_THAT (levelDb (out, 0, 60.0), WithinAbs (-12.0, 0.3));    // outside the band
 }
+
+// COMP's own presets (0.14.0)
+#include "rigs/CompPresets.h"
+
+TEST_CASE ("COMP presets: the factory ones hold only COMP's settings, all in range, with sensible bands", "[multiband][presets]")
+{
+    ParagonX1AudioProcessor processor;
+    REQUIRE (CompPresets::factory().front().name == "Default");
+    juce::StringArray names;
+    for (const auto& preset : CompPresets::factory())
+    {
+        INFO (preset.name);
+        names.addIfNotAlreadyThere (preset.name);
+        for (const auto& [id, value] : preset.parameters)
+        {
+            INFO (id);
+            CHECK (CompPresets::holds (id));
+            auto* p = processor.getParameters().getParameter (id);
+            REQUIRE (p != nullptr);
+            CHECK_THAT (p->convertFrom0to1 (p->convertTo0to1 (value)), WithinAbs (value, std::abs (value) * 0.01 + 0.01));   // in its range
+        }
+        // Each band's low edge under its high one.
+        for (int band = 0; band < ParamIDs::mbNumBands; ++band)
+            if (preset.parameters.count (ParamIDs::mbBand (band, "Used")) > 0)
+                CHECK (preset.parameters.at (ParamIDs::mbBand (band, "Low")) < preset.parameters.at (ParamIDs::mbBand (band, "High")));
+    }
+    CHECK (names.size() == (int) CompPresets::factory().size());
+    CHECK_FALSE (CompPresets::holds (ParamIDs::compOn));
+    CHECK_FALSE (CompPresets::holds (ParamIDs::domDepth));
+    CHECK (CompPresets::holds (ParamIDs::compThreshold));
+    CHECK (CompPresets::holds (ParamIDs::mbBand (2, "Range")));
+}
+
+TEST_CASE ("COMP presets: loading one sets COMP and nothing else, works on the sound, and one undo takes it back", "[multiband][presets]")
+{
+    ParagonX1AudioProcessor processor;
+    processor.setPlayConfigDetails (1, 2, sampleRate, blockSize);
+    processor.prepareToPlay (sampleRate, blockSize);
+    auto& state = processor.getParameters();
+    const auto set = [&] (const juce::String& id, float value)
+    {
+        auto* p = state.getParameter (id);
+        p->beginChangeGesture();
+        p->setValueNotifyingHost (p->convertTo0to1 (value));
+        p->endChangeGesture();
+    };
+    set (ParamIDs::compOn, 1.0f);
+    set (ParamIDs::domDepth, 9.0f);        // not COMP's: stays
+    set (ParamIDs::compMakeUp, 6.0f);      // not in the preset: back to its default
+    processor.flushUndoStep();
+
+    const auto* kick = processor.getCompPresets().findFactory ("Kick Tight");
+    REQUIRE (kick != nullptr);
+    processor.loadCompPreset (*kick);
+    processor.flushUndoStep();
+    const auto bands = processor.getMultibandSettings();
+    CHECK (bands.bands[0].used);
+    CHECK_FALSE (bands.bands[1].used);
+    CHECK_THAT (bands.bands[0].highHz, WithinAbs (120.0, 0.5));
+    CHECK (state.getRawParameterValue (ParamIDs::compWide)->load() < 0.5f);
+    CHECK (state.getRawParameterValue (ParamIDs::compOn)->load() > 0.5f);                 // its on switch untouched
+    CHECK_THAT (state.getRawParameterValue (ParamIDs::domDepth)->load(), WithinAbs (9.0, 1.0e-3));
+    CHECK_THAT (state.getRawParameterValue (ParamIDs::compMakeUp)->load(), WithinAbs (0.0, 1.0e-3));
+    CHECK (processor.getCompPresetName() == "Kick Tight");
+    CHECK_FALSE (processor.isCompPresetModified());
+
+    // It tightens a loud low tone, and leaves a mid one alone.
+    juce::AudioBuffer<float> out (2, 48000), block (2, blockSize);
+    juce::MidiBuffer midi;
+    for (int from = 0; from < out.getNumSamples(); from += blockSize)
+    {
+        block.clear();
+        for (int i = 0; i < blockSize; ++i)
+        {
+            const auto t = (double) (from + i) / sampleRate;
+            block.setSample (0, i, (float) (0.5 * std::sin (juce::MathConstants<double>::twoPi * 55.0 * t)
+                                           + 0.1 * std::sin (juce::MathConstants<double>::twoPi * 1000.0 * t)));
+        }
+        processor.processBlock (block, midi);
+        out.copyFrom (0, from, block, 0, 0, blockSize);
+    }
+    CHECK (levelDb (out, 0, 55.0) < -6.0 - 4.0);                       // -6 dBFS turned down at least 4 dB
+    CHECK_THAT (levelDb (out, 0, 1000.0), WithinAbs (-20.0, 0.3));     // untouched
+
+    set (ParamIDs::mbBand (0, "Thresh"), -10.0f);
+    CHECK (processor.isCompPresetModified());
+
+    processor.flushUndoStep();
+    processor.undo();
+    processor.undo();
+    CHECK_FALSE (processor.getMultibandSettings().bands[0].used);
+    CHECK_THAT (state.getRawParameterValue (ParamIDs::compMakeUp)->load(), WithinAbs (6.0, 1.0e-3));
+}
+
+TEST_CASE ("COMP presets: yours are saved, listed, loaded and deleted", "[multiband][presets]")
+{
+    ParagonX1AudioProcessor processor;
+    const auto folder = juce::File::createTempFile ("comp-presets");
+    processor.getCompPresets().setFolder (folder);
+    auto& state = processor.getParameters();
+    auto* threshold = state.getParameter (ParamIDs::compThreshold);
+    threshold->setValueNotifyingHost (threshold->convertTo0to1 (-31.0f));
+    auto& presets = processor.getCompPresets();
+    REQUIRE (presets.save (CompPresets::capture (state, "My Bus")));
+    CHECK (folder.getChildFile ("My Bus.pr7comp").existsAsFile());
+    const auto yours = presets.user();
+    REQUIRE (yours.size() == 1);
+    CHECK (yours[0].name == "My Bus");
+
+    processor.loadCompPreset (*presets.findFactory ("Default"));
+    CHECK_THAT (state.getRawParameterValue (ParamIDs::compThreshold)->load(), WithinAbs (-18.0, 1.0e-3));
+    processor.loadCompPreset (yours[0]);
+    CHECK_THAT (state.getRawParameterValue (ParamIDs::compThreshold)->load(), WithinAbs (-31.0, 1.0e-3));
+    CHECK (presets.remove (yours[0]));
+    CHECK (presets.user().empty());
+    folder.deleteRecursively();
+}
+
+TEST_CASE ("COMP presets: every factory preset keeps typical material clean and near its level", "[multiband][presets]")
+{
+    for (const auto& preset : CompPresets::factory())
+    {
+        INFO (preset.name);
+        ParagonX1AudioProcessor processor;
+        processor.setPlayConfigDetails (1, 2, sampleRate, blockSize);
+        processor.prepareToPlay (sampleRate, blockSize);
+        processor.getParameters().getParameter (ParamIDs::compOn)->setValueNotifyingHost (1.0f);
+        processor.loadCompPreset (preset);
+        processor.updateLatency();
+
+        // Pink-ish noise around -18 dBFS RMS, two seconds.
+        juce::Random random (11);
+        double b0 = 0.0, b1 = 0.0, b2 = 0.0, inSum = 0.0, outSum = 0.0;
+        bool finite = true;
+        juce::AudioBuffer<float> block (2, blockSize);
+        juce::MidiBuffer midi;
+        for (int from = 0; from < 96000; from += blockSize)
+        {
+            block.clear();
+            for (int i = 0; i < blockSize; ++i)
+            {
+                const auto white = random.nextFloat() * 2.0 - 1.0;
+                b0 = 0.99765 * b0 + white * 0.0990460;
+                b1 = 0.96300 * b1 + white * 0.2965164;
+                b2 = 0.57000 * b2 + white * 1.0526913;
+                const auto x = (float) (0.06 * (b0 + b1 + b2 + white * 0.1848));
+                block.setSample (0, i, x);
+                if (from >= 48000)
+                    inSum += (double) x * x;
+            }
+            processor.processBlock (block, midi);
+            for (int i = 0; i < blockSize; ++i)
+            {
+                const auto y = block.getSample (0, i);
+                finite = finite && std::isfinite (y);
+                if (from >= 48000)
+                    outSum += (double) y * y;
+            }
+        }
+        CHECK (finite);
+        const auto changeDb = 10.0 * std::log10 ((outSum + 1.0e-20) / (inSum + 1.0e-20));
+        INFO ("level change " << changeDb << " dB");
+        CHECK (changeDb > -12.0);
+        CHECK (changeDb < 9.0);
+    }
+}

@@ -2,6 +2,14 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.14.0
+
+- **COMP's own presets**, as DOMINION has: a **PRESET** button at the top of COMP's page (beside BACK TO PEDAL), apart from PR7-E's rigs. Loading one sets all of COMP's settings (the full band and whether it's in use, the bands, LOOK-AHEAD and MIX); it leaves whether COMP is on, and everything else in the rig, alone. One undo takes it back.
+  - **Factory presets**, by category: *Vocals* (Vocal Leveler, Vocal Smooth & Bright, Vocal Body), *Drums* (Drum Bus Glue, Kick Tight, Snare Punch, Room Gate), *Instruments* (Bass Even, Guitar Fizz Control, Piano & Keys Even), *Mix & Master* (Mix Bus Glue, Master Four Bands, Low End Control, De-Harsh, Air Lift) and *Creative* (Upward Squash), plus Default. Our own starting points from common mixing moves, not anyone's presets. Compressor thresholds depend on how loud your material is, so set THRESHOLD by ear (a few dB of gain reduction is usually plenty). In the tests, every one keeps typical material clean and close to its level.
+  - **Your own:** *Save as...* keeps COMP's settings under "Your presets"; *Delete* removes one of yours; *Show the presets folder* opens "Comp Presets", beside your rigs (small `.pr7comp` files).
+  - The button shows the preset's name, with a `*` once you've changed something.
+- DOMINION's presets now share the same code (nothing changes for you: same menu, same files).
+
 ## 0.13.0
 
 - **COMP gets bands: multiband compression and expansion, inspired by FabFilter Pro-MB.** Up to six bands, each a compressor for its own part of the spectrum: tighten only the lows, calm only the harsh top, glue the mids, bring up quiet detail or push down noise in one band only. Our own design from Pro-MB's manual (Pro-MB's own method isn't published). Click COMP's name (or COMP in the signal chain) for its new page.
