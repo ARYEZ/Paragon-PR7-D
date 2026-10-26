@@ -17,6 +17,7 @@
 #include "ui/RigBrowser.h"
 #include "ui/SignalChain.h"
 #include "ui/OraclePage.h"
+#include "ui/CompPage.h"
 
 // A side strip from the mockup: a title, a gain knob with its value
 // underneath, and a level meter.
@@ -83,7 +84,7 @@ private:
     // tunerBlock isn't in the chain (ORACLE, with the tuner, only listens): stomp 1's name opens its page.
     enum Block { eqBlock, dominionBlock, compBlock, limiterBlock, numBlocks, tunerBlock = numBlocks };
 
-    enum class Page { processor, presets, settings, eq, dominion, oracle };   // eq, dominion, oracle: those stomps' own pages
+    enum class Page { processor, presets, settings, eq, dominion, oracle, comp };   // eq, dominion, oracle, comp: those stomps' own pages
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override;
     void applyFinish();   // colours the printed labels and redraws the unit in the current finish
@@ -149,7 +150,6 @@ private:
     RigNavigator rigNavigator;
     SelectedRigPanel selectedRig;
     EqOverview eqPanel;   // the dock's default: the EQ's curve, and OPEN EQ
-    EffectPanel compPanel;      // stomp 2's knobs, with its gain-reduction meter
     EffectPanel limiterPanel;   // stomp 7's
     juce::TextButton closePanel { "EQ" };   // back to the EQ overview, the dock's default
     SignalChain signalChain;
@@ -161,6 +161,7 @@ private:
     EqPage eqPage;
     DominionPage dominionPage;
     OraclePage oraclePage;
+    CompPage compPage;
     std::vector<juce::Component*> processorPage;
     Page page = Page::processor;
 

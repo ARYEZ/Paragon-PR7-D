@@ -23,7 +23,7 @@ stomps are still being planned, one at a time with the owner.
 | Stomp | Plan | Now |
 |---|---|---|
 | **1 Oracle** | Melody to MIDI (inspired by Melodyne and VariAudio, our own design), with the tuner | Works: transcribes as the DAW plays, note editing, drag the MIDI onto a track |
-| **2 Comp** | PR7-C's compressor, ported (a multiband version inspired by FabFilter Pro-MB is a possible later step) | Works: VCA, OPTO and FET; threshold, ratio, attack, release, auto, make up, link |
+| **2 Comp** | PR7-C's compressor, plus up to six bands inspired by FabFilter Pro-MB (our own design) | Works: full band, and bands that compress or expand, down or up, with look-ahead, on its own page |
 | **3 Inserts** | Host other plugins in slots inside PR7-E and open their editors (a mini rack) | Placeholder |
 | **4 EQ** | An EQ inspired by FabFilter Pro-Q 4 (our own design) | Works: 24 bands on its own page, any of them dynamic, and EQ Match |
 | **5 Dominion** | Resonance suppression inspired by oeksound soothe 3 (our own design) | Works: Soft and Hard, the depth curve, stereo/mid-side, tilts, delta and band listen, on its own page |
@@ -60,9 +60,17 @@ none of those products' names or branding go on the plugin.
   for the lows and highs; MAX CUT, WET TRIM, DELTA, MIX and OUT. Click its name for its page. Zero latency.
   **PRESET** (on its page): its own presets, apart from the rigs (vocals, drums, instruments, mix and master, creative),
   and your own, saved in "Dominion Presets" beside your rigs. A preset changes only DOMINION's settings.
-- **COMP (stomp 2)**, PR7-C's compressor, after the EQ: CHARACTER (VCA clean, OPTO smooth, FET fast with a little grit),
-  THRESHOLD, RATIO (from Soft, a curve that firms up with level, to infinite), ATTACK, RELEASE, AUTO release, MAKE UP and
-  LINK. Its panel shows the gain reduction.
+- **COMP (stomp 2)**, after the EQ; click its name for its page.
+  - **Bands** (up to six, inspired by FabFilter Pro-MB, our own design): each works on its own part of the spectrum.
+    Double-click the graph to add one; drag its dot sideways to move it and up or down for RANGE, drag its edges.
+    MODE and RANGE give four kinds: COMPRESS turns loud parts down (RANGE below 0) or brings quiet parts up (above 0);
+    EXPAND turns quiet parts down, like a gate (below 0), or brings loud parts up for punch (above 0). THRESHOLD, RATIO,
+    KNEE, ATTACK, RELEASE, CHARACTER (VCA, OPTO, FET), STEREO (both with LINK, mid or side), OUTPUT, SLOPE, LISTEN.
+    A band that isn't working leaves the sound exactly as it was. **LOOK-AHEAD** lets each band hear up to 20 ms ahead
+    (COMP is then 20 ms late, which your DAW makes up for on playback); **MIX** 0 to 200%.
+  - **Full band**, PR7-C's compressor, after the bands (switch it with FULL BAND): CHARACTER (VCA clean, OPTO smooth,
+    FET fast with a little grit), THRESHOLD, RATIO (from Soft to infinite), ATTACK, RELEASE, AUTO release, MAKE UP and
+    LINK, with its gain-reduction meter.
 - **LIMITER (stomp 7)**, PR7-C's limiter: THRESHOLD (the ceiling), MAKE UP, MIX, LINK, and MODE (Brick, Soft or Auto),
   then OUTPUT TRIM. It's last in the chain, after OUTPUT, so nothing can push a peak past it; no look-ahead, so no delay.
   Its panel shows the gain reduction.

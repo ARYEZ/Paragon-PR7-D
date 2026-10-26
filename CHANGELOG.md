@@ -2,6 +2,19 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.13.0
+
+- **COMP gets bands: multiband compression and expansion, inspired by FabFilter Pro-MB.** Up to six bands, each a compressor for its own part of the spectrum: tighten only the lows, calm only the harsh top, glue the mids, bring up quiet detail or push down noise in one band only. Our own design from Pro-MB's manual (Pro-MB's own method isn't published). Click COMP's name (or COMP in the signal chain) for its new page.
+  - **Bands placed anywhere:** double-click the graph to add one (an octave wide; near either end it reaches the end). Drag its dot sideways to move it and up or down to set how far it can go (RANGE); drag either edge to widen or narrow it; mouse wheel over a band for its THRESHOLD; right-click for its menu; double-click its dot to switch it off.
+  - **Four kinds of dynamics**, from MODE and RANGE, as on Pro-MB: **COMPRESS** with RANGE below 0 turns loud parts down (ordinary compression); above 0 it brings quiet parts up (upward compression: body and detail without touching the peaks). **EXPAND** with RANGE below 0 turns quiet parts down (a gate, for spill and noise); above 0 it brings loud parts up (upward expansion: more punch on hits). RATIO sets how strongly, KNEE how gradually, RANGE how far at most.
+  - **Each band:** THRESHOLD, RANGE, RATIO, KNEE, ATTACK, RELEASE, CHARACTER (COMP's VCA, OPTO or FET, our addition: Pro-MB has none), STEREO (both channels with LINK, or the middle or the sides only), its own OUTPUT, the SLOPE of its edges, LISTEN to hear only its part, and LOOK-AHEAD.
+  - **Transparent when idle:** a band isn't a crossover splitting the sound. It's a pair of the EQ's shelves that only exist while the band is changing the level: a band that isn't working leaves the sound exactly as it was (measured: to within a millionth), with no delay.
+  - **LOOK-AHEAD** (top of the page): each band can hear up to 20 ms ahead, so it's ready before a peak arrives. While it's on, COMP is 20 ms late, which your DAW makes up for on playback (not when you monitor live through it); off, there's no delay at all.
+  - **MIX** from 0 to 200% of the bands' effect.
+  - **The full-band compressor** (PR7-C's, as before) now sits on the page's right, after the bands, with FULL BAND to switch it. It's on by default, so your rigs and projects sound exactly as they did.
+  - In the tests: each kind does what it says only in its band (a tone below and one above stay within 0.3 dB), the band is flat inside and half way at its edges, a sides-only band leaves the middle alone, and six steep bands with look-ahead use about 4% of one core. Not checked here: how it sounds on your material (I can't listen); the bands' timing and detectors are COMP's, our own numbers.
+  - Not in this version: FET's grit per band (the full band keeps it), COMP presets (next), and an analyser on the graph.
+
 ## 0.12.0
 
 - **The unit laid out like a DigiTech GSP21's foot controller**, as you asked. The screen is centred along the top; the seven stomps sit in one row, and under them, as on the GSP in its five-preset mode, five rigs and **BANK ▼** / **BANK ▲**. Each switch has its number and light above it and its name under it, as on the GSP.

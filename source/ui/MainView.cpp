@@ -127,10 +127,6 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
       selectedRig (processorToShow),
       eqPanel (processorToShow),
       // The blocks that shape the sound, in order; it grows as the stomps are built.
-      compPanel (processorToShow.getParameters(),
-                 { { "COMP", { { ParamIDs::compOn, "ON" }, { ParamIDs::compThreshold, "THRESHOLD" }, { ParamIDs::compRatio, "RATIO" },
-                               { ParamIDs::compAttack, "ATTACK" }, { ParamIDs::compRelease, "RELEASE" }, { ParamIDs::compAuto, "AUTO" },
-                               { ParamIDs::compMakeUp, "MAKE UP" }, { ParamIDs::compCharacter, "CHARACTER" }, { ParamIDs::compLink, "LINK" } } } }),
       limiterPanel (processorToShow.getParameters(),
                     { { "LIMIT", { { ParamIDs::limitOn, "ON" }, { ParamIDs::limitThreshold, "THRESHOLD" }, { ParamIDs::limitMakeUp, "MAKE UP" },
                                    { ParamIDs::limitMode, "MODE" }, { ParamIDs::limitMix, "MIX" }, { ParamIDs::limitLink, "LINK" } } },
@@ -146,7 +142,8 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
       settingsPage (processorToShow),
       eqPage (processorToShow),
       dominionPage (processorToShow),
-      oraclePage (processorToShow)
+      oraclePage (processorToShow),
+      compPage (processorToShow)
 {
     auto& state = processorToShow.getParameters();
 
@@ -255,11 +252,12 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
         return notes == 0 ? juce::String ("Melody to MIDI") : juce::String ((int) notes) + (notes == 1 ? " note" : " notes");
     });
     footswitches[0]->onSelect = [this] { showPage (Page::oracle); };
-    // COMP: PR7-C's compressor, after the EQ; its name opens its knobs.
+    // COMP: PR7-C's compressor with bands (inspired by Pro-MB), after the EQ; its name opens its own page.
     addStomp (2, "COMP", { ParamIDs::compOn }, compBlock, [this]
     {
         return valueText (ParamIDs::compCharacter) + "  " + valueText (ParamIDs::compThreshold) + "  " + valueText (ParamIDs::compRatio);
     });
+    footswitches[1]->onSelect = [this] { showPage (Page::comp); };
     addStomp (3, "INSERTS", {}, noBlock, planned ("Plugin slots: to plan"));
 
     // EQ (inspired by FabFilter Pro-Q 4): its name opens its own page.
@@ -340,12 +338,6 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
         addAndMakeVisible (component);
 
     addChildComponent (eqPanel);
-    addChildComponent (compPanel);
-    compPanel.setHeader (Icons::Type::comp, ParagonColours::delay, "COMP");
-    compPanel.setMeter ([this]
-    {
-        return -juce::jmax (audioProcessor.getCompressorReductionDb (0), audioProcessor.getCompressorReductionDb (1));
-    });
     addChildComponent (limiterPanel);
     limiterPanel.setHeader (Icons::Type::comp, ParagonColours::comp, "LIMITER");
     limiterPanel.setMeter ([this]
@@ -360,6 +352,8 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     addChildComponent (dominionPage);
     oraclePage.onClose = [this] { showPage (Page::processor); };
     addChildComponent (oraclePage);
+    compPage.onClose = [this] { showPage (Page::processor); };
+    addChildComponent (compPage);
 
     closePanel.setTooltip ("Back to the EQ");
     closePanel.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff151217));
@@ -378,6 +372,8 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     {
         if (block == dominionBlock)
             showPage (Page::dominion);
+        else if (block == compBlock)
+            showPage (Page::comp);
         else
             selectBlock (block);
     };
@@ -422,7 +418,6 @@ void MainView::selectBlock (int block)
     selectedBlock = block;
     const auto onProcessorPage = page == Page::processor;
     eqPanel.setVisible (block == eqBlock && onProcessorPage);
-    compPanel.setVisible (block == compBlock && onProcessorPage);
     limiterPanel.setVisible (block == limiterBlock && onProcessorPage);
     closePanel.setVisible (block != eqBlock && onProcessorPage);
     if (block != eqBlock)
@@ -453,6 +448,9 @@ void MainView::showPage (Page newPage)
     dominionPage.setVisible (newPage == Page::dominion);
     if (newPage == Page::dominion)
         dominionPage.getDisplay().grabKeyboardFocus();
+    compPage.setVisible (newPage == Page::comp);
+    if (newPage == Page::comp)
+        compPage.getDisplay().grabKeyboardFocus();
     oraclePage.setVisible (newPage == Page::oracle);
     if (newPage == Page::oracle)
         oraclePage.getRoll().grabKeyboardFocus();
@@ -744,7 +742,6 @@ void MainView::resized()
     selectedRig.setBounds (mock (256, 568, 652, 822));
     const auto summaryArea = mock (662, 568, 1662, 822);
     eqPanel.setBounds (summaryArea);
-    compPanel.setBounds (summaryArea);
     limiterPanel.setBounds (summaryArea);
     closePanel.setBounds (summaryArea.withSizeKeepingCentre (0, 0).withX (summaryArea.getRight() - 130).withY (summaryArea.getY() + 10)
                               .withSize (118, 24));
@@ -758,4 +755,5 @@ void MainView::resized()
     eqPage.setBounds (pageArea);
     dominionPage.setBounds (pageArea);
     oraclePage.setBounds (pageArea);
+    compPage.setBounds (pageArea);
 }

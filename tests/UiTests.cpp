@@ -153,11 +153,11 @@ TEST_CASE ("The chain and the stomps pick what the dock shows; the graphic EQ is
     chains[0]->onSelect (0);
     CHECK (eqPanels[0]->isVisible());
 
-    // COMP's name shows its knobs; the EQ button goes back.
+    // The LIMITER's name shows its knobs; the EQ button goes back.
     std::vector<Footswitch*> footswitches;
     findAll (*editor, footswitches);
     REQUIRE (footswitches.size() == 14);   // the seven stomps first, then the rig row
-    footswitches[1]->onSelect();
+    footswitches[6]->onSelect();
     CHECK_FALSE (eqPanels[0]->isVisible());
 
     std::vector<juce::TextButton*> buttons;

@@ -7,6 +7,7 @@
 #include "ui/DominionPage.h"
 #include "ui/EqPage.h"
 #include "ui/OraclePage.h"
+#include "ui/CompPage.h"
 #include "ui/Finish.h"
 #include "ui/Footswitch.h"
 #include "ui/ParagonLookAndFeel.h"
@@ -284,6 +285,70 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 }
                 display->select (1);
                 display->refresh();
+            }
+    }
+
+    // PARAGON_SNAPSHOT_PAGE=comp opens COMP's page (stomp 2's name).
+    // PARAGON_SNAPSHOT_COMP=1: COMP on with four bands (the lows tightened,
+    // mud tamed, harshness tamed, the air brought up) and pink noise
+    // with a loud kick-like 60 Hz and a harsh 3 kHz through it, band 3 selected.
+    if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_PAGE", {}) == "comp")
+    {
+        std::vector<Footswitch*> stomps;
+        std::function<void (juce::Component&)> collect = [&] (juce::Component& c)
+        {
+            if (auto* stomp = dynamic_cast<Footswitch*> (&c))
+                stomps.push_back (stomp);
+            for (auto* child : c.getChildren())
+                collect (*child);
+        };
+        collect (*editor);
+        REQUIRE (stomps.size() >= 7);
+        stomps[1]->onSelect();
+        if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_COMP", {}) == "1")
+            if (auto* page = findType<CompPage> (*editor))
+            {
+                auto& display = page->getDisplay();
+                const auto set = [&] (const juce::String& id, float value)
+                {
+                    auto* p = processor.getParameters().getParameter (id);
+                    p->setValueNotifyingHost (p->convertTo0to1 (value));
+                };
+                set (ParamIDs::compOn, 1.0f);
+                struct Spec { float low, high, threshold, range; int mode, stereo; };
+                const Spec specs[] = { { 20.0f, 120.0f, -30.0f, -8.0f, 0, 0 }, { 180.0f, 500.0f, -36.0f, -5.0f, 0, 0 },
+                                       { 2000.0f, 6000.0f, -40.0f, -9.0f, 0, 0 }, { 9000.0f, 20000.0f, -40.0f, 4.0f, 0, 0 } };
+                for (const auto& spec : specs)
+                    if (const auto band = display.createBand (spec.low, spec.high); band >= 0)
+                    {
+                        display.setBand (band, "Thresh", spec.threshold);
+                        display.setBand (band, "Range", spec.range);
+                        display.setBand (band, "Mode", (float) spec.mode);
+                        display.setBand (band, "Stereo", (float) spec.stereo);
+                    }
+                juce::Random random (5);
+                double b[3] {};
+                juce::AudioBuffer<float> buffer (2, 256);
+                juce::MidiBuffer midi;
+                for (int block = 0, n = 0; block < 400; ++block)
+                {
+                    for (int i = 0; i < 256; ++i, ++n)
+                    {
+                        const auto white = random.nextFloat() * 2.0 - 1.0;
+                        b[0] = 0.99765 * b[0] + white * 0.0990460;
+                        b[1] = 0.96300 * b[1] + white * 0.2965164;
+                        b[2] = 0.57000 * b[2] + white * 1.0526913;
+                        const auto t = n / 48000.0;
+                        const auto x = 0.05 * (b[0] + b[1] + b[2] + white * 0.1848)
+                                     + 0.3 * std::sin (2.0 * juce::MathConstants<double>::pi * 60.0 * t)
+                                     + 0.12 * std::sin (2.0 * juce::MathConstants<double>::pi * 3000.0 * t);
+                        buffer.setSample (0, i, (float) x);
+                        buffer.setSample (1, i, (float) (x * 0.6));
+                    }
+                    processor.processBlock (buffer, midi);
+                }
+                display.select (2);
+                display.refresh();
             }
     }
 

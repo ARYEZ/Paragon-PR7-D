@@ -7,6 +7,7 @@
 
 #include "Parameters.h"
 #include "PluginProcessor.h"
+#include "ui/CompPage.h"
 #include "ui/EffectPanel.h"
 #include "ui/Footswitch.h"
 
@@ -350,9 +351,20 @@ TEST_CASE ("Compressor in PR7-E: stomp 2 switches it, and its name opens its kno
     CHECK_FALSE (stomps[1]->isPlaceholder());
     stomps[1]->toggle();
     CHECK (processor.getParameters().getRawParameterValue (ParamIDs::compOn)->load() > 0.5f);
-    CHECK (std::none_of (panels.begin(), panels.end(), [] (EffectPanel* p) { return p->isVisible(); }));
+    // Its name opens its own page (0.13.0: with its bands).
+    std::vector<CompPage*> pages;
+    std::function<void (juce::Component&)> findPages = [&] (juce::Component& c)
+    {
+        if (auto* p = dynamic_cast<CompPage*> (&c))
+            pages.push_back (p);
+        for (auto* child : c.getChildren())
+            findPages (*child);
+    };
+    findPages (*editor);
+    REQUIRE (pages.size() == 1);
+    CHECK_FALSE (pages[0]->isVisible());
     stomps[1]->onSelect();
-    CHECK (std::count_if (panels.begin(), panels.end(), [] (EffectPanel* p) { return p->isVisible(); }) == 1);
+    CHECK (pages[0]->isVisible());
 }
 
 TEST_CASE ("Compressor in PR7-E: the factory rigs with COMP turn a typical recording down a little, not a lot", "[comp][rigs]")
