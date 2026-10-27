@@ -6,18 +6,17 @@ FetchContent_MakeAvailable(catch2)
 
 add_executable(ParagonX1Tests
     TestMain.cpp
+    SynthTests.cpp
     ProcessorTests.cpp
-    EffectTests.cpp
     RigTests.cpp
     UiTests.cpp
-    TunerTests.cpp
+    UndoTests.cpp
+    EffectTests.cpp
     EqTests.cpp
     LimiterTests.cpp
     CompressorTests.cpp
     DominionTests.cpp
-    OracleTests.cpp
     MultibandTests.cpp
-    PerformanceTests.cpp
     EditorSnapshot.cpp)
 
 # Link the plugin's shared code (processor, editor, JUCE modules) so the

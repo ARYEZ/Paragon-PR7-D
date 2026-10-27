@@ -7,45 +7,34 @@ namespace
 {
     constexpr double gainRampSeconds = 0.02;
 
-    // Extra settings kept in the saved state (DAW project or preset).
+    // Extra settings kept in the saved state (DAW project).
     const juce::Identifier rigNameKey { "rigName" };
     const juce::Identifier rigFileKey { "rigFile" };
     const juce::Identifier rigFactoryKey { "rigFactory" };
     const juce::Identifier rigModifiedKey { "rigModified" };
-    const juce::Identifier tappedBpmKey { "tappedBpm" };
-    const juce::Identifier tunerReferenceKey { "tunerReferenceHz" };
-    // Which version's parameters a project was saved with, as for rigs (see
-    // Rig.cpp). Projects from before 0.3.0 don't say: 0.
+    // Which version's parameters a project was saved with, as for presets (see Rig.cpp).
     const juce::Identifier parameterVersionKey { "parameterVersion" };
-    constexpr int parameterVersion = 35;
-
+    constexpr int parameterVersion = 1;
 }
 
 ParagonX1AudioProcessor::ParagonX1AudioProcessor()
-    : AudioProcessor (BusesProperties()
-                          .withInput ("Input", juce::AudioChannelSet::mono(), true)
-                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+    : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       parameters (*this, nullptr, "ParagonX1", createParameterLayout())
 {
-    inputGainDb = parameters.getRawParameterValue (ParamIDs::inputGain);
-    outputGainDb = parameters.getRawParameterValue (ParamIDs::outputGain);
-    for (int band = 0; band < ParamIDs::eqNumBands; ++band)
-        for (size_t i = 0; i < std::size (ParamIDs::eqBandSettings); ++i)
-            eqBandParameters[(size_t) band].values[i] = parameters.getRawParameterValue (ParamIDs::eqBand (band, ParamIDs::eqBandSettings[i]));
-    for (int band = 0; band < ParamIDs::domNumBands; ++band)
-        for (size_t i = 0; i < std::size (ParamIDs::domBandSettings); ++i)
-            dominionBandParameters[(size_t) band].values[i] = parameters.getRawParameterValue (ParamIDs::domBand (band, ParamIDs::domBandSettings[i]));
-    for (int band = 0; band < ParamIDs::mbNumBands; ++band)
-        for (size_t i = 0; i < std::size (ParamIDs::mbBandSettings); ++i)
-            multibandBandParameters[(size_t) band].values[i] = parameters.getRawParameterValue (ParamIDs::mbBand (band, ParamIDs::mbBandSettings[i]));
+    for (int i = 0; i < ParamIDs::numOscillators; ++i)
+        for (size_t s = 0; s < std::size (ParamIDs::oscSettings); ++s)
+        {
+            oscParameters[(size_t) i].values[s] = parameters.getRawParameterValue (ParamIDs::osc (i, ParamIDs::oscSettings[s]));
+            jassert (oscParameters[(size_t) i].values[s] != nullptr);
+        }
 
     rigLibrary = std::make_unique<RigLibrary>();
-    eqMatch.setReferencesFolder (rigLibrary->getFolder().getChildFile ("Match References"));
-    dominionPresets.setFolder (rigLibrary->getFolder().getChildFile ("Dominion Presets"));
-    compPresets.setFolder (rigLibrary->getFolder().getChildFile ("Comp Presets"));
+    // A new PR7-K is the Init preset (every parameter at its default), so the
+    // header names it and < > step on from there.
+    currentRig = { "Init", {}, "Init" };
 
-    // Any change to a parameter that rigs store marks the rig as modified,
-    // and finishing an edit to one records an undo step.
+    // Any change to a parameter that presets store marks the preset as
+    // modified, and finishing an edit to one records an undo step.
     for (auto* parameter : AudioProcessor::getParameters())
         if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (parameter))
             if (! ParamIDs::notInRigs.contains (withId->paramID))
@@ -54,8 +43,7 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
                 parameter->addListener (this);
             }
 
-    // Housekeeping off the audio thread: show MIDI pedal moves and record
-    // undo steps.
+    // Housekeeping off the audio thread: record undo steps.
     startTimerHz (30);
 
     // The starting point, so the first edit can be undone.
@@ -77,71 +65,15 @@ ParagonX1AudioProcessor::~ParagonX1AudioProcessor()
 
 void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlock)
 {
-    inputGain.reset (sampleRate, gainRampSeconds);
-    outputGain.reset (sampleRate, gainRampSeconds);
-    inputGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (inputGainDb->load()));
-    outputGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (outputGainDb->load() + param (ParamIDs::rigLevel)));
-
     preparedBlockSize = juce::jmax (1, samplesPerBlock);
-    bypassDelay.prepare ({ sampleRate, (juce::uint32) preparedBlockSize, (juce::uint32) effects::maxChannels });
-    bypassDry.setSize (effects::maxChannels, preparedBlockSize);
+    engine.prepare (sampleRate);
+    keyboardMidi.ensureSize (2048);
+    keyboardState.reset();
+
+    outputGain.reset (sampleRate, gainRampSeconds);
+    outputGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (param (ParamIDs::outputGain) + param (ParamIDs::patchLevel)));
     bypassAmount.reset (sampleRate, gainRampSeconds);
     bypassAmount.setCurrentAndTargetValue (isOn (ParamIDs::bypass) ? 1.0f : 0.0f);
-    parametricEq.prepare (sampleRate, preparedBlockSize);
-    dominionProcessor.prepare (sampleRate, preparedBlockSize);
-    compressor.prepare (sampleRate, preparedBlockSize);
-    multiband.prepare (sampleRate, preparedBlockSize);
-    compSidechain.setSize (2, preparedBlockSize);
-    limiter.prepare (sampleRate, preparedBlockSize);
-    limitTrim.reset (sampleRate, gainRampSeconds);
-    limitTrimFresh = true;
-    eqInputTap.setSampleRate (sampleRate);
-    eqOutputTap.setSampleRate (sampleRate);
-    for (auto& shelf : presence)
-        shelf.prepare (sampleRate, preparedBlockSize);
-    inputTap.setSampleRate (sampleRate);
-
-    updateLatency();
-}
-
-void ParagonX1AudioProcessor::updateLatency()
-{
-    // Only COMP's LOOK-AHEAD delays the sound (the NAM amp, which also did, went with PR7-B's bass blocks).
-    const auto latency = isOn (ParamIDs::mbLookahead) ? (int) std::lround (effects::multiband::lookaheadSeconds * inputTap.getSampleRate()) : 0;
-    if (latency != getLatencySamples())
-        setLatencySamples (latency);
-}
-
-effects::multiband::Settings ParagonX1AudioProcessor::getMultibandSettings() const noexcept
-{
-    namespace mb = effects::multiband;
-    mb::Settings settings;
-    settings.lookahead = isOn (ParamIDs::mbLookahead);
-    settings.mix = param (ParamIDs::mbMix) / 100.0f;
-    settings.soloBand = multibandSolo.load();
-    for (size_t i = 0; i < settings.bands.size(); ++i)
-    {
-        const auto& v = multibandBandParameters[i].values;   // in mbBandSettings' order
-        auto& band = settings.bands[i];
-        band.used = v[0]->load() > 0.5f;
-        band.on = v[1]->load() > 0.5f;
-        band.lowHz = v[2]->load();
-        band.highHz = v[3]->load();
-        band.slope = juce::jlimit (0, mb::numSlopes - 1, juce::roundToInt (v[4]->load()));
-        band.thresholdDb = v[5]->load();
-        band.rangeDb = v[6]->load();
-        band.mode = (mb::Mode) juce::jlimit (0, 1, juce::roundToInt (v[7]->load()));
-        band.ratio = v[8]->load();
-        band.kneeDb = v[9]->load();
-        band.attackMs = v[10]->load();
-        band.releaseMs = v[11]->load();
-        band.character = (effects::Compressor::Character) juce::jlimit (0, 2, juce::roundToInt (v[12]->load()));
-        band.stereo = (mb::Stereo) juce::jlimit (0, 2, juce::roundToInt (v[13]->load()));
-        band.link = v[14]->load() / 100.0f;
-        band.outputDb = v[15]->load();
-        band.lookaheadMs = v[16]->load();
-    }
-    return settings;
 }
 
 juce::AudioProcessorParameter* ParagonX1AudioProcessor::getBypassParameter() const
@@ -156,326 +88,160 @@ float ParagonX1AudioProcessor::param (const char* id) const
     return parameters.getRawParameterValue (id)->load();
 }
 
-eq::ParametricEq::Settings ParagonX1AudioProcessor::getEqSettings() const noexcept
+synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
 {
-    eq::ParametricEq::Settings settings;
-    settings.on = isOn (ParamIDs::eqOn);
-    settings.outputDb = param (ParamIDs::eqOutput);
-    settings.gainScale = param (ParamIDs::eqGainScale);
-    settings.autoGain = isOn (ParamIDs::eqAutoGain);
-    settings.soloBand = eqSoloBand.load();
-    for (size_t i = 0; i < settings.bands.size(); ++i)
-    {
-        const auto& values = eqBandParameters[i].values;   // in eqBandSettings' order
-        auto& band = settings.bands[i];
-        band.used = values[0]->load() > 0.5f;
-        band.on = values[1]->load() > 0.5f;
-        band.shape = (eq::Shape) juce::roundToInt (values[2]->load());
-        band.frequency = values[3]->load();
-        band.gainDb = values[4]->load();
-        band.q = values[5]->load();
-        band.slope = juce::roundToInt (values[6]->load());
-        band.placement = (eq::Placement) juce::roundToInt (values[7]->load());
-        band.dynamicRangeDb = values[8]->load();
-        band.autoThreshold = values[9]->load() > 0.5f;
-        band.thresholdDb = values[10]->load();
-        band.attack = values[11]->load();
-        band.release = values[12]->load();
-    }
-    return settings;
-}
+    using namespace ParamIDs;
+    synth::Settings s;
+    const auto choice = [] (float value, int count) { return juce::jlimit (0, count - 1, juce::roundToInt (value)); };
 
-dominion::Settings ParagonX1AudioProcessor::getDominionSettings() const noexcept
-{
-    dominion::Settings s;
-    s.on = isOn (ParamIDs::domOn);
-    s.mode = (dominion::Mode) juce::jlimit (0, 1, juce::roundToInt (param (ParamIDs::domMode)));
-    s.depth = param (ParamIDs::domDepth);
-    s.detail = param (ParamIDs::domDetail);
-    s.attack = param (ParamIDs::domAttack);
-    s.release = param (ParamIDs::domRelease);
-    s.stereo = (dominion::StereoMode) juce::jlimit (0, 1, juce::roundToInt (param (ParamIDs::domStereo)));
-    s.link = param (ParamIDs::domLink);
-    s.focus = param (ParamIDs::domFocus);
-    s.detailTiltLow = param (ParamIDs::domDetailLow);
-    s.detailTiltHigh = param (ParamIDs::domDetailHigh);
-    s.attackTiltLow = param (ParamIDs::domAttackLow);
-    s.attackTiltHigh = param (ParamIDs::domAttackHigh);
-    s.releaseTiltLow = param (ParamIDs::domReleaseLow);
-    s.releaseTiltHigh = param (ParamIDs::domReleaseHigh);
-    s.maxCutDb = param (ParamIDs::domMaxCut);
-    s.wetTrimDb = param (ParamIDs::domWetTrim);
-    s.mix = param (ParamIDs::domMix);
-    s.outDb = param (ParamIDs::domOut);
-    s.delta = isOn (ParamIDs::domDelta);
-    for (size_t i = 0; i < s.bands.size(); ++i)
+    for (size_t i = 0; i < s.oscillators.size(); ++i)
     {
-        const auto& values = dominionBandParameters[i].values;   // in domBandSettings' order
-        auto& band = s.bands[i];
-        band.used = values[0]->load() > 0.5f;
-        band.on = values[1]->load() > 0.5f;
-        band.shape = (dominion::Shape) juce::jlimit (0, dominion::shapeNames.size() - 1, juce::roundToInt (values[2]->load()));
-        band.frequency = values[3]->load();
-        band.depthDb = values[4]->load();
-        band.q = values[5]->load();
-        band.slope = juce::roundToInt (values[6]->load());
-        band.focus = values[7]->load();
+        const auto& v = oscParameters[i].values;   // in oscSettings' order
+        const auto get = [&v] (int index) { return v[(size_t) index]->load(); };
+        auto& o = s.oscillators[i];
+        o.on = get (0) > 0.5f;
+        o.wave = (synth::OscWave) choice (get (1), synth::oscWaveNames.size());
+        o.volume = get (2);
+        o.pan = get (3);
+        o.transpose = get (4);
+        o.fineCents = get (5);
+        o.randomPitch = get (6);
+        o.randomPhase = get (7) > 0.5f;
+        o.phase = get (8);
+        o.gain = get (9);
+        o.pulseWidth = get (10);
+        o.fadeInMs = get (11);
+        o.invert = get (12) > 0.5f;
+        o.noise = get (13);
+        o.noiseColour = get (14);
+        o.noiseWidth = (synth::NoiseWidth) choice (get (15), synth::noiseWidthNames.size());
+        o.sub = get (16);
+        o.subWave = (synth::SubWave) choice (get (17), synth::subWaveNames.size());
+        o.subOctave = choice (get (18), synth::subOctaveNames.size());
+        o.subInvert = get (19) > 0.5f;
+        o.toFilter = get (20) > 0.5f;
+        o.voiceLimit = juce::jlimit (1, synth::maxVoices, juce::roundToInt (get (21)));
     }
-    s.listenBand = dominionListen.load();
+    static_assert (std::size (ParamIDs::oscSettings) == 22);
+
+    const auto envelope = [this] (const char* a, const char* h, const char* d, const char* su, const char* r,
+                                  const char* ac, const char* dc, const char* rc)
+    {
+        return synth::EnvelopeSettings { param (a), param (h), param (d), param (su), param (r), param (ac), param (dc), param (rc) };
+    };
+
+    auto& f = s.filter;
+    f.on = isOn (fltOn);
+    f.type = (synth::FilterType) choice (param (fltType), synth::filterTypeNames.size());
+    f.cutoffHz = param (fltCutoff);
+    f.resonance = param (fltRes);
+    f.drive = param (fltDrive);
+    f.keytrack = param (fltKey);
+    f.velocity = param (fltVel);
+    f.resonanceVelocity = param (fltResVel);
+    f.envelopeAmount = param (fltEnv);
+    f.envelopeVelocity = param (fltEnvVel);
+    f.envelope = envelope (fltAttack, fltHold, fltDecay, fltSustain, fltRelease, fltAttackCurve, fltDecayCurve, fltReleaseCurve);
+
+    auto& a = s.amp;
+    a.volume = param (ampVolume);
+    a.velocity = param (ampVel);
+    a.pan = param (ampPan);
+    a.panKeytrack = param (ampPanKey);
+    a.spread = param (ampSpread);
+    a.spike = param (ampSpike);
+    a.spikeCurve = param (ampSpikeCurve);
+    a.spikeVelocity = param (ampSpikeVel);
+    a.envelope = envelope (ampAttack, ampHold, ampDecay, ampSustain, ampRelease, ampAttackCurve, ampDecayCurve, ampReleaseCurve);
+
+    auto& p = s.play;
+    p.mode = (synth::PlayMode) choice (param (playMode), synth::playModeNames.size());
+    p.legato = isOn (legato);
+    p.glideMs = param (glide);
+    p.glideMode = (synth::GlideMode) choice (param (glideMode), synth::glideModeNames.size());
+    p.bendUp = param (bendUp);
+    p.bendDown = param (bendDown);
+    p.voices = juce::jlimit (1, synth::maxVoices, juce::roundToInt (param (voices)));
+    p.tuneCents = param (tune);
     return s;
-}
-
-void ParagonX1AudioProcessor::loadDominionPreset (const DominionPreset& preset)
-{
-    DominionPresets::apply (preset, parameters);
-    dominionPreset = preset;
-}
-
-void ParagonX1AudioProcessor::readHostTempo()
-{
-    hostPosition.known = false;
-    if (auto* host = getPlayHead())
-        if (const auto position = host->getPosition())
-        {
-            if (const auto bpm = position->getBpm(); bpm.hasValue() && *bpm > 0.0)
-            {
-                hostBpm = *bpm;
-                hostPosition.bpm = *bpm;
-            }
-            // Where the song is, for ORACLE.
-            if (const auto samples = position->getTimeInSamples())
-            {
-                hostPosition.known = true;
-                hostPosition.playing = position->getIsPlaying() || position->getIsRecording();
-                hostPosition.sample = *samples;
-                hostPosition.ppq = position->getPpqPosition().orFallback ((double) *samples / juce::jmax (1.0, inputTap.getSampleRate()) * hostPosition.bpm / 60.0);
-                if (const auto signature = position->getTimeSignature())
-                {
-                    hostPosition.numerator = signature->numerator;
-                    hostPosition.denominator = signature->denominator;
-                }
-            }
-        }
 }
 
 bool ParagonX1AudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-    const auto isMonoOrStereo = [] (const juce::AudioChannelSet& set)
-    {
-        return set == juce::AudioChannelSet::mono() || set == juce::AudioChannelSet::stereo();
-    };
-
-    return isMonoOrStereo (layouts.getMainInputChannelSet())
-        && isMonoOrStereo (layouts.getMainOutputChannelSet());
-}
-
-double ParagonX1AudioProcessor::getTempoBpm() const noexcept
-{
-    const auto tapped = tappedBpm.load();
-    return tapped > 0.0 ? tapped : hostBpm.load();
+    // An instrument: no audio in, mono or stereo out.
+    const auto output = layouts.getMainOutputChannelSet();
+    return layouts.getMainInputChannelSet().isDisabled()
+        && (output == juce::AudioChannelSet::mono() || output == juce::AudioChannelSet::stereo());
 }
 
 void ParagonX1AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
-    juce::ignoreUnused (midi);
 
-    if (buffer.getNumChannels() == 0 || buffer.getNumSamples() == 0)
+    const auto numSamples = buffer.getNumSamples();
+    if (buffer.getNumChannels() == 0 || numSamples == 0)
         return;
 
-    readHostTempo();
+    if (auto* host = getPlayHead())
+        if (const auto position = host->getPosition())
+            if (const auto bpm = position->getBpm(); bpm.hasValue() && *bpm > 0.0)
+                hostBpm = *bpm;
+
+    // The on-screen keyboard's notes join the DAW's.
+    keyboardMidi.clear();
+    keyboardMidi.addEvents (midi, 0, numSamples, 0);
+    keyboardState.processNextMidiBuffer (keyboardMidi, 0, numSamples, true);
 
     // Some hosts occasionally send more samples than they promised in
-    // prepareToPlay. Every stage's scratch memory is sized for the promise,
-    // so work through an oversized block in promised-size pieces.
-    for (int start = 0; start < buffer.getNumSamples(); start += preparedBlockSize)
-        processChunk (buffer, start, juce::jmin (preparedBlockSize, buffer.getNumSamples() - start));
+    // prepareToPlay; work through an oversized block in promised-size pieces.
+    for (int start = 0; start < numSamples; start += preparedBlockSize)
+        processChunk (buffer, keyboardMidi, start, juce::jmin (preparedBlockSize, numSamples - start));
+
+    activeVoices = engine.getNumActiveVoices();
+    midi.clear();   // an instrument: nothing goes on down the MIDI chain
 }
 
-void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, int start, int numSamples)
+void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& midi, int start, int numSamples)
 {
-    // Stereo throughout: PR7-E works on recordings and mixes, so both
-    // channels go through untouched apart from what the stomps do to them.
-    // A mono track is heard on both speakers.
-    const auto numOutputChannels = juce::jmin (getTotalNumOutputChannels(), buffer.getNumChannels(), effects::maxChannels);
-    const auto numInputChannels = juce::jmin (getTotalNumInputChannels(), numOutputChannels);
-    if (numInputChannels == 1)
-        for (int channel = 1; channel < numOutputChannels; ++channel)
-            buffer.copyFrom (channel, start, buffer, 0, start, numSamples);
-
-    const auto block = juce::dsp::AudioBlock<float> (buffer)
-                           .getSubBlock ((size_t) start, (size_t) numSamples)
-                           .getSubsetChannelBlock (0, (size_t) numOutputChannels);
-
-    // The tuner and ORACLE listen to what comes in, before anything changes
-    // it: both channels of a stereo track (their middle), so a part panned
-    // anywhere is heard. ORACLE first learns where in the song this piece is.
+    const auto numChannels = buffer.getNumChannels();
+    auto* left = buffer.getWritePointer (0, start);
+    // Mono out: render the right side into the scratch end of the buffer's
+    // second channel if there is one, else fold it in afterwards.
+    float scratchRight[512];
+    for (int done = 0; done < numSamples; done += (int) std::size (scratchRight))
     {
-        oracle::TimelineMark mark;
-        mark.tapIndex = inputTap.getTotalWritten();
-        mark.known = hostPosition.known;
-        mark.playing = hostPosition.playing;
-        mark.hostSample = hostPosition.sample + start;
-        mark.bpm = hostPosition.bpm;
-        mark.ppq = hostPosition.ppq + (hostPosition.playing ? start / juce::jmax (1.0, inputTap.getSampleRate()) * hostPosition.bpm / 60.0 : 0.0);
-        mark.numerator = hostPosition.numerator;
-        mark.denominator = hostPosition.denominator;
-        if (! hostPosition.playing)
-            mark.hostSample = hostPosition.sample;
-        oracleTimeline.write (mark);
-    }
-    if (numOutputChannels > 1)
-        inputTap.write (block.getChannelPointer (0), block.getChannelPointer (1), numSamples);
-    else
-        inputTap.write (block.getChannelPointer (0), numSamples);
-
-    // Keep the clean input, delayed to line up with the processed sound, for BYPASS.
-    const auto latency = (float) juce::jlimit (0, bypassDelay.getMaximumDelayInSamples() - 1, getLatencySamples());
-    for (int channel = 0; channel < numOutputChannels; ++channel)
-    {
-        const auto* in = block.getChannelPointer ((size_t) channel);
-        auto* dry = bypassDry.getWritePointer (channel);
-        for (int i = 0; i < numSamples; ++i)
-        {
-            bypassDelay.pushSample (channel, in[i]);
-            dry[i] = bypassDelay.popSample (channel, latency);
-        }
+        const auto n = juce::jmin ((int) std::size (scratchRight), numSamples - done);
+        auto* right = numChannels > 1 ? buffer.getWritePointer (1, start + done) : scratchRight;
+        const auto settings = getSynthSettings();
+        engine.process (left + done, right, n, midi, start + done, settings);
+        if (numChannels == 1)
+            for (int i = 0; i < n; ++i)
+                left[done + i] = 0.5f * (left[done + i] + scratchRight[i]);
     }
 
-    // INPUT, the same on both channels.
-    inputGain.setTargetValue (juce::Decibels::decibelsToGain (inputGainDb->load()));
-    for (int i = 0; i < numSamples; ++i)
-    {
-        const auto gain = inputGain.getNextValue();
-        for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
-            block.getChannelPointer (channel)[i] *= gain;
-    }
-    for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
-        inputMeter.pushSamples (block.getChannelPointer (channel), numSamples);
-
-    // Stomp 4, the EQ, with what goes in and comes out kept for its analyser.
-    const auto writeTap = [&] (InputTap& tap)
-    {
-        if (numOutputChannels > 1)
-            tap.write (block.getChannelPointer (0), block.getChannelPointer (1), numSamples);
-        else
-            tap.write (block.getChannelPointer (0), numSamples);
-    };
-    writeTap (eqInputTap);
-    parametricEq.process (block, getEqSettings());
-    writeTap (eqOutputTap);
-
-    // Stomp 5, DOMINION, after the EQ (so it hears what the EQ made) and before COMP.
-    dominionProcessor.process (block, getDominionSettings());
-
-    // Stomp 2, COMP, after the EQ, so what the EQ cuts doesn't drive it.
-    // First its bands (0.13.0; with LOOK-AHEAD on, everything from here is
-    // 20 ms late, which the DAW makes up for), then the full-band compressor
-    // (PR7-C's). That takes whole buffers, so it gets this piece's channels
-    // as one, and the same audio to listen to (PR7-E has no sidechain filters).
-    multiband.process (block, getMultibandSettings(), isOn (ParamIDs::compOn));
-    {
-        float* channels[effects::maxChannels] {};
-        for (int channel = 0; channel < numOutputChannels; ++channel)
-        {
-            channels[channel] = block.getChannelPointer ((size_t) channel);
-            compSidechain.copyFrom (channel, 0, channels[channel], numSamples);
-        }
-        juce::AudioBuffer<float> audio (channels, numOutputChannels, numSamples);
-        const juce::AudioBuffer<float> detector (compSidechain.getArrayOfWritePointers(), numOutputChannels, numSamples);
-        compressor.process (audio, detector, numSamples,
-                            { isOn (ParamIDs::compOn) && isOn (ParamIDs::compWide), param (ParamIDs::compThreshold), param (ParamIDs::compRatio),
-                              param (ParamIDs::compAttack), param (ParamIDs::compRelease), isOn (ParamIDs::compAuto),
-                              param (ParamIDs::compMakeUp),
-                              (effects::Compressor::Character) juce::jlimit (0, 2, juce::roundToInt (param (ParamIDs::compCharacter))),
-                              isOn (ParamIDs::compLink) });
-    }
-
-    // PRESENCE on the face.
-    for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
-        presence[channel].process (block.getSingleChannelBlock (channel), param (ParamIDs::presence));
-
-    // The master OUTPUT knob plus the rig's own RIG LEVEL. (The expression
-    // pedal's VOLUME came before 0.12.0, when the pedal went: its parameters
-    // are still read from old projects and rigs, but do nothing.)
-    outputGain.setTargetValue (juce::Decibels::decibelsToGain (outputGainDb->load() + param (ParamIDs::rigLevel)));
-    for (int i = 0; i < numSamples; ++i)
-    {
-        const auto gain = outputGain.getNextValue();
-        for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
-            block.getChannelPointer (channel)[i] *= gain;
-    }
-
-    // Stomp 7, the LIMITER (PR7-C's): last, so nothing after it can push a
-    // peak past its ceiling. OUTPUT and RIG LEVEL come
-    // before it, so turning OUTPUT up drives into it, as into a mastering
-    // limiter. Then its OUTPUT TRIM (which moves the ceiling with it, as on PR7-C).
-    const auto limiterOn = isOn (ParamIDs::limitOn);
-    limiter.process (block, { limiterOn, param (ParamIDs::limitThreshold), param (ParamIDs::limitMakeUp),
-                              (effects::Limiter::Mode) juce::jlimit (0, 2, juce::roundToInt (param (ParamIDs::limitMode))),
-                              param (ParamIDs::limitMix) / 100.0f, isOn (ParamIDs::limitLink) });
-    const auto trimTarget = limiterOn ? juce::Decibels::decibelsToGain (param (ParamIDs::limitTrim)) : 1.0f;
-    if (limitTrimFresh)   // playback is starting: at the setting from the first sample (as the limiter is)
-        limitTrim.setCurrentAndTargetValue (trimTarget);
-    limitTrimFresh = false;
-    limitTrim.setTargetValue (trimTarget);
-    if (limitTrim.isSmoothing() || ! juce::approximatelyEqual (limitTrim.getTargetValue(), 1.0f))
-        for (int i = 0; i < numSamples; ++i)
-        {
-            const auto gain = limitTrim.getNextValue();
-            for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
-                block.getChannelPointer (channel)[i] *= gain;
-        }
-
-    // BYPASS crossfades to the clean input, channel by channel.
+    // The preset's own level and OUTPUT, then BYPASS (to silence: there's
+    // nothing "clean" to pass through on an instrument).
+    outputGain.setTargetValue (juce::Decibels::decibelsToGain (param (ParamIDs::outputGain) + param (ParamIDs::patchLevel)));
     bypassAmount.setTargetValue (isOn (ParamIDs::bypass) ? 1.0f : 0.0f);
-    if (bypassAmount.isSmoothing() || bypassAmount.getTargetValue() > 0.5f)
+    for (int i = 0; i < numSamples; ++i)
     {
-        for (int i = 0; i < numSamples; ++i)
-        {
-            const auto amount = bypassAmount.getNextValue();
-            for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
-            {
-                auto& sample = block.getChannelPointer (channel)[i];
-                sample += (bypassDry.getSample ((int) channel, i) - sample) * amount;
-            }
-        }
+        const auto gain = outputGain.getNextValue() * (1.0f - bypassAmount.getNextValue());
+        for (int channel = 0; channel < juce::jmin (numChannels, 2); ++channel)
+            buffer.getWritePointer (channel, start)[i] *= gain;
     }
+    for (int channel = 2; channel < numChannels; ++channel)
+        buffer.clear (channel, start, numSamples);
 
-    for (size_t channel = 0; channel < block.getNumChannels(); ++channel)
-        outputMeter.pushSamples (block.getChannelPointer (channel), numSamples);
+    for (int channel = 0; channel < juce::jmin (numChannels, 2); ++channel)
+        outputMeter.pushSamples (buffer.getReadPointer (channel, start), numSamples);
 }
 
 //==============================================================================
 void ParagonX1AudioProcessor::timerCallback()
 {
-    updateTuner();
-    updateOracle();
-    updateLatency();
-    eqMatch.update (eqInputTap);   // EQ Match listens with the window closed too
     recordCheckpointIfReady();
 }
 
-void ParagonX1AudioProcessor::updateTuner()
-{
-    // The tuner only listens while it's on. It never touches the sound.
-    if (isOn (ParamIDs::tunerOn))
-        tuner.update (inputTap, tunerReferenceHz.load(), juce::Time::getMillisecondCounter());
-    else
-        tuner.stop();
-}
-
-void ParagonX1AudioProcessor::updateOracle()
-{
-    oracle.update (inputTap, oracleTimeline, isOn (ParamIDs::tunerOn));
-}
-
-juce::File ParagonX1AudioProcessor::getOracleMidiFolder()
-{
-    return juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("Paragon PR7-E ORACLE");
-}
-
-//==============================================================================
 void ParagonX1AudioProcessor::parameterGestureChanged (int, bool gestureIsStarting)
 {
     if (gestureIsStarting)
@@ -530,19 +296,6 @@ void ParagonX1AudioProcessor::redo()
 }
 
 //==============================================================================
-void ParagonX1AudioProcessor::tapTempo()
-{
-    if (const auto bpm = tapCounter.tap (juce::Time::getMillisecondCounterHiRes()))
-        tappedBpm = std::round (*bpm * 10.0) / 10.0;   // to 0.1 BPM, as displayed
-}
-
-void ParagonX1AudioProcessor::clearTappedTempo()
-{
-    tappedBpm = 0.0;
-    tapCounter = {};
-}
-
-//==============================================================================
 void ParagonX1AudioProcessor::markModified() noexcept
 {
     if (! applyingRig.load())
@@ -558,9 +311,6 @@ void ParagonX1AudioProcessor::parameterChanged (const juce::String&, float)
 void ParagonX1AudioProcessor::useRigFolder (const juce::File& folder)
 {
     rigLibrary = std::make_unique<RigLibrary> (folder);
-    eqMatch.setReferencesFolder (folder.getChildFile ("Match References"));
-    dominionPresets.setFolder (folder.getChildFile ("Dominion Presets"));
-    compPresets.setFolder (folder.getChildFile ("Comp Presets"));
     rigBroadcaster.sendChangeMessage();
 }
 
@@ -585,7 +335,7 @@ void ParagonX1AudioProcessor::applyRig (const Rig& rig)
         if (ranged == nullptr || ParamIDs::notInRigs.contains (ranged->paramID))
             continue;
 
-        // Anything the rig doesn't mention goes back to its default.
+        // Anything the preset doesn't mention goes back to its default.
         const auto found = rig.parameters.find (ranged->paramID);
         const auto normalised = found != rig.parameters.end()
                                   ? ranged->convertTo0to1 (ranged->getNormalisableRange().snapToLegalValue (found->second))
@@ -646,7 +396,7 @@ bool ParagonX1AudioProcessor::saveCurrentRigAs (const juce::String& name)
     auto rig = captureRig();
     rig.name = name;
 
-    // File it next to the rig it came from, in the first free slot.
+    // File it next to the preset it came from, in the first free slot.
     if (const auto* entry = findCurrentRigEntry())
     {
         rig.bank = entry->rig.bank;
@@ -733,9 +483,6 @@ void ParagonX1AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     state.setProperty (rigFileKey, currentRig.file.getFullPathName(), nullptr);
     state.setProperty (rigFactoryKey, currentRig.factoryName, nullptr);
     state.setProperty (rigModifiedKey, rigModified.load(), nullptr);
-    state.setProperty (tappedBpmKey, tappedBpm.load(), nullptr);
-    state.setProperty (tunerReferenceKey, tunerReferenceHz.load(), nullptr);
-    state.appendChild (oracle.toValueTree(), nullptr);   // ORACLE's transcription, kept with the project
 
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
@@ -747,34 +494,16 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
     if (xml == nullptr || ! xml->hasTagName (parameters.state.getType()))
         return;
 
-    auto state = juce::ValueTree::fromXml (*xml);
-
-    // ORACLE's transcription isn't parameters: out of the state before it's applied.
-    const auto transcription = state.getChildWithName ("Oracle");
-    oracle.fromValueTree (transcription);
-    state.removeChild (transcription, nullptr);
-
-    // Saved before 0.3.0 with the expression pedal on one of PR7-B's effects
-    // (WAH, MORPH, LO-FI...): those are gone, so the pedal comes back
-    // unassigned. Left alone, the saved number would land on VOLUME, the
-    // last one left, and the heel would silence the track.
-    if ((int) state.getProperty (parameterVersionKey, 0) < 30)
-    {
-        auto target = state.getChildWithProperty ("id", ParamIDs::expressionTarget);
-        if (target.isValid() && (int) target["value"] > ExpressionTargets::volume)
-            target.setProperty ("value", ExpressionTargets::off, nullptr);
-    }
+    const auto state = juce::ValueTree::fromXml (*xml);
     parameters.replaceState (state);
 
-    // Restoring the project changed parameters, which marked the rig as
+    // Restoring the project changed parameters, which marked the preset as
     // modified; put back what was saved instead.
     const auto rigFile = state[rigFileKey].toString();
-    currentRig = { state.getProperty (rigNameKey, "Untitled").toString(),
+    currentRig = { state.getProperty (rigNameKey, "Init").toString(),
                    rigFile.isNotEmpty() ? juce::File (rigFile) : juce::File(),
                    state[rigFactoryKey].toString() };
     rigModified = (bool) state.getProperty (rigModifiedKey, false);
-    tappedBpm = (double) state.getProperty (tappedBpmKey, 0.0);
-    setTunerReferenceHz ((double) state.getProperty (tunerReferenceKey, 440.0));
 
     // A different project or preset: start the undo history afresh from it.
     history.clear();

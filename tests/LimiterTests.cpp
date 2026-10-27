@@ -1,14 +1,12 @@
-// The LIMITER stomp (0.8.0). The first tests are PR7-C's limiter tests
-// (tests/LimiterTests.cpp there), ported: the same limiter, so the same
-// behaviour. The rest check how it sits in PR7-E's chain.
+// PR7-E's LIMITER (its 0.8.0, PR7-C's limiter ported), kept in PR7-K for the
+// effects rack (a later stage). These are PR7-E's tests of the limiter itself,
+// now driving it directly through a small stand-in (LimiterUnit) that takes
+// PR7-E's parameter IDs: PR7-K has no LIMITER parameters yet. PR7-E's tests of
+// how it sat in that plugin's chain went with it.
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
-#include "Parameters.h"
-#include "PluginProcessor.h"
-#include "rigs/FactoryRigs.h"
-#include "ui/EffectPanel.h"
-#include "ui/Footswitch.h"
+#include "dsp/effects/Limiter.h"
 
 #include <optional>
 
@@ -19,22 +17,50 @@ namespace
     constexpr double sampleRate = 48000.0;
     constexpr int blockSize = 256;
 
-    void set (ParagonX1AudioProcessor& processor, const juce::String& id, float value)
+    // PR7-E's parameter IDs for the LIMITER, as the tests below set them.
+    namespace ids
     {
-        auto* parameter = processor.getParameters().getParameter (id);
-        REQUIRE (parameter != nullptr);
-        parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        constexpr auto limitOn = "limitOn", limitThreshold = "limitThreshold", limitMakeUp = "limitMakeUp",
+                       limitMode = "limitMode", limitMix = "limitMix", limitLink = "limitLink";
     }
 
-    std::unique_ptr<ParagonX1AudioProcessor> makeLimiter (float thresholdDb, int mode = 0, int inputs = 2)
+    // The limiter as PR7-E ran it: in pieces of the block size.
+    struct LimiterUnit
     {
-        auto processor = std::make_unique<ParagonX1AudioProcessor>();
-        processor->setPlayConfigDetails (inputs, 2, sampleRate, blockSize);
-        processor->prepareToPlay (sampleRate, blockSize);
-        set (*processor, ParamIDs::limitOn, 1.0f);
-        set (*processor, ParamIDs::limitThreshold, thresholdDb);
-        set (*processor, ParamIDs::limitMode, (float) mode);
-        return processor;
+        LimiterUnit() { limiter.prepare (sampleRate, blockSize); }
+
+        void processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+        {
+            for (int start = 0; start < buffer.getNumSamples(); start += blockSize)
+                limiter.process (juce::dsp::AudioBlock<float> (buffer).getSubBlock ((size_t) start, (size_t) juce::jmin (blockSize, buffer.getNumSamples() - start)),
+                                 settings);
+        }
+
+        float getLimiterReductionDb (int channel) const { return limiter.getReductionDb (channel); }
+
+        effects::Limiter limiter;
+        effects::Limiter::Settings settings;
+    };
+
+    void set (LimiterUnit& unit, const juce::String& id, float value)
+    {
+        auto& s = unit.settings;
+        if (id == ids::limitOn) s.on = value > 0.5f;
+        else if (id == ids::limitThreshold) s.thresholdDb = value;
+        else if (id == ids::limitMakeUp) s.makeUpDb = value;
+        else if (id == ids::limitMode) s.mode = (effects::Limiter::Mode) juce::roundToInt (value);
+        else if (id == ids::limitMix) s.mix = value / 100.0f;   // the knob was in %
+        else if (id == ids::limitLink) s.link = value > 0.5f;
+        else FAIL ("not a LIMITER setting: " << id);
+    }
+
+    std::unique_ptr<LimiterUnit> makeLimiter (float thresholdDb, int mode = 0)
+    {
+        auto unit = std::make_unique<LimiterUnit>();
+        set (*unit, ids::limitOn, 1.0f);
+        set (*unit, ids::limitThreshold, thresholdDb);
+        set (*unit, ids::limitMode, (float) mode);
+        return unit;
     }
 
     juce::AudioBuffer<float> sine (float hz, float levelDb, int numSamples, std::optional<float> rightLevelDb = {})
@@ -65,7 +91,7 @@ namespace
         return buffer;
     }
 
-    void process (ParagonX1AudioProcessor& processor, juce::AudioBuffer<float>& buffer, const std::function<void (int)>& atBlock = {})
+    void process (LimiterUnit& processor, juce::AudioBuffer<float>& buffer, const std::function<void (int)>& atBlock = {})
     {
         juce::MidiBuffer midi;
         for (int start = 0; start < buffer.getNumSamples(); start += blockSize)
@@ -78,7 +104,7 @@ namespace
         }
     }
 
-    float settledChangeDb (ParagonX1AudioProcessor& processor, float levelDb, int channel = 0, std::optional<float> rightLevelDb = {})
+    float settledChangeDb (LimiterUnit& processor, float levelDb, int channel = 0, std::optional<float> rightLevelDb = {})
     {
         const auto input = sine (1000.0f, levelDb, 48000, rightLevelDb);
         auto output = input;
@@ -128,7 +154,7 @@ TEST_CASE ("Limiter: no mode lets a peak past the threshold", "[limit]")
 TEST_CASE ("Limiter: the ceiling rises with MAKE UP", "[limit]")
 {
     auto limiter = makeLimiter (-10.0f);
-    set (*limiter, ParamIDs::limitMakeUp, 6.0f);
+    set (*limiter, ids::limitMakeUp, 6.0f);
     auto hits = drumHits (96000);
     process (*limiter, hits);
     CHECK_THAT (peakDb (hits), WithinAbs (-4.0, 0.3));
@@ -170,7 +196,7 @@ TEST_CASE ("Limiter: AUTO lets go quickly after a short peak, slowly under stead
 TEST_CASE ("Limiter: MIX blends the limited sound with the dry", "[limit]")
 {
     auto limiter = makeLimiter (-20.0f);
-    set (*limiter, ParamIDs::limitMix, 50.0f);
+    set (*limiter, ids::limitMix, 50.0f);
     // Half the dry -6 dBFS tone and half the limited -20 dBFS one, in phase.
     const auto expected = juce::Decibels::gainToDecibels (0.5f + 0.5f * juce::Decibels::decibelsToGain (-14.0f));
     CHECK_THAT (settledChangeDb (*limiter, -6.0f), WithinAbs (expected, 0.3));
@@ -186,115 +212,25 @@ TEST_CASE ("Limiter: LINK limits both sides together", "[limit]")
     SECTION ("unlinked")
     {
         auto limiter = makeLimiter (-20.0f);
-        set (*limiter, ParamIDs::limitLink, 0.0f);
+        set (*limiter, ids::limitLink, 0.0f);
         CHECK (std::abs (settledChangeDb (*limiter, -6.0f, 1, -24.0f)) < 0.01f);
     }
 }
 
 TEST_CASE ("Limiter: switching it on, or between modes, doesn't click", "[limit]")
 {
-    const auto check = [] (int fromMode, const std::function<void (ParagonX1AudioProcessor&)>& change, bool startOff)
+    const auto check = [] (int fromMode, const std::function<void (LimiterUnit&)>& change, bool startOff)
     {
         auto limiter = makeLimiter (-20.0f, fromMode);
         if (startOff)
-            set (*limiter, ParamIDs::limitOn, 0.0f);
+            set (*limiter, ids::limitOn, 0.0f);
         auto buffer = sine (200.0f, -14.0f, 48000);
         process (*limiter, buffer, [&] (int start) { if (start == 24064) change (*limiter); });
         const auto steady = juce::jmax (sharpestCorner (buffer, 12000, 24000), sharpestCorner (buffer, 40000, 48000));
         CHECK (sharpestCorner (buffer, 24000, 40000) < steady * 3.0f);
     };
-    SECTION ("on") { check (0, [] (auto& l) { set (l, ParamIDs::limitOn, 1.0f); }, true); }
-    SECTION ("BRICK to SOFT") { check (0, [] (auto& l) { set (l, ParamIDs::limitMode, 1.0f); }, false); }
-    SECTION ("SOFT to BRICK") { check (1, [] (auto& l) { set (l, ParamIDs::limitMode, 0.0f); }, false); }
-    SECTION ("BRICK to AUTO") { check (0, [] (auto& l) { set (l, ParamIDs::limitMode, 2.0f); }, false); }
-}
-
-//==============================================================================
-// In PR7-E
-TEST_CASE ("Limiter in PR7-E: last in the chain, so turning OUTPUT up can't push a peak past it", "[limit]")
-{
-    auto limiter = makeLimiter (-3.0f);
-    set (*limiter, ParamIDs::outputGain, 12.0f);
-    set (*limiter, ParamIDs::rigLevel, 6.0f);
-    auto hits = drumHits (96000);
-    process (*limiter, hits);
-    CHECK (peakDb (hits) <= -3.0f + 0.001f);
-    CHECK (limiter->getLatencySamples() == 0);   // and it adds no delay
-}
-
-TEST_CASE ("Limiter in PR7-E: OUTPUT TRIM comes after it (moving the ceiling), only while it's on", "[limit]")
-{
-    auto limiter = makeLimiter (-10.0f);
-    set (*limiter, ParamIDs::limitTrim, -4.0f);
-    auto hits = drumHits (96000);
-    process (*limiter, hits);
-    CHECK_THAT (peakDb (hits), WithinAbs (-14.0, 0.3));
-
-    // Below the threshold, the trim is simply a level change.
-    CHECK_THAT (settledChangeDb (*limiter, -20.0f), WithinAbs (-4.0, 0.05));
-
-    // Switched off: no limiting and no trim.
-    set (*limiter, ParamIDs::limitOn, 0.0f);
-    CHECK (std::abs (settledChangeDb (*limiter, -3.0f)) < 0.01f);
-}
-
-TEST_CASE ("Limiter in PR7-E: off by default, leaving the sound alone; a mono track is limited on both speakers", "[limit]")
-{
-    ParagonX1AudioProcessor fresh;
-    fresh.setPlayConfigDetails (2, 2, sampleRate, blockSize);
-    fresh.prepareToPlay (sampleRate, blockSize);
-    auto hits = drumHits (48000);
-    const auto before = hits;
-    process (fresh, hits);
-    for (int i = 0; i < hits.getNumSamples(); ++i)
-        REQUIRE_THAT (hits.getSample (0, i), WithinAbs (before.getSample (0, i), 1.0e-6));
-
-    auto mono = makeLimiter (-12.0f, 0, 1);
-    auto buffer = drumHits (48000);
-    process (*mono, buffer);
-    CHECK (peakDb (buffer) <= -12.0f + 0.001f);
-    for (int i = 0; i < buffer.getNumSamples(); ++i)
-        REQUIRE_THAT (buffer.getSample (1, i), WithinAbs (buffer.getSample (0, i), 1.0e-7));
-}
-
-TEST_CASE ("Limiter in PR7-E: the mastering factory rigs hold a -1 dB ceiling", "[limit][rigs]")
-{
-    for (const auto& rig : makeFactoryRigs())
-    {
-        if (rig.bank != 4)   // E: mastering
-            continue;
-        INFO (rig.name);
-        ParagonX1AudioProcessor processor;
-        processor.setPlayConfigDetails (2, 2, sampleRate, blockSize);
-        processor.prepareToPlay (sampleRate, blockSize);
-        const auto* entry = processor.getRigLibrary().findFactory (rig.name);
-        REQUIRE (entry != nullptr);
-        processor.loadRig (*entry);
-        auto hits = drumHits (96000);
-        process (processor, hits);
-        CHECK (peakDb (hits) <= -1.0f + 0.001f);
-    }
-}
-
-TEST_CASE ("Limiter in PR7-E: stomp 7 switches it, and its name opens its knobs in the dock", "[limit][ui]")
-{
-    ParagonX1AudioProcessor processor;
-    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
-    std::vector<Footswitch*> stomps;
-    std::vector<EffectPanel*> panels;
-    std::function<void (juce::Component&)> collect = [&] (juce::Component& c)
-    {
-        if (auto* stomp = dynamic_cast<Footswitch*> (&c))
-            stomps.push_back (stomp);
-        if (auto* panel = dynamic_cast<EffectPanel*> (&c))
-            panels.push_back (panel);
-        for (auto* child : c.getChildren())
-            collect (*child);
-    };
-    collect (*editor);
-    REQUIRE (stomps.size() >= 7);   // the stomps first, then the rig row
-    CHECK_FALSE (stomps[6]->isPlaceholder());
-    CHECK (std::none_of (panels.begin(), panels.end(), [] (EffectPanel* p) { return p->isVisible(); }));
-    stomps[6]->onSelect();
-    CHECK (std::count_if (panels.begin(), panels.end(), [] (EffectPanel* p) { return p->isVisible(); }) == 1);
+    SECTION ("on") { check (0, [] (auto& l) { set (l, ids::limitOn, 1.0f); }, true); }
+    SECTION ("BRICK to SOFT") { check (0, [] (auto& l) { set (l, ids::limitMode, 1.0f); }, false); }
+    SECTION ("SOFT to BRICK") { check (1, [] (auto& l) { set (l, ids::limitMode, 0.0f); }, false); }
+    SECTION ("BRICK to AUTO") { check (0, [] (auto& l) { set (l, ids::limitMode, 2.0f); }, false); }
 }

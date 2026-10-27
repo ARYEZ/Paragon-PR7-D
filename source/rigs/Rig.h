@@ -5,12 +5,12 @@
 #include <map>
 #include <optional>
 
-// A rig: one complete sound. Every effect setting, and how it's filed (name, bank, number, tags).
+// A preset ("rig" in the code, as across the PR7 family): one complete
+// sound. Every synth setting, and how it's filed (name, bank, number, tags).
 //
-// The INPUT and OUTPUT knobs at the sides aren't part of a rig: they suit
-// the player's instrument and monitoring, not a particular sound, so switching
-// rigs leaves them alone (as on hardware modellers). Each rig has its own
-// RIG LEVEL for balancing rigs against each other instead.
+// The OUTPUT knob and TUNE aren't part of a preset: they suit the player's
+// monitoring and band, not a particular sound, so switching presets leaves
+// them alone. Each preset has its own LEVEL for balancing presets instead.
 struct Rig
 {
     static constexpr int numBanks = 5;          // A to E

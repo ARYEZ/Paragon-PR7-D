@@ -1,0 +1,341 @@
+#include "SynthDisplays.h"
+
+#include "Parameters.h"
+#include "dsp/synth/WaveTables.h"
+#include "ui/ParagonLookAndFeel.h"
+
+#include <complex>
+
+namespace DisplayStyle
+{
+    void drawScreen (juce::Graphics& g, juce::Rectangle<float> area)
+    {
+        g.setColour (juce::Colour (0xff060407));
+        g.fillRoundedRectangle (area, 5.0f);
+        g.setColour (ParagonColours::panelEdge);
+        g.drawRoundedRectangle (area.reduced (0.5f), 5.0f, 1.0f);
+    }
+
+    void drawCurve (juce::Graphics& g, const juce::Path& curve, juce::Rectangle<float> area, float baseline, bool lit)
+    {
+        const auto gradient = ParagonLookAndFeel::menuHighlight (area);
+
+        // A faint fill between the curve and the baseline.
+        juce::Path fill (curve);
+        fill.lineTo (curve.getCurrentPosition().x, baseline);
+        fill.lineTo (area.getX(), baseline);
+        fill.closeSubPath();
+        auto fillGradient = gradient;
+        fillGradient.multiplyOpacity (lit ? 0.18f : 0.06f);
+        g.setGradientFill (fillGradient);
+        g.fillPath (fill);
+
+        auto glow = gradient;
+        glow.multiplyOpacity (lit ? 0.25f : 0.08f);
+        g.setGradientFill (glow);
+        g.strokePath (curve, juce::PathStrokeType (5.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        auto line = gradient;
+        line.multiplyOpacity (lit ? 1.0f : 0.35f);
+        g.setGradientFill (line);
+        g.strokePath (curve, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    }
+}
+
+//==============================================================================
+ParameterDisplay::ParameterDisplay (juce::AudioProcessorValueTreeState& stateToUse) : state (stateToUse)
+{
+    setInterceptsMouseClicks (false, false);
+    startTimerHz (30);
+}
+
+float ParameterDisplay::value (const juce::String& id) const
+{
+    const auto* raw = state.getRawParameterValue (id);
+    jassert (raw != nullptr);
+    return raw != nullptr ? raw->load() : 0.0f;
+}
+
+void ParameterDisplay::timerCallback()
+{
+    auto now = snapshot();
+    if (now != last)
+    {
+        last = std::move (now);
+        repaint();
+    }
+}
+
+//==============================================================================
+WaveDisplay::WaveDisplay (juce::AudioProcessorValueTreeState& s) : ParameterDisplay (s) {}
+
+juce::String WaveDisplay::id (const char* what) const { return ParamIDs::osc (oscillator, what); }
+
+void WaveDisplay::setOscillator (int index)
+{
+    oscillator = index;
+    repaint();
+}
+
+std::vector<float> WaveDisplay::snapshot() const
+{
+    std::vector<float> values { (float) oscillator };
+    for (const auto* what : { "On", "Wave", "Gain", "Width", "Invert", "Sub", "SubWave", "SubOct", "SubInvert", "Noise", "Phase", "PhaseRand" })
+        values.push_back (value (id (what)));
+    return values;
+}
+
+void WaveDisplay::paint (juce::Graphics& g)
+{
+    const auto bounds = getLocalBounds().toFloat();
+    DisplayStyle::drawScreen (g, bounds);
+    const auto area = bounds.reduced (10.0f, 12.0f);
+    const auto mid = area.getCentreY();
+
+    g.setColour (ParagonColours::panelEdge.withAlpha (0.6f));
+    g.drawHorizontalLine (juce::roundToInt (mid), area.getX(), area.getRight());
+    for (int i = 1; i < 4; ++i)
+        g.drawVerticalLine (juce::roundToInt (area.getX() + area.getWidth() * (float) i / 4.0f), area.getY(), area.getBottom());
+
+    const auto on = value (id ("On")) > 0.5f;
+    const auto wave = (synth::OscWave) juce::roundToInt (value (id ("Wave")));
+    const auto gain = value (id ("Gain"));
+    const auto width = juce::jlimit (0.01f, 0.99f, value (id ("Width")));
+    const auto invert = value (id ("Invert")) > 0.5f ? -1.0f : 1.0f;
+    const auto sub = value (id ("Sub"));
+    const auto subWave = (synth::SubWave) juce::roundToInt (value (id ("SubWave")));
+    const auto subOctaves = juce::roundToInt (value (id ("SubOct"))) - 2;
+    const auto subSign = value (id ("SubInvert")) > 0.5f ? -1.0f : 1.0f;
+    const auto noise = value (id ("Noise"));
+
+    // Read the same tables the oscillators play, at a level with a moderate
+    // number of harmonics (as a note round A3 would), so what's drawn is what's heard.
+    const auto level = synth::tables::levelFor (220.0, 48000.0);
+    const auto read = [level] (synth::tables::Wave w, float phase) { return synth::tables::read (synth::tables::get (w, level), phase - std::floor (phase)); };
+    const auto waveAt = [&] (float phase)
+    {
+        switch (wave)
+        {
+            case synth::OscWave::saw:      return read (synth::tables::Wave::saw, phase);
+            case synth::OscWave::pulse:    return read (synth::tables::Wave::saw, phase) - read (synth::tables::Wave::saw, phase + width);
+            case synth::OscWave::triangle: return read (synth::tables::Wave::triangle, phase);
+            case synth::OscWave::sine:     return read (synth::tables::Wave::sine, phase);
+        }
+        return 0.0f;
+    };
+    const auto subAt = [&] (float phase)
+    {
+        const auto p = phase * std::exp2 ((float) subOctaves);
+        switch (subWave)
+        {
+            case synth::SubWave::sine:     return read (synth::tables::Wave::sine, p);
+            case synth::SubWave::triangle: return read (synth::tables::Wave::triangle, p);
+            case synth::SubWave::square:   return read (synth::tables::Wave::saw, p) - read (synth::tables::Wave::saw, p + 0.5f);
+            case synth::SubWave::saw:      return read (synth::tables::Wave::saw, p);
+        }
+        return 0.0f;
+    };
+
+    const auto points = juce::jmax (2, (int) area.getWidth());
+    std::vector<float> main ((size_t) points), under ((size_t) points);
+    auto peak = 1.0f;
+    for (int i = 0; i < points; ++i)
+    {
+        const auto phase = (float) i / (float) (points - 1);
+        main[(size_t) i] = waveAt (phase) * gain * invert;
+        under[(size_t) i] = subAt (phase) * sub * subSign * invert;
+        peak = juce::jmax (peak, std::abs (main[(size_t) i] + under[(size_t) i]));
+    }
+    const auto scale = area.getHeight() * 0.5f / (peak * 1.1f);
+    const auto y = [mid, scale] (float v) { return mid - v * scale; };
+
+    // NOISE: a fuzz of fine jagged lines round the wave, as wide as the noise is loud.
+    if (noise > 0.0f && on)
+    {
+        juce::Random random (7);
+        juce::Path fuzz;
+        for (int i = 0; i < points; i += 2)
+        {
+            const auto x = area.getX() + (float) i;
+            const auto centre = y (main[(size_t) i] + under[(size_t) i]);
+            const auto point = juce::Point<float> (x, centre + (random.nextFloat() * 2.0f - 1.0f) * juce::jmin (1.0f, noise) * scale * 0.6f);
+            if (i == 0) fuzz.startNewSubPath (point); else fuzz.lineTo (point);
+        }
+        g.setColour (ParagonColours::accent.withAlpha (0.35f));
+        g.strokePath (fuzz, juce::PathStrokeType (0.8f));
+    }
+
+    if (sub > 0.0f)
+    {
+        juce::Path subPath;
+        for (int i = 0; i < points; ++i)
+        {
+            const auto point = juce::Point<float> (area.getX() + (float) i, y (under[(size_t) i]));
+            if (i == 0) subPath.startNewSubPath (point); else subPath.lineTo (point);
+        }
+        g.setColour (ParagonColours::textDim.withAlpha (on ? 0.6f : 0.25f));
+        g.strokePath (subPath, juce::PathStrokeType (1.2f));
+    }
+
+    juce::Path path;
+    for (int i = 0; i < points; ++i)
+    {
+        const auto point = juce::Point<float> (area.getX() + (float) i, y (main[(size_t) i] + under[(size_t) i]));
+        if (i == 0) path.startNewSubPath (point); else path.lineTo (point);
+    }
+    DisplayStyle::drawCurve (g, path, area, mid, on);
+
+    if (! on)
+    {
+        g.setColour (ParagonColours::textDim);
+        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        g.drawText ("OFF", bounds.reduced (8.0f), juce::Justification::topRight, false);
+    }
+}
+
+//==============================================================================
+FilterDisplay::FilterDisplay (juce::AudioProcessorValueTreeState& s) : ParameterDisplay (s) {}
+
+std::vector<float> FilterDisplay::snapshot() const
+{
+    return { value (ParamIDs::fltOn), value (ParamIDs::fltType), value (ParamIDs::fltCutoff), value (ParamIDs::fltRes) };
+}
+
+double FilterDisplay::responseDb (synth::FilterType type, double cutoffHz, double resonance, double hz)
+{
+    // The analog prototypes the filters are built on (the digital ones match
+    // them closely below about 10 kHz at 48 kHz): s is frequency over cutoff.
+    using C = std::complex<double>;
+    const C s (0.0, hz / juce::jmax (1.0, cutoffHz));
+    const auto q = 0.5 + 29.5 * std::pow (juce::jlimit (0.0, 1.0, resonance), 2.5);   // as FilterChannel::Coefficients::make
+    const auto k = 1.0 / q, kFlat = std::sqrt (2.0);
+    const auto denominator = s * s + k * s + 1.0;
+    const auto flatDenominator = s * s + kFlat * s + 1.0;
+    const auto onePole = 1.0 / (s + 1.0);
+
+    C h (1.0, 0.0);
+    switch (type)
+    {
+        case synth::FilterType::lp6:  h = onePole; break;
+        case synth::FilterType::hp6:  h = s * onePole; break;
+        case synth::FilterType::lp12: h = 1.0 / denominator; break;
+        case synth::FilterType::hp12: h = s * s / denominator; break;
+        case synth::FilterType::lp18: h = onePole / denominator; break;
+        case synth::FilterType::hp18: h = s * s / denominator * s * onePole; break;
+        case synth::FilterType::lp24: h = 1.0 / (denominator * flatDenominator); break;
+        case synth::FilterType::hp24: h = s * s / denominator * s * s / flatDenominator; break;
+        case synth::FilterType::bp12: h = k * s / denominator; break;
+        case synth::FilterType::bp24: h = k * s / denominator * kFlat * s / flatDenominator; break;
+        case synth::FilterType::bs12: h = (s * s + 1.0) / denominator; break;
+        case synth::FilterType::bs24: h = (s * s + 1.0) / denominator * (s * s + 1.0) / flatDenominator; break;
+    }
+    return 20.0 * std::log10 (juce::jmax (1.0e-9, std::abs (h)));
+}
+
+void FilterDisplay::paint (juce::Graphics& g)
+{
+    const auto bounds = getLocalBounds().toFloat();
+    DisplayStyle::drawScreen (g, bounds);
+    const auto area = bounds.reduced (10.0f, 10.0f).withTrimmedBottom (12.0f);
+
+    constexpr double minHz = 20.0, maxHz = 20000.0, topDb = 24.0, bottomDb = -36.0;
+    const auto xFor = [&area] (double hz) { return area.getX() + area.getWidth() * (float) (std::log (hz / minHz) / std::log (maxHz / minHz)); };
+    const auto yFor = [&area] (double db) { return area.getY() + area.getHeight() * (float) ((topDb - juce::jlimit (bottomDb, topDb, db)) / (topDb - bottomDb)); };
+
+    // Grid: octaves of decades, and 0 dB.
+    g.setFont (juce::FontOptions (9.5f));
+    for (const auto hz : { 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0 })
+    {
+        g.setColour (ParagonColours::panelEdge.withAlpha (0.6f));
+        g.drawVerticalLine (juce::roundToInt (xFor (hz)), area.getY(), area.getBottom());
+        g.setColour (ParagonColours::textDim.withAlpha (0.7f));
+        g.drawText (hz >= 1000.0 ? juce::String ((int) (hz / 1000.0)) + "k" : juce::String ((int) hz),
+                    juce::Rectangle<float> (40.0f, 12.0f).withCentre ({ xFor (hz), area.getBottom() + 8.0f }), juce::Justification::centred, false);
+    }
+    g.setColour (ParagonColours::panelEdge);
+    g.drawHorizontalLine (juce::roundToInt (yFor (0.0)), area.getX(), area.getRight());
+
+    const auto on = value (ParamIDs::fltOn) > 0.5f;
+    const auto type = (synth::FilterType) juce::jlimit (0, synth::filterTypeNames.size() - 1, juce::roundToInt (value (ParamIDs::fltType)));
+    const auto cutoff = (double) value (ParamIDs::fltCutoff);
+    const auto resonance = (double) value (ParamIDs::fltRes);
+
+    juce::Path path;
+    const auto points = juce::jmax (2, (int) area.getWidth());
+    for (int i = 0; i < points; ++i)
+    {
+        const auto hz = minHz * std::pow (maxHz / minHz, (double) i / (points - 1));
+        const auto point = juce::Point<float> (area.getX() + (float) i, yFor (responseDb (type, cutoff, resonance, hz)));
+        if (i == 0) path.startNewSubPath (point); else path.lineTo (point);
+    }
+    DisplayStyle::drawCurve (g, path, area, area.getBottom(), on);
+
+    // The cutoff, marked.
+    const auto x = xFor (juce::jlimit (minHz, maxHz, cutoff));
+    g.setColour (ParagonColours::accent.withAlpha (on ? 0.8f : 0.3f));
+    g.fillEllipse (juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ x, yFor (responseDb (type, cutoff, resonance, cutoff)) }));
+
+    if (! on)
+    {
+        g.setColour (ParagonColours::textDim);
+        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        g.drawText ("OFF", bounds.reduced (8.0f), juce::Justification::topRight, false);
+    }
+}
+
+//==============================================================================
+EnvelopeDisplay::EnvelopeDisplay (juce::AudioProcessorValueTreeState& s, std::array<juce::String, 8> idsToShow)
+    : ParameterDisplay (s), ids (std::move (idsToShow)) {}
+
+std::vector<float> EnvelopeDisplay::snapshot() const
+{
+    std::vector<float> values;
+    for (const auto& id : ids)
+        values.push_back (value (id));
+    return values;
+}
+
+void EnvelopeDisplay::paint (juce::Graphics& g)
+{
+    const auto bounds = getLocalBounds().toFloat();
+    DisplayStyle::drawScreen (g, bounds);
+    const auto area = bounds.reduced (10.0f, 10.0f);
+
+    const auto attack = value (ids[0]), hold = value (ids[1]), decay = value (ids[2]), sustain = value (ids[3]), release = value (ids[4]);
+    const auto attackCurve = value (ids[5]), decayCurve = value (ids[6]), releaseCurve = value (ids[7]);
+
+    // Squeezed time: each stage's width grows with the square root of its length.
+    const auto width = [] (float ms) { return std::sqrt (juce::jmax (0.0f, ms)) + 2.0f; };
+    const auto sustainWidth = width (600.0f);
+    const auto total = width (attack) + width (hold) + width (decay) + sustainWidth + width (release);
+    const auto scale = area.getWidth() / total;
+    const auto yFor = [&area] (float level) { return area.getBottom() - level * area.getHeight(); };
+
+    juce::Path path;
+    auto x = area.getX();
+    path.startNewSubPath (x, yFor (0.0f));
+    const auto segment = [&] (float ms, float from, float to, float curve)
+    {
+        const auto w = width (ms) * scale;
+        constexpr int steps = 40;
+        for (int i = 1; i <= steps; ++i)
+        {
+            const auto p = (float) i / steps;
+            path.lineTo (x + w * p, yFor (from + (to - from) * synth::bend (p, curve)));
+        }
+        x += w;
+    };
+    segment (attack, 0.0f, 1.0f, attackCurve);
+    segment (hold, 1.0f, 1.0f, 0.0f);
+    segment (decay, 1.0f, sustain, decayCurve);
+    const auto releaseStart = x + sustainWidth * scale;
+    path.lineTo (releaseStart, yFor (sustain));
+    x = releaseStart;
+    segment (release, sustain, 0.0f, releaseCurve);
+
+    // The point where the key is let go, marked.
+    g.setColour (ParagonColours::panelEdge);
+    for (float y = area.getY(); y < area.getBottom(); y += 6.0f)
+        g.drawVerticalLine (juce::roundToInt (releaseStart), y, y + 3.0f);
+
+    DisplayStyle::drawCurve (g, path, area, area.getBottom());
+}

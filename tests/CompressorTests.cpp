@@ -1,15 +1,13 @@
-// The COMP stomp (0.9.0). The first tests are PR7-C's compressor tests
-// (tests/CompressorTests.cpp there), ported: the same compressor, so the same
-// behaviour. Left out: "with the filters on SC it listens through them" (PR7-E
-// has no sidechain filters). The rest check how it sits in PR7-E's chain.
+// PR7-E's COMP (its 0.9.0, PR7-C's compressor ported), kept in PR7-K for the
+// effects rack (a later stage). These are PR7-E's tests of the compressor
+// itself, now driving it directly: PR7-K has no COMP parameters yet, so a
+// small stand-in (CompUnit) takes the old parameter IDs and sets the
+// compressor's settings from them, as PR7-E's processor did. PR7-E's tests of
+// how it sat in that plugin's chain, and of its knob's markings, went with it.
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
-#include "Parameters.h"
-#include "PluginProcessor.h"
-#include "ui/CompPage.h"
-#include "ui/EffectPanel.h"
-#include "ui/Footswitch.h"
+#include "dsp/effects/Compressor.h"
 
 #include <optional>
 
@@ -20,22 +18,66 @@ namespace
     constexpr double sampleRate = 48000.0;
     constexpr int blockSize = 256;
 
-    void set (ParagonX1AudioProcessor& processor, const juce::String& id, float value)
+    // PR7-E's parameter IDs for COMP, as the tests below set them.
+    namespace ids
     {
-        auto* parameter = processor.getParameters().getParameter (id);
-        REQUIRE (parameter != nullptr);
-        parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        constexpr auto compOn = "compOn", compThreshold = "compThreshold", compRatio = "compRatio", compAttack = "compAttack",
+                       compRelease = "compRelease", compAuto = "compAuto", compMakeUp = "compMakeUp",
+                       compCharacter = "compCharacter", compLink = "compLink";
     }
 
-    std::unique_ptr<ParagonX1AudioProcessor> makeCompressor (float thresholdDb, float ratio)
+    // The compressor as PR7-E ran it: in pieces of the block size, listening to the audio itself.
+    struct CompUnit
     {
-        auto processor = std::make_unique<ParagonX1AudioProcessor>();
-        processor->setPlayConfigDetails (2, 2, sampleRate, blockSize);
-        processor->prepareToPlay (sampleRate, blockSize);
-        set (*processor, ParamIDs::compOn, 1.0f);
-        set (*processor, ParamIDs::compThreshold, thresholdDb);
-        set (*processor, ParamIDs::compRatio, ratio);
-        return processor;
+        CompUnit()
+        {
+            compressor.prepare (sampleRate, blockSize);
+            detector.setSize (2, blockSize);
+        }
+
+        void processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+        {
+            for (int start = 0; start < buffer.getNumSamples(); start += blockSize)
+            {
+                const auto n = juce::jmin (blockSize, buffer.getNumSamples() - start);
+                juce::AudioBuffer<float> audio (buffer.getArrayOfWritePointers(), buffer.getNumChannels(), start, n);
+                for (int channel = 0; channel < audio.getNumChannels(); ++channel)
+                    detector.copyFrom (channel, 0, audio, channel, 0, n);
+                const juce::AudioBuffer<float> listen (detector.getArrayOfWritePointers(), audio.getNumChannels(), n);
+                compressor.process (audio, listen, n, settings);
+            }
+        }
+
+        float getCompressorReductionDb (int channel) const { return compressor.getReductionDb (channel); }
+
+        effects::Compressor compressor;
+        effects::Compressor::Settings settings;
+        juce::AudioBuffer<float> detector;
+    };
+
+    void set (CompUnit& unit, const juce::String& id, float value)
+    {
+        auto& s = unit.settings;
+        if (id == ids::compOn) s.on = value > 0.5f;
+        else if (id == ids::compThreshold) s.thresholdDb = value;
+        else if (id == ids::compRatio) s.ratio = value;
+        else if (id == ids::compAttack) s.attackMs = value;
+        else if (id == ids::compRelease) s.releaseMs = value;
+        else if (id == ids::compAuto) s.autoRelease = value > 0.5f;
+        else if (id == ids::compMakeUp) s.makeUpDb = value;
+        else if (id == ids::compCharacter) s.character = (effects::Compressor::Character) juce::roundToInt (value);
+        else if (id == ids::compLink) s.link = value > 0.5f;
+        else FAIL ("not a COMP setting: " << id);
+    }
+
+    // PR7-E's COMP defaults (VCA, 10 ms attack, 300 ms release, linked), on.
+    std::unique_ptr<CompUnit> makeCompressor (float thresholdDb, float ratio)
+    {
+        auto unit = std::make_unique<CompUnit>();
+        set (*unit, ids::compOn, 1.0f);
+        set (*unit, ids::compThreshold, thresholdDb);
+        set (*unit, ids::compRatio, ratio);
+        return unit;
     }
 
     // A sine whose peak is at `levelDb` dBFS; `rightLevelDb` for the right
@@ -52,7 +94,7 @@ namespace
         return buffer;
     }
 
-    void process (ParagonX1AudioProcessor& processor, juce::AudioBuffer<float>& buffer, const std::function<void (int)>& atBlock = {})
+    void process (CompUnit& processor, juce::AudioBuffer<float>& buffer, const std::function<void (int)>& atBlock = {})
     {
         juce::MidiBuffer midi;
         for (int start = 0; start < buffer.getNumSamples(); start += blockSize)
@@ -66,7 +108,7 @@ namespace
     }
 
     // The steady change in level (dB) a tone gets, over the second half of a second.
-    float settledChangeDb (ParagonX1AudioProcessor& processor, float levelDb, int channel = 0, std::optional<float> rightLevelDb = {})
+    float settledChangeDb (CompUnit& processor, float levelDb, int channel = 0, std::optional<float> rightLevelDb = {})
     {
         const auto input = sine (1000.0f, levelDb, 48000, rightLevelDb);
         auto output = input;
@@ -138,7 +180,7 @@ TEST_CASE ("Compressor: the SOFT ratio grows with level", "[comp]")
 TEST_CASE ("Compressor: MAKE UP brings the level back up", "[comp]")
 {
     auto comp = makeCompressor (-30.0f, 4.0f);
-    set (*comp, ParamIDs::compMakeUp, 10.0f);
+    set (*comp, ids::compMakeUp, 10.0f);
     CHECK_THAT (settledChangeDb (*comp, -10.0f), WithinAbs (-5.0, 0.6));
 }
 
@@ -149,8 +191,8 @@ TEST_CASE ("Compressor: ATTACK sets how quickly it clamps down", "[comp]")
     {
         // FET: its peak detector reacts at once, so the attack is all ATTACK's.
         auto comp = makeCompressor (-30.0f, 10.0f);
-        set (*comp, ParamIDs::compAttack, attackMs);
-        set (*comp, ParamIDs::compCharacter, 2.0f);
+        set (*comp, ids::compAttack, attackMs);
+        set (*comp, ids::compCharacter, 2.0f);
         auto buffer = sine (1000.0f, -10.0f, 9600);
         for (int channel = 0; channel < 2; ++channel)
             buffer.clear (channel, 0, 2400);   // silence first, then the tone at 50 ms
@@ -170,8 +212,8 @@ TEST_CASE ("Compressor: AUTO lets go quickly after a short peak, slowly after lo
     const auto recoveryMs = [] (int burstSamples)
     {
         auto comp = makeCompressor (-30.0f, 10.0f);
-        set (*comp, ParamIDs::compAuto, 1.0f);
-        set (*comp, ParamIDs::compRelease, 300.0f);
+        set (*comp, ids::compAuto, 1.0f);
+        set (*comp, ids::compRelease, 300.0f);
         const auto total = burstSamples + 96000;
         auto buffer = sine (1000.0f, -40.0f, total);
         for (int channel = 0; channel < 2; ++channel)
@@ -192,7 +234,7 @@ TEST_CASE ("Compressor: OPTO's soft knee starts working below the threshold, VCA
     const auto atThreshold = [] (int character)
     {
         auto comp = makeCompressor (-20.0f, 4.0f);
-        set (*comp, ParamIDs::compCharacter, (float) character);
+        set (*comp, ids::compCharacter, (float) character);
         return -settledChangeDb (*comp, -20.0f);
     };
     CHECK (atThreshold (0) < 0.4f);   // VCA
@@ -204,7 +246,7 @@ TEST_CASE ("Compressor: FET adds harmonics when it works hard; VCA stays clean",
     const auto thirdHarmonicDb = [] (int character)
     {
         auto comp = makeCompressor (-40.0f, 10.0f);
-        set (*comp, ParamIDs::compCharacter, (float) character);
+        set (*comp, ids::compCharacter, (float) character);
         auto buffer = sine (500.0f, -3.0f, 48000);
         process (*comp, buffer);
         return juce::Decibels::gainToDecibels (levelAt (buffer, 1500.0f, 24000, 24000) / levelAt (buffer, 500.0f, 24000, 24000));
@@ -219,7 +261,7 @@ TEST_CASE ("Compressor: FET's grit doesn't fold back down (aliasing)", "[comp]")
     // 9 kHz, squeezed hard: its 3rd harmonic is at 27 kHz, beyond what
     // 48 kHz can hold. Unfiltered it would fold back to 21 kHz.
     auto comp = makeCompressor (-40.0f, 10.0f);
-    set (*comp, ParamIDs::compCharacter, 2.0f);   // FET
+    set (*comp, ids::compCharacter, 2.0f);   // FET
     auto buffer = sine (9000.0f, -3.0f, 48000);
     process (*comp, buffer);
     const auto fundamental = levelAt (buffer, 9000.0f, 24000, 24000);
@@ -237,14 +279,14 @@ TEST_CASE ("Compressor: LINK turns both sides down together", "[comp]")
     SECTION ("unlinked")
     {
         auto comp = makeCompressor (-30.0f, 4.0f);
-        set (*comp, ParamIDs::compLink, 0.0f);
+        set (*comp, ids::compLink, 0.0f);
         CHECK (std::abs (settledChangeDb (*comp, -10.0f, 1, -40.0f)) < 0.1f);
     }
 }
 
 TEST_CASE ("Compressor: switching it on, or its character, doesn't click", "[comp]")
 {
-    const auto check = [] (const std::function<void (ParagonX1AudioProcessor&)>& before, const std::function<void (ParagonX1AudioProcessor&)>& change)
+    const auto check = [] (const std::function<void (CompUnit&)>& before, const std::function<void (CompUnit&)>& change)
     {
         auto comp = makeCompressor (-30.0f, 4.0f);
         before (*comp);
@@ -255,23 +297,12 @@ TEST_CASE ("Compressor: switching it on, or its character, doesn't click", "[com
     };
     SECTION ("on")
     {
-        check ([] (auto& c) { set (c, ParamIDs::compOn, 0.0f); }, [] (auto& c) { set (c, ParamIDs::compOn, 1.0f); });
+        check ([] (auto& c) { set (c, ids::compOn, 0.0f); }, [] (auto& c) { set (c, ids::compOn, 1.0f); });
     }
     SECTION ("VCA to FET")
     {
-        check ([] (auto&) {}, [] (auto& c) { set (c, ParamIDs::compCharacter, 2.0f); });
+        check ([] (auto&) {}, [] (auto& c) { set (c, ids::compCharacter, 2.0f); });
     }
-}
-
-TEST_CASE ("Compressor: RATIO's marks sit evenly round the knob, SOFT at the bottom", "[comp]")
-{
-    ParagonX1AudioProcessor processor;
-    auto* ratio = processor.getParameters().getParameter (ParamIDs::compRatio);
-    const auto numMarks = (int) std::size (ParamRanges::compRatioMarks);
-    for (int i = 0; i < numMarks; ++i)
-        CHECK_THAT (ratio->convertTo0to1 (ParamRanges::compRatioMarks[i]), WithinAbs ((double) i / (numMarks - 1), 1.0e-4));
-    CHECK (ratio->getText (0.0f, 10) == "Soft");
-    CHECK (ratio->getText (1.0f, 10) == "Inf:1");
 }
 
 TEST_CASE ("Compressor: a block bigger than promised is handled in pieces", "[comp]")
@@ -281,109 +312,4 @@ TEST_CASE ("Compressor: a block bigger than promised is handled in pieces", "[co
     juce::MidiBuffer midi;
     comp->processBlock (buffer, midi);
     CHECK (buffer.getMagnitude (0, 2048, 2048) < juce::Decibels::decibelsToGain (-15.0f));
-}
-
-
-//==============================================================================
-// In PR7-E
-TEST_CASE ("Compressor in PR7-E: it comes after the EQ, so an EQ boost drives it harder", "[comp]")
-{
-    const auto change = [] (bool boost)
-    {
-        auto comp = makeCompressor (-20.0f, 4.0f);
-        if (boost)
-        {
-            set (*comp, ParamIDs::eqOn, 1.0f);
-            set (*comp, ParamIDs::eqBand (0, "Freq"), 1000.0f);
-            set (*comp, ParamIDs::eqBand (0, "Gain"), 10.0f);
-            set (*comp, ParamIDs::eqBand (0, "Used"), 1.0f);
-        }
-        return settledChangeDb (*comp, -20.0f);
-    };
-    // At the threshold, unboosted, it barely acts; boosted 10 dB first, it
-    // comes out at +10 - 10 * 3/4 = +2.5 dB.
-    CHECK (std::abs (change (false)) < 0.5f);
-    CHECK_THAT (change (true), WithinAbs (2.5, 0.8));
-}
-
-TEST_CASE ("Compressor in PR7-E: off by default, leaving the sound alone; a mono track is compressed on both speakers", "[comp]")
-{
-    ParagonX1AudioProcessor fresh;
-    fresh.setPlayConfigDetails (2, 2, sampleRate, blockSize);
-    fresh.prepareToPlay (sampleRate, blockSize);
-    auto loud = sine (1000.0f, -3.0f, 24000);
-    const auto before = loud;
-    process (fresh, loud);
-    for (int i = 0; i < loud.getNumSamples(); ++i)
-        REQUIRE_THAT (loud.getSample (0, i), WithinAbs (before.getSample (0, i), 1.0e-6));
-    CHECK (fresh.getLatencySamples() == 0);
-
-    ParagonX1AudioProcessor mono;
-    mono.setPlayConfigDetails (1, 2, sampleRate, blockSize);
-    mono.prepareToPlay (sampleRate, blockSize);
-    set (mono, ParamIDs::compOn, 1.0f);
-    set (mono, ParamIDs::compThreshold, -30.0f);
-    auto buffer = sine (1000.0f, -10.0f, 48000);
-    const auto input = buffer;
-    process (mono, buffer);
-    CHECK (buffer.getRMSLevel (0, 24000, 24000) < input.getRMSLevel (0, 24000, 24000) * 0.3f);
-    for (int i = 0; i < buffer.getNumSamples(); ++i)
-        REQUIRE_THAT (buffer.getSample (1, i), WithinAbs (buffer.getSample (0, i), 1.0e-7));
-}
-
-TEST_CASE ("Compressor in PR7-E: stomp 2 switches it, and its name opens its knobs in the dock", "[comp][ui]")
-{
-    ParagonX1AudioProcessor processor;
-    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
-    std::vector<Footswitch*> stomps;
-    std::vector<EffectPanel*> panels;
-    std::function<void (juce::Component&)> collect = [&] (juce::Component& c)
-    {
-        if (auto* stomp = dynamic_cast<Footswitch*> (&c))
-            stomps.push_back (stomp);
-        if (auto* panel = dynamic_cast<EffectPanel*> (&c))
-            panels.push_back (panel);
-        for (auto* child : c.getChildren())
-            collect (*child);
-    };
-    collect (*editor);
-    REQUIRE (stomps.size() >= 7);   // the stomps first, then the rig row
-    CHECK_FALSE (stomps[1]->isPlaceholder());
-    stomps[1]->toggle();
-    CHECK (processor.getParameters().getRawParameterValue (ParamIDs::compOn)->load() > 0.5f);
-    // Its name opens its own page (0.13.0: with its bands).
-    std::vector<CompPage*> pages;
-    std::function<void (juce::Component&)> findPages = [&] (juce::Component& c)
-    {
-        if (auto* p = dynamic_cast<CompPage*> (&c))
-            pages.push_back (p);
-        for (auto* child : c.getChildren())
-            findPages (*child);
-    };
-    findPages (*editor);
-    REQUIRE (pages.size() == 1);
-    CHECK_FALSE (pages[0]->isVisible());
-    stomps[1]->onSelect();
-    CHECK (pages[0]->isVisible());
-}
-
-TEST_CASE ("Compressor in PR7-E: the factory rigs with COMP turn a typical recording down a little, not a lot", "[comp][rigs]")
-{
-    for (const auto* name : { "Lead Vocal", "Rap Vocal", "Drum Bus", "Mix Bus Polish" })
-    {
-        INFO (name);
-        ParagonX1AudioProcessor processor;
-        processor.setPlayConfigDetails (2, 2, sampleRate, blockSize);
-        processor.prepareToPlay (sampleRate, blockSize);
-        const auto* entry = processor.getRigLibrary().findFactory (name);
-        REQUIRE (entry != nullptr);
-        processor.loadRig (*entry);
-        REQUIRE (processor.getParameters().getRawParameterValue (ParamIDs::compOn)->load() > 0.5f);
-        // A 1 kHz tone peaking at -10 dBFS: 1 to 9 dB of gain reduction.
-        auto buffer = sine (1000.0f, -10.0f, 48000);
-        process (processor, buffer);
-        const auto reduction = processor.getCompressorReductionDb (0);
-        CHECK (reduction > 1.0f);
-        CHECK (reduction < 9.0f);
-    }
 }

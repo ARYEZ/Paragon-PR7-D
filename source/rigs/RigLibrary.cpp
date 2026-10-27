@@ -24,16 +24,16 @@ RigLibrary::RigLibrary (juce::File folderToUse) : folder (std::move (folderToUse
 
 juce::File RigLibrary::defaultFolder()
 {
-    // Windows: %APPDATA%\Paragon\Paragon PR7-E\Rigs
-    // macOS:   ~/Library/Application Support/Paragon/Paragon PR7-E/Rigs (via userApplicationDataDirectory)
-    // Linux:   ~/.config/Paragon/Paragon PR7-E/Rigs
-    // Its own folder, apart from its siblings': PR7-B's bass rigs don't carry over.
+    // Windows: %APPDATA%\Paragon\Paragon PR7-K\Rigs
+    // macOS:   ~/Library/Application Support/Paragon/Paragon PR7-K/Rigs (via userApplicationDataDirectory)
+    // Linux:   ~/.config/Paragon/Paragon PR7-K/Rigs
+    // Its own folder, apart from its siblings': PR7-E's mixing rigs don't carry over (they'd mean nothing to a synth).
     return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
           #if JUCE_MAC
            .getChildFile ("Application Support")
           #endif
            .getChildFile ("Paragon")
-           .getChildFile ("Paragon PR7-E")
+           .getChildFile ("Paragon PR7-K")
            .getChildFile ("Rigs");
 }
 

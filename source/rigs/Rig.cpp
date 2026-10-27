@@ -5,17 +5,11 @@ namespace
     // Bump when the file layout changes in a way older code can't read.
     constexpr int fileVersion = 1;
 
-    // Which plugin version's parameters the rig was saved with, for the
-    // occasional parameter whose default changed (older plugins ignore it).
-    // 15: the reverb's TYPE (from PR7-G, via PR7-B; gone in PR7-E 0.3.0).
-    // 30: PR7-E 0.3.0, when the expression pedal's effect targets went.
-    // 31: PR7-E 0.5.0, the dynamic EQ (nothing to migrate: new bands' defaults are static).
-    // 32: PR7-E 0.8.0, the LIMITER (off by default: nothing to migrate).
-    // 33: PR7-E 0.9.0, COMP (off by default: nothing to migrate).
-    // 34: PR7-E 0.10.0, DOMINION (off by default: nothing to migrate).
-    // 35: PR7-E 0.13.0, COMP's bands (none by default) and compWide (on by
-    //     default, so an older rig, which doesn't mention it, sounds as it did).
-    constexpr int parameterVersion = 35;
+    // Which plugin version's parameters the preset was saved with, for the
+    // occasional parameter whose default changes (older plugins ignore it).
+    // PR7-K counts afresh from its siblings' numbering:
+    // 1: PR7-K 0.1.0, the first synth parameters.
+    constexpr int parameterVersion = 1;
 
     const juce::Identifier rigTag { "ParagonRig" };
     const juce::Identifier parameterTag { "Param" };
@@ -75,13 +69,6 @@ std::optional<Rig> Rig::fromXml (const juce::XmlElement& xml)
     for (const auto* parameter : xml.getChildWithTagNameIterator (parameterTag))
         if (const auto id = parameter->getStringAttribute ("id"); id.isNotEmpty())
             rig.parameters[id] = (float) parameter->getDoubleAttribute ("value");
-
-    const auto savedWith = xml.getIntAttribute ("parameterVersion", 0);
-    // Saved before 0.3.0 with the expression pedal on one of PR7-B's effects
-    // (2 to 8, all gone): unassigned instead (see ExpressionTargets).
-    if (const auto target = rig.parameters.find ("expressionTarget");
-        savedWith < 30 && target != rig.parameters.end() && target->second > 1.5f)
-        target->second = 0.0f;
 
     return rig;
 }

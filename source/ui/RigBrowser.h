@@ -64,14 +64,14 @@ private:
     juce::TextEditor search;
     juce::ListBox list { "Rigs", this };
 
-    juce::Label detailsTitle { {}, "SELECTED RIG" }, info;
+    juce::Label detailsTitle { {}, "SELECTED PRESET" }, info;
     juce::TextEditor nameEditor, tagsEditor;
     juce::ToggleButton favouriteButton { "FAVOURITE" };
     juce::ComboBox bankBox, numberBox;
     juce::Label bankLabel { {}, "BANK" }, numberLabel { {}, "NUMBER" }, tagsLabel { {}, "TAGS (comma separated)" };
     juce::TextButton loadButton { "LOAD" }, saveDetailsButton { "SAVE DETAILS" },
                      saveAsButton { "SAVE CURRENT SOUND AS NEW..." }, deleteButton { "DELETE" },
-                     folderButton { "OPEN RIGS FOLDER" };
+                     folderButton { "OPEN PRESETS FOLDER" };
 
     juce::Rectangle<int> sidebarArea, detailsArea;
     std::unique_ptr<juce::AlertWindow> dialog;

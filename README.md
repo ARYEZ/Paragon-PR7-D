@@ -1,115 +1,82 @@
-# Paragon PR7-E
+# Paragon PR7-K
 
-[![Build](https://github.com/ARYEZ/Paragon-PR7-E/actions/workflows/build.yml/badge.svg)](https://github.com/ARYEZ/Paragon-PR7-E/actions/workflows/build.yml)
-[![Latest release](https://img.shields.io/github/v/release/ARYEZ/Paragon-PR7-E)](https://github.com/ARYEZ/Paragon-PR7-E/releases/latest)
+[![Build](https://github.com/ARYEZ/Paragon-PR7-K/actions/workflows/build.yml/badge.svg)](https://github.com/ARYEZ/Paragon-PR7-K/actions/workflows/build.yml)
+[![Latest release](https://img.shields.io/github/v/release/ARYEZ/Paragon-PR7-K)](https://github.com/ARYEZ/Paragon-PR7-K/releases/latest)
 
-The utility processor of the Paragon PR7 family: a VST3 plugin drawn as a floor unit, laid out like a DigiTech GSP21's foot controller.
-Built with [JUCE](https://juce.com).
+The synthesizer of the Paragon PR7 family: a VST3 instrument, inspired by VPS Avenger (our own design and code), built
+to be light on your CPU. Built with [JUCE](https://juce.com).
 
-Paragon PR7-E starts from [Paragon PR7-B](https://github.com/ARYEZ/Paragon-PR7-B) 0.11.0, the bass processor. Its
-siblings are [PR7-G](https://github.com/ARYEZ/Paragon-PR7-G) (guitar), PR7-B (bass),
-[PR7-V](https://github.com/ARYEZ/Paragon-PR7-V) (vocal) and [PR7-C](https://github.com/ARYEZ/Paragon-PR7-C). It installs
-alongside all of them and keeps its own rigs and settings.
-
-![The Paragon design mockup (from when the guitar version was called Paragon X1)](Paragon%20x1.png)
-
-*The design mockup the family was built from.*
+Paragon PR7-K starts from [Paragon PR7-E](https://github.com/ARYEZ/Paragon-PR7-E) 0.15.0, the utility processor, and
+shares the family's look, preset browser and undo. Its siblings are [PR7-G](https://github.com/ARYEZ/Paragon-PR7-G)
+(guitar), [PR7-B](https://github.com/ARYEZ/Paragon-PR7-B) (bass), [PR7-V](https://github.com/ARYEZ/Paragon-PR7-V)
+(vocal), [PR7-C](https://github.com/ARYEZ/Paragon-PR7-C) and PR7-E. It installs alongside all of them and keeps its own
+presets.
 
 ## Status
 
-PR7-E is at the start of its own life: it has its own name and identity, and its seven-stomp face, but most of the
-stomps are still being planned, one at a time with the owner.
+PR7-K is built in stages, each one released:
 
-| Stomp | Plan | Now |
+| Stage | What | Now |
 |---|---|---|
-| **1 Oracle** | Melody to MIDI (inspired by Melodyne and VariAudio, our own design), with the tuner | Works: transcribes as the DAW plays, note editing, drag the MIDI onto a track |
-| **2 Comp** | PR7-C's compressor, plus up to six bands inspired by FabFilter Pro-MB (our own design) | Works: full band, and bands that compress or expand, down or up, with look-ahead, on its own page |
-| **3 Inserts** | Host other plugins in slots inside PR7-E and open their editors (a mini rack) | Placeholder |
-| **4 EQ** | An EQ inspired by FabFilter Pro-Q 4 (our own design) | Works: 24 bands on its own page, any of them dynamic, and EQ Match |
-| **5 Dominion** | Resonance suppression inspired by oeksound soothe 3 (our own design) | Works: Soft and Hard, the depth curve, stereo/mid-side, tilts, delta and band listen, on its own page |
-| **6 Auto EQ** | Adaptive EQ inspired by Soundtheory Gullfoss (a "maybe"; our own design) | Placeholder |
-| **7 Limiter** | The output trim / limiter from PR7-C, ported | Works: Brick, Soft and Auto, make up, mix, link, output trim |
-
-Placeholder stomps show their name, keep their light off, and do nothing when pressed. Final names are the owner's;
-none of those products' names or branding go on the plugin.
+| **1** | Core synth: 8 oscillators, filter, envelopes, amp, poly / mono, glide | **Works (0.1.0)** |
+| 2 | Unison ("supersaw") and the chorder | Planned |
+| 3 | Wavetables, FFT editing, sync, FM / AM, the shaper | Planned |
+| 4 | Modulation: mod matrix, LFOs, mod and pitch envelopes, step sequencer, macros | Planned |
+| 5 | Arpeggiator | Planned |
+| 6 | Drum kits and drum sequencer | Planned |
+| 7 | Effects racks (starting from PR7-E's EQ, compressor, resonance control and limiter, kept for this) | Planned |
+| 8 | Factory presets | Planned (a few starting points now) |
 
 ## Using it
 
-- **The unit**, laid out like a DigiTech GSP21's foot controller: the screen centred along the top, the seven stomps in
-  a row, and under them five rigs, **BANK ▼** and **BANK ▲**. A rig pad loads that rig (its light shows the one loaded);
-  BANK steps through the rigs five at a time (within a bank, then on to the next) without loading one, and the row turns
-  to the loaded rig's five when you load one elsewhere.
-- **Stomps 1-7:** press a pad to switch it on or off; click its name to show its knobs
-  in the dock (ORACLE, EQ and DOMINION open their own pages).
-- **EQ (stomp 4)**, inspired by FabFilter Pro-Q 4: up to 24 bands (bell, shelves, cuts, notch, band pass, tilt shelf,
-  flat tilt, all pass; 6 to 96 dB/oct), each on the stereo signal or only its left, right, mid or side. Analog-matched
-  curves with zero latency. On its page: double-click to add a band, drag its dot, mouse wheel for Q (or a cut's slope),
-  Alt-click to switch it off, right-click for its menu, Delete to remove it; hold SOLO to hear only what a band works on.
-  OUTPUT, GAIN SCALE and AUTO GAIN. The spectrum going in and coming out shows behind the curve.
-  - **Dynamic bands:** a bell, shelf or tilt with a **DYN RANGE** moves its gain when its own part of the sound gets
-    loud: a negative range cuts (tame a harsh note, sibilance, a boomy bass note), a positive one boosts. Alt+double-click
-    makes one; drag its range handle, or Alt + mouse wheel. **AUTO** (on by default) sets the threshold from the band's
-    usual level; switch it off to set **THRESHOLD** yourself. **ATTACK** and **RELEASE** at 50% are automatic (from the
-    band's frequency); lower is faster, higher slower. The curve moves as the band does.
-  - **EQ Match** (MATCH, top of the page): listens to your track and a reference (another part of the song, a song
-    file, or a saved reference), then proposes bands that make your track's tone like the reference's. DETAIL (a few
-    broad bands or more, finer ones) and AMOUNT (how much of the difference), then ADD BANDS.
-- **DOMINION (stomp 5)**, inspired by oeksound soothe 3: finds what rings, whistles or builds up as the track plays and
-  turns just that down. MODE (Soft: what sticks out, at any level; Hard: what's loud), DEPTH, DETAIL, ATTACK, RELEASE; a
-  graph of what it's cutting, with a depth curve of up to 8 bands to steer it; stereo or mid/side, LINK and FOCUS; tilts
-  for the lows and highs; MAX CUT, WET TRIM, DELTA, MIX and OUT. Click its name for its page. Zero latency.
-  **PRESET** (on its page): its own presets, apart from the rigs (vocals, drums, instruments, mix and master, creative,
-  and under GENRES the vocal, guitars and mix of each genre the genre rigs use), and your own, saved in "Dominion Presets" beside your rigs. A preset changes only DOMINION's settings.
-- **COMP (stomp 2)**, after the EQ; click its name for its page.
-  - **Bands** (up to six, inspired by FabFilter Pro-MB, our own design): each works on its own part of the spectrum.
-    Double-click the graph to add one; drag its dot sideways to move it and up or down for RANGE, drag its edges.
-    MODE and RANGE give four kinds: COMPRESS turns loud parts down (RANGE below 0) or brings quiet parts up (above 0);
-    EXPAND turns quiet parts down, like a gate (below 0), or brings loud parts up for punch (above 0). THRESHOLD, RATIO,
-    KNEE, ATTACK, RELEASE, CHARACTER (VCA, OPTO, FET), STEREO (both with LINK, mid or side), OUTPUT, SLOPE, LISTEN.
-    A band that isn't working leaves the sound exactly as it was. **LOOK-AHEAD** lets each band hear up to 20 ms ahead
-    (COMP is then 20 ms late, which your DAW makes up for on playback); **MIX** 0 to 200%.
-  - **Full band**, PR7-C's compressor, after the bands (switch it with FULL BAND): CHARACTER (VCA clean, OPTO smooth,
-    FET fast with a little grit), THRESHOLD, RATIO (from Soft to infinite), ATTACK, RELEASE, AUTO release, MAKE UP and
-    LINK, with its gain-reduction meter.
-  - **PRESET** (on its page): COMP's own presets, apart from the rigs (vocals, drums, instruments, mix and master,
-    creative, and under GENRES the vocal, drums, bass, mix bus and master of each genre the genre rigs use), and your own, saved in "Comp Presets" beside your rigs. A preset changes only COMP's settings.
-- **LIMITER (stomp 7)**, PR7-C's limiter: THRESHOLD (the ceiling), MAKE UP, MIX, LINK, and MODE (Brick, Soft or Auto),
-  then OUTPUT TRIM. It's last in the chain, after OUTPUT, so nothing can push a peak past it; no look-ahead, so no delay.
-  Its panel shows the gain reduction.
-- **ORACLE (stomp 1)**, melody to MIDI, inspired by what Melodyne and VariAudio do with a single line (our own design):
-  switch it on and play the part in your DAW. It listens as the DAW plays (one voice or instrument at a time, up to
-  1,500 Hz) and finds the notes: where each starts and ends, its pitch (the middle of what was sung, not the scoops or
-  the vibrato) and its velocity. Playing a passage again replaces what it heard there. Click its name for its page: the
-  notes as a piano roll over the pitch line. Drag a note up or down (pitch), drag its ends (start, length), Alt-drag to
-  move it, double-click to split (or to add a note), J to join, Delete; ORACLE has its own UNDO and REDO.
-  **SENSITIVITY** (how readily it splits notes), **MIN NOTE** (the shortest note kept), **QUANTIZE** (for the MIDI
-  file only). **DRAG MIDI**: drag it onto a MIDI track at bar 1 (the file starts at bar 1, at the song's tempo);
-  click it to show the file instead. The transcription is saved with your DAW project. The tuner is part of it: the
-  pedal's screen shows the note and cents, and the page shows the note now and how in tune the notes were sung. The
-  reference pitch for A4 is in SETTINGS.
-- **Stereo throughout:** both channels pass through as they came in, apart from what the stomps do (a mono track plays on
-  both speakers). **Signal chain** (bottom strip): input → EQ → DOMINION → COMP → LIMITER → output, growing as the stomps are built.
-- **PRESENCE** cuts or boosts the top end (above about 3.5 kHz).
-- **Rigs:** SAVE in the header saves the current sound as a rig; **<** and **>** step through rigs; a `*` after the name
-  means it's changed since loading. The **PRESETS** tab browses, files (banks A-E), tags and favourites rigs. The factory
-  rigs are EQ starting points: **A** vocals and voice (with **Init**, everything off, at A01), **B** drums, **C** bass,
-  guitars and keys, **D** the full mix, **E** mastering. INPUT and OUTPUT stay put when you switch rigs; each rig has its
-  own **RIG LEVEL**, which adds to OUTPUT.
-  - **Genre rigs:** a rig for each part of a song in nine heavy styles (modern metal, metalcore, djent, nu metal,
-    argent metal, hard rock, grunge, symphonic metal, industrial), at the genre's number in every bank: **x11** modern
-    metal to **x19** industrial, so A11 is the modern metal vocal, B11 its drums, C11 its guitars, C21 its bass, D11
-    its mix and E11 its master. Each uses the EQ and the genre's COMP and DOMINION presets.
-- **Undo / redo:** the header arrows, UNDO / REDO on the unit, or Ctrl+Z / Ctrl+Shift+Z (Cmd on a Mac). **BYPASS** on
-  the unit bypasses the whole plugin.
-- **SETTINGS:** the tuner's reference pitch and the unit's finish.
-- No latency: nothing in the chain looks ahead.
+- **OSCILLATORS:** eight tabs; each tab's LED switches that oscillator on. Each oscillator has:
+  - its **WAVE** (saw, pulse with its **WIDTH**, triangle, sine) and **GAIN**;
+  - **PITCH**: **TRANSPOSE** (±4 octaves), **FINE** (cents), **RANDOM** (each note slightly out of tune, at random
+    or alternately sharp and flat, as on an old analog synth);
+  - **START**: a fixed **PHASE** or **RND PHASE**, a tiny **FADE IN** against clicks, **INVERT**;
+  - **NOISE** (white to pink to brown, stereo or mono) and a **SUB** (sine, triangle, square or saw, one or two octaves
+    down);
+  - **VOLUME**, **PAN**, its own **VOICES** limit (1 makes just that oscillator mono), and **TO FILTER**.
+  The picture shows one cycle of the selected oscillator, with its sub (grey) and noise.
+- **FILTER:** low-pass, high-pass, band-pass and band-stop at 6, 12, 18 and 24 dB per octave. **CUTOFF**, **RESONANCE**,
+  **DRIVE** (saturation going in), **KEYTRACK**, **ENVELOPE** (its own envelope's amount, up or down), and how much
+  softer notes close it (**VELOCITY**), lose resonance (**RES VEL**) or move it less (**ENV VEL**). The display shows
+  its response.
+- **FILTER ENVELOPE** and **AMP ENVELOPE:** attack, hold, decay, sustain, release, and a curve for each of the three
+  moving stages (left: fast then slow, as natural sounds fade).
+- **AMP:** **VOLUME**, **VELOCITY**, **PAN**, **PAN KEY** (low notes to one side), **SPREAD** (each note somewhere
+  else), and **SPIKE** (an extra click at the start of each note) with its curve and velocity.
+- **PLAY:** **POLY**, or **MONO** (last key), **MONO LOW** or **MONO HIGH**; **LEGATO**; **GLIDE** (always or only
+  between overlapping notes); the pitch wheel's range; **VOICES** (notes at once); and the preset's own **LEVEL**. It
+  shows how many notes are playing.
+- **The keyboard** along the bottom plays the synth with the mouse (C1 to B7). Your DAW's MIDI plays it too, with the
+  sustain pedal and pitch wheel.
+- **Presets:** SAVE in the header; **<** and **>** step through them; a `*` means changed since loading. The
+  **PRESETS** tab browses, files (banks A-E), tags and favourites them. **OUTPUT** and **TUNE** (in SETTINGS) stay put
+  when you change presets.
+- **Undo / redo:** the header arrows, or Ctrl+Z / Ctrl+Shift+Z (Cmd on a Mac).
+
+## Light on CPU
+
+Avenger's own manual explains where its CPU goes: up to 8 oscillators per note, each multiplied by its unison and
+chorder voices, long release tails that "still use cpu", oversampled FM and up to 48 effects. PR7-K is built the
+other way round:
+
+- every oscillator reads band-limited tables, so it's clean (nothing folds back below 20 kHz) without oversampling;
+- an oscillator, sub, noise, drive or filter that's switched off costs nothing, and so does silence;
+- a note ends when it can't be heard: when it decays to a sustain of zero, when its release falls below -90 dB, or when
+  all its oscillators have been taken by newer notes;
+- slow things (the filter's movement, glide, the pitch wheel) are worked out every 16 samples, not every sample.
+
+In the tests, 8 notes of 4 saws each through a driven 24 dB filter use about 3.5% of one core on the build machine
+(yours will differ), and the tests fail if that ever goes above 25%.
 
 ## Download
 
-Get the latest version from the **[Releases](https://github.com/ARYEZ/Paragon-PR7-E/releases/latest)** page: download
+Get the latest version from the **[Releases](https://github.com/ARYEZ/Paragon-PR7-K/releases/latest)** page: download
 the zip for your computer. (Builds of every push also appear under **Actions** → a run → **Artifacts**.)
 
-Unzip it and copy `Paragon PR7-E.vst3` to your VST3 folder:
+Unzip it and copy `Paragon PR7-K.vst3` to your VST3 folder:
 
 | OS | VST3 folder |
 |---|---|
@@ -118,7 +85,9 @@ Unzip it and copy `Paragon PR7-E.vst3` to your VST3 folder:
 | Linux | `~/.vst3` |
 
 **macOS:** the build isn't code-signed yet, so macOS will block it. After copying, run
-`xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/"Paragon PR7-E.vst3"` once.
+`xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/"Paragon PR7-K.vst3"` once.
+
+Then rescan plugins in your DAW: PR7-K shows up as an instrument.
 
 ## Making a release
 
@@ -152,12 +121,12 @@ PARAGON_SNAPSHOT=editor.png ./build/tests/ParagonX1Tests "[snapshot]"
 
 ## License
 
-Paragon PR7-E is free software under the [GNU Affero General Public License v3](LICENSE.md),
+Paragon PR7-K is free software under the [GNU Affero General Public License v3](LICENSE.md),
 which is required by JUCE's open-source licence.
 
 It uses:
 - [JUCE](https://github.com/juce-framework/JUCE): AGPLv3
 - The Inter typeface (in `resources/fonts`) by Rasmus Andersson, under the SIL Open Font License
 
-FabFilter Pro-Q and Pro-MB, oeksound soothe and Soundtheory Gullfoss are their makers' products. PR7-E's stomps are only inspired
-by how they're described and behave; it isn't affiliated with or endorsed by any of them.
+VPS Avenger is Vengeance Sound's product. PR7-K is only inspired by how it's described and behaves; it isn't
+affiliated with or endorsed by Vengeance Sound, and uses none of Avenger's presets, samples or wavetables.

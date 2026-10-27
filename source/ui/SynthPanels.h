@@ -1,0 +1,98 @@
+#pragma once
+
+#include "PluginProcessor.h"
+#include "ui/SynthControls.h"
+#include "ui/SynthDisplays.h"
+
+// The SYNTH page's panels, laid out like Avenger's main page: the
+// oscillators (tabs), the FILTER, the two envelopes, the AMP, and how the
+// keyboard plays it. Our own drawing, in the PR7 family's look.
+
+// OSCILLATORS: eight tabs (each with its own on/off LED), and the selected
+// oscillator's wave picture and controls: its wave, level, pitch and start,
+// its NOISE and its SUB.
+class OscillatorPanel final : public SynthPanel
+{
+public:
+    explicit OscillatorPanel (juce::AudioProcessorValueTreeState&);
+
+    void selectOscillator (int index);
+    int getSelected() const noexcept { return selected; }
+
+    void paint (juce::Graphics&) override;
+    void resized() override;
+
+private:
+    struct Tab final : public juce::Button
+    {
+        Tab (juce::AudioProcessorValueTreeState&, int index);
+        void paintButton (juce::Graphics&, bool highlighted, bool down) override;
+        void resized() override;
+
+        int index;
+        juce::ToggleButton power;
+        juce::AudioProcessorValueTreeState::ButtonAttachment powerAttachment;
+    };
+
+    juce::AudioProcessorValueTreeState& state;
+    std::vector<std::unique_ptr<Tab>> tabs;
+    WaveDisplay wave;
+    std::vector<std::unique_ptr<ParamControl>> controls;   // in oscSettings' order where they appear
+    std::vector<const char*> settingNames;                 // ...which setting each is
+    std::vector<std::pair<juce::Rectangle<int>, juce::String>> sectionTitles;   // PITCH, START, NOISE, SUB, LEVEL
+    int selected = 0;
+
+    ParamControl& control (const char* what);
+};
+
+// FILTER: ON and TYPE beside the title, its response, and its knobs.
+class FilterPanel final : public SynthPanel
+{
+public:
+    explicit FilterPanel (juce::AudioProcessorValueTreeState&);
+    void resized() override;
+
+private:
+    FilterDisplay display;
+    ParamControl on, type, cutoff, resonance, drive, keytrack, envelope, velocity, resonanceVelocity, envelopeVelocity;
+};
+
+// An envelope: its shape, and ATTACK HOLD DECAY SUSTAIN RELEASE with their curves.
+class EnvelopePanel final : public SynthPanel
+{
+public:
+    EnvelopePanel (juce::AudioProcessorValueTreeState&, const juce::String& title, std::array<juce::String, 8> ids);
+    void resized() override;
+
+private:
+    EnvelopeDisplay display;
+    std::vector<std::unique_ptr<ParamControl>> controls;
+};
+
+// AMP: level, velocity, pan and SPIKE.
+class AmpPanel final : public SynthPanel
+{
+public:
+    explicit AmpPanel (juce::AudioProcessorValueTreeState&);
+    void resized() override;
+
+private:
+    ParamControl volume, velocity, pan, panKeytrack, spread, spike, spikeCurve, spikeVelocity;
+};
+
+// PLAY: poly or mono, glide, the pitch wheel's range, how many notes at once,
+// and the preset's own LEVEL; how many notes are sounding now beside the title.
+class PlayPanel final : public SynthPanel,
+                        private juce::Timer
+{
+public:
+    explicit PlayPanel (ParagonX1AudioProcessor&);
+    void paint (juce::Graphics&) override;
+    void resized() override;
+
+private:
+    void timerCallback() override;
+    ParagonX1AudioProcessor& processor;
+    ParamControl mode, legato, glide, glideMode, bendUp, bendDown, voices, level;
+    int shownVoices = -1;
+};

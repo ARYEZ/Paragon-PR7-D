@@ -499,8 +499,12 @@ void ParagonLookAndFeel::drawRotarySlider (juce::Graphics& g, int x, int y, int 
     g.setColour (ParagonColours::panelEdge);
     g.strokePath (track, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 
+    // A two-way knob (its range runs from -x to +x: pan, an envelope's amount,
+    // a curve) lights from the top, its centre, so its value reads at a glance.
+    const auto twoWay = slider.getMinimum() < 0.0 && juce::approximatelyEqual (-slider.getMinimum(), slider.getMaximum());
+    const auto from = twoWay ? startAngle + (endAngle - startAngle) * (float) slider.valueToProportionOfLength (0.0) : startAngle;
     juce::Path value;
-    value.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f, startAngle, angle, true);
+    value.addCentredArc (centre.x, centre.y, arcRadius, arcRadius, 0.0f, juce::jmin (from, angle), juce::jmax (from, angle), true);
     g.setColour (ParagonColours::accent);
     g.strokePath (value, juce::PathStrokeType (3.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
 

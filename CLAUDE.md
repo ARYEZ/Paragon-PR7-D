@@ -2,27 +2,18 @@
 
 This repository starts as a copy of **Paragon PR7-E** (the utility processor, repo `ARYEZ/Paragon-PR7-E`) at PR7-E **0.15.0**, full history included, to become **Paragon PR7-K**, the **synthesizer** of the PR7 family: a VST3 instrument, inspired by VPS Avenger (which the owner has, but finds too heavy on CPU). Its siblings: **PR7-G** (guitar, repo `ARYEZ/Paragon-PR7-G`), **PR7-B** (bass, `ARYEZ/Paragon-PR7-B`), **PR7-V** (vocal, `ARYEZ/Paragon-PR7-V`), **PR7-C** (`ARYEZ/Paragon-PR7-C`) and **PR7-E** (utility). Everything below describes how the project is built, tested and released, and how the owner likes to work.
 
-## First: make it its own plugin (do this before anything else)
+## First: make it its own plugin (done in 0.1.0)
 
-Until these are done, PR7-K *is* PR7-E as far as a DAW is concerned. The two would replace each other and share rigs and settings.
+All of this was done in 0.1.0; it's kept as the record of what makes PR7-K its own plugin.
 
-1. **CMakeLists.txt** (`juce_add_plugin`):
-   - `PRODUCT_NAME` becomes "Paragon PR7-K".
-   - `BUNDLE_ID` becomes `com.paragon.paragonpr7k`.
-   - `PLUGIN_CODE` becomes a new code: four characters with exactly one upper case, e.g. `Pr7k`. Never PR7-G's `Px1a`, PR7-B's `Pr7b`, PR7-V's `Pr7v`, PR7-C's `Pr7c` or PR7-E's `Pr7e`.
-   - It is an instrument: `IS_SYNTH TRUE`, `NEEDS_MIDI_INPUT TRUE`, VST3 category `Instrument Synth`, no audio input bus.
-   - Keep `PLUGIN_MANUFACTURER_CODE Prgn` (same maker).
-   - Restart the version at `0.1.0` (`project(ParagonX1 VERSION ...)`; the CMake target name can stay).
-2. **Rigs folder** (`source/rigs/RigLibrary.cpp`): "Paragon PR7-K". Remove any carry-over from older folders, and update the rename test in `tests/RigTests.cpp` to match.
-3. **Settings file** (`source/ui/Finish.cpp`): `applicationName` becomes "Paragon PR7-K".
-4. **Logo** (`source/ui/Logo.cpp`): the mark's "-E" becomes "-K", drawn in the same slanted, speed-cut lettering.
-5. **Text:** the About text, `README.md` and anything else naming PR7-E say PR7-K.
-6. **Release workflow** (`.github/workflows/build.yml`, `.github/release-install.md`):
-   - Bundle paths become `Paragon PR7-K.vst3`.
-   - Zips become `ParagonPR7-K-${TAG}-...`.
-   - The release title becomes "Paragon PR7-K ${TAG}".
-7. **CHANGELOG.md:** start fresh at 0.1.0 ("The synthesizer, based on Paragon PR7-E 0.15.0").
-8. **Re-enable releases.** The `release` job's `if:` was set to `false && ...` in the seed commit so this repo didn't publish a PR7-E release. Put it back to `github.event_name == 'push'` in the same commit as the version bump.
+1. **CMakeLists.txt** (`juce_add_plugin`): `PRODUCT_NAME` "Paragon PR7-K", `BUNDLE_ID` `com.paragon.paragonpr7k`, `PLUGIN_CODE` `Pr7k` (never PR7-G's `Px1a`, PR7-B's `Pr7b`, PR7-V's `Pr7v`, PR7-C's `Pr7c` or PR7-E's `Pr7e`), `PLUGIN_MANUFACTURER_CODE Prgn`; an instrument (`IS_SYNTH TRUE`, `NEEDS_MIDI_INPUT TRUE`, `VST3_CATEGORIES Instrument Synth`, no input bus); version restarted at 0.1.0 (the CMake target name stays `ParagonX1`).
+2. **Presets folder** (`source/rigs/RigLibrary.cpp`): "Paragon PR7-K" (tested in `tests/RigTests.cpp`). Nothing carries over from PR7-E's folder.
+3. **Settings file** (`source/ui/Finish.cpp`): `applicationName` "Paragon PR7-K".
+4. **Logo** (`source/ui/Logo.cpp`): "-K", built from the P's parts in the same slanted, speed-cut lettering (one outline: the path fills even-odd).
+5. **Text:** About (SETTINGS), README, the preset browser (says presets, not rigs).
+6. **Release workflow:** `Paragon PR7-K.vst3`, `ParagonPR7-K-${TAG}-...` zips, "Paragon PR7-K ${TAG}".
+7. **CHANGELOG.md** starts at 0.1.0.
+8. **Releases re-enabled** in the 0.1.0 commit.
 
 ## The plan: a synth inspired by VPS Avenger, built in stages
 
@@ -31,21 +22,21 @@ The owner supplied Avenger's manual (2.3.1, in the owner's private repo `ARYEZ/m
 Owner's choices: a **synth panel in the PR7 look** (not the floor-unit face); PR7-E's **EQ, COMP, DOMINION and LIMITER DSP are kept** for the effects rack (stage 7), their stomp pages go; **Windows VST3**.
 
 Stages (each a released plugin):
-1. **Core synth**: up to 8 oscillator tabs (band-limited saw, square/pulse, triangle, sine; noise; sub), a filter (LP/HP/BP/BS at 6/12/18/24 dB, drive, keytrack, its own envelope), the amp (attack, hold, decay, sustain, release with curves; velocity; spike), poly up to 64 / mono with priority, glide, pitch bend.
-2. **Unison and chorder** (Avenger's V-Saw and chorder).
-3. **Wavetables**, FFT editing, sync, FM/AM, the shaper.
+1. **Core synth: done in 0.1.0.** `source/dsp/synth/`: `WaveTables.*` (band-limited saw, triangle, sine at 28 levels a third of an octave apart, up to 512 harmonics, 4096 samples, straight interpolation; harmonics allowed up to `sampleRate - 20 kHz` so anything that folds lands above 20 kHz; pulse = saw minus a saw shifted by WIDTH), `Envelope.h` (AHDSR, curves `bend()`: k = curve x 10, negative fast first; `step(n)` for the filter envelope once per 16 samples), `Filter.h` (TPT state-variable filter; 24 dB = resonant SVF + Butterworth SVF, 18 = SVF + one-pole, 6 = one-pole without resonance; DRIVE = tanh with first-order antiderivative anti-aliasing, in double), `Noise.h`, `SynthSettings.h` (everything in real units; the processor fills it each block), `Engine.*` (voices = notes, each running up to 8 oscillators; pool of 64 + 16 for stolen notes fading over 3 ms; per-oscillator VOICES limit fades the oldest note's copy over 5 ms; mono with a held-note stack; glide constant-time; slow things every 16 samples). Parameters (version hint 1): `osc{n}{On,Wave,Volume,Pan,Transpose,Fine,Random,PhaseRand,Phase,Gain,Width,FadeIn,Invert,Noise,NoiseColour,NoiseWidth,Sub,SubWave,SubOct,SubInvert,Filter,Voices}` for n = 1 to 8, `flt1*` and `amp1*` (numbered: Avenger has four of each; `osc{n}Filter` is a bool now and can become a choice of filters later, its 0/1 reading the same), `playMode legato glide glideMode bendUp bendDown voices`, `patchLevel`; global `outputGain` (default -6 dB) `bypass` `tune`. Never reorder `oscWaveNames`, `subWaveNames`, `subOctaveNames`, `noiseWidthNames`, `playModeNames`, `glideModeNames`, `filterTypeNames`. UI: `ui/SynthPanels.*` (OSCILLATORS with tabs re-pointing one set of `ParamControl`s, FILTER, two envelopes, AMP, PLAY), `ui/SynthDisplays.*` (wave, filter response from the analog prototypes, envelope shape), `ui/SynthControls.*`; an on-screen `MidiKeyboardComponent` (C1-B7). Factory presets: 8 starting points in bank A (`rigs/FactoryRigs.cpp`). Tests: `tests/SynthTests.cpp` (pitch, aliasing vs a plain ramp, pulse harmonics, sub, noise colour, envelope timing and curves, filter response vs its display for every type, slopes, resonance, keytrack, velocity, drive aliasing vs plain tanh, voice stealing, mono modes, legato and glide, oscillator voice limit, sustain pedal, pitch wheel, CPU: 8 notes x 4 saws with a driven filter under 25% of a core, about 3.5% here).
+2. **Unison and chorder** (Avenger's V-Saw and chorder): the biggest CPU multiplier, so compute copies together (SIMD).
+3. **Wavetables**, FFT editing, sync, FM/AM, the shaper (reuse the table engine).
 4. **Modulation**: mod matrix, LFOs, mod and pitch envelopes, step sequencer, macros.
 5. **Arpeggiator.**
 6. **Drum kits and drum sequencer** (our own synthesised drums and/or the user's samples: never Vengeance's).
-7. **Effects racks** (inserts, sends, master), starting from PR7-E's EQ, COMP, DOMINION, LIMITER. Ask the owner for the VPS FX Bundle 1 & 2 manuals: Avenger's manual refers to them for the effects.
+7. **Effects racks** (inserts, sends, master), starting from PR7-E's EQ, COMP, DOMINION, LIMITER (kept in `source/dsp/eq`, `dsp/effects`, `dsp/dominion`, built and tested directly in `tests/EqTests.cpp` etc. through small stand-ins for PR7-E's processor; they have no parameters yet). Ask the owner for the VPS FX Bundle 1 & 2 manuals: Avenger's manual refers to them for the effects.
 8. **Presets**: our own factory presets; Avenger's presets, samples and wavetables can't be used or loaded.
 
 - **Names:** no Vengeance or Avenger names or branding on the plugin; our own names (the owner names them). "Inspired by" in descriptions is fine.
 
 ## The project
 
-- An AGPLv3 **JUCE VST3** plugin, a synthesizer (instrument) sharing the PR7 family's code.
-- **Code layout:** DSP in `source/dsp/effects/`, UI in `source/ui/`, parameters in `source/Parameters.*`, rigs in `source/rigs/`, tests in `tests/`.
+- An AGPLv3 **JUCE VST3** instrument, a synthesizer in the PR7 family's look, sharing the family's code.
+- **Code layout:** the synth in `source/dsp/synth/`, PR7-E's effects (for stage 7) in `source/dsp/effects/`, `dsp/eq/`, `dsp/dominion/`; UI in `source/ui/`, parameters in `source/Parameters.*`, presets ("rigs" in the code, as across the family) in `source/rigs/`, tests in `tests/`.
 - **Parameters:**
   - Saved by ID and choices by **index**: only ever *append* choices, never reorder.
   - New parameters get a new version hint number.
@@ -54,19 +45,13 @@ Stages (each a released plugin):
 
 ## Build, test, check
 
-- **Build:** `cmake -B build && cmake --build build -j8`.
-- **Tests (Catch2):** `xvfb-run -a build/tests/ParagonX1Tests`. All must pass. New features get tests that check what the feature really does to the sound (levels, frequencies, harmonics), not just that it runs.
-- **pluginval:** `xvfb-run -a <pluginval> --strictness-level 10 --validate-in-process "build/ParagonX1_artefacts/Release/VST3/<name>.vst3"`. Check its exit code. CI runs it too.
+- **Build:** `cmake -B build && cmake --build build -j8`. On a fresh Linux machine, install the packages listed in `.github/workflows/build.yml` first.
+- **Tests (Catch2):** `xvfb-run -a build/tests/ParagonX1Tests`. All must pass. New features get tests that check what the feature really does to the sound (levels, frequencies, harmonics), not just that it runs. The synth's test harness (`Player` in `tests/SynthTests.cpp`) uses `synth::Settings`' defaults, so those must match the parameters' defaults.
+- **pluginval:** `xvfb-run -a <pluginval> --strictness-level 10 --validate-in-process "build/ParagonX1_artefacts/Release/VST3/Paragon PR7-K.vst3"`. Check its exit code. CI runs it too.
 - **Screenshots** for checking the UI, via `xvfb-run -a build/tests/ParagonX1Tests "[snapshot]"` with environment variables:
-  - `PARAGON_SNAPSHOT` (output path), `PARAGON_SNAPSHOT_WIDTH` (e.g. 2560 for 2x).
-  - `PARAGON_SNAPSHOT_BLOCK=n` (open block n's panel), `PARAGON_SNAPSHOT_PARAMS=id=value,...`.
-  - `PARAGON_SNAPSHOT_PAGE=presets|settings|eq`, `PARAGON_SNAPSHOT_FINISH=black|neon`.
-  - `PARAGON_SNAPSHOT_BLOCK=0` (the dock's EQ overview), `1` (DOMINION's page), `2` (COMP's page), or `3` (the LIMITER); `PARAGON_SNAPSHOT_TUNER=1` (the tuner on, after a sung phrase: the unit's screen shows the note).
-  - `PARAGON_SNAPSHOT_PAGE=comp` (COMP's page) with `PARAGON_SNAPSHOT_COMP=1` (four bands working on pink noise with a loud 60 Hz and 3 kHz, band 3 selected); `PARAGON_SNAPSHOT_COMP_PRESET=name` loads one of its factory presets instead.
-  - `PARAGON_SNAPSHOT_PAGE=oracle` (ORACLE's page) with `PARAGON_SNAPSHOT_ORACLE=1` (a sung line heard at 100 BPM from bar 2, one note selected).
-  - `PARAGON_SNAPSHOT_PAGE=dominion` (DOMINION's page) with `PARAGON_SNAPSHOT_DOMINION=1` (on, three depth-curve bands, pink noise with resonances at 180 Hz, 2.5 kHz and 6.3 kHz through it); `PARAGON_SNAPSHOT_DOMINION_PRESET=name` loads one of its factory presets instead of the three bands.
-  - `PARAGON_SNAPSHOT_EQ=1` (a mix-bus set of EQ bands with noise through the analyser; band 3 is dynamic), `PARAGON_SNAPSHOT_EQ_BAND=n` (select band n), `PARAGON_SNAPSHOT_MATCH=1` (with `PAGE=eq`: EQ Match open, having heard a track and a brighter reference).
-  - Menus open in their own window, so the editor snapshot can't show one: `PARAGON_SNAPSHOT=menu.png ... "[snapshot-menu]"` draws a drop-down as the plugin's look-and-feel does (black, white text, the red-pink-orange highlight, as the owner asked in 0.10.1).
+  - `PARAGON_SNAPSHOT` (output path), `PARAGON_SNAPSHOT_WIDTH` (default 1600; 3200 for 2x).
+  - `PARAGON_SNAPSHOT_PAGE=presets|settings`, `PARAGON_SNAPSHOT_PRESET=name` (a factory preset), `PARAGON_SNAPSHOT_OSC=n` (oscillator tab n), `PARAGON_SNAPSHOT_PARAMS=id=value,...`, `PARAGON_SNAPSHOT_NOTES=1` (a chord held).
+  - Menus open in their own window, so the editor snapshot can't show one: `PARAGON_SNAPSHOT=menu.png ... "[snapshot-menu]"` draws the FILTER's type menu as the plugin's look-and-feel does.
   - Render, look, crop and zoom before claiming a visual change is right.
 
 ## Releases

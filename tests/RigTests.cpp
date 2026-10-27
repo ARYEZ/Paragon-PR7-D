@@ -1,10 +1,10 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
+// Presets ("rigs" in the code, as across the PR7 family): files, the
+// library, loading and saving, and the factory presets.
 #include "Parameters.h"
 #include "PluginProcessor.h"
-#include "rigs/CompPresets.h"
-#include "rigs/DominionPresets.h"
 #include "rigs/FactoryRigs.h"
 
 using Catch::Matchers::WithinAbs;
@@ -21,7 +21,13 @@ namespace
                                 .getChildFile (juce::Uuid().toString());
     };
 
-    struct RigRig   // a processor with its rigs in a temporary folder
+    // Stand-ins for the tests below: a number in the preset (with a default),
+    // another (that can go below zero), an on/off that's off by default.
+    const juce::String someTime = ParamIDs::ampAttack;            // ms
+    const juce::String someFine = ParamIDs::osc (0, "Fine");      // cents, -100 to 100
+    const juce::String someSwitch = ParamIDs::osc (0, "Invert");  // off by default
+
+    struct RigRig   // a processor with its presets in a temporary folder
     {
         RigRig()
         {
@@ -30,20 +36,20 @@ namespace
             processor.useRigFolder (temp.folder);
         }
 
-        void set (const char* id, float plainValue)
+        void set (const juce::String& id, float plainValue)
         {
             auto* parameter = processor.getParameters().getParameter (id);
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (plainValue));
         }
 
-        float get (const char* id) { return processor.getParameters().getRawParameterValue (id)->load(); }
+        float get (const juce::String& id) { return processor.getParameters().getRawParameterValue (id)->load(); }
 
         const RigLibrary::Entry& entryNamed (const juce::String& name)
         {
             for (const auto& entry : processor.getRigLibrary().getEntries())
                 if (entry.rig.name == name)
                     return entry;
-            FAIL ("No rig called " << name);
+            FAIL ("No preset called " << name);
             return processor.getRigLibrary().getEntries().front();
         }
 
@@ -60,7 +66,7 @@ TEST_CASE ("A rig survives being written to a file and read back", "[rigs]")
     rig.number = 17;
     rig.favourite = true;
     rig.tags = { "Rock", "High Gain" };
-    rig.parameters = { { "eqOutput", 6.5f }, { "presence", -4.0f } };
+    rig.parameters = { { "flt1Cutoff", 650.0f }, { "osc1Fine", -4.0f } };
 
     const auto restored = Rig::fromXml (*juce::XmlDocument::parse (rig.toXml()->toString()));
     REQUIRE (restored.has_value());
@@ -104,97 +110,61 @@ TEST_CASE ("Every factory rig is valid", "[rigs]")
     CHECK (slots.size() == (int) makeFactoryRigs().size());   // no two in the same slot
 }
 
-TEST_CASE ("PR7-E's factory rigs: Init at A01, then vocals, drums, instruments, mix and mastering; PR7-B's are gone", "[rigs]")
+TEST_CASE ("PR7-K's factory presets: Init at A01, then starting points that say what they are; PR7-E's mixing rigs are gone", "[rigs]")
 {
     const auto rigs = makeFactoryRigs();
-    REQUIRE (rigs.size() > 25);
+    REQUIRE (rigs.size() >= 8);
     CHECK (rigs.front().name == "Init");
     CHECK (rigs.front().getSlotName() == "A01");
-    CHECK (rigs.front().parameters.empty());   // everything at its default: every block off
+    CHECK (rigs.front().parameters.empty());   // everything at its default: one saw, no filter
 
-    // Each bank has at least four, each says what it's for, and each (but
-    // Init) switches the EQ on.
-    std::array<int, Rig::numBanks> perBank {};
     for (const auto& rig : rigs)
     {
         INFO (rig.name);
-        ++perBank[(size_t) rig.bank];
         CHECK (rig.notes.isNotEmpty());
         CHECK_FALSE (rig.tags.isEmpty());
-        if (rig.name != "Init")
-            CHECK (rig.parameters.at (ParamIDs::eqOn) == 1.0f);
     }
-    for (const auto count : perBank)
-        CHECK (count >= 4);
 
     RigRig r;
-    for (const auto* bassRig : { "Clean DI", "Studio Bass", "Chorus Bass", "Dub Delay", "Hysteria (Muse)", "Absolomb (Periphery)" })
-        CHECK (r.processor.getRigLibrary().findFactory (bassRig) == nullptr);
+    for (const auto* mixingRig : { "Lead Vocal", "Kick Punch", "Mix Brighter", "Master Gentle Polish", "Modern Metal Vocal" })
+        CHECK (r.processor.getRigLibrary().findFactory (mixingRig) == nullptr);
 }
 
-TEST_CASE ("Genre rigs (0.15.0): six parts in nine genres, at the genre's number in each bank, with the genre's presets", "[rigs][genres]")
+TEST_CASE ("Every factory preset plays: a note sounds, stays clean, and fades away after it's let go", "[rigs]")
 {
-    const juce::StringArray genres { "Modern Metal", "Metalcore", "Djent", "Nu Metal", "Argent Metal",
-                                     "Hard Rock", "Grunge", "Symphonic Metal", "Industrial" };
-    const auto rigs = makeFactoryRigs();
-    const auto find = [&rigs] (const juce::String& name) -> const Rig*
+    RigRig r;
+    for (const auto& rig : makeFactoryRigs())
     {
-        for (const auto& rig : rigs)
-            if (rig.name == name)
-                return &rig;
-        return nullptr;
-    };
-    // Every parameter a preset sets is the rig's, and the rest of that stomp's at its default (not mentioned).
-    const auto matches = [] (const Rig& rig, const std::vector<StompPreset>& presets, const juce::String& genre, const juce::String& presetName,
-                             bool (*holds) (const juce::String&))
-    {
-        const auto preset = std::find_if (presets.begin(), presets.end(), [&] (const StompPreset& p) { return p.name == presetName; });
-        REQUIRE (preset != presets.end());
-        CHECK (preset->category == "Genres/" + genre);
-        for (const auto& [id, value] : rig.parameters)
-            if (holds (id))
-            {
-                INFO (id);
-                REQUIRE (preset->parameters.count (id) == 1);
-                CHECK (preset->parameters.at (id) == value);
-            }
-        for (const auto& [id, value] : preset->parameters)
-            CHECK (rig.parameters.count (id) == 1);
-    };
+        INFO (rig.name);
+        r.processor.loadRig (r.entryNamed (rig.name));
+        r.processor.prepareToPlay (48000.0, 256);   // fresh
 
-    for (int g = 0; g < genres.size(); ++g)
-    {
-        const auto genre = genres[g];
-        INFO (genre);
-        struct Part { const char* name; const char* slot; const char* comp; const char* dominion; };
-        const Part parts[] = { { "Vocal", "A", "Vocal", "Vocal" }, { "Drums", "B", "Drums", nullptr }, { "Guitars", "C", nullptr, "Guitars" },
-                               { "Bass", "C", "Bass", nullptr }, { "Mix", "D", "Mix Bus", "Mix" }, { "Master", "E", "Master", nullptr } };
-        for (const auto& part : parts)
+        juce::AudioBuffer<float> buffer (2, 256);
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (1, 48, (juce::uint8) 100), 0);
+        float loudest = 0.0f;
+        auto finite = true;
+        // Held for 5 seconds (long enough for the slowest, the riser), then let go.
+        for (int block = 0; block < 48000 * 5 / 256; ++block)
         {
-            INFO (part.name);
-            const auto* rig = find (genre + " " + part.name);
-            REQUIRE (rig != nullptr);
-            const auto number = (juce::String (part.name) == "Bass" ? 21 : 11) + g;
-            CHECK (rig->getSlotName() == juce::String (part.slot) + juce::String (number));
-            CHECK (rig->tags.contains (genre));
-            CHECK (rig->tags.contains ("Genre"));
-
-            CHECK ((rig->parameters.count (ParamIDs::compOn) == 1) == (part.comp != nullptr));
-            if (part.comp != nullptr)
-            {
-                CHECK (rig->parameters.at (ParamIDs::compOn) == 1.0f);
-                matches (*rig, CompPresets::factory(), genre, genre + " " + part.comp, &CompPresets::holds);
-                CHECK (rig->notes.contains (genre + " " + part.comp));
-            }
-            CHECK ((rig->parameters.count (ParamIDs::domOn) == 1) == (part.dominion != nullptr));
-            if (part.dominion != nullptr)
-            {
-                CHECK (rig->parameters.at (ParamIDs::domOn) == 1.0f);
-                matches (*rig, DominionPresets::factory(), genre, genre + " " + part.dominion, &DominionPresets::holds);
-            }
-            if (juce::String (part.name) == "Master")
-                CHECK (rig->parameters.at (ParamIDs::limitOn) == 1.0f);
+            r.processor.processBlock (buffer, midi);
+            midi.clear();
+            loudest = juce::jmax (loudest, buffer.getMagnitude (0, 0, 256), buffer.getMagnitude (1, 0, 256));
+            for (int ch = 0; ch < 2; ++ch)
+                for (int i = 0; i < 256; ++i)
+                    finite = finite && std::isfinite (buffer.getSample (ch, i));
         }
+        midi.addEvent (juce::MidiMessage::noteOff (1, 48), 0);
+        for (int block = 0; block < 48000 * 4 / 256; ++block)
+        {
+            r.processor.processBlock (buffer, midi);
+            midi.clear();
+        }
+        CHECK (finite);
+        CHECK (juce::Decibels::gainToDecibels (loudest) > -24.0f);   // it sounds
+        CHECK (juce::Decibels::gainToDecibels (loudest) < 3.0f);     // and isn't wildly hot (OUTPUT at its -6 dB)
+        CHECK (buffer.getMagnitude (0, 0, 256) < 1.0e-4f);           // gone 4 seconds after letting go
+        CHECK (r.processor.getActiveVoices() == 0);                  // and so is its note
     }
 }
 
@@ -301,53 +271,53 @@ TEST_CASE ("Rigs are sorted by bank and number, and < > wrap round", "[rigs]")
     CHECK (library.step (&entries.front(), -1) == &entries.back());
     CHECK (library.step (nullptr, 1) == &entries.front());
 
-    CHECK (library.nextFreeNumber (0) == 8);   // Init and the vocal rigs fill A01 to A07
+    CHECK (library.nextFreeNumber (0) == 9);   // the factory presets fill A01 to A08
 }
 
-TEST_CASE ("Saving and loading a rig restores the sound but not the global knobs", "[rigs]")
+TEST_CASE ("Saving and loading a preset restores the sound but not the global settings", "[rigs]")
 {
     RigRig r;
-    r.set (ParamIDs::eqOn, 1.0f);
-    r.set (ParamIDs::eqOutput, 7.5f);
-    r.set (ParamIDs::presence, 6.0f);
-    r.set (ParamIDs::rigLevel, -3.0f);
+    r.set (ParamIDs::fltOn, 1.0f);
+    r.set (someTime, 7.5f);
+    r.set (someFine, 6.0f);
+    r.set (ParamIDs::patchLevel, -3.0f);
     REQUIRE (r.processor.saveCurrentRigAs ("My Sound"));
 
-    // Change everything, including the global input and output knobs.
-    r.set (ParamIDs::eqOn, 0.0f);
-    r.set (ParamIDs::eqOutput, 1.0f);
-    r.set (ParamIDs::presence, -2.0f);
-    r.set (ParamIDs::rigLevel, 0.0f);
-    r.set (ParamIDs::inputGain, 5.0f);
+    // Change everything, including the global OUTPUT and TUNE.
+    r.set (ParamIDs::fltOn, 0.0f);
+    r.set (someTime, 1.0f);
+    r.set (someFine, -2.0f);
+    r.set (ParamIDs::patchLevel, 0.0f);
+    r.set (ParamIDs::tune, 5.0f);
     r.set (ParamIDs::outputGain, -4.0f);
 
     r.processor.loadRig (r.entryNamed ("My Sound"));
 
-    CHECK (r.get (ParamIDs::eqOn) > 0.5f);
-    CHECK_THAT (r.get (ParamIDs::eqOutput), WithinAbs (7.5, 0.01));
-    CHECK_THAT (r.get (ParamIDs::presence), WithinAbs (6.0, 0.01));
-    CHECK_THAT (r.get (ParamIDs::rigLevel), WithinAbs (-3.0, 0.01));
-    // Global knobs are left alone.
-    CHECK_THAT (r.get (ParamIDs::inputGain), WithinAbs (5.0, 0.01));
+    CHECK (r.get (ParamIDs::fltOn) > 0.5f);
+    CHECK_THAT (r.get (someTime), WithinAbs (7.5, 0.01));
+    CHECK_THAT (r.get (someFine), WithinAbs (6.0, 0.01));
+    CHECK_THAT (r.get (ParamIDs::patchLevel), WithinAbs (-3.0, 0.01));
+    // Global settings are left alone.
+    CHECK_THAT (r.get (ParamIDs::tune), WithinAbs (5.0, 0.01));
     CHECK_THAT (r.get (ParamIDs::outputGain), WithinAbs (-4.0, 0.01));
 }
 
-TEST_CASE ("A rig that doesn't mention a parameter sets it to its default", "[rigs]")
+TEST_CASE ("A preset that doesn't mention a parameter sets it to its default", "[rigs]")
 {
-    // E.g. a rig saved by an older version, before that parameter existed.
+    // E.g. a preset saved by an older version, before that parameter existed.
     RigRig r;
-    r.set (ParamIDs::eqAutoGain, 1.0f);
-    r.set (ParamIDs::presence, 6.0f);
+    r.set (someSwitch, 1.0f);
+    r.set (someFine, 6.0f);
 
     Rig old;
-    old.name = "Old Rig";
-    old.parameters = { { ParamIDs::eqOn, 1.0f } };
+    old.name = "Old Preset";
+    old.parameters = { { ParamIDs::fltOn, 1.0f } };
     r.processor.getRigLibrary().saveAsNew (old);
-    r.processor.loadRig (r.entryNamed ("Old Rig"));
+    r.processor.loadRig (r.entryNamed ("Old Preset"));
 
-    CHECK (r.get (ParamIDs::eqOn) > 0.5f);
-    CHECK (r.get (ParamIDs::eqAutoGain) < 0.5f);
-    CHECK_THAT (r.get (ParamIDs::presence), WithinAbs (0.0, 0.01));
+    CHECK (r.get (ParamIDs::fltOn) > 0.5f);
+    CHECK (r.get (someSwitch) < 0.5f);
+    CHECK_THAT (r.get (someFine), WithinAbs (0.0, 0.01));
 }
 
 TEST_CASE ("The modified marker tracks changes since loading or saving", "[rigs]")
@@ -358,118 +328,121 @@ TEST_CASE ("The modified marker tracks changes since loading or saving", "[rigs]
 
     SECTION ("Turning a knob marks it modified")
     {
-        r.set (ParamIDs::eqOutput, 9.0f);
+        r.set (someTime, 9.0f);
         CHECK (r.processor.isRigModified());
     }
 
-    SECTION ("The global knobs don't count")
+    SECTION ("The global settings don't count")
     {
-        r.set (ParamIDs::inputGain, 3.0f);
+        r.set (ParamIDs::tune, 3.0f);
         r.set (ParamIDs::outputGain, -3.0f);
         CHECK_FALSE (r.processor.isRigModified());
     }
 
     SECTION ("Saving clears it")
     {
-        r.set (ParamIDs::eqOutput, 9.0f);
+        r.set (someTime, 9.0f);
         REQUIRE (r.processor.saveCurrentRigAs ("Saved"));
         CHECK_FALSE (r.processor.isRigModified());
-        r.set (ParamIDs::eqOutput, 2.0f);
+        r.set (someTime, 2.0f);
         CHECK (r.processor.isRigModified());
-        REQUIRE (r.processor.saveCurrentRig());   // a user rig now, so plain save works
+        REQUIRE (r.processor.saveCurrentRig());   // a user preset now, so plain save works
         CHECK_FALSE (r.processor.isRigModified());
     }
 }
 
-TEST_CASE ("Factory rigs can't be saved over", "[rigs]")
+TEST_CASE ("Factory presets can't be saved over", "[rigs]")
 {
     RigRig r;
     r.processor.loadRig (r.entryNamed ("Init"));
-    r.set (ParamIDs::presence, 9.0f);
+    r.set (someFine, 9.0f);
     CHECK_FALSE (r.processor.saveCurrentRig());   // the UI then asks for a new name
-    CHECK (r.entryNamed ("Init").rig.parameters.count (ParamIDs::presence) == 0);
+    CHECK (r.entryNamed ("Init").rig.parameters.count (someFine) == 0);
 }
 
-TEST_CASE ("< and > step through the rigs in order", "[rigs]")
+TEST_CASE ("< and > step through the presets in order", "[rigs]")
 {
     RigRig r;
     r.processor.loadRig (r.entryNamed ("Init"));
-    REQUIRE (r.processor.saveCurrentRigAs ("Second"));   // filed after bank A's factory rigs, at A08
-    REQUIRE (r.processor.saveCurrentRigAs ("Third"));    // A09
-    CHECK (r.entryNamed ("Second").rig.getSlotName() == "A08");
-    r.processor.loadRig (r.entryNamed ("Vocal Mud Control"));   // A07
+    REQUIRE (r.processor.saveCurrentRigAs ("Second"));   // filed after bank A's factory presets, at A09
+    REQUIRE (r.processor.saveCurrentRigAs ("Third"));    // A10
+    CHECK (r.entryNamed ("Second").rig.getSlotName() == "A09");
+    r.processor.loadRig (r.entryNamed ("Saw Brass"));   // A08
     r.processor.stepRig (1);
     CHECK (r.processor.getCurrentRig().name == "Second");
     r.processor.stepRig (1);
-    r.processor.stepRig (1);   // on to bank A's genre rigs (A11)
-    CHECK (r.processor.getCurrentRig().name == "Modern Metal Vocal");
-    r.processor.loadRig (r.entryNamed ("Industrial Vocal"));   // A19
-    r.processor.stepRig (1);   // on into bank B
-    CHECK (r.processor.getCurrentRig().name == "Kick Punch");
-    r.processor.loadRig (r.entryNamed ("Init"));
-    r.processor.stepRig (-1);   // wraps round to the last rig
-    CHECK (r.processor.getCurrentRig().name == "Industrial Master");
+    CHECK (r.processor.getCurrentRig().name == "Third");
+    r.processor.stepRig (1);   // wraps round to the first
+    CHECK (r.processor.getCurrentRig().name == "Init");
+    r.processor.stepRig (-1);   // and back to the last
+    CHECK (r.processor.getCurrentRig().name == "Third");
 }
 
-TEST_CASE ("Deleting the loaded rig keeps the sound, now unsaved", "[rigs]")
+TEST_CASE ("Deleting the loaded preset keeps the sound, now unsaved", "[rigs]")
 {
     RigRig r;
-    r.set (ParamIDs::eqOutput, 8.0f);
+    r.set (someTime, 8.0f);
     REQUIRE (r.processor.saveCurrentRigAs ("Temporary"));
     REQUIRE (r.processor.deleteRig (r.entryNamed ("Temporary")));
 
     CHECK_FALSE (r.processor.getCurrentRig().isUserRig());
     CHECK (r.processor.isRigModified());
-    CHECK_THAT (r.get (ParamIDs::eqOutput), WithinAbs (8.0, 0.01));
+    CHECK_THAT (r.get (someTime), WithinAbs (8.0, 0.01));
 }
 
-TEST_CASE ("The DAW project remembers which rig was loaded", "[rigs][state]")
+TEST_CASE ("The DAW project remembers which preset was loaded", "[rigs][state]")
 {
     juce::MemoryBlock saved;
     juce::File rigFile;
     {
         RigRig r;
-        r.set (ParamIDs::eqOutput, 8.0f);
-        REQUIRE (r.processor.saveCurrentRigAs ("Project Rig"));
-        r.set (ParamIDs::eqOutput, 3.0f);   // tweaked after saving
+        r.set (someTime, 8.0f);
+        REQUIRE (r.processor.saveCurrentRigAs ("Project Preset"));
+        r.set (someTime, 3.0f);   // tweaked after saving
         rigFile = r.processor.getCurrentRig().file;
         r.processor.getStateInformation (saved);
     }
 
     ParagonX1AudioProcessor restored;
     restored.setStateInformation (saved.getData(), (int) saved.getSize());
-    CHECK (restored.getCurrentRig().name == "Project Rig");
+    CHECK (restored.getCurrentRig().name == "Project Preset");
     CHECK (restored.getCurrentRig().file == rigFile);
     CHECK (restored.isRigModified());   // the tweak is remembered as unsaved
-    CHECK_THAT (restored.getParameters().getRawParameterValue (ParamIDs::eqOutput)->load(), WithinAbs (3.0, 0.01));
+    CHECK_THAT (restored.getParameters().getRawParameterValue (someTime)->load(), WithinAbs (3.0, 0.01));
 }
 
-TEST_CASE ("Each rig's RIG LEVEL adds to the master output", "[rigs]")
+TEST_CASE ("Each preset's LEVEL adds to OUTPUT", "[rigs]")
 {
-    RigRig r;
-    r.set (ParamIDs::rigLevel, 6.0f);
-
-    juce::AudioBuffer<float> buffer (2, 256);
-    juce::MidiBuffer midi;
-    for (int block = 0; block < 20; ++block)
+    const auto play = [] (float levelDb)
     {
-        buffer.clear();
-        for (int i = 0; i < 256; ++i)
-            buffer.setSample (0, i, 0.1f * std::sin (0.1f * (float) (block * 256 + i)));
-        r.processor.processBlock (buffer, midi);
-    }
-    CHECK_THAT (buffer.getMagnitude (0, 0, 256), WithinAbs (0.1 * 1.9953, 0.005));
+        RigRig r;
+        r.set (ParamIDs::patchLevel, levelDb);
+        r.set (ParamIDs::osc (0, "PhaseRand"), 0.0f);   // the same note both times
+        juce::AudioBuffer<float> buffer (2, 256);
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 127), 0);
+        double sum = 0.0;
+        for (int block = 0; block < 40; ++block)
+        {
+            r.processor.processBlock (buffer, midi);
+            midi.clear();
+            if (block >= 20)
+                sum += buffer.getRMSLevel (0, 0, 256);
+        }
+        return sum;
+    };
+    CHECK_THAT (play (6.0f) / play (0.0f), WithinAbs (1.9953, 0.01));
 }
 
-TEST_CASE ("Rigs live in their own Paragon PR7-E folder, apart from its siblings'", "[rigs]")
+TEST_CASE ("Presets live in their own Paragon PR7-K folder, apart from its siblings' rigs", "[rigs]")
 {
     const auto folder = RigLibrary::defaultFolder();
     CHECK (folder.getFileName() == "Rigs");
-    CHECK (folder.getParentDirectory().getFileName() == "Paragon PR7-E");
+    CHECK (folder.getParentDirectory().getFileName() == "Paragon PR7-K");
     CHECK (folder.getParentDirectory().getParentDirectory().getFileName() == "Paragon");
 
-    // PR7-B's (bass) and PR7-G's (guitar) rigs folders sit next to it, and are different folders.
-    for (const auto* sibling : { "Paragon PR7-B", "Paragon PR7-G" })
+    // PR7-E's (mixing), PR7-B's (bass) and PR7-G's (guitar) rigs folders sit next to it, and are different folders.
+    for (const auto* sibling : { "Paragon PR7-E", "Paragon PR7-B", "Paragon PR7-G" })
     {
         const auto siblingFolder = folder.getParentDirectory().getSiblingFile (sibling).getChildFile ("Rigs");
         CHECK (folder != siblingFolder);
@@ -488,21 +461,4 @@ TEST_CASE ("Only .pr7rig files are rigs: the old Paragon X1 .x1rig files aren't 
     RigLibrary library (temp.folder);
     CHECK (std::none_of (library.getEntries().begin(), library.getEntries().end(),
                          [] (const auto& entry) { return entry.rig.name == "From X1"; }));
-}
-
-TEST_CASE ("A rig file from before 0.3.0 with the pedal on an effect that's gone loads with it unassigned", "[rigs]")
-{
-    // WAH (2): one of PR7-B's effects, gone in 0.3.0.
-    auto xml = juce::XmlDocument::parse (R"(<ParagonRig version="1" parameterVersion="15" name="Old"><Param id="expressionTarget" value="2"/></ParagonRig>)");
-    REQUIRE (xml != nullptr);
-    const auto rig = Rig::fromXml (*xml);
-    REQUIRE (rig.has_value());
-    CHECK (rig->parameters.at ("expressionTarget") == 0.0f);
-
-    // VOLUME (1) stays VOLUME, and a rig saved now is read back as it is.
-    auto volume = juce::XmlDocument::parse (R"(<ParagonRig version="1" parameterVersion="15" name="Old"><Param id="expressionTarget" value="1"/></ParagonRig>)");
-    CHECK (Rig::fromXml (*volume)->parameters.at ("expressionTarget") == 1.0f);
-    Rig current;
-    current.parameters["expressionTarget"] = 1.0f;
-    CHECK (Rig::fromXml (*current.toXml())->parameters.at ("expressionTarget") == 1.0f);
 }

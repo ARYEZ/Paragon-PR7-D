@@ -23,17 +23,19 @@ namespace
         label.setColour (juce::Label::textColourId, ParagonColours::textDim);
     }
 
-    // One line describing what a rig switches on, e.g. "EQ".
+    // One line describing a preset: how many oscillators it uses, and whether the filter's on.
     juce::String describeBlocks (const Rig& rig)
     {
-        const std::pair<const char*, const char*> blocks[] = {
-            { ParamIDs::tunerOn, "Tuner" }, { ParamIDs::eqOn, "EQ" } };
-
-        juce::StringArray on;
-        for (const auto& [id, name] : blocks)
-            if (const auto found = rig.parameters.find (id); found != rig.parameters.end() && found->second > 0.5f)
-                on.add (name);
-        return on.isEmpty() ? juce::String ("No effects") : on.joinIntoString (", ");
+        const auto isOn = [&rig] (const juce::String& id)
+        {
+            const auto found = rig.parameters.find (id);
+            return found != rig.parameters.end() && found->second > 0.5f;
+        };
+        int oscillators = 0;
+        for (int i = 0; i < ParamIDs::numOscillators; ++i)
+            oscillators += isOn (ParamIDs::osc (i, "On")) ? 1 : 0;
+        return juce::String (oscillators) + (oscillators == 1 ? " oscillator" : " oscillators")
+             + (isOn (ParamIDs::fltOn) ? ", filter" : "");
     }
 }
 
@@ -50,10 +52,10 @@ RigBrowser::RigBrowser (ParagonX1AudioProcessor& p) : processor (p)
         addAndMakeVisible (button);
     };
 
-    addRadio (filterButtons, "All Rigs", 1, [this] { filter = Filter::all; refreshList(); });
+    addRadio (filterButtons, "All Presets", 1, [this] { filter = Filter::all; refreshList(); });
     addRadio (filterButtons, "Favourites", 1, [this] { filter = Filter::favourites; refreshList(); });
-    addRadio (filterButtons, "My Rigs", 1, [this] { filter = Filter::mine; refreshList(); });
-    addRadio (filterButtons, "Factory Rigs", 1, [this] { filter = Filter::factory; refreshList(); });
+    addRadio (filterButtons, "My Presets", 1, [this] { filter = Filter::mine; refreshList(); });
+    addRadio (filterButtons, "Factory Presets", 1, [this] { filter = Filter::factory; refreshList(); });
     addRadio (bankButtons, "All Banks", 2, [this] { bankFilter = -1; refreshList(); });
     for (int bank = 0; bank < Rig::numBanks; ++bank)
         addRadio (bankButtons, "Bank " + Rig::bankName (bank), 2, [this, bank] { bankFilter = bank; refreshList(); });
@@ -287,11 +289,11 @@ void RigBrowser::showDetails()
         if (rig.notes.isNotEmpty())
             text << "\n\n" << rig.notes;
         if (entry->isFactory)
-            text << "\n\nFactory rigs can't be changed: load it, then save a copy.";
+            text << "\n\nFactory presets can't be changed: load it, then save a copy.";
     }
     else
     {
-        text = "Select a rig on the left.";
+        text = "Select a preset on the left.";
     }
     info.setText (text, juce::dontSendNotification);
 }
@@ -330,7 +332,7 @@ void RigBrowser::promptSaveAs()
 {
     // The dialog lives inside the plugin window: separate desktop windows
     // can end up behind the DAW in some hosts.
-    dialog = std::make_unique<juce::AlertWindow> ("Save rig", "Save the current sound as a new rig called:",
+    dialog = std::make_unique<juce::AlertWindow> ("Save preset", "Save the current sound as a new preset called:",
                                                   juce::MessageBoxIconType::NoIcon);
     dialog->addTextEditor ("name", processor.getCurrentRig().name);
     dialog->addButton ("Save", 1, juce::KeyPress (juce::KeyPress::returnKey));
@@ -359,7 +361,7 @@ void RigBrowser::confirmDelete()
     if (entry == nullptr || entry->isFactory)
         return;
 
-    dialog = std::make_unique<juce::AlertWindow> ("Delete rig", "Move \"" + entry->rig.name + "\" to the bin?",
+    dialog = std::make_unique<juce::AlertWindow> ("Delete preset", "Move \"" + entry->rig.name + "\" to the bin?",
                                                   juce::MessageBoxIconType::WarningIcon);
     dialog->addButton ("Delete", 1);
     dialog->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
@@ -392,7 +394,7 @@ void RigBrowser::paint (juce::Graphics& g)
 
     g.setColour (ParagonColours::textDim);
     g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
-    g.drawText ("RIG BROWSER", sidebarArea.reduced (12, 8).withHeight (16), juce::Justification::centredLeft, false);
+    g.drawText ("PRESET BROWSER", sidebarArea.reduced (12, 8).withHeight (16), juce::Justification::centredLeft, false);
     if (bankButtons.size() > 0)
         g.drawText ("BANKS", bankButtons[0]->getBounds().translated (0, -22).withHeight (16), juce::Justification::centredLeft, false);
 }
