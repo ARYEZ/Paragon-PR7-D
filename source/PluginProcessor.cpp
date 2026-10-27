@@ -427,6 +427,7 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
     for (int k = 0; k < 2; ++k)
         s.modulation.buttons[(size_t) k] = isOn (ParamIDs::macroButtons[k]);
     s.modulation.bpm = hostBpm.load();
+    s.arpsTogether = isOn (ParamIDs::arpsTogether);
     s.modulation.toModWheel = { isOn (ParamIDs::mwBreath), isOn (ParamIDs::mwExpression), isOn (ParamIDs::mwAftertouch), isOn (ParamIDs::mwSustain) };
 
     // The PITCH module (its envelope's points are added per block).
@@ -464,6 +465,7 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
         a.pattern = choice (get (arpSetting ("Pattern")), synth::arp::patternNames.size());
         a.chain = get (arpSetting ("Chain")) > 0.5f;
         a.trigger = (synth::arp::Trigger) choice (get (arpSetting ("Trigger")), synth::arp::triggerNames.size());
+        a.noteSource = (synth::arp::NoteSource) choice (get (arpSetting ("NoteSource")), synth::arp::noteSourceNames.size());
     }
 
     // The STEP SEQUENCER (its steps are added per block).
@@ -589,7 +591,10 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
                 settings.oscillators[i].travel.pattern = &compiled->travelPatterns[i];
             }
             for (size_t k = 0; k < settings.arps.size(); ++k)
+            {
                 settings.arps[k].patterns = &compiled->arpPatterns[k];
+                settings.arps[k].randomizer = &compiled->arpRandomizers[k];
+            }
             int count = 0;
             for (const auto& c : compiled->routes)
             {
@@ -706,6 +711,7 @@ void ParagonX1AudioProcessor::compileMatrix()
         compiled->travelPatterns[i] = matrix.travel[i].pattern;
     }
     compiled->arpPatterns = matrix.arps;
+    compiled->arpRandomizers = matrix.arpRandomizers;
     std::stable_sort (compiled->routes.begin(), compiled->routes.end(), [] (const CompiledRoute& a, const CompiledRoute& b)
     {
         return std::pair ((int) a.target.field, a.target.index) < std::pair ((int) b.target.field, b.target.index);
@@ -1328,6 +1334,98 @@ bool ParagonX1AudioProcessor::exportMidiLinks (const juce::File& file) const
 {
     file.getParentDirectory().createDirectory();
     return midiLinks.toXml()->writeTo (file);
+}
+
+juce::MidiFile ParagonX1AudioProcessor::arpToMidi (int arp, juce::Array<int> keys) const
+{
+    constexpr int ticksPerBeat = 960;
+    arp = juce::jlimit (0, synth::arp::numArps - 1, arp);
+    auto settings = getSynthSettings();
+    auto s = settings.arps[(size_t) arp];
+    const auto& patterns = matrix.arps[(size_t) arp];
+    const auto& randomizer = matrix.arpRandomizers[(size_t) arp];
+
+    if (keys.isEmpty())
+        for (int n = 0; n < 128; ++n)
+            if (keyboardState.isNoteOnForChannels (0xffff, n))
+                keys.add (n);
+    if (keys.isEmpty())
+        keys.add (60);
+    keys.sort();
+    std::array<synth::arp::Held, synth::arp::maxHeld> held {};
+    const auto numHeld = juce::jmin (keys.size(), synth::arp::maxHeld);
+    for (int i = 0; i < numHeld; ++i)
+        held[(size_t) i] = { keys[i], 0.8f, i };
+    int noteCounter = 0;
+    synth::arp::KeysState state { held.data(), numHeld, &noteCounter, 0.8f, 0.8f };
+
+    const auto length = juce::jlimit (2, synth::arp::maxSteps, s.length);
+    auto cycles = 1;
+    if (s.chain)
+    {
+        cycles = 0;
+        for (const auto& p : patterns.patterns)
+            cycles += p.isEmpty() ? 0 : 1;
+        cycles = juce::jmax (1, cycles);
+    }
+    const auto dice = randomizer.autoDice && ! s.chain;
+    if (dice)
+        cycles = 4;
+
+    juce::MidiMessageSequence track;
+    const auto bpm = juce::jmax (1.0, getHostBpm());
+    track.addEvent (juce::MidiMessage::tempoMetaEvent (juce::roundToInt (60000000.0 / bpm)), 0.0);
+    track.addEvent (juce::MidiMessage::textMetaEvent (3, "Arp " + juce::String (arp + 1)), 0.0);
+    const auto ticksPerStep = s.beatsPerStep() * ticksPerBeat;
+    const auto shift = 0.5 * juce::jlimit (0.0, 1.0, (double) settings.stepSeq.shuffle);
+    juce::Random random (1);
+    synth::arp::Pattern live;
+    std::array<synth::arp::Played, synth::arp::maxPlayed> played {};
+    for (std::int64_t step = 0; step < (std::int64_t) length * cycles; ++step)
+    {
+        if (dice && step % length == 0)
+            live = synth::arp::roll (randomizer, length, patterns.patterns[(size_t) juce::jlimit (0, 3, s.pattern)],
+                                     (juce::int64) randomizer.seed * 7919 + step / length + 1);
+        const auto& block = synth::arp::blockFor (s, patterns, step, dice ? &live : nullptr);
+        const auto at = ((double) step + ((step & 1) != 0 ? shift : 0.0)) * ticksPerStep;
+        const auto count = synth::arp::playBlock (s, block, ticksPerStep, state, random, played.data(), (int) played.size());
+        for (int i = 0; i < count; ++i)
+        {
+            const auto& p = played[(size_t) i];
+            const auto start = at + p.start;
+            // A slide: in MIDI, the note held on to overlap the next one (most synths glide on overlapping notes).
+            const auto end = p.slide ? at + p.end + 0.25 * ticksPerStep : at + p.end;
+            track.addEvent (juce::MidiMessage::noteOn (1, p.note, juce::jlimit (0.01f, 1.0f, p.velocity)), std::round (start));
+            track.addEvent (juce::MidiMessage::noteOff (1, p.note), juce::jmax (std::round (start) + 1.0, std::round (end)));
+        }
+    }
+    track.addEvent (juce::MidiMessage::endOfTrack(), std::round ((double) length * cycles * ticksPerStep));
+    track.updateMatchedPairs();
+    track.sort();
+
+    juce::MidiFile file;
+    file.setTicksPerQuarterNote (ticksPerBeat);
+    file.addTrack (track);
+    return file;
+}
+
+bool ParagonX1AudioProcessor::exportArpMidi (int arp, const juce::File& file) const
+{
+    file.getParentDirectory().createDirectory();
+    juce::FileOutputStream out (file);
+    if (! out.openedOk())
+        return false;
+    out.setPosition (0);
+    out.truncate();
+    return arpToMidi (arp).writeTo (out);
+}
+
+juce::File ParagonX1AudioProcessor::arpMidiDragFile (int arp) const
+{
+    auto file = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                    .getChildFile ("Paragon PR7-K").getChildFile ("Arp " + juce::String (arp + 1) + ".mid");
+    exportArpMidi (arp, file);
+    return file;
 }
 
 bool ParagonX1AudioProcessor::importMidiLinks (const juce::File& file)

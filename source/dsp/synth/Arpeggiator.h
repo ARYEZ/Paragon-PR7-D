@@ -294,9 +294,7 @@ namespace synth
             {
                 auto& b = p.blocks[(size_t) k];
                 if (r.rollRests)
-                    b.on = random.nextFloat() >= r.restChance;
-                else if (! b.on)
-                    b = { true };
+                    b.on = random.nextFloat() >= r.restChance;   // otherwise its rest or note stays
                 if (r.rollLengths)
                     b.length = 1 + pick (r.lengthChances, random);
                 if (r.rollNotes || r.rollOctaves)

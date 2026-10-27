@@ -139,7 +139,8 @@ namespace ParamIDs
     // The ARPEGGIATORS (stage 5a, 0.15.0): "arp1" to "arp8". Their patterns are kept with the preset (ModMatrix).
     inline constexpr int numArps = 8;
     inline constexpr const char* arpSettings[] = { "On", "Mode", "Division", "Timing", "Octaves", "Gate", "Length", "Velocity",
-                                                   "LowKey", "HighKey", "Humanize", "Strum", "Pattern", "Chain", "Trigger" };
+                                                   "LowKey", "HighKey", "Humanize", "Strum", "Pattern", "Chain", "Trigger",
+                                                   "NoteSource" };   // 5b (0.16.0): appended
     inline juce::String arp (int index, const char* what) { return "arp" + juce::String (index + 1) + what; }
     consteval int arpSetting (std::string_view what)
     {
@@ -189,6 +190,9 @@ namespace ParamIDs
     inline constexpr auto bendUp    = "bendUp";       // semitones
     inline constexpr auto bendDown  = "bendDown";
     inline constexpr auto voices    = "voices";       // notes at once
+
+    // ARPS TOGETHER (stage 5b, 0.16.0): every arp's steps counted from the first key held, so they stay in step.
+    inline constexpr auto arpsTogether = "arpsTogether";
 
     // CONTROLLER TO MOD WHEEL (stage 4f, 0.14.0): these controllers drive the mod wheel too (the "mw" switches).
     inline constexpr auto mwBreath     = "mwBreath";

@@ -24,6 +24,7 @@ namespace
     constexpr int stage4e = 12;  // 0.13.0
     constexpr int stage4f = 13;  // 0.14.0
     constexpr int stage5a = 14;  // 0.15.0
+    constexpr int stage5b = 15;  // 0.16.0
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -449,7 +450,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         addChoice (layout, arp (k, "Pattern"), name + "Pattern", synth::arp::patternNames, arpDefaults.pattern, stage5a);
         addSwitch (layout, arp (k, "Chain"), name + "Chain", arpDefaults.chain, stage5a);
         addChoice (layout, arp (k, "Trigger"), name + "Trigger", synth::arp::triggerNames, (int) arpDefaults.trigger, stage5a);
+        addChoice (layout, arp (k, "NoteSource"), name + "Note Source", synth::arp::noteSourceNames, (int) arpDefaults.noteSource, stage5b);
     }
+    addSwitch (layout, arpsTogether, "Arps Together", synth::Settings{}.arpsTogether, stage5b);
 
     // CONTROLLER TO MOD WHEEL (stage 4f): global, like OUTPUT.
     addSwitch (layout, mwBreath, "Breath To Mod Wheel", false, stage4f);

@@ -184,6 +184,11 @@ public:
     juce::File midiLinksDefaultFile() const;
     bool saveMidiLinksAsDefault() const;
     bool exportMidiLinks (const juce::File&) const;
+    // MIDI EXPORT (stage 5b): what ARP `arp` plays over `keys` (empty: the keys held on the keyboard, else C4),
+    // one pass of its pattern (CHAIN: each with blocks; AUTODICE: four cycles), at the song's tempo.
+    juce::MidiFile arpToMidi (int arp, juce::Array<int> keys = {}) const;
+    bool exportArpMidi (int arp, const juce::File&) const;
+    juce::File arpMidiDragFile (int arp) const;   // a file to drag onto a track
     bool importMidiLinks (const juce::File&);
     void controllerForTest (int controller, float value);   // a controller, played through a short block
     // How many routes the audio thread is playing (on, with a source and a known destination). For tests and the display.
@@ -338,6 +343,7 @@ private:
         std::array<synth::mod::Shape, synth::numOscillators> travelShapes {};
         std::array<synth::travel::Pattern, synth::numOscillators> travelPatterns {};
         std::array<synth::arp::Patterns, synth::arp::numArps> arpPatterns {};
+        std::array<synth::arp::Randomizer, synth::arp::numArps> arpRandomizers {};
         std::uint32_t usedSources = 0;
     };
     std::shared_ptr<const CompiledMatrix> compiledMatrix;

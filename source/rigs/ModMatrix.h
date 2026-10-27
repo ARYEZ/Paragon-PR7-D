@@ -183,6 +183,8 @@ struct ModMatrix
     std::array<TravelData, synth::numOscillators> travel {};
     // The ARPEGGIATORS' patterns (stage 5a): A to D for each of the 8.
     std::array<synth::arp::Patterns, synth::arp::numArps> arps = filledArps();
+    // Each arp's note RANDOMIZER (stage 5b).
+    std::array<synth::arp::Randomizer, synth::arp::numArps> arpRandomizers {};
     static std::array<synth::arp::Patterns, synth::arp::numArps> filledArps()
     {
         std::array<synth::arp::Patterns, synth::arp::numArps> a;
@@ -201,7 +203,8 @@ struct ModMatrix
     bool operator== (const ModMatrix& o) const noexcept
     {
         return routes == o.routes && macroNames == o.macroNames && envelopes == o.envelopes && lfoShapes == o.lfoShapes
-            && pitchEnvelope == o.pitchEnvelope && stepPattern == o.stepPattern && travel == o.travel && arps == o.arps;
+            && pitchEnvelope == o.pitchEnvelope && stepPattern == o.stepPattern && travel == o.travel && arps == o.arps
+            && arpRandomizers == o.arpRandomizers;
     }
     bool isEmpty() const noexcept { return *this == ModMatrix {}; }
 
@@ -265,7 +268,8 @@ struct ModMatrix
             e->setAttribute ("strength", t.encodeStrength());
         }
         // The arps' patterns, those changed from new: each pattern's blocks as
-        // "step:length:transpose:velocity:slide:ratchet", only the blocks that are on.
+        // "step:length:transpose:velocity:slide:ratchet:chord:tones:sub:subTranspose" (0.15.0 wrote
+        // the first six), only the blocks that are on.
         const auto fresh = synth::arp::Patterns::makeDefault();
         for (int a = 0; a < synth::arp::numArps; ++a)
             for (int p = 0; p < synth::arp::numPatterns; ++p)
@@ -279,13 +283,37 @@ struct ModMatrix
                     const auto& b = pattern.blocks[(size_t) k];
                     if (b.on)
                         blocks.add (juce::String (k) + ":" + juce::String (b.length) + ":" + juce::String (b.transpose) + ":"
-                                    + juce::String (b.velocity, 3) + ":" + (b.slide ? "1" : "0") + ":" + juce::String (b.ratchet));
+                                    + juce::String (b.velocity, 3) + ":" + (b.slide ? "1" : "0") + ":" + juce::String (b.ratchet) + ":" + juce::String (b.chord) + ":"
+                                    + juce::String (b.chordMask) + ":" + (b.sub ? "1" : "0") + ":" + juce::String (b.subTranspose));
                 }
                 auto* e = xml->createNewChildElement ("ArpPattern");
                 e->setAttribute ("arp", a + 1);
                 e->setAttribute ("pattern", synth::arp::patternNames[p]);
                 e->setAttribute ("blocks", blocks.joinIntoString (" "));
             }
+        // The randomizers changed from new.
+        for (int a = 0; a < synth::arp::numArps; ++a)
+        {
+            const auto& r = arpRandomizers[(size_t) a];
+            if (r == synth::arp::Randomizer {})
+                continue;
+            auto* e = xml->createNewChildElement ("ArpRandom");
+            e->setAttribute ("arp", a + 1);
+            e->setAttribute ("scale", synth::arp::scaleNames[r.scale]);
+            e->setAttribute ("notes", joined (r.noteChances));
+            e->setAttribute ("octaves", joined (r.octaveChances));
+            e->setAttribute ("lengths", joined (r.lengthChances));
+            e->setAttribute ("rest", r.restChance);
+            e->setAttribute ("slide", r.slideChance);
+            e->setAttribute ("ratchet", r.ratchetChance);
+            e->setAttribute ("velocityLow", r.velocityLow);
+            e->setAttribute ("velocityHigh", r.velocityHigh);
+            e->setAttribute ("roll", juce::String (r.rollNotes ? "n" : "") + (r.rollOctaves ? "o" : "") + (r.rollLengths ? "l" : "")
+                                         + (r.rollVelocity ? "v" : "") + (r.rollRests ? "r" : ""));
+            e->setAttribute ("symmetry", r.symmetry);
+            e->setAttribute ("autoDice", r.autoDice);
+            e->setAttribute ("seed", r.seed);
+        }
         return xml;
     }
 
@@ -349,7 +377,7 @@ struct ModMatrix
             {
                 const auto parts = juce::StringArray::fromTokens (item, ":", {});
                 const auto k = parts[0].getIntValue();
-                if (parts.size() != 6 || k < 0 || k >= synth::arp::maxSteps)
+                if ((parts.size() != 6 && parts.size() != 10) || k < 0 || k >= synth::arp::maxSteps)
                     continue;
                 auto& b = pattern.blocks[(size_t) k];
                 b.on = true;
@@ -358,9 +386,58 @@ struct ModMatrix
                 b.velocity = juce::jlimit (0.0f, 1.0f, parts[3].getFloatValue());
                 b.slide = parts[4].getIntValue() != 0;
                 b.ratchet = juce::jlimit (1, synth::arp::maxRatchet, parts[5].getIntValue());
+                if (parts.size() == 10)
+                {
+                    b.chord = juce::jlimit (0, synth::arp::chordNames.size() - 1, parts[6].getIntValue());
+                    b.chordMask = parts[7].getIntValue() & 0x1f;
+                    b.sub = parts[8].getIntValue() != 0;
+                    b.subTranspose = juce::jlimit (-24, 0, parts[9].getIntValue());
+                }
             }
         }
+        for (const auto* e : xml.getChildWithTagNameIterator ("ArpRandom"))
+        {
+            const auto a = e->getIntAttribute ("arp") - 1;
+            if (a < 0 || a >= synth::arp::numArps)
+                continue;
+            auto& r = m.arpRandomizers[(size_t) a];
+            r.scale = juce::jmax (0, synth::arp::scaleNames.indexOf (e->getStringAttribute ("scale")));
+            split (e->getStringAttribute ("notes"), r.noteChances);
+            split (e->getStringAttribute ("octaves"), r.octaveChances);
+            split (e->getStringAttribute ("lengths"), r.lengthChances);
+            r.restChance = (float) e->getDoubleAttribute ("rest", r.restChance);
+            r.slideChance = (float) e->getDoubleAttribute ("slide", r.slideChance);
+            r.ratchetChance = (float) e->getDoubleAttribute ("ratchet", r.ratchetChance);
+            r.velocityLow = (float) e->getDoubleAttribute ("velocityLow", r.velocityLow);
+            r.velocityHigh = (float) e->getDoubleAttribute ("velocityHigh", r.velocityHigh);
+            const auto roll = e->getStringAttribute ("roll");
+            r.rollNotes = roll.containsChar ('n');
+            r.rollOctaves = roll.containsChar ('o');
+            r.rollLengths = roll.containsChar ('l');
+            r.rollVelocity = roll.containsChar ('v');
+            r.rollRests = roll.containsChar ('r');
+            r.symmetry = e->getBoolAttribute ("symmetry");
+            r.autoDice = e->getBoolAttribute ("autoDice");
+            r.seed = e->getIntAttribute ("seed", 1);
+        }
         return m;
+    }
+
+    // Chances as text, "0.3 0.6 ...", and back (missing ones left as they were).
+    template <size_t N>
+    static juce::String joined (const std::array<float, N>& values)
+    {
+        juce::StringArray items;
+        for (const auto v : values)
+            items.add (juce::String (v, 3));
+        return items.joinIntoString (" ");
+    }
+    template <size_t N>
+    static void split (const juce::String& text, std::array<float, N>& values)
+    {
+        const auto items = juce::StringArray::fromTokens (text, " ", {});
+        for (size_t i = 0; i < N && (int) i < items.size(); ++i)
+            values[i] = juce::jlimit (0.0f, 1.0f, items[(int) i].getFloatValue());
     }
 
     // A row of steps as text: "height[flags] ...", flags "-" deleted, ">" linked to the next.
