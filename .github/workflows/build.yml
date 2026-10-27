@@ -97,7 +97,7 @@ jobs:
   # above, zipped, with notes from CHANGELOG.md.
   release:
     name: Release
-    if: github.event_name == 'push'
+    if: false && github.event_name == 'push'
     needs: build
     runs-on: ubuntu-24.04
     permissions:
