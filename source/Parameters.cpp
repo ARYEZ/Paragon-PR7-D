@@ -23,6 +23,7 @@ namespace
     constexpr int stage4d = 11;  // 0.12.0
     constexpr int stage4e = 12;  // 0.13.0
     constexpr int stage4f = 13;  // 0.14.0
+    constexpr int stage5a = 14;  // 0.15.0
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -317,6 +318,9 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         addChoice (layout, osc (i, "TrSync"), name + "Travel Sync", synth::mod::lfoSyncNames, (int) tr.sync, stage4e);
         addChoice (layout, osc (i, "TrDivision"), name + "Travel Sync Length", synth::mod::lfoDivisionNames, tr.division, stage4e);
 
+        // Which ARP its notes come from (stage 5a).
+        addChoice (layout, osc (i, "Arp"), name + "Arp", synth::arp::routeNames, defaults.arp, stage5a);
+
         // Whether it follows the PITCH envelope (stage 4c).
         addSwitch (layout, osc (i, "PitchEnv"), name + "Pitch Envelope", defaults.pitchEnvelope, stage4c);
     }
@@ -425,6 +429,28 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
 
     for (int k = 0; k < 3; ++k)
         add (layout, macros[k], "Macro " + juce::String (k + 1), { 0.0f, 1.0f }, 0.0f, asPercent, stage4a);
+    // The ARPEGGIATORS (stage 5a).
+    const synth::ArpSettings arpDefaults;
+    for (int k = 0; k < numArps; ++k)
+    {
+        const auto name = "Arp " + juce::String (k + 1) + " ";
+        addSwitch (layout, arp (k, "On"), name + "On", arpDefaults.on, stage5a);
+        addChoice (layout, arp (k, "Mode"), name + "Mode", synth::arp::modeNames, (int) arpDefaults.mode, stage5a);
+        addChoice (layout, arp (k, "Division"), name + "Speed", synth::seq::divisionNames, arpDefaults.division, stage5a);
+        addChoice (layout, arp (k, "Timing"), name + "Timing", synth::seq::timingNames, (int) arpDefaults.timing, stage5a);
+        add (layout, arp (k, "Octaves"), name + "Octaves", { 1.0f, 4.0f, 1.0f }, (float) arpDefaults.octaves, asCount, stage5a);
+        add (layout, arp (k, "Gate"), name + "Gate", { 0.05f, 1.0f }, arpDefaults.gate, asPercent, stage5a);
+        add (layout, arp (k, "Length"), name + "Length", { 2.0f, (float) synth::arp::maxSteps, 1.0f }, (float) arpDefaults.length, asCount, stage5a);
+        addChoice (layout, arp (k, "Velocity"), name + "Velocity", synth::arp::velocityModeNames, (int) arpDefaults.velocityMode, stage5a);
+        add (layout, arp (k, "LowKey"), name + "Start Note", { 0.0f, 127.0f, 1.0f }, (float) arpDefaults.lowKey, asNote, stage5a);
+        add (layout, arp (k, "HighKey"), name + "End Note", { 0.0f, 127.0f, 1.0f }, (float) arpDefaults.highKey, asNote, stage5a);
+        add (layout, arp (k, "Humanize"), name + "Humanize", { 0.0f, 1.0f }, arpDefaults.humanize, asPercent, stage5a);
+        add (layout, arp (k, "Strum"), name + "Strum", { 0.0f, 1.0f }, arpDefaults.strum, asPercent, stage5a);
+        addChoice (layout, arp (k, "Pattern"), name + "Pattern", synth::arp::patternNames, arpDefaults.pattern, stage5a);
+        addSwitch (layout, arp (k, "Chain"), name + "Chain", arpDefaults.chain, stage5a);
+        addChoice (layout, arp (k, "Trigger"), name + "Trigger", synth::arp::triggerNames, (int) arpDefaults.trigger, stage5a);
+    }
+
     // CONTROLLER TO MOD WHEEL (stage 4f): global, like OUTPUT.
     addSwitch (layout, mwBreath, "Breath To Mod Wheel", false, stage4f);
     addSwitch (layout, mwExpression, "Expression To Mod Wheel", false, stage4f);

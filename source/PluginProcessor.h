@@ -247,6 +247,8 @@ private:
     std::array<LfoParameters, ParamIDs::numLfos> lfoParameters {};
     struct EnvelopeParameters { std::atomic<float>* values[std::size (ParamIDs::envelopeSettings)] {}; };
     std::array<EnvelopeParameters, ParamIDs::numEnvelopes> envelopeParameters {};
+    struct ArpParameters { std::atomic<float>* values[std::size (ParamIDs::arpSettings)] {}; };
+    std::array<ArpParameters, ParamIDs::numArps> arpParameters {};
 
     // WAVETABLES: tables loaded from files (null: the factory's), what each
     // oscillator plays now, the same for the audio thread (a plain pointer it
@@ -335,6 +337,7 @@ private:
         synth::seq::Pattern stepPattern {};
         std::array<synth::mod::Shape, synth::numOscillators> travelShapes {};
         std::array<synth::travel::Pattern, synth::numOscillators> travelPatterns {};
+        std::array<synth::arp::Patterns, synth::arp::numArps> arpPatterns {};
         std::uint32_t usedSources = 0;
     };
     std::shared_ptr<const CompiledMatrix> compiledMatrix;

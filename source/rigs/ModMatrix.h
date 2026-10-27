@@ -181,6 +181,14 @@ struct ModMatrix
     synth::seq::Pattern stepPattern {};
     // Each oscillator's TRAVEL (stage 4e).
     std::array<TravelData, synth::numOscillators> travel {};
+    // The ARPEGGIATORS' patterns (stage 5a): A to D for each of the 8.
+    std::array<synth::arp::Patterns, synth::arp::numArps> arps = filledArps();
+    static std::array<synth::arp::Patterns, synth::arp::numArps> filledArps()
+    {
+        std::array<synth::arp::Patterns, synth::arp::numArps> a;
+        a.fill (synth::arp::Patterns::makeDefault());
+        return a;
+    }
 
     template <int N>
     static std::array<ModShapeData, (size_t) N> filled (const ModShapeData& d)
@@ -193,7 +201,7 @@ struct ModMatrix
     bool operator== (const ModMatrix& o) const noexcept
     {
         return routes == o.routes && macroNames == o.macroNames && envelopes == o.envelopes && lfoShapes == o.lfoShapes
-            && pitchEnvelope == o.pitchEnvelope && stepPattern == o.stepPattern && travel == o.travel;
+            && pitchEnvelope == o.pitchEnvelope && stepPattern == o.stepPattern && travel == o.travel && arps == o.arps;
     }
     bool isEmpty() const noexcept { return *this == ModMatrix {}; }
 
@@ -256,6 +264,28 @@ struct ModMatrix
             e->setAttribute ("steps", t.encodeSteps());
             e->setAttribute ("strength", t.encodeStrength());
         }
+        // The arps' patterns, those changed from new: each pattern's blocks as
+        // "step:length:transpose:velocity:slide:ratchet", only the blocks that are on.
+        const auto fresh = synth::arp::Patterns::makeDefault();
+        for (int a = 0; a < synth::arp::numArps; ++a)
+            for (int p = 0; p < synth::arp::numPatterns; ++p)
+            {
+                const auto& pattern = arps[(size_t) a].patterns[(size_t) p];
+                if (pattern == fresh.patterns[(size_t) p])
+                    continue;
+                juce::StringArray blocks;
+                for (int k = 0; k < synth::arp::maxSteps; ++k)
+                {
+                    const auto& b = pattern.blocks[(size_t) k];
+                    if (b.on)
+                        blocks.add (juce::String (k) + ":" + juce::String (b.length) + ":" + juce::String (b.transpose) + ":"
+                                    + juce::String (b.velocity, 3) + ":" + (b.slide ? "1" : "0") + ":" + juce::String (b.ratchet));
+                }
+                auto* e = xml->createNewChildElement ("ArpPattern");
+                e->setAttribute ("arp", a + 1);
+                e->setAttribute ("pattern", synth::arp::patternNames[p]);
+                e->setAttribute ("blocks", blocks.joinIntoString (" "));
+            }
         return xml;
     }
 
@@ -306,6 +336,29 @@ struct ModMatrix
             t.envelope = ModShapeData::decode (e->getStringAttribute ("points"), -1, -1, -1, true);
             t.decodeSteps (e->getStringAttribute ("steps"));
             t.decodeStrength (e->getStringAttribute ("strength"));
+        }
+        for (const auto* e : xml.getChildWithTagNameIterator ("ArpPattern"))
+        {
+            const auto a = e->getIntAttribute ("arp") - 1;
+            const auto p = synth::arp::patternNames.indexOf (e->getStringAttribute ("pattern"));
+            if (a < 0 || a >= synth::arp::numArps || p < 0)
+                continue;
+            auto& pattern = m.arps[(size_t) a].patterns[(size_t) p];
+            pattern = {};
+            for (const auto& item : juce::StringArray::fromTokens (e->getStringAttribute ("blocks"), " ", {}))
+            {
+                const auto parts = juce::StringArray::fromTokens (item, ":", {});
+                const auto k = parts[0].getIntValue();
+                if (parts.size() != 6 || k < 0 || k >= synth::arp::maxSteps)
+                    continue;
+                auto& b = pattern.blocks[(size_t) k];
+                b.on = true;
+                b.length = juce::jlimit (1, synth::arp::maxSteps, parts[1].getIntValue());
+                b.transpose = juce::jlimit (-36, 36, parts[2].getIntValue());
+                b.velocity = juce::jlimit (0.0f, 1.0f, parts[3].getFloatValue());
+                b.slide = parts[4].getIntValue() != 0;
+                b.ratchet = juce::jlimit (1, synth::arp::maxRatchet, parts[5].getIntValue());
+            }
         }
         return m;
     }

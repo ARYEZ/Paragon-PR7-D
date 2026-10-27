@@ -140,6 +140,8 @@ namespace synth
             float velocity = 1.0f;
             bool held = false, sustained = false;
             std::uint64_t age = 0;      // when it started: older notes are taken first
+            int source = 0;             // stage 5a: 0 a key; 1 to 8 ARP n
+            std::uint8_t oscMask = 0xff;   // ...and the oscillators it plays (bit per oscillator)
             bool killing = false;       // stolen: fading out fast
             float killGain = 1.0f;
 
@@ -184,7 +186,7 @@ namespace synth
         void processShaper (Path&, int shaper, float* left, float* right, int n, const Settings&, float velocityDown) noexcept;
         float vibratoValue (VibratoWave, float& phase, float& held, float advance) noexcept;   // -1 to 1, then moves on
 
-        void startVoice (Voice&, int note, float velocity, float fromPitch, const Settings&) noexcept;
+        void startVoice (Voice&, int note, float velocity, float fromPitch, const Settings&, int source = 0, std::uint8_t mask = 0xff) noexcept;
         void retrigger (Voice&, int note, float velocity, bool restartEnvelopes, bool glide, const Settings&) noexcept;
         void releaseVoice (Voice&) noexcept;
         void kill (Voice&) noexcept;
@@ -195,6 +197,7 @@ namespace synth
         void setNotePan (Voice&, const Settings&) noexcept;
 
         void polyNoteOn (int note, float velocity, const Settings&) noexcept;
+        void makeRoom (const Settings&) noexcept;   // over VOICES: a note goes
         void monoNoteOn (int note, float velocity, const Settings&) noexcept;
         void monoNoteOff (int note, const Settings&) noexcept;
         int monoTarget (const Settings&) const noexcept;   // which held note the mono voice plays, or -1
@@ -277,5 +280,56 @@ namespace synth
         // The settings before this note's modulation (to tell what the matrix moves for it).
         const Settings* baseSettings = nullptr;
         Settings voiceSettings;
+
+        // The ARPEGGIATOR (stage 5a). Each arp: the keys it holds, its clock, its
+        // place in the notes; the notes it has scheduled (on and off, at exact
+        // samples on `sampleClock`, the samples rendered since the start).
+        struct ArpState
+        {
+            std::array<arp::Held, arp::maxHeld> held {};
+            int numHeld = 0, pressCounter = 0;
+            std::array<bool, 128> pedalHeld {};   // let go while the sustain pedal is down
+            bool running = false;
+            std::int64_t startClock = 0;          // when it started (its own clock)
+            std::int64_t lastStep = -1;           // the last step it played
+            int noteCounter = 0;                  // its place in the notes
+            float firstVelocity = 1.0f, lastVelocity = 1.0f;
+            std::uint64_t slideAge = 0;           // a voice gliding on into the next block (0: none)...
+            int slidePair = 0;                    // ...and the note it started as
+        };
+        std::array<ArpState, arp::numArps> arps {};
+        struct ArpEvent
+        {
+            std::int64_t time = 0;
+            int arp = 0;
+            bool on = true;
+            int note = 60;
+            float velocity = 1.0f;
+            int pair = 0;           // the on and off of one note share this
+            bool slide = false;     // an on that glides on into the next block
+        };
+        static constexpr int maxArpEvents = 1024;
+        // On the heap (about 48 KB), sized once: the engine stays small enough for a thread's stack.
+        std::vector<ArpEvent> arpEvents = std::vector<ArpEvent> (maxArpEvents);
+        int numArpEvents = 0, nextPair = 1;
+        std::vector<std::uint64_t> pairAges = std::vector<std::uint64_t> (maxArpEvents);   // the voice each pair started (by its age)
+        std::int64_t sampleClock = 0, blockStartClock = 0;
+        std::uint8_t keyMask = 0xff;                            // the oscillators the keys play themselves
+        std::array<std::uint8_t, arp::numArps> arpMasks {};      // ...and each arp's
+
+        void updateArpMasks (const Settings&) noexcept;
+        bool arpActive (int a) const noexcept { return arpMasks[(size_t) a] != 0; }
+        void arpKeyDown (int note, float velocity, const Settings&) noexcept;
+        void arpKeyUp (int note) noexcept;
+        void removeArpKey (ArpState&, int note) noexcept;
+        void stopArpIfEmpty (int a) noexcept;
+        std::int64_t arpStepTime (int a, std::int64_t step, const Settings&) const noexcept;   // when a step starts (on sampleClock)
+        std::int64_t arpStepAt (int a, std::int64_t time, const Settings&) const noexcept;     // the last step started by then
+        bool arpFollowsSong (int a, const Settings&) const noexcept;
+        void runArps (const Settings&) noexcept;                                               // plays everything due now
+        std::int64_t nextArpTime (const Settings&) const noexcept;                             // when something is next due
+        void playArpStep (int a, std::int64_t step, std::int64_t at, const Settings&) noexcept;
+        void scheduleArp (const ArpEvent&) noexcept;
+        void fireArpEvent (const ArpEvent&, const Settings&) noexcept;
     };
 }

@@ -46,7 +46,9 @@ namespace ParamIDs
         "PitchEnv",
         // Stage 4e: TRAVEL (its envelope, steps and strengths are kept with the preset, in the mod matrix).
         "TrOn", "TrEditors", "TrTrigger", "TrMode", "TrPatternMode", "TrSteps", "TrStrength", "TrVelocity", "TrVelCurve",
-        "TrSmooth", "TrPhase", "TrFlip", "TrRate", "TrSync", "TrDivision" };
+        "TrSmooth", "TrPhase", "TrFlip", "TrRate", "TrSync", "TrDivision",
+        // Stage 5a: which ARP its notes come from.
+        "Arp" };
 
     // Where a setting is in oscSettings, worked out by the compiler (a typo won't compile).
     consteval int oscSetting (std::string_view what)
@@ -133,6 +135,18 @@ namespace ParamIDs
             if (std::string_view (envelopeSettings[i]) == what)
                 return i;
         throw "not an envelope setting";
+    }
+    // The ARPEGGIATORS (stage 5a, 0.15.0): "arp1" to "arp8". Their patterns are kept with the preset (ModMatrix).
+    inline constexpr int numArps = 8;
+    inline constexpr const char* arpSettings[] = { "On", "Mode", "Division", "Timing", "Octaves", "Gate", "Length", "Velocity",
+                                                   "LowKey", "HighKey", "Humanize", "Strum", "Pattern", "Chain", "Trigger" };
+    inline juce::String arp (int index, const char* what) { return "arp" + juce::String (index + 1) + what; }
+    consteval int arpSetting (std::string_view what)
+    {
+        for (int i = 0; i < (int) std::size (arpSettings); ++i)
+            if (std::string_view (arpSettings[i]) == what)
+                return i;
+        throw "not an arp setting";
     }
     inline constexpr const char* macros[] = { "macro1", "macro2", "macro3" };
     inline constexpr const char* macroButtons[] = { "macroButton1", "macroButton2" };

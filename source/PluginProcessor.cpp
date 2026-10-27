@@ -140,6 +140,12 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
             lfoParameters[(size_t) k].values[s] = parameters.getRawParameterValue (ParamIDs::lfo (k, ParamIDs::lfoSettings[s]));
             jassert (lfoParameters[(size_t) k].values[s] != nullptr);
         }
+    for (int k = 0; k < ParamIDs::numArps; ++k)
+        for (size_t s = 0; s < std::size (ParamIDs::arpSettings); ++s)
+        {
+            arpParameters[(size_t) k].values[s] = parameters.getRawParameterValue (ParamIDs::arp (k, ParamIDs::arpSettings[s]));
+            jassert (arpParameters[(size_t) k].values[s] != nullptr);
+        }
     for (int k = 0; k < ParamIDs::numEnvelopes; ++k)
         for (size_t s = 0; s < std::size (ParamIDs::envelopeSettings); ++s)
         {
@@ -283,6 +289,7 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
         tr.rateHz = get (oscSetting ("TrRate"));
         tr.sync = (synth::mod::LfoSync) choice (get (oscSetting ("TrSync")), synth::mod::lfoSyncNames.size());
         tr.division = choice (get (oscSetting ("TrDivision")), synth::mod::lfoDivisionNames.size());
+        o.arp = choice (get (oscSetting ("Arp")), synth::arp::routeNames.size());
 
         o.table = tablesForAudio[i].load();
         o.spectral = spectralForAudio[i].load();
@@ -435,6 +442,30 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
     pm.glideCurve = param (ParamIDs::glideCurve);
     pm.glideSplit = juce::roundToInt (param (ParamIDs::glideSplit));
 
+    // The ARPEGGIATORS (their patterns are added per block).
+    for (size_t k = 0; k < s.arps.size(); ++k)
+    {
+        const auto& v = arpParameters[k].values;
+        const auto get = [&v] (int index) { return v[(size_t) index]->load(); };
+        using ParamIDs::arpSetting;
+        auto& a = s.arps[k];
+        a.on = get (arpSetting ("On")) > 0.5f;
+        a.mode = (synth::arp::Mode) choice (get (arpSetting ("Mode")), synth::arp::modeNames.size());
+        a.division = choice (get (arpSetting ("Division")), synth::seq::divisionNames.size());
+        a.timing = (synth::seq::Timing) choice (get (arpSetting ("Timing")), synth::seq::timingNames.size());
+        a.octaves = juce::roundToInt (get (arpSetting ("Octaves")));
+        a.gate = get (arpSetting ("Gate"));
+        a.length = juce::roundToInt (get (arpSetting ("Length")));
+        a.velocityMode = (synth::arp::VelocityMode) choice (get (arpSetting ("Velocity")), synth::arp::velocityModeNames.size());
+        a.lowKey = juce::roundToInt (get (arpSetting ("LowKey")));
+        a.highKey = juce::roundToInt (get (arpSetting ("HighKey")));
+        a.humanize = get (arpSetting ("Humanize"));
+        a.strum = get (arpSetting ("Strum"));
+        a.pattern = choice (get (arpSetting ("Pattern")), synth::arp::patternNames.size());
+        a.chain = get (arpSetting ("Chain")) > 0.5f;
+        a.trigger = (synth::arp::Trigger) choice (get (arpSetting ("Trigger")), synth::arp::triggerNames.size());
+    }
+
     // The STEP SEQUENCER (its steps are added per block).
     auto& sq = s.stepSeq;
     sq.on = isOn (ParamIDs::seqOn);
@@ -557,6 +588,8 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
                 settings.oscillators[i].travel.shape = &compiled->travelShapes[i];
                 settings.oscillators[i].travel.pattern = &compiled->travelPatterns[i];
             }
+            for (size_t k = 0; k < settings.arps.size(); ++k)
+                settings.arps[k].patterns = &compiled->arpPatterns[k];
             int count = 0;
             for (const auto& c : compiled->routes)
             {
@@ -672,6 +705,7 @@ void ParagonX1AudioProcessor::compileMatrix()
         compiled->travelShapes[i] = matrix.travel[i].envelope.toShape();
         compiled->travelPatterns[i] = matrix.travel[i].pattern;
     }
+    compiled->arpPatterns = matrix.arps;
     std::stable_sort (compiled->routes.begin(), compiled->routes.end(), [] (const CompiledRoute& a, const CompiledRoute& b)
     {
         return std::pair ((int) a.target.field, a.target.index) < std::pair ((int) b.target.field, b.target.index);
