@@ -1,15 +1,17 @@
 #include "Parameters.h"
 
 #include "dsp/synth/SynthSettings.h"
+#include "dsp/synth/Wavetable.h"
 
 namespace
 {
     using Range = juce::NormalisableRange<float>;
     using ToText = std::function<juce::String (float, int)>;
 
-    // Version hint: the PR7-K version that introduced a parameter (1 for 0.1.0, 2 for 0.2.0).
+    // Version hint: the PR7-K version that introduced a parameter (1 for 0.1.0, 2 for 0.2.0, 3 for 0.3.0).
     constexpr int firstVersion = 1;
     constexpr int stage2 = 2;
+    constexpr int stage3 = 3;
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -64,6 +66,11 @@ namespace
         return juce::String (juce::roundToInt (value * 100.0f)) + "%";
     };
     const ToText asCount = [] (float value, int) { return juce::String (juce::roundToInt (value)); };
+    // WAVETABLE FRAMES: at the top, every frame the table has (however many that is).
+    const ToText asFrames = [] (float value, int)
+    {
+        return juce::roundToInt (value) >= synth::maxWavetableFrames ? juce::String ("All") : juce::String (juce::roundToInt (value));
+    };
     const ToText asHz = [] (float hz, int) { return juce::String (hz, hz < 10.0f ? 2 : 1) + " Hz"; };
     const ToText asCentsDepth = [] (float cents, int) { return cents < 0.05f ? juce::String ("Off") : juce::String (cents, cents < 10.0f ? 1 : 0) + " ct"; };
     // UNISON DETUNE: how far the outer copies are from the note (squared, as the engine does).
@@ -192,6 +199,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
             add (layout, osc (i, (prefix + "Pan").toRawUTF8()), chordName + "Pan", { -1.0f, 1.0f }, chord.pan, asPan, stage2);
             add (layout, osc (i, (prefix + "Vol").toRawUTF8()), chordName + "Volume", { 0.0f, 2.0f }, chord.volume, asGain, stage2);
         }
+
+        // Stage 3: the WAVETABLE. TABLE names a factory table (a table loaded
+        // from a file is kept with the preset instead, and takes its place).
+        addChoice (layout, osc (i, "Table"), name + "Wavetable", synth::factoryTables::names, 0, stage3);
+        add (layout, osc (i, "WtIndex"), name + "Wavetable Index", { 0.0f, 1.0f }, defaults.tableIndex, asPercent, stage3);
+        addChoice (layout, osc (i, "WtMode"), name + "Wavetable Mode", synth::wavetableModeNames, 0, stage3);   // SMOOTH
+        add (layout, osc (i, "WtFrames"), name + "Wavetable Frames", { 2.0f, (float) synth::maxWavetableFrames, 1.0f },
+             (float) defaults.tableFrames, asFrames, stage3);
     }
 
     // The FILTER: off in a new sound (Avenger's starts without one), ready at a 24 dB low-pass at 2 kHz.

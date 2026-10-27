@@ -23,14 +23,16 @@ namespace ParamIDs
     // The 8 oscillator tabs: "osc1On", "osc1Wave"... `what` is one of oscSettings.
     inline constexpr int numOscillators = 8;
     inline juce::String osc (int index, const char* what) { return "osc" + juce::String (index + 1) + what; }
-    // Stage 2 (0.2.0) appended its unison, vibrato and chorder settings ("Ch1On"... for the chorder's 4 notes).
+    // Stage 2 (0.2.0) appended its unison, vibrato and chorder settings ("Ch1On"... for the chorder's 4 notes),
+    // stage 3 (0.3.0) the WAVETABLE's: which factory table, INDEX, its mode and FRAMES.
     inline constexpr const char* oscSettings[] = {
         "On", "Wave", "Volume", "Pan", "Transpose", "Fine", "Random", "PhaseRand", "Phase", "Gain", "Width", "FadeIn", "Invert",
         "Noise", "NoiseColour", "NoiseWidth", "Sub", "SubWave", "SubOct", "SubInvert", "Filter", "Voices",
         "UniVoices", "UniMix", "UniDetune", "UniSpread", "UniOctaves",
         "VibMode", "VibWave", "VibRate", "VibAmount", "VibFade", "VibCurve",
         "Ch1On", "Ch1Coarse", "Ch1Fine", "Ch1Pan", "Ch1Vol", "Ch2On", "Ch2Coarse", "Ch2Fine", "Ch2Pan", "Ch2Vol",
-        "Ch3On", "Ch3Coarse", "Ch3Fine", "Ch3Pan", "Ch3Vol", "Ch4On", "Ch4Coarse", "Ch4Fine", "Ch4Pan", "Ch4Vol" };
+        "Ch3On", "Ch3Coarse", "Ch3Fine", "Ch3Pan", "Ch3Vol", "Ch4On", "Ch4Coarse", "Ch4Fine", "Ch4Pan", "Ch4Vol",
+        "Table", "WtIndex", "WtMode", "WtFrames" };
 
     // Where a setting is in oscSettings, worked out by the compiler (a typo won't compile).
     consteval int oscSetting (std::string_view what)

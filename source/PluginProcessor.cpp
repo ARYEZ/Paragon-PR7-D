@@ -14,6 +14,10 @@ namespace
     const juce::Identifier rigModifiedKey { "rigModified" };
     // Which version's parameters a project was saved with, as for presets (see Rig.cpp).
     const juce::Identifier parameterVersionKey { "parameterVersion" };
+    // Wavetables loaded from files, kept in the project as presets keep them.
+    const juce::Identifier wavetablesKey { "Wavetables" };
+    const juce::Identifier wavetableKey { "Wavetable" };
+    constexpr double retiredTableMs = 2000.0;   // how long a replaced table is kept, in case a block is still playing it
     constexpr int parameterVersion = 1;
 }
 
@@ -27,6 +31,10 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
             oscParameters[(size_t) i].values[s] = parameters.getRawParameterValue (ParamIDs::osc (i, ParamIDs::oscSettings[s]));
             jassert (oscParameters[(size_t) i].values[s] != nullptr);
         }
+
+    playingFactoryTable.fill (-1);
+    for (auto& table : tablesForAudio)
+        table = nullptr;
 
     rigLibrary = std::make_unique<RigLibrary>();
     // A new PR7-K is the Init preset (every parameter at its default), so the
@@ -67,6 +75,8 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
 {
     preparedBlockSize = juce::jmax (1, samplesPerBlock);
     engine.prepare (sampleRate);
+    if (juce::MessageManager::existsAndIsCurrentThread())
+        updateWavetables();
     keyboardMidi.ensureSize (2048);
     keyboardState.reset();
 
@@ -122,6 +132,11 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
         o.subInvert = get (oscSetting ("SubInvert")) > 0.5f;
         o.toFilter = get (oscSetting ("Filter")) > 0.5f;
         o.voiceLimit = juce::jlimit (1, synth::maxVoices, juce::roundToInt (get (oscSetting ("Voices"))));
+
+        o.table = tablesForAudio[i].load();
+        o.tableIndex = get (oscSetting ("WtIndex"));
+        o.tableSteppy = choice (get (oscSetting ("WtMode")), synth::wavetableModeNames.size()) == 1;
+        o.tableFrames = juce::jlimit (2, synth::maxWavetableFrames, juce::roundToInt (get (oscSetting ("WtFrames"))));
 
         o.unisonVoices = juce::jlimit (2, synth::maxUnison, juce::roundToInt (get (oscSetting ("UniVoices"))));
         o.unisonMix = get (oscSetting ("UniMix"));
@@ -264,7 +279,88 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
 //==============================================================================
 void ParagonX1AudioProcessor::timerCallback()
 {
+    updateWavetables();
     recordCheckpointIfReady();
+}
+
+//==============================================================================
+void ParagonX1AudioProcessor::updateWavetables()
+{
+    const auto now = juce::Time::getMillisecondCounterHiRes();
+    for (int i = 0; i < ParamIDs::numOscillators; ++i)
+    {
+        auto wanted = loadedTables[(size_t) i];
+        auto factory = -1;
+        if (wanted == nullptr)
+        {
+            // The factory table TABLE names: built the first time an oscillator
+            // plays it as a WAVETABLE, and kept while it's chosen.
+            const auto index = juce::jlimit (0, synth::factoryTables::names.size() - 1,
+                                             juce::roundToInt (param (ParamIDs::osc (i, "Table").toRawUTF8())));
+            const auto isWavetable = juce::roundToInt (param (ParamIDs::osc (i, "Wave").toRawUTF8())) == (int) synth::OscWave::wavetable;
+            if (isWavetable || playingFactoryTable[(size_t) i] == index)
+            {
+                wanted = isWavetable ? synth::factoryTables::get (index) : playingTables[(size_t) i];
+                factory = index;
+            }
+        }
+        if (wanted != playingTables[(size_t) i])
+        {
+            if (playingTables[(size_t) i] != nullptr)
+                retiredTables.emplace_back (playingTables[(size_t) i], now);
+            playingTables[(size_t) i] = wanted;
+            tablesForAudio[(size_t) i] = wanted.get();
+        }
+        playingFactoryTable[(size_t) i] = factory;
+    }
+    std::erase_if (retiredTables, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
+}
+
+std::shared_ptr<const synth::Wavetable> ParagonX1AudioProcessor::tableFor (const synth::WavetableSource& source)
+{
+    for (const auto* list : { &loadedTables, &playingTables })
+        for (const auto& table : *list)
+            if (table != nullptr && table->getSource() == source)
+                return table;
+    for (const auto& [table, when] : retiredTables)
+        if (table->getSource() == source)
+            return table;
+    return synth::Wavetable::build (source);
+}
+
+std::shared_ptr<const synth::Wavetable> ParagonX1AudioProcessor::getWavetable (int osc)
+{
+    osc = juce::jlimit (0, ParamIDs::numOscillators - 1, osc);
+    if (loadedTables[(size_t) osc] != nullptr)
+        return loadedTables[(size_t) osc];
+    return synth::factoryTables::get (juce::roundToInt (param (ParamIDs::osc (osc, "Table").toRawUTF8())));
+}
+
+bool ParagonX1AudioProcessor::loadWavetableFile (int osc, const juce::File& file)
+{
+    auto table = synth::Wavetable::build (synth::wavetableFiles::load (file));
+    if (table == nullptr)
+        return false;
+    osc = juce::jlimit (0, ParamIDs::numOscillators - 1, osc);
+    loadedTables[(size_t) osc] = std::move (table);
+    if (auto* wave = parameters.getParameter (ParamIDs::osc (osc, "Wave")))
+        wave->setValueNotifyingHost (wave->convertTo0to1 ((float) synth::OscWave::wavetable));
+    markModified();
+    updateWavetables();
+    requestCheckpoint();
+    return true;
+}
+
+void ParagonX1AudioProcessor::chooseFactoryWavetable (int osc, int index)
+{
+    osc = juce::jlimit (0, ParamIDs::numOscillators - 1, osc);
+    loadedTables[(size_t) osc] = nullptr;
+    for (const auto& [what, value] : { std::pair { "Table", (float) index }, std::pair { "Wave", (float) synth::OscWave::wavetable } })
+        if (auto* parameter = parameters.getParameter (ParamIDs::osc (osc, what)))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+    markModified();
+    updateWavetables();
+    requestCheckpoint();
 }
 
 void ParagonX1AudioProcessor::parameterGestureChanged (int, bool gestureIsStarting)
@@ -347,6 +443,9 @@ Rig ParagonX1AudioProcessor::captureRig() const
         if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter))
             if (! ParamIDs::notInRigs.contains (ranged->paramID))
                 rig.parameters[ranged->paramID] = ranged->convertFrom0to1 (ranged->getValue());
+    for (int i = 0; i < ParamIDs::numOscillators; ++i)
+        if (const auto& table = loadedTables[(size_t) i])
+            rig.wavetables[i] = table->getSource();
     return rig;
 }
 
@@ -367,6 +466,13 @@ void ParagonX1AudioProcessor::applyRig (const Rig& rig)
                                   : ranged->getDefaultValue();
         ranged->setValueNotifyingHost (normalised);
     }
+
+    for (int i = 0; i < ParamIDs::numOscillators; ++i)
+    {
+        const auto found = rig.wavetables.find (i);
+        loadedTables[(size_t) i] = found != rig.wavetables.end() ? tableFor (found->second) : nullptr;
+    }
+    updateWavetables();
 
     applyingRig = false;
     rigModified = false;
@@ -509,6 +615,16 @@ void ParagonX1AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     state.setProperty (rigFactoryKey, currentRig.factoryName, nullptr);
     state.setProperty (rigModifiedKey, rigModified.load(), nullptr);
 
+    juce::ValueTree tables (wavetablesKey);
+    for (int i = 0; i < ParamIDs::numOscillators; ++i)
+        if (const auto& table = loadedTables[(size_t) i])
+        {
+            const auto& source = table->getSource();
+            tables.appendChild (juce::ValueTree (wavetableKey, { { "osc", i + 1 }, { "name", source.name }, { "frameSize", source.frameSize },
+                                                                 { "data", synth::wavetableFiles::encode (source) } }), nullptr);
+        }
+    state.appendChild (tables, nullptr);
+
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
@@ -519,8 +635,23 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
     if (xml == nullptr || ! xml->hasTagName (parameters.state.getType()))
         return;
 
-    const auto state = juce::ValueTree::fromXml (*xml);
+    auto state = juce::ValueTree::fromXml (*xml);
+
+    // The wavetables loaded from files come out first: they aren't parameters.
+    std::array<std::shared_ptr<const synth::Wavetable>, ParamIDs::numOscillators> tables {};
+    if (auto saved = state.getChildWithName (wavetablesKey); saved.isValid())
+    {
+        for (const auto& table : saved)
+        {
+            const auto osc = (int) table["osc"] - 1;
+            if (osc >= 0 && osc < ParamIDs::numOscillators)
+                tables[(size_t) osc] = tableFor (synth::wavetableFiles::decode (table["name"].toString(), table["frameSize"], table["data"].toString()));
+        }
+        state.removeChild (saved, nullptr);
+    }
     parameters.replaceState (state);
+    loadedTables = tables;
+    updateWavetables();
 
     // Restoring the project changed parameters, which marked the preset as
     // modified; put back what was saved instead.

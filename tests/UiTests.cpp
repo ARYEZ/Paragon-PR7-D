@@ -135,9 +135,11 @@ TEST_CASE ("The oscillator tabs point one set of controls at the chosen oscillat
     CHECK_THAT (value (w.processor, ParamIDs::osc (2, "Volume")), WithinAbs (0.5, 1.0e-3));
     CHECK_THAT (value (w.processor, ParamIDs::osc (0, "Volume")), WithinAbs (1.0, 1.0e-6));
 
-    // Every setting of the tab is re-pointed, not just some.
+    // Every setting of the tab is re-pointed, not just some. (ON is the tab's
+    // own LED; TABLE is the wavetable chooser, which follows the tab too: its
+    // own test is below.)
     for (const auto* what : ParamIDs::oscSettings)
-        if (juce::String (what) != "On")
+        if (juce::String (what) != "On" && juce::String (what) != "Table")
             CHECK (controlFor (*w.view, ParamIDs::osc (2, what)) != nullptr);
 }
 
@@ -224,4 +226,46 @@ TEST_CASE ("The oscillator's VOICES page: unison, vibrato and the chorder, laid 
 
     oscillators.showPage (OscillatorPanel::Page::wave);
     CHECK (controlFor (*w.view, ParamIDs::osc (1, "Transpose"))->isVisible());
+}
+
+TEST_CASE ("WAVETABLE: the oscillator shows TABLE, INDEX, MODE and FRAMES in place of WIDTH, without overlaps", "[ui][wavetable]")
+{
+    Window w;
+    auto& oscillators = w.view->getOscillatorPanel();
+    oscillators.selectOscillator (1);
+    CHECK (controlFor (*w.view, ParamIDs::osc (1, "Width"))->isVisible());
+    CHECK_FALSE (controlFor (*w.view, ParamIDs::osc (1, "WtIndex"))->isVisible());
+    CHECK_FALSE (oscillators.getWavetableChooser().isVisible());
+
+    auto* wave = w.processor.getParameters().getParameter (ParamIDs::osc (1, "Wave"));
+    wave->setValueNotifyingHost (wave->convertTo0to1 ((float) synth::OscWave::wavetable));
+    oscillators.selectOscillator (1);   // as the panel's timer would see it
+    CHECK_FALSE (controlFor (*w.view, ParamIDs::osc (1, "Width"))->isVisible());
+    for (const auto* what : { "WtIndex", "WtMode", "WtFrames", "Transpose", "Volume", "Voices" })
+    {
+        INFO (what);
+        CHECK (controlFor (*w.view, ParamIDs::osc (1, what))->isVisible());
+    }
+    REQUIRE (oscillators.getWavetableChooser().isVisible());
+    checkLayout (*w.view, "wavetable");
+
+    // Nothing on the panel overlaps anything else.
+    std::vector<juce::Component*> shown;
+    for (auto* child : oscillators.getChildren())
+        if (child->isVisible() && (dynamic_cast<ParamControl*> (child) != nullptr || child == &oscillators.getWavetableChooser()))
+            shown.push_back (child);
+    for (size_t i = 0; i < shown.size(); ++i)
+        for (size_t j = i + 1; j < shown.size(); ++j)
+        {
+            INFO (shown[i]->getBounds().toString() << " and " << shown[j]->getBounds().toString());
+            CHECK_FALSE (shown[i]->getBounds().intersects (shown[j]->getBounds()));
+        }
+
+    // Choosing a factory table from the TABLE menu sets oscillator 2's.
+    auto* box = inside<juce::ComboBox> (oscillators.getWavetableChooser());
+    REQUIRE (box != nullptr);
+    box->setSelectedId (synth::factoryTables::names.indexOf ("Vowels") + 1, juce::sendNotificationSync);
+    CHECK (juce::roundToInt (value (w.processor, ParamIDs::osc (1, "Table"))) == synth::factoryTables::names.indexOf ("Vowels"));
+    CHECK (w.processor.getWavetable (1)->getName() == "Vowels");
+    CHECK (box->getText() == "Vowels");
 }

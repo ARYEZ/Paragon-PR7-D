@@ -8,13 +8,38 @@
 // oscillators (tabs), the FILTER, the two envelopes, the AMP, and how the
 // keyboard plays it. Our own drawing, in the PR7 family's look.
 
-// OSCILLATORS: eight tabs (each with its own on/off LED), and the selected
-// oscillator's wave picture and controls: its wave, level, pitch and start,
-// its NOISE and its SUB.
-class OscillatorPanel final : public SynthPanel
+// TABLE: which wavetable an oscillator plays. The factory's, a table loaded
+// from a file (kept with the preset), or "Load WAV file..." to load one.
+class WavetableChooser final : public juce::Component
 {
 public:
-    explicit OscillatorPanel (juce::AudioProcessorValueTreeState&);
+    explicit WavetableChooser (ParagonX1AudioProcessor&);
+    void setOscillator (int index);
+    // Shows what the oscillator plays now (after an undo, a preset...).
+    void refresh();
+    void resized() override;
+
+    // Opens the file chooser, as "Load WAV file..." does.
+    void browse();
+
+private:
+    ParagonX1AudioProcessor& processor;
+    int oscillator = 0;
+    juce::Label label;
+    juce::ComboBox box;
+    std::unique_ptr<juce::FileChooser> chooser;
+    static constexpr int loadedId = 1000, loadFileId = 1001;
+};
+
+// OSCILLATORS: eight tabs (each with its own on/off LED), and the selected
+// oscillator's wave picture and controls: its wave, level, pitch and start,
+// its NOISE and its SUB. A WAV file dropped on it loads as the oscillator's wavetable.
+class OscillatorPanel final : public SynthPanel,
+                              public juce::FileDragAndDropTarget,
+                              private juce::Timer
+{
+public:
+    explicit OscillatorPanel (ParagonX1AudioProcessor&);
 
     void selectOscillator (int index);
     int getSelected() const noexcept { return selected; }
@@ -28,7 +53,18 @@ public:
     void paint (juce::Graphics&) override;
     void resized() override;
 
+    bool isInterestedInFileDrag (const juce::StringArray& files) override;
+    void filesDropped (const juce::StringArray& files, int x, int y) override;
+
+    WavetableChooser& getWavetableChooser() noexcept { return tableChooser; }
+
 private:
+    void timerCallback() override;
+    // WAVETABLE's controls show when the selected oscillator plays one; WIDTH when it doesn't.
+    bool isWavetable() const;
+    bool isShown (const char* what) const;
+    void updateVisibility();
+
     struct Tab final : public juce::Button
     {
         Tab (juce::AudioProcessorValueTreeState&, int index);
@@ -40,8 +76,11 @@ private:
         juce::AudioProcessorValueTreeState::ButtonAttachment powerAttachment;
     };
 
+    ParagonX1AudioProcessor& processor;
     juce::AudioProcessorValueTreeState& state;
     std::vector<std::unique_ptr<Tab>> tabs;
+    WavetableChooser tableChooser;
+    bool showingWavetable = false;
     juce::TextButton wavePageButton { "WAVE" }, voicesPageButton { "VOICES" };
     Page page = Page::wave;
     WaveDisplay wave;

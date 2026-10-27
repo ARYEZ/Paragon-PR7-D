@@ -51,8 +51,90 @@ void OscillatorPanel::Tab::paintButton (juce::Graphics& g, bool highlighted, boo
     g.drawText (getName(), area.withTrimmedLeft (22.0f), juce::Justification::centred, false);
 }
 
-OscillatorPanel::OscillatorPanel (juce::AudioProcessorValueTreeState& stateToUse)
-    : SynthPanel ("OSCILLATORS"), state (stateToUse), wave (stateToUse), voicesDisplay (stateToUse)
+WavetableChooser::WavetableChooser (ParagonX1AudioProcessor& processorToUse) : processor (processorToUse)
+{
+    label.setText ("TABLE", juce::dontSendNotification);
+    label.setJustificationType (juce::Justification::centred);
+    label.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+    label.setColour (juce::Label::textColourId, ParagonColours::textDim);
+    label.setBorderSize ({});
+    label.setInterceptsMouseClicks (false, false);
+    addAndMakeVisible (label);
+
+    box.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff151217));
+    box.setColour (juce::ComboBox::outlineColourId, ParagonColours::panelEdge);
+    box.setColour (juce::ComboBox::textColourId, ParagonColours::accent);
+    box.setColour (juce::ComboBox::arrowColourId, ParagonColours::textDim);
+    box.setTooltip ("The wavetable: a row of waves that INDEX moves through. Our own factory tables, or load your own "
+                    "WAV file (or drop one on the oscillator). A loaded table is saved inside the preset and the project.");
+    box.onChange = [this]
+    {
+        const auto id = box.getSelectedId();
+        if (id == loadFileId)
+        {
+            refresh();   // back to what plays, until a file is chosen
+            browse();
+        }
+        else if (id >= 1 && id <= synth::factoryTables::names.size())
+        {
+            processor.chooseFactoryWavetable (oscillator, id - 1);
+            refresh();
+        }
+    };
+    addAndMakeVisible (box);
+    refresh();
+}
+
+void WavetableChooser::setOscillator (int index)
+{
+    oscillator = index;
+    refresh();
+}
+
+void WavetableChooser::refresh()
+{
+    // The factory's tables, the loaded one (if any), and loading another.
+    box.clear (juce::dontSendNotification);
+    box.addItemList (synth::factoryTables::names, 1);
+    box.addSeparator();
+    if (processor.hasLoadedWavetable (oscillator))
+        box.addItem (processor.getWavetable (oscillator)->getName(), loadedId);
+    box.addItem ("Load WAV file...", loadFileId);
+
+    if (processor.hasLoadedWavetable (oscillator))
+        box.setSelectedId (loadedId, juce::dontSendNotification);
+    else if (const auto* table = processor.getParameters().getRawParameterValue (ParamIDs::osc (oscillator, "Table")))
+        box.setSelectedId (juce::roundToInt (table->load()) + 1, juce::dontSendNotification);
+}
+
+void WavetableChooser::browse()
+{
+    chooser = std::make_unique<juce::FileChooser> ("Load a wavetable (WAV, AIFF or FLAC)", juce::File(), "*.wav;*.aif;*.aiff;*.flac");
+    const auto target = oscillator;
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                          [this, target] (const juce::FileChooser& fc)
+                          {
+                              const auto file = fc.getResult();
+                              if (file.existsAsFile() && ! processor.loadWavetableFile (target, file))
+                                  juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Can't load that file",
+                                                                          file.getFileName() + " couldn't be read as audio.");
+                              refresh();
+                          });
+}
+
+void WavetableChooser::resized()
+{
+    // One line: TABLE, then the menu filling the rest (long table names fit).
+    auto area = getLocalBounds();
+    label.setJustificationType (juce::Justification::centredLeft);
+    label.setBounds (area.removeFromLeft (46));
+    box.setBounds (area.withSizeKeepingCentre (area.getWidth(), juce::jmin (26, area.getHeight())));
+}
+
+//==============================================================================
+OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
+    : SynthPanel ("OSCILLATORS"), processor (processorToUse), state (processorToUse.getParameters()),
+      tableChooser (processorToUse), wave (state), voicesDisplay (state)
 {
     for (int i = 0; i < ParamIDs::numOscillators; ++i)
     {
@@ -61,8 +143,10 @@ OscillatorPanel::OscillatorPanel (juce::AudioProcessorValueTreeState& stateToUse
         addAndMakeVisible (*tab);
         tabs.push_back (std::move (tab));
     }
+    wave.tableFor = [this] (int osc) { return processor.getWavetable (osc); };
     addAndMakeVisible (wave);
     addChildComponent (voicesDisplay);
+    addChildComponent (tableChooser);
 
     // WAVE / VOICES: which of the oscillator's two pages shows.
     for (auto* button : { &wavePageButton, &voicesPageButton })
@@ -83,7 +167,7 @@ OscillatorPanel::OscillatorPanel (juce::AudioProcessorValueTreeState& stateToUse
 
     // Each control, labelled as on the panel, with a tooltip saying what it does.
     const std::pair<const char*, std::pair<const char*, const char*>> items[] = {
-        { "Wave", { "WAVE", "The oscillator's wave. PULSE's width is set by WIDTH." } },
+        { "Wave", { "WAVE", "The oscillator's wave. PULSE's width is set by WIDTH. WAVETABLE plays a row of waves (chosen under TABLE) that INDEX moves through." } },
         { "Volume", { "VOLUME", "The whole oscillator: wave, noise and sub together." } },
         { "Pan", { "PAN", "Where the oscillator sits, left to right." } },
         { "Gain", { "GAIN", "The wave alone: turn it down to hear just the noise or sub." } },
@@ -104,6 +188,9 @@ OscillatorPanel::OscillatorPanel (juce::AudioProcessorValueTreeState& stateToUse
         { "SubWave", { "WAVE", "The sub's wave." } },
         { "SubOct", { "OCTAVE", "How far below the note the sub plays." } },
         { "SubInvert", { "INVERT", "The sub upside down, against the main wave." } },
+        { "WtIndex", { "INDEX", "Where in the wavetable: each frame is a different wave, and moving INDEX morphs from one to the next." } },
+        { "WtMode", { "MODE", "SMOOTH blends between neighbouring frames as INDEX moves; STEPPY jumps from one to the next, for a stepped, digital movement." } },
+        { "WtFrames", { "FRAMES", "How many of the table's frames INDEX moves through, spread evenly from the first to the last: fewer makes broader, simpler steps." } },
 
         // The VOICES page (stage 2).
         { "UniVoices", { "VOICES", "How many copies of each note, the note itself included (2 to 7)." } },
@@ -143,6 +230,61 @@ OscillatorPanel::OscillatorPanel (juce::AudioProcessorValueTreeState& stateToUse
     }
     selectOscillator (0);
     showPage (Page::wave);
+    startTimerHz (10);
+}
+
+bool OscillatorPanel::isWavetable() const
+{
+    const auto* waveParameter = state.getRawParameterValue (ParamIDs::osc (selected, "Wave"));
+    return waveParameter != nullptr && juce::roundToInt (waveParameter->load()) == (int) synth::OscWave::wavetable;
+}
+
+bool OscillatorPanel::isShown (const char* what) const
+{
+    if (isOnVoicesPage (what) != (page == Page::voices))
+        return false;
+    const juce::String name (what);
+    if (name.startsWith ("Wt"))
+        return showingWavetable;
+    if (name == "Width")
+        return ! showingWavetable;
+    return true;
+}
+
+void OscillatorPanel::updateVisibility()
+{
+    showingWavetable = isWavetable();
+    for (size_t i = 0; i < controls.size(); ++i)
+        controls[i]->setVisible (isShown (settingNames[i]));
+    tableChooser.setVisible (page == Page::wave && showingWavetable);
+    resized();
+    repaint();
+}
+
+void OscillatorPanel::timerCallback()
+{
+    // The WAVE menu (or automation, a preset, undo) can switch WAVETABLE on or off.
+    if (isWavetable() != showingWavetable)
+        updateVisibility();
+    if (showingWavetable)
+        tableChooser.refresh();
+}
+
+bool OscillatorPanel::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    return files.size() == 1 && juce::File (files[0]).hasFileExtension ("wav;aif;aiff;flac");
+}
+
+void OscillatorPanel::filesDropped (const juce::StringArray& files, int, int)
+{
+    if (files.isEmpty())
+        return;
+    const juce::File file (files[0]);
+    if (! processor.loadWavetableFile (selected, file))
+        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Can't load that file",
+                                                file.getFileName() + " couldn't be read as audio.");
+    updateVisibility();
+    tableChooser.refresh();
 }
 
 bool OscillatorPanel::isOnVoicesPage (const char* what) const
@@ -158,10 +300,7 @@ void OscillatorPanel::showPage (Page newPage)
     const auto voices = page == Page::voices;
     wave.setVisible (! voices);
     voicesDisplay.setVisible (voices);
-    for (size_t i = 0; i < controls.size(); ++i)
-        controls[i]->setVisible (isOnVoicesPage (settingNames[i]) == voices);
-    resized();
-    repaint();
+    updateVisibility();
 }
 
 ParamControl& OscillatorPanel::control (const char* what)
@@ -181,6 +320,8 @@ void OscillatorPanel::selectOscillator (int index)
         controls[i]->attach (ParamIDs::osc (selected, settingNames[i]));
     wave.setOscillator (selected);
     voicesDisplay.setOscillator (selected);
+    tableChooser.setOscillator (selected);
+    updateVisibility();
 }
 
 void OscillatorPanel::paint (juce::Graphics& g)
@@ -246,10 +387,19 @@ void OscillatorPanel::resized()
         return;
     }
 
-    // Left: the wave, with its WAVE menu, WIDTH and GAIN under it.
-    wave.setBounds (left.removeFromTop (left.getHeight() - h - 10));
+    // Left: the wave, with its WAVE menu, WIDTH and GAIN under it. A
+    // wavetable's TABLE gets a line of its own between them (names are long).
+    wave.setBounds (left.removeFromTop (left.getHeight() - h - 10 - (showingWavetable ? 34 : 0)));
+    if (showingWavetable)
+    {
+        left.removeFromTop (6);
+        tableChooser.setBounds (left.removeFromTop (28));
+    }
     left.removeFromTop (10);
-    SynthPanel::layoutRow (left.removeFromTop (h), { &control ("Wave"), &control ("Width"), &control ("Gain") }, 84);
+    if (showingWavetable)
+        SynthPanel::layoutRow (left.removeFromTop (h), { &control ("Wave"), &control ("Gain") }, 96, 40);
+    else
+        SynthPanel::layoutRow (left.removeFromTop (h), { &control ("Wave"), &control ("Width"), &control ("Gain") }, 84);
 
     // Right: three rows of titled sections on one grid of columns.
     placeRow (area.removeFromTop (rowHeight), 7, { { "PITCH", { "Transpose", "Fine", "Random" } },
@@ -258,8 +408,13 @@ void OscillatorPanel::resized()
     placeRow (area.removeFromTop (rowHeight), 7, { { "NOISE", { "Noise", "NoiseColour", "NoiseWidth" } },
                                                    { "SUB", { "Sub", "SubWave", "SubOct", "SubInvert" } } });
     area.removeFromTop (6);
-    placeRow (area.removeFromTop (rowHeight), 7, { { "LEVEL", { "Volume", "Pan" } },
-                                                   { "NOTES", { "Voices", "Filter" } } });
+    if (showingWavetable)
+        placeRow (area.removeFromTop (rowHeight), 7, { { "LEVEL", { "Volume", "Pan" } },
+                                                       { "NOTES", { "Voices", "Filter" } },
+                                                       { "WAVETABLE", { "WtIndex", "WtMode", "WtFrames" } } });
+    else
+        placeRow (area.removeFromTop (rowHeight), 7, { { "LEVEL", { "Volume", "Pan" } },
+                                                       { "NOTES", { "Voices", "Filter" } } });
 }
 
 //==============================================================================

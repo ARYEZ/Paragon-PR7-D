@@ -13,6 +13,7 @@ namespace
 
     const juce::Identifier rigTag { "ParagonRig" };
     const juce::Identifier parameterTag { "Param" };
+    const juce::Identifier wavetableTag { "Wavetable" };
 }
 
 juce::String Rig::bankName (int bankIndex)
@@ -44,6 +45,16 @@ std::unique_ptr<juce::XmlElement> Rig::toXml() const
         parameter->setAttribute ("id", id);
         parameter->setAttribute ("value", value);
     }
+    for (const auto& [oscillator, table] : wavetables)
+    {
+        if (! table.isValid())
+            continue;
+        auto* element = xml->createNewChildElement (wavetableTag);
+        element->setAttribute ("osc", oscillator + 1);
+        element->setAttribute ("name", table.name);
+        element->setAttribute ("frameSize", table.frameSize);
+        element->addTextElement (synth::wavetableFiles::encode (table));
+    }
     return xml;
 }
 
@@ -69,6 +80,15 @@ std::optional<Rig> Rig::fromXml (const juce::XmlElement& xml)
     for (const auto* parameter : xml.getChildWithTagNameIterator (parameterTag))
         if (const auto id = parameter->getStringAttribute ("id"); id.isNotEmpty())
             rig.parameters[id] = (float) parameter->getDoubleAttribute ("value");
+
+    for (const auto* element : xml.getChildWithTagNameIterator (wavetableTag))
+    {
+        const auto oscillator = element->getIntAttribute ("osc") - 1;
+        auto table = synth::wavetableFiles::decode (element->getStringAttribute ("name"), element->getIntAttribute ("frameSize"),
+                                                    element->getAllSubText());
+        if (oscillator >= 0 && oscillator < 8 && table.isValid())
+            rig.wavetables[oscillator] = std::move (table);
+    }
 
     return rig;
 }

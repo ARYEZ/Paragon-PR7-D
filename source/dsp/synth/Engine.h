@@ -85,6 +85,7 @@ namespace synth
             Noise noiseLeft, noiseRight;
             float vibratoPhase = 0.0f, vibratoHeld = 0.0f;   // GLOBAL vibrato
             int vibratoAge = 0;                              // samples since the note started, for the vibrato's FADE IN
+            float tableIndex = -1.0f;                        // WAVETABLE's INDEX as of the last interval (-1: the note just started)
             std::array<Copy, maxCopies> copies;
         };
 

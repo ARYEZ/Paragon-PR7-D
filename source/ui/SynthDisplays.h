@@ -3,6 +3,7 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include "dsp/synth/SynthSettings.h"
+#include "dsp/synth/Wavetable.h"
 
 // The synth page's pictures, each redrawn from the parameters as they change.
 
@@ -34,7 +35,9 @@ private:
 };
 
 // One cycle of the selected oscillator: its wave (with PULSE WIDTH, GAIN and
-// INVERT), its SUB underneath (dimmer), and a haze if it has NOISE.
+// INVERT), its SUB underneath (dimmer), and a haze if it has NOISE. A
+// WAVETABLE shows its frames stacked from front to back, the one INDEX
+// points at (blended, as heard) drawn bright at its place in the stack.
 class WaveDisplay final : public ParameterDisplay
 {
 public:
@@ -42,8 +45,12 @@ public:
     void setOscillator (int index);
     void paint (juce::Graphics&) override;
 
+    // Where to find the table an oscillator plays (set by the panel).
+    std::function<std::shared_ptr<const synth::Wavetable> (int oscillator)> tableFor;
+
 private:
     std::vector<float> snapshot() const override;
+    void paintWavetable (juce::Graphics&, juce::Rectangle<float> area, bool on) const;
     juce::String id (const char* what) const;
     int oscillator = 0;
 };

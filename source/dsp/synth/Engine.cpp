@@ -1,6 +1,7 @@
 #include "Engine.h"
 
 #include "WaveTables.h"
+#include "Wavetable.h"
 
 namespace synth
 {
@@ -26,16 +27,51 @@ namespace synth
 
         float wrap (float phase) noexcept { return phase - std::floor (phase); }
 
-        // One oscillator's wave for `n` samples into `out` (replacing), advancing `phase`.
-        void renderWave (OscWave wave, float* out, int n, float& phase, float increment, int level, float pulseWidth, float gain) noexcept
+        // What an oscillator reads this interval: one of the basic waves, or
+        // two frames of its wavetable and how far between them it is (moving
+        // from mixFrom to mixTo across the interval, so INDEX glides smoothly).
+        struct WaveSource
         {
-            switch (wave)
+            OscWave wave = OscWave::saw;
+            float pulseWidth = 0.5f;
+            const Wavetable* table = nullptr;
+            int below = 0, above = 0;
+            float mixFrom = 0.0f, mixTo = 0.0f;
+            bool oneFrame = true;
+        };
+
+        // A wavetable's two frames at `level`, blended, for `n` samples: calls
+        // `write (i, value)` for each.
+        template <typename Write>
+        void readTable (const WaveSource& source, int level, const float* positions, int n, Write write) noexcept
+        {
+            const auto below = source.table->get (source.below, level);
+            if (source.oneFrame)
+            {
+                for (int i = 0; i < n; ++i)
+                    write (i, Wavetable::read (below, positions[i]));
+                return;
+            }
+            const auto above = source.table->get (source.above, level);
+            const auto step = (source.mixTo - source.mixFrom) / (float) n;
+            for (int i = 0; i < n; ++i)
+            {
+                const auto a = Wavetable::read (below, positions[i]);
+                const auto b = Wavetable::read (above, positions[i]);
+                write (i, a + (b - a) * (source.mixFrom + step * (float) (i + 1)));
+            }
+        }
+
+        // One oscillator's wave for `n` samples into `out` (replacing), advancing `phase`.
+        void renderWave (const WaveSource& source, float* out, int n, float& phase, float increment, int level, float gain) noexcept
+        {
+            switch (source.wave)
             {
                 case OscWave::saw:
                 case OscWave::pulse:
                 {
                     const auto* saw = tables::get (tables::Wave::saw, level);
-                    if (wave == OscWave::saw)
+                    if (source.wave == OscWave::saw)
                     {
                         for (int i = 0; i < n; ++i)
                         {
@@ -50,7 +86,7 @@ namespace synth
                         // cycle: band-limited, because both saws are, and centred on zero.
                         for (int i = 0; i < n; ++i)
                         {
-                            auto other = phase + pulseWidth;
+                            auto other = phase + source.pulseWidth;
                             other -= (float) (other >= 1.0f);
                             out[i] = (tables::read (saw, phase) - tables::read (saw, other)) * gain;
                             phase += increment;
@@ -62,12 +98,32 @@ namespace synth
                 case OscWave::triangle:
                 case OscWave::sine:
                 {
-                    const auto* table = tables::get (wave == OscWave::triangle ? tables::Wave::triangle : tables::Wave::sine, level);
+                    const auto* table = tables::get (source.wave == OscWave::triangle ? tables::Wave::triangle : tables::Wave::sine, level);
                     for (int i = 0; i < n; ++i)
                     {
                         out[i] = tables::read (table, phase) * gain;
                         phase += increment;
                         phase -= (float) (phase >= 1.0f);
+                    }
+                    break;
+                }
+                case OscWave::wavetable:
+                {
+                    float positions[16];
+                    for (int done = 0; done < n; done += 16)
+                    {
+                        const auto count = juce::jmin (16, n - done);
+                        for (int i = 0; i < count; ++i)
+                        {
+                            positions[i] = phase;
+                            phase += increment;
+                            phase -= (float) (phase >= 1.0f);
+                        }
+                        auto part = source;
+                        const auto span = source.mixTo - source.mixFrom;
+                        part.mixFrom = source.mixFrom + span * (float) done / (float) n;
+                        part.mixTo = source.mixFrom + span * (float) (done + count) / (float) n;
+                        readTable (part, level, positions, count, [out, done, gain] (int i, float v) { out[done + i] = v * gain; });
                     }
                     break;
                 }
@@ -481,6 +537,7 @@ namespace synth
                 }
                 osc.vibratoPhase = 0.0f;
                 osc.vibratoHeld = random.nextFloat() * 2.0f - 1.0f;
+                osc.tableIndex = -1.0f;
             }
             if (! wasActive || restartEnvelopes)
                 osc.vibratoAge = 0;   // the vibrato fades in again with each new note
@@ -743,23 +800,35 @@ namespace synth
         // first every sample's place in the table (worked out from the start,
         // not each from the last, so no sample waits for the one before), then
         // the reading and mixing.
-        void addCopy (OscWave wave, float* left, float* right, const float* gains, int n, float& phase, float increment,
-                      int level, float pulseWidth, float gainLeft, float gainRight) noexcept
+        void addCopy (const WaveSource& source, float* left, float* right, const float* gains, int n, float& phase, float increment,
+                      int level, float gainLeft, float gainRight) noexcept
         {
             constexpr int maxN = Engine::controlInterval;
             float positions[maxN], others[maxN];
-            const auto size = (float) tables::size;
+            const auto isTable = source.wave == OscWave::wavetable;
+            const auto size = isTable ? 1.0f : (float) tables::size;   // a wavetable's levels scale the phase themselves
             for (int i = 0; i < n; ++i)
             {
                 auto p = phase + increment * (float) i;
                 p -= (float) (int) p;   // 0 to 1 (p is never negative)
                 positions[i] = p * size;
-                auto q = p + pulseWidth;
+                auto q = p + source.pulseWidth;
                 q -= (float) (int) q;
                 others[i] = q * size;
             }
             phase += increment * (float) n;
             phase -= (float) (int) phase;
+
+            if (isTable)
+            {
+                readTable (source, level, positions, n, [&] (int i, float value)
+                {
+                    const auto v = value * gains[i];
+                    left[i] += v * gainLeft;
+                    right[i] += v * gainRight;
+                });
+                return;
+            }
 
             const auto read = [] (const float* table, float position)
             {
@@ -769,7 +838,7 @@ namespace synth
                 return at[0] + (at[1] - at[0]) * fraction;
             };
 
-            if (wave == OscWave::pulse)
+            if (source.wave == OscWave::pulse)
             {
                 const auto* saw = tables::get (tables::Wave::saw, level);
                 for (int i = 0; i < n; ++i)
@@ -780,8 +849,8 @@ namespace synth
                 }
                 return;
             }
-            const auto* table = tables::get (wave == OscWave::saw ? tables::Wave::saw
-                                           : wave == OscWave::triangle ? tables::Wave::triangle : tables::Wave::sine, level);
+            const auto* table = tables::get (source.wave == OscWave::saw ? tables::Wave::saw
+                                           : source.wave == OscWave::triangle ? tables::Wave::triangle : tables::Wave::sine, level);
             for (int i = 0; i < n; ++i)
             {
                 const auto v = read (table, positions[i]) * gains[i];
@@ -832,11 +901,34 @@ namespace synth
             const auto hz = pitchToHz (basePitch + ownVibrato);
             const auto increment = juce::jlimit (0.0f, 0.5f, hz / (float) sampleRate);
             const auto level = tables::levelFor (hz, sampleRate);
-            const auto pulseWidth = juce::jlimit (0.01f, 0.99f, s.pulseWidth);
+            WaveSource source;
+            source.wave = s.wave;
+            source.pulseWidth = juce::jlimit (0.01f, 0.99f, s.pulseWidth);
+            auto audible = s.gain > 0.0f;
+            if (s.wave == OscWave::wavetable)
+            {
+                // INDEX: from where it was at the end of the last interval to where
+                // it is now, between the same two frames (if it crossed a frame,
+                // from the new pair's start: a step too small to hear).
+                audible = audible && s.table != nullptr;
+                if (s.table != nullptr)
+                {
+                    const auto from = osc.tableIndex < 0.0f ? s.tableIndex : osc.tableIndex;
+                    osc.tableIndex = s.tableIndex;
+                    const auto now = s.table->locate (s.tableIndex, s.tableFrames, s.tableSteppy);
+                    const auto before = s.table->locate (from, s.tableFrames, s.tableSteppy);
+                    source.table = s.table;
+                    source.below = now.below;
+                    source.above = now.above;
+                    source.mixTo = now.between;
+                    source.mixFrom = before.below == now.below && before.above == now.above ? before.between : now.between;
+                    source.oneFrame = now.below == now.above;
+                }
+            }
 
             auto* mono = scratch.data();
-            if (s.gain > 0.0f)
-                renderWave (s.wave, mono, n, osc.phase, increment, level, pulseWidth, s.gain);
+            if (audible)
+                renderWave (source, mono, n, osc.phase, increment, level, s.gain);
             else
             {
                 std::fill (mono, mono + n, 0.0f);
@@ -899,7 +991,7 @@ namespace synth
             // each with its own pitch, pan and level. None at all unless asked for.
             const auto unison = s.hasUnison() ? s.unisonVoices : 1;
             const auto detuneCents = s.unisonDetune * s.unisonDetune * maxDetuneCents;   // squared: fine control at the low end
-            if (s.gain > 0.0f && (unison > 1 || std::any_of (s.chord.begin(), s.chord.end(), [] (const ChordVoice& c) { return c.on; })))
+            if (audible && (unison > 1 || std::any_of (s.chord.begin(), s.chord.end(), [] (const ChordVoice& c) { return c.on; })))
             {
                 for (int note = 0; note <= numChordVoices; ++note)
                 {
@@ -920,8 +1012,8 @@ namespace synth
                         float left, right;
                         balance (s.pan + notePan + position * s.unisonSpread, left, right);
                         const auto copyLevel = (u == 0 ? 1.0f : s.unisonMix) * noteVolume * s.gain * sign;
-                        addCopy (s.wave, outLeft, outRight, gains.data(), n, c.phase, juce::jlimit (0.0f, 0.5f, copyHz / (float) sampleRate),
-                                 tables::levelFor (copyHz, sampleRate), pulseWidth, left * copyLevel, right * copyLevel);
+                        addCopy (source, outLeft, outRight, gains.data(), n, c.phase, juce::jlimit (0.0f, 0.5f, copyHz / (float) sampleRate),
+                                 tables::levelFor (copyHz, sampleRate), left * copyLevel, right * copyLevel);
                     }
                 }
             }

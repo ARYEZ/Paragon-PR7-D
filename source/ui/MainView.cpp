@@ -74,7 +74,7 @@ void GainColumn::resized()
 //==============================================================================
 MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     : audioProcessor (processorToShow),
-      oscillators (processorToShow.getParameters()),
+      oscillators (processorToShow),
       filter (processorToShow.getParameters()),
       filterEnvelope (processorToShow.getParameters(), "FILTER ENVELOPE",
                       { ParamIDs::fltAttack, ParamIDs::fltHold, ParamIDs::fltDecay, ParamIDs::fltSustain, ParamIDs::fltRelease,

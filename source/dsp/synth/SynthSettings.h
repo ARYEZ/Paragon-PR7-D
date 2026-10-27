@@ -13,9 +13,16 @@ namespace synth
     inline constexpr int numOscillators = 8;   // as on Avenger: up to 8 oscillator tabs
     inline constexpr int maxVoices = 64;       // notes at once
 
-    // Saved by index (osc*Wave): only ever append.
-    enum class OscWave { saw, pulse, triangle, sine };
-    inline const juce::StringArray oscWaveNames { "Saw", "Pulse", "Triangle", "Sine" };
+    class Wavetable;
+
+    // Saved by index (osc*Wave): only ever append. WAVETABLE came in stage 3 (0.3.0).
+    enum class OscWave { saw, pulse, triangle, sine, wavetable };
+    inline const juce::StringArray oscWaveNames { "Saw", "Pulse", "Triangle", "Sine", "Wavetable" };
+
+    // Saved by index (osc*WtMode): only ever append. How INDEX moves between
+    // frames: SMOOTH blends the two nearest, STEPPY jumps from one to the next.
+    inline const juce::StringArray wavetableModeNames { "Smooth", "Steppy" };
+    inline constexpr int maxWavetableFrames = 256;
 
     // Saved by index (osc*SubWave): only ever append.
     enum class SubWave { sine, triangle, square, saw };
@@ -101,6 +108,15 @@ namespace synth
 
         // CHORDER: up to 4 extra notes for each key, each with its own unison copies.
         std::array<ChordVoice, numChordVoices> chord { { { false, 12.0f }, { false, 7.0f }, { false, -12.0f }, { false, 4.0f } } };
+
+        // WAVETABLE (stage 3): the table (the factory's, or one loaded from a
+        // file; owned by the processor, which keeps it alive while it plays),
+        // where in it (INDEX, 0 to 1), how it moves, and how many of its frames
+        // INDEX steps through (FRAMES, 2 to 256, spread evenly).
+        const Wavetable* table = nullptr;
+        float tableIndex = 0.0f;
+        bool tableSteppy = false;
+        int tableFrames = maxWavetableFrames;
 
         bool hasUnison() const noexcept { return unisonMix > 0.0f && unisonVoices > 1; }
     };

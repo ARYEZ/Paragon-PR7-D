@@ -2,10 +2,11 @@
 
 #include "Parameters.h"
 #include "dsp/synth/SynthSettings.h"
+#include "dsp/synth/Wavetable.h"
 
 // PR7-K's first factory presets: a few starting points that show what each
 // stage can do (0.1.0: oscillators, sub, noise, the filter and its envelope,
-// mono and glide; 0.2.0: unison, vibrato and the chorder). Our own sounds, set up from common synth
+// mono and glide; 0.2.0: unison, vibrato and the chorder; 0.3.0: wavetables). Our own sounds, set up from common synth
 // recipes, not copies of anyone's presets, and not yet tuned by ear: the
 // full factory set comes in a later stage (presets), once the engine has
 // unison, wavetables, modulation and effects to build them with.
@@ -163,6 +164,39 @@ std::vector<Rig> makeFactoryRigs()
         .set (ParamIDs::fltKey, 0.5f).set (ParamIDs::fltEnvVel, 0.4f)
         .ampEnvelope (1.0f, 400.0f, 0.0f, 250.0f).set (ParamIDs::ampDecayCurve, -0.4f);
     add (stab);
+
+    // 0.3.0: wavetables. (No modulation yet to move INDEX: that's stage 4,
+    // so these set it where it sounds good and leave the knob to play with.)
+    const auto table = [] (const char* name) { return (float) synth::factoryTables::names.indexOf (name); };
+    const auto wavetable = (float) synth::OscWave::wavetable;
+
+    Builder vowels ("Vowel Pad", 12, { "Pad", "Wavetable" },
+                    "A choir-like pad on the Vowels table, between \"ah\" and \"eh\", five copies each slowly wobbling on their own. Turn INDEX to change the vowel.");
+    vowels.osc (0, "Wave", wavetable).osc (0, "Table", table ("Vowels")).osc (0, "WtIndex", 0.15f)
+          .osc (0, "UniVoices", 5.0f).osc (0, "UniMix", 0.9f).osc (0, "UniDetune", 0.25f).osc (0, "UniSpread", 0.9f)
+          .osc (0, "VibMode", (float) synth::VibratoMode::independent).osc (0, "VibAmount", 10.0f).osc (0, "VibRate", 4.0f)
+          .osc (0, "VibFade", 900.0f).osc (0, "Volume", 0.5f)
+          .ampEnvelope (600.0f, 1000.0f, 0.85f, 1600.0f).set (ParamIDs::ampReleaseCurve, -0.5f).set (ParamIDs::ampVel, 0.4f);
+    add (vowels);
+
+    Builder sync ("Sync Lead", 13, { "Lead", "Wavetable" },
+                  "The Hard Sync table halfway in (the tearing sound of a synced oscillator) with a saw an octave down underneath, mono with a quick glide.");
+    sync.osc (0, "Wave", wavetable).osc (0, "Table", table ("Hard Sync")).osc (0, "WtIndex", 0.5f).osc (0, "Volume", 0.6f)
+        .osc (1, "On", 1.0f).osc (1, "Transpose", -12.0f).osc (1, "Volume", 0.35f).osc (1, "PhaseRand", 0.0f)
+        .filter (FilterType::lp24, 5000.0f, 0.1f, 0.0f).set (ParamIDs::fltKey, 0.6f)
+        .ampEnvelope (2.0f, 300.0f, 0.85f, 200.0f)
+        .mono (60.0f);
+    add (sync);
+
+    Builder bits ("Bit Bass", 14, { "Bass", "Wavetable" },
+                  "A lo-fi bass from the Bit Steps table (a sine in a handful of steps), clean underneath with a sine sub, and a filter that snaps shut.");
+    bits.osc (0, "Wave", wavetable).osc (0, "Table", table ("Bit Steps")).osc (0, "WtIndex", 0.7f).osc (0, "WtMode", 1.0f)
+        .osc (0, "Sub", 0.7f).osc (0, "SubOct", 1.0f).osc (0, "Volume", 0.6f)
+        .filter (FilterType::lp24, 400.0f, 0.25f, 0.55f).filterEnvelope (0.0f, 220.0f, 0.15f, 150.0f)
+        .set (ParamIDs::fltKey, 0.3f)
+        .ampEnvelope (1.0f, 500.0f, 0.7f, 120.0f)
+        .mono (0.0f);
+    add (bits);
 
     return rigs;
 }

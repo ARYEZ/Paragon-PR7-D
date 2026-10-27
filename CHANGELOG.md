@@ -2,6 +2,23 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.3.0
+
+Stage 3, part 1: **wavetables**, modelled on Avenger's wavetable oscillator (our own design and code). Stage 3 comes in parts, each its own release: next are the wave-bending controls, then sync, FM and AM, then the FFT and freeform editors, then the shaper.
+
+- **WAVETABLE**, a new choice in each oscillator's **WAVE** menu: a row of up to 256 single-cycle waves ("frames") that **INDEX** moves through, morphing the sound as it goes.
+  - **TABLE** (in place of WIDTH) chooses the table: one of ours, or **Load WAV file...** to load your own (WAV, AIFF or FLAC). You can also drop a file straight onto the oscillator panel.
+  - **INDEX**: where in the table. **MODE**: **SMOOTH** blends between neighbouring frames, **STEPPY** jumps from one to the next. **FRAMES**: how many of the table's frames INDEX moves through, spread evenly from the first to the last (fewer makes broader, simpler steps).
+  - The wave picture shows the frames stacked from front to back, with the one INDEX points at drawn bright, and the table's name and frame number above.
+  - Unison, vibrato, the chorder, the sub and noise all work with wavetables as with the other waves.
+- **Ten factory tables of our own** (generated, not copied from anyone's): Analog Morph (sine, triangle, saw, square), Pulse Width, Harmonic Rise (harmonics added one by one), Vowels (a sung "ah eh ee oh oo"), Hard Sync, Wavefold, FM Sweep, Bit Steps, Comb Sweep and Organ Stack.
+- **Your own tables:** a file written by another wavetable synth is cut into frames the size it says (the "clm" marker most of them write). Otherwise a short file (4,096 samples or fewer) is taken as a single cycle, and anything longer is cut into frames of 2,048 samples, the size most wavetable packs use. Files with more than 256 frames keep 256, spread through the file. Avenger's own tables can't ship with PR7-K, but any WAV wavetable you have will load.
+- **Saved with your sound:** a loaded table is kept inside the preset and the DAW project (16-bit, compressed: a 64-frame table adds about 330 KB), so it plays the same on another computer even without the file. Undo covers loading and changing tables too.
+- **No aliasing, no extra CPU for it:** every frame is stored at the same 28 brightness levels as the saw, so a wavetable stays clean right up the keyboard with no oversampling (measured: a very bright frame at 2.6 kHz is 96 dB down between its harmonics). A wavetable supersaw chord (2 oscillators x 7 copies x 8 keys) took about 3.4% of one core in the tests, against 2.5% for the same chord with saws. Tables take memory instead: about 16 MB for a 64-frame table (64 MB for a full 256-frame one), built when you choose it.
+- **Three new factory presets:** Vowel Pad (A12), Sync Lead (A13) and Bit Bass (A14). Our own, not tuned by ear. Nothing moves INDEX by itself yet: modulation is stage 4, so for now INDEX is a knob to set or automate from your DAW.
+- Not in this part: Avenger's wavetable envelope and step pattern that move INDEX (they're modulators, so they come with stage 4), and its resampler options for loading long samples at a chosen root note (with the FFT editor, part 4).
+- In the tests: each frame keeps its own harmonics, each level only the harmonics it's allowed, INDEX picks and blends frames at the right levels, SMOOTH, STEPPY and FRAMES, INDEX moving without clicks, every factory table, cutting files into frames, saving and loading, and the plugin keeping a loaded table through the project, presets and undo. Not checked here: how it sounds (I can't listen).
+
 ## 0.2.0
 
 Stage 2: **unison and the chorder**, modelled on Avenger's V-Saw and Chorder (our own design and code). Each oscillator has a new **VOICES** page: switch between **WAVE** and **VOICES** at the right of the oscillator tabs.

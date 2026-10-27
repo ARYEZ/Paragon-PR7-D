@@ -7,6 +7,7 @@ FetchContent_MakeAvailable(catch2)
 add_executable(ParagonX1Tests
     TestMain.cpp
     SynthTests.cpp
+    WavetableTests.cpp
     ProcessorTests.cpp
     RigTests.cpp
     UiTests.cpp

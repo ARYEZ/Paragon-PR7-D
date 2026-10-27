@@ -80,8 +80,13 @@ void WaveDisplay::setOscillator (int index)
 std::vector<float> WaveDisplay::snapshot() const
 {
     std::vector<float> values { (float) oscillator };
-    for (const auto* what : { "On", "Wave", "Gain", "Width", "Invert", "Sub", "SubWave", "SubOct", "SubInvert", "Noise", "Phase", "PhaseRand" })
+    for (const auto* what : { "On", "Wave", "Gain", "Width", "Invert", "Sub", "SubWave", "SubOct", "SubInvert", "Noise", "Phase", "PhaseRand",
+                              "Table", "WtIndex", "WtMode", "WtFrames" })
         values.push_back (value (id (what)));
+    // Which table (a file can be loaded without any parameter changing).
+    if (juce::roundToInt (value (id ("Wave"))) == (int) synth::OscWave::wavetable && tableFor)
+        if (const auto table = tableFor (oscillator))
+            values.push_back ((float) (reinterpret_cast<std::uintptr_t> (table.get()) % 16777213u));
     return values;
 }
 
@@ -99,6 +104,17 @@ void WaveDisplay::paint (juce::Graphics& g)
 
     const auto on = value (id ("On")) > 0.5f;
     const auto wave = (synth::OscWave) juce::roundToInt (value (id ("Wave")));
+    if (wave == synth::OscWave::wavetable)
+    {
+        paintWavetable (g, bounds.reduced (10.0f, 8.0f), on);
+        if (! on)
+        {
+            g.setColour (ParagonColours::textDim);
+            g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+            g.drawText ("OFF", bounds.reduced (8.0f), juce::Justification::topRight, false);
+        }
+        return;
+    }
     const auto gain = value (id ("Gain"));
     const auto width = juce::jlimit (0.01f, 0.99f, value (id ("Width")));
     const auto invert = value (id ("Invert")) > 0.5f ? -1.0f : 1.0f;
@@ -120,6 +136,7 @@ void WaveDisplay::paint (juce::Graphics& g)
             case synth::OscWave::pulse:    return read (synth::tables::Wave::saw, phase) - read (synth::tables::Wave::saw, phase + width);
             case synth::OscWave::triangle: return read (synth::tables::Wave::triangle, phase);
             case synth::OscWave::sine:     return read (synth::tables::Wave::sine, phase);
+            case synth::OscWave::wavetable: return 0.0f;
         }
         return 0.0f;
     };
@@ -191,6 +208,73 @@ void WaveDisplay::paint (juce::Graphics& g)
         g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
         g.drawText ("OFF", bounds.reduced (8.0f), juce::Justification::topRight, false);
     }
+}
+
+void WaveDisplay::paintWavetable (juce::Graphics& g, juce::Rectangle<float> area, bool on) const
+{
+    const auto table = tableFor ? tableFor (oscillator) : nullptr;
+    if (table == nullptr || table->getNumFrames() == 0)
+        return;
+
+    const auto used = juce::jlimit (2, juce::jmax (2, table->getNumFrames()), juce::roundToInt (value (id ("WtFrames"))));
+    const auto steppy = juce::roundToInt (value (id ("WtMode"))) == 1;
+    const auto index = juce::jlimit (0.0f, 1.0f, value (id ("WtIndex")));
+    const auto gain = value (id ("Gain")) * (value (id ("Invert")) > 0.5f ? -1.0f : 1.0f);
+    const auto level = synth::tables::levelFor (220.0, 48000.0);   // as a note round A3 hears it
+
+    // Each frame sits on its own plane: the first at the front (bottom left),
+    // the last at the back (top right).
+    const auto header = 16.0f;
+    const auto stack = area.withTrimmedTop (header);
+    const auto plane = [stack] (float depth)
+    {
+        const auto w = stack.getWidth() * 0.78f, h = stack.getHeight() * 0.62f;
+        return juce::Rectangle<float> (stack.getX() + depth * (stack.getWidth() - w), stack.getBottom() - h - depth * (stack.getHeight() - h), w, h);
+    };
+    const auto curve = [&] (const auto& valueAt, juce::Rectangle<float> r)
+    {
+        juce::Path path;
+        const auto points = juce::jmax (2, (int) r.getWidth());
+        for (int i = 0; i < points; ++i)
+        {
+            const auto phase = (float) i / (float) (points - 1) * 0.9999f;
+            const juce::Point<float> point (r.getX() + (float) i, r.getCentreY() - juce::jlimit (-1.2f, 1.2f, valueAt (phase) * gain) * r.getHeight() * 0.42f);
+            if (i == 0) path.startNewSubPath (point); else path.lineTo (point);
+        }
+        return path;
+    };
+
+    // The frames INDEX moves through (up to 40 of them drawn), faint, back to front.
+    const auto shown = juce::jmin (used, 40);
+    for (int k = shown - 1; k >= 0; --k)
+    {
+        const auto depth = (float) k / (float) (shown - 1);
+        const auto frame = table->get (table->locate (depth, used, true).below, level);
+        const auto path = curve ([frame] (float phase) { return synth::Wavetable::read (frame, phase); }, plane (depth));
+        g.setColour (ParagonColours::accent.withAlpha ((on ? 0.10f : 0.05f) + (on ? 0.14f : 0.05f) * (1.0f - depth)));
+        g.strokePath (path, juce::PathStrokeType (1.0f));
+    }
+
+    // Where INDEX is: the wave as heard, bright.
+    const auto position = table->locate (index, used, steppy);
+    const auto below = table->get (position.below, level), above = table->get (position.above, level);
+    const auto between = position.between;
+    const auto now = plane (index);
+    const auto path = curve ([&] (float phase)
+    {
+        const auto a = synth::Wavetable::read (below, phase);
+        return a + (synth::Wavetable::read (above, phase) - a) * between;
+    }, now);
+    DisplayStyle::drawCurve (g, path, now, now.getCentreY(), on);
+
+    // The table's name, and which frame.
+    const auto frameNumber = juce::roundToInt ((float) position.below + between * (float) (position.above - position.below)) + 1;
+    g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    g.setColour (ParagonColours::text.withAlpha (on ? 0.85f : 0.4f));
+    g.drawText (table->getName().toUpperCase(), area.withHeight (header), juce::Justification::topLeft, true);
+    g.setColour (ParagonColours::textDim.withAlpha (on ? 0.9f : 0.4f));
+    g.drawText ("FRAME " + juce::String (frameNumber) + " / " + juce::String (table->getNumFrames()), area.withHeight (header).withTrimmedRight (on ? 0.0f : 34.0f),
+                juce::Justification::topRight, false);
 }
 
 //==============================================================================

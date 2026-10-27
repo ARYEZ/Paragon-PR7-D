@@ -2,6 +2,8 @@
 
 #include <juce_core/juce_core.h>
 
+#include "dsp/synth/Wavetable.h"
+
 #include <map>
 #include <optional>
 
@@ -28,6 +30,11 @@ struct Rig
     // rig resets any parameter it doesn't mention to its default, so rigs
     // saved before a parameter existed get that parameter's neutral setting.
     std::map<juce::String, float> parameters;
+
+    // Wavetables loaded from files, by oscillator (0 to 7), saved inside the
+    // preset so it plays the same on another computer. (A factory table needs
+    // nothing here: its oscillator's TABLE parameter names it.)
+    std::map<int, synth::WavetableSource> wavetables;
 
     // Free text shown with the rig: what it's for.
     juce::String notes;

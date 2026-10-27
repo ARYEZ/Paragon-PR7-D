@@ -6,6 +6,7 @@
 #include "LevelMeterSource.h"
 #include "Parameters.h"
 #include "dsp/synth/Engine.h"
+#include "dsp/synth/Wavetable.h"
 #include "rigs/RigLibrary.h"
 #include "rigs/UndoHistory.h"
 
@@ -120,6 +121,20 @@ public:
     // Notes sounding (including releasing ones), as of the last block.
     int getActiveVoices() const noexcept { return activeVoices.load(); }
 
+    //==========================================================================
+    // WAVETABLES (message thread)
+
+    // The table oscillator `osc` plays when its WAVE is WAVETABLE: one loaded
+    // from a file, or the factory table its TABLE parameter names.
+    std::shared_ptr<const synth::Wavetable> getWavetable (int osc);
+    bool hasLoadedWavetable (int osc) const { return loadedTables[(size_t) osc] != nullptr; }
+
+    // Loads a WAV (or AIFF, FLAC...) file into oscillator `osc` and switches
+    // its WAVE to WAVETABLE. False if the file couldn't be read as audio.
+    bool loadWavetableFile (int osc, const juce::File&);
+    // Chooses a factory table instead (forgetting a loaded one), and WAVETABLE.
+    void chooseFactoryWavetable (int osc, int index);
+
     // The DAW's tempo, as last seen by the audio thread (120 if it hasn't said).
     double getHostBpm() const noexcept { return hostBpm.load(); }
 
@@ -135,6 +150,13 @@ private:
     void parameterChanged (const juce::String& parameterId, float newValue) override;
     void markModified() noexcept;
     void applyRig (const Rig& rig);
+    // Points each oscillator at the table it should play, building factory
+    // tables as they're first wanted, and lets go of replaced ones once the
+    // audio thread can no longer be using them.
+    void updateWavetables();
+    // A table for a loaded source: an existing one if it's the same (undo, or
+    // the same preset again), else built.
+    std::shared_ptr<const synth::Wavetable> tableFor (const synth::WavetableSource&);
 
     // Undo snapshots: the sound and which preset it is.
     struct Snapshot
@@ -145,7 +167,7 @@ private:
 
         bool operator== (const Snapshot& other) const
         {
-            return rig.parameters == other.rig.parameters && current == other.current;
+            return rig.parameters == other.rig.parameters && rig.wavetables == other.rig.wavetables && current == other.current;
         }
     };
     Snapshot takeSnapshot() const;
@@ -164,6 +186,15 @@ private:
     // everything else by ID: read once per block into synth::Settings.
     struct OscParameters { std::atomic<float>* values[std::size (ParamIDs::oscSettings)] {}; };
     std::array<OscParameters, ParamIDs::numOscillators> oscParameters {};
+
+    // WAVETABLES: tables loaded from files (null: the factory's), what each
+    // oscillator plays now, the same for the audio thread (a plain pointer it
+    // can read without waiting), and replaced tables kept a little while so a
+    // block still playing one never reads freed memory.
+    std::array<std::shared_ptr<const synth::Wavetable>, ParamIDs::numOscillators> loadedTables, playingTables;
+    std::array<std::atomic<const synth::Wavetable*>, ParamIDs::numOscillators> tablesForAudio {};
+    std::array<int, ParamIDs::numOscillators> playingFactoryTable {};   // which factory table each plays (-1: none, or a loaded one)
+    std::vector<std::pair<std::shared_ptr<const synth::Wavetable>, double>> retiredTables;
 
     synth::Engine engine;
     juce::MidiKeyboardState keyboardState;
