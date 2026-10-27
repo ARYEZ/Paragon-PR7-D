@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 // SHAPE (stage 3b): bending an oscillator's wave while it plays, modelled on
 // Avenger's shape controls (our own design and code; the manual describes
@@ -46,6 +47,7 @@ namespace synth
         static constexpr int size = 1024;
         float skew = 0.0f, pinch = 0.0f;
         bool identity = true;
+        int count = size;   // points used (a note's own, modulated table uses fewer: `gridSize`)
         std::array<float, size + 1> points {};
 
         // Each control's two passes: SKEW u + a (1 - cos 2 pi u) / 2 pi (one
@@ -63,6 +65,7 @@ namespace synth
             skew = newSkew;
             pinch = newPinch;
             identity = newIdentity;
+            count = size;
             if (identity)
                 return;
             const auto a = (double) skewA (skew), b = (double) pinchB (pinch);
@@ -84,10 +87,86 @@ namespace synth
         {
             if (identity)
                 return u;
-            const auto position = juce::jlimit (0.0f, (float) size, u * (float) size);
-            const auto index = juce::jmin ((int) position, size - 1);
+            const auto position = juce::jlimit (0.0f, (float) count, u * (float) count);
+            const auto index = juce::jmin ((int) position, count - 1);
             const auto fraction = position - (float) index;
             return points[(size_t) index] + (points[(size_t) index + 1] - points[(size_t) index]) * fraction;
+        }
+
+        // SKEW and PINCH moved by the matrix (stage 4f): a note's own table, made
+        // every 16 samples from `Grid` (the curves worked out ahead at 65 settings
+        // of each, blended), at 256 points: no trigonometry, about 3,000
+        // multiplies and adds an update. Within 0.001 of the exact curve.
+        static constexpr int gridSize = 256;
+        struct Grid
+        {
+            static constexpr int levels = 65;
+            std::vector<float> skewRows, pinchRows;   // levels x (gridSize + 1): the first pass's curves, and the second's
+
+            static const Grid& get()
+            {
+                static const Grid grid;
+                return grid;
+            }
+            Grid() : skewRows ((size_t) levels * (gridSize + 1)), pinchRows ((size_t) levels * (gridSize + 1))
+            {
+                constexpr auto twoPi = juce::MathConstants<double>::twoPi;
+                for (int r = 0; r < levels; ++r)
+                {
+                    const auto control = -1.0f + 2.0f * (float) r / (float) (levels - 1);
+                    const auto a = (double) skewA (control), b = (double) pinchB (control);
+                    for (int i = 0; i <= gridSize; ++i)
+                    {
+                        auto u = (double) i / gridSize, v = u;
+                        for (int pass = 0; pass < 2; ++pass)
+                            u += a * (1.0 - std::cos (twoPi * u)) / twoPi;
+                        for (int pass = 0; pass < 2; ++pass)
+                            v += b * std::sin (twoPi * v) / twoPi;
+                        skewRows[(size_t) (r * (gridSize + 1) + i)] = (float) juce::jlimit (0.0, 1.0, u);
+                        pinchRows[(size_t) (r * (gridSize + 1) + i)] = (float) juce::jlimit (0.0, 1.0, v);
+                    }
+                }
+            }
+        };
+
+        void updateFromGrid (float newSkew, float newPinch) noexcept
+        {
+            const auto newIdentity = juce::exactlyEqual (newSkew, 0.0f) && juce::exactlyEqual (newPinch, 0.0f);
+            if (count == gridSize && newIdentity == identity && juce::exactlyEqual (newSkew, skew) && juce::exactlyEqual (newPinch, pinch))
+                return;
+            skew = newSkew;
+            pinch = newPinch;
+            identity = newIdentity;
+            count = gridSize;
+            if (identity)
+                return;
+            const auto& grid = Grid::get();
+            const auto rowOf = [] (float control, int& row, float& blend)
+            {
+                const auto position = (juce::jlimit (-1.0f, 1.0f, control) + 1.0f) * 0.5f * (float) (Grid::levels - 1);
+                row = juce::jmin ((int) position, Grid::levels - 2);
+                blend = position - (float) row;
+            };
+            int sRow = 0, pRow = 0;
+            float sBlend = 0.0f, pBlend = 0.0f;
+            rowOf (skew, sRow, sBlend);
+            rowOf (pinch, pRow, pBlend);
+            const auto* s0 = grid.skewRows.data() + sRow * (gridSize + 1);
+            const auto* s1 = s0 + gridSize + 1;
+            const auto* p0 = grid.pinchRows.data() + pRow * (gridSize + 1);
+            const auto* p1 = p0 + gridSize + 1;
+            for (int i = 0; i <= gridSize; ++i)
+            {
+                const auto u = s0[i] + (s1[i] - s0[i]) * sBlend;                    // SKEW's passes...
+                const auto x = u * (float) gridSize;                                // ...then PINCH's, read between its points
+                const auto j = juce::jmin ((int) x, gridSize - 1);
+                const auto f = x - (float) j;
+                const auto a = p0[j] + (p0[j + 1] - p0[j]) * f;
+                const auto b = p1[j] + (p1[j + 1] - p1[j]) * f;
+                points[(size_t) i] = a + (b - a) * pBlend;
+            }
+            points[0] = 0.0f;
+            points[(size_t) gridSize] = 1.0f;
         }
 
         // The fastest the curve plays any part of the wave.

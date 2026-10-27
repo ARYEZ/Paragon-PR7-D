@@ -76,6 +76,7 @@ target_sources(ParagonX1
         source/ui/MultiPointEditor.cpp
         source/ui/StepSeqEditor.cpp
         source/ui/TravelPatternEditor.cpp
+        source/ui/ModSourceStrip.cpp
         source/ui/SpectrumEditor.cpp
         source/ui/MainView.cpp
         source/ui/ParagonLookAndFeel.cpp

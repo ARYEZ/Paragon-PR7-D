@@ -22,6 +22,7 @@ namespace
     constexpr int stage4c = 10;  // 0.11.0
     constexpr int stage4d = 11;  // 0.12.0
     constexpr int stage4e = 12;  // 0.13.0
+    constexpr int stage4f = 13;  // 0.14.0
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -424,6 +425,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
 
     for (int k = 0; k < 3; ++k)
         add (layout, macros[k], "Macro " + juce::String (k + 1), { 0.0f, 1.0f }, 0.0f, asPercent, stage4a);
+    // CONTROLLER TO MOD WHEEL (stage 4f): global, like OUTPUT.
+    addSwitch (layout, mwBreath, "Breath To Mod Wheel", false, stage4f);
+    addSwitch (layout, mwExpression, "Expression To Mod Wheel", false, stage4f);
+    addSwitch (layout, mwAftertouch, "Aftertouch To Mod Wheel", false, stage4f);
+    addSwitch (layout, mwSustain, "Sustain To Mod Wheel", false, stage4f);
+
     for (int k = 0; k < 2; ++k)
         addSwitch (layout, macroButtons[k], "Macro Button " + juce::String (k + 1), false, stage4a);
 

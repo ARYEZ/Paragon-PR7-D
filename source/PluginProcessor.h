@@ -13,6 +13,7 @@
 #include "dsp/synth/Wavetable.h"
 #include "rigs/RigLibrary.h"
 #include "rigs/UndoHistory.h"
+#include "rigs/MidiLinks.h"
 
 // Which preset is loaded, for the header and the Save button. (Presets are
 // "rigs" in the code, as in the rest of the PR7 family, whose rig browser,
@@ -169,6 +170,22 @@ public:
     void modMatrixEditFinished() { requestCheckpoint(); }
     // The MOD page's on-screen mod wheel (0 to 1): sent to the synth as MIDI controller 1 in the next block.
     void setScreenModWheel (float value) noexcept { pendingModWheel = juce::jlimit (0.0f, 1.0f, value); }
+
+    // MIDI LEARN (stage 4f): controllers linked to knobs. A knob asks to learn;
+    // the next controller moved is linked to it (from the timer).
+    const MidiLinks& getMidiLinks() const noexcept { return midiLinks; }
+    void setMidiLinks (const MidiLinks&);
+    void startMidiLearn (const juce::String& parameterId);
+    void cancelMidiLearn() { learning = {}; }
+    void finishMidiLearn();   // from the timer (and tests): links the knob learning to a controller moved since
+    const juce::String& getMidiLearnTarget() const noexcept { return learning; }
+    int getLastController() const noexcept { return lastController.load(); }          // -1: none yet
+    float getLastControllerValue() const noexcept { return lastControllerValue.load(); }
+    juce::File midiLinksDefaultFile() const;
+    bool saveMidiLinksAsDefault() const;
+    bool exportMidiLinks (const juce::File&) const;
+    bool importMidiLinks (const juce::File&);
+    void controllerForTest (int controller, float value);   // a controller, played through a short block
     // How many routes the audio thread is playing (on, with a source and a known destination). For tests and the display.
     int getNumPlayingRoutes() const noexcept;
 
@@ -291,6 +308,12 @@ private:
     std::atomic<double> hostBpm { 120.0 };
     double hostPpq = -1.0;   // the song position at this block's start (-1: stopped); audio thread
     std::atomic<float> pendingModWheel { -1.0f };   // -1: nothing new
+    MidiLinks midiLinks;
+    std::array<std::atomic<juce::RangedAudioParameter*>, 128> controllerTargets {};   // the audio thread's copy, by CC
+    std::atomic<int> lastController { -1 }, controllerCount { 0 };
+    std::atomic<float> lastControllerValue { 0.0f };
+    juce::String learning;
+    int learnFromCount = 0;
 
     // The MOD MATRIX, and the routes the audio thread plays (rebuilt from it
     // on the message thread, swapped in by pointer, the old kept 2 s).

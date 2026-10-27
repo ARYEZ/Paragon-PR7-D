@@ -10,6 +10,7 @@
 #include "ui/ParagonLookAndFeel.h"
 #include "ui/RigBrowser.h"
 #include "ui/ModPage.h"
+#include "ui/ModSourceStrip.h"
 #include "ui/SynthPanels.h"
 
 // A side strip: a title, a gain knob with its value underneath, and a level meter.
@@ -35,10 +36,13 @@ private:
 //   header:   logo | SYNTH MOD PRESETS SETTINGS | < preset > | undo redo save settings
 //   SYNTH:    OSCILLATORS            | FILTER          | OUTPUT
 //             FILTER ENV | AMP ENV | AMP | PLAY         |
+//   sources:  the modulation sources, to drag onto knobs (stage 4f), and the last MIDI controller moved
 //   keyboard: the on-screen keyboard, always there (play it with the mouse)
 //
 // MOD, PRESETS and SETTINGS cover the synth panels; the keyboard stays.
 class MainView final : public juce::Component,
+                       public juce::DragAndDropContainer,
+                       public ControlHost,
                        private juce::ChangeListener,
                        private juce::Timer
 {
@@ -56,6 +60,19 @@ public:
     OscillatorPanel& getOscillatorPanel() noexcept { return oscillators; }
     FilterPanel& getFilterPanel() noexcept { return filter; }
     ModPage& getModPage() noexcept { return modPage; }
+    ModSourceStrip& getSourceStrip() noexcept { return sources; }
+    SettingsPage& getSettingsPage() noexcept { return settingsPage; }
+
+    // ControlHost (stage 4f): the knobs' modulation rings, menus and drops.
+    std::vector<RouteInfo> routesTo (const juce::String& parameterId) const override;
+    bool canModulate (const juce::String& parameterId) const override;
+    void addRoute (const juce::String& sourceId, const juce::String& parameterId) override;
+    void removeRoute (int index) override;
+    int linkedController (const juce::String& parameterId) const override;
+    bool isLearning (const juce::String& parameterId) const override;
+    void learn (const juce::String& parameterId) override;
+    void forget (const juce::String& parameterId) override;
+    void linkController (int controller, const juce::String& parameterId) override;
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -89,7 +106,12 @@ private:
     GainColumn outputColumn;
     std::vector<juce::Component*> synthPage;
 
+    ModSourceStrip sources;
     juce::MidiKeyboardComponent keyboard;
+    // What the knobs show (routes, links, learning), as last drawn: a change repaints them.
+    std::vector<ModRouteData> shownRoutes;
+    MidiLinks shownLinks;
+    juce::String shownLearning;
 
     // Other pages
     ModPage modPage;

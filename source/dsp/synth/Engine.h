@@ -102,6 +102,7 @@ namespace synth
             float pulsePhase = 0.0f;                         // FFT VSPEED's swing between the two edited copies
             double travelTime = 0.0;                         // TRAVEL (stage 4e): seconds since the note started (VOICE)...
             float travelIndex = -1.0f, travelGain = 1.0f;    // ...where SMOOTH has it (-1: not yet), and SILENCE's fade
+            WarpTable warp;                                  // SKEW / PINCH moved by the matrix: this note's own curve (stage 4f)
             std::array<Copy, maxCopies> copies;
         };
 
@@ -273,6 +274,8 @@ namespace synth
         // and how far into the render piece the interval being rendered starts.
         std::array<double, numOscillators> travelClock {};
         double intervalSeconds = 0.0;
+        // The settings before this note's modulation (to tell what the matrix moves for it).
+        const Settings* baseSettings = nullptr;
         Settings voiceSettings;
     };
 }

@@ -63,7 +63,11 @@ namespace synth
             oscFftLp, oscFftHp, oscFftSlope, oscFftVSpeed,
             filterCutoff, filterResonance, filterDrive, filterKeytrack, filterEnvelope,
             shaperDrive, shaperMix, shaperOutput,
-            ampVolume, ampPan
+            ampVolume, ampPan,
+            // Stage 4f: the bends, the shapers' EQ, the PITCH module, TRAVEL and the step sequencer
+            oscSkew, oscPinch, oscTravelStrength, oscTravelPhase,
+            shaperEq1Gain, shaperEq1Freq, shaperEq1Q, shaperEq2Gain, shaperEq2Freq, shaperEq2Q,
+            pitchEnvRange, pitchKeytrack, stepSeqVolMix
         };
         struct Target
         {
@@ -249,6 +253,9 @@ namespace synth
             bool uses (Source source) const noexcept { return (usedSources >> (int) source) & 1u; }
             double bpm = 120.0;
             double ppq = -1.0;                // the song position at the block's start, in beats (-1: stopped)
+            // CONTROLLER TO MOD WHEEL (stage 4f): breath, expression, aftertouch, sustain also drive the mod wheel
+            // (the wheel reads the highest of itself and those switched on).
+            std::array<bool, 4> toModWheel {};
         };
     }
 }

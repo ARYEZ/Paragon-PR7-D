@@ -1,5 +1,7 @@
 #include "MainView.h"
 
+#include "ModDestinations.h"
+
 #include "Parameters.h"
 #include "ui/Logo.h"
 
@@ -85,6 +87,7 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
       amp (processorToShow.getParameters()),
       play (processorToShow),
       outputColumn ("OUTPUT", processorToShow.getParameters(), ParamIDs::outputGain, processorToShow.getOutputMeter()),
+      sources (processorToShow),
       keyboard (processorToShow.getKeyboardState(), juce::MidiKeyboardComponent::horizontalKeyboard),
       modPage (processorToShow),
       rigBrowser (processorToShow),
@@ -143,6 +146,7 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     keyboard.setWantsKeyboardFocus (false);   // computer-key playing would fight the DAW's own shortcuts
     keyboard.setScrollButtonsVisible (false);  // all seven octaves fit
     addAndMakeVisible (keyboard);
+    addAndMakeVisible (sources);
 
     addChildComponent (modPage);
     addChildComponent (rigBrowser);
@@ -184,6 +188,91 @@ void MainView::timerCallback()
     refreshRig();
     undoButton.setEnabled (audioProcessor.canUndo());
     redoButton.setEnabled (audioProcessor.canRedo());
+
+    // The knobs' rings and MIDI marks follow the matrix, the links and learning.
+    const auto& matrix = audioProcessor.getModMatrix();
+    if (matrix.routes != shownRoutes || ! (audioProcessor.getMidiLinks() == shownLinks) || audioProcessor.getMidiLearnTarget() != shownLearning)
+    {
+        shownRoutes = matrix.routes;
+        shownLinks = audioProcessor.getMidiLinks();
+        shownLearning = audioProcessor.getMidiLearnTarget();
+        repaint();
+    }
+}
+
+//==============================================================================
+std::vector<ControlHost::RouteInfo> MainView::routesTo (const juce::String& parameterId) const
+{
+    std::vector<RouteInfo> found;
+    const auto& routes = audioProcessor.getModMatrix().routes;
+    for (size_t i = 0; i < routes.size(); ++i)
+    {
+        const auto& r = routes[i];
+        if (! r.on || r.destination != parameterId)
+            continue;
+        const auto source = synth::mod::sourceFromId (r.source);
+        found.push_back ({ (int) i, synth::mod::sourceNames[(size_t) source], r.amount, r.percent });
+    }
+    return found;
+}
+
+bool MainView::canModulate (const juce::String& parameterId) const
+{
+    return ModDestinations::find (parameterId) != nullptr;
+}
+
+void MainView::addRoute (const juce::String& sourceId, const juce::String& parameterId)
+{
+    auto matrix = audioProcessor.getModMatrix();
+    if ((int) matrix.routes.size() >= synth::mod::maxRoutes || ! canModulate (parameterId))
+        return;
+    ModRouteData route;
+    route.source = sourceId;
+    route.destination = parameterId;
+    route.amount = 0.5f;
+    matrix.routes.push_back (route);
+    audioProcessor.setModMatrix (matrix);
+    audioProcessor.modMatrixEditFinished();
+    repaint();
+}
+
+void MainView::removeRoute (int index)
+{
+    auto matrix = audioProcessor.getModMatrix();
+    if (index < 0 || index >= (int) matrix.routes.size())
+        return;
+    matrix.routes.erase (matrix.routes.begin() + index);
+    audioProcessor.setModMatrix (matrix);
+    audioProcessor.modMatrixEditFinished();
+    repaint();
+}
+
+int MainView::linkedController (const juce::String& parameterId) const { return audioProcessor.getMidiLinks().controllerFor (parameterId); }
+bool MainView::isLearning (const juce::String& parameterId) const { return audioProcessor.getMidiLearnTarget() == parameterId; }
+
+void MainView::learn (const juce::String& parameterId)
+{
+    if (isLearning (parameterId))
+        audioProcessor.cancelMidiLearn();
+    else
+        audioProcessor.startMidiLearn (parameterId);
+    repaint();
+}
+
+void MainView::forget (const juce::String& parameterId)
+{
+    auto links = audioProcessor.getMidiLinks();
+    links.forget (parameterId);
+    audioProcessor.setMidiLinks (links);
+    repaint();
+}
+
+void MainView::linkController (int controller, const juce::String& parameterId)
+{
+    auto links = audioProcessor.getMidiLinks();
+    links.link (controller, parameterId);
+    audioProcessor.setMidiLinks (links);
+    repaint();
 }
 
 void MainView::changeListenerCallback (juce::ChangeBroadcaster*)
@@ -292,7 +381,9 @@ void MainView::resized()
     outputColumn.setBounds (outputArea);
 
     // Seven octaves from C1, filling the strip (the width first: changing it moves the view).
-    const auto keys = keyboardArea.reduced (8, 8);
+    auto keys = keyboardArea.reduced (8, 6);
+    sources.setBounds (keys.removeFromTop (24));
+    keys.removeFromTop (4);
     keyboard.setBounds (keys);
     keyboard.setKeyWidth ((float) keys.getWidth() / 49.0f);
     keyboard.setLowestVisibleKey (24);

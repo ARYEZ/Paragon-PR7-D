@@ -8,10 +8,12 @@
 
 // What the MOD MATRIX can move (stage 4a): every knob the engine follows
 // live while a note plays, by its parameter ID, with the setting it moves
-// and how the menu names it. Not yet: SKEW and PINCH (their curve is built
-// ahead), the FFT editor's SWEEP, FLIP and VSTRENGTH (baked into its
-// tables), the shapers' EQ bands (worked out once per block), and anything
-// chosen from a menu or switched.
+// and how the menu names it. SKEW, PINCH and the shapers' EQ joined in 0.14.0
+// (a modulated note works out its own curve and EQ). Not: the FFT editor's
+// SWEEP, FLIP and VSTRENGTH (baked into tables built in the background), the
+// LFOs', envelopes' and step sequencer's timing (they run once for all
+// notes, or are worked out before the routes), and anything chosen from a
+// menu or switched.
 namespace ModDestinations
 {
     struct Destination

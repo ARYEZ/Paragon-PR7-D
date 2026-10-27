@@ -25,6 +25,7 @@ namespace
     const juce::Identifier drawingsKey { "Drawings" };
     const juce::Identifier drawingKey { "Drawing" };
     const juce::Identifier modulationKey { "Modulation" };
+    const juce::Identifier midiLinksKey { "MidiLinks" };
     constexpr int parameterVersion = 1;
 }
 
@@ -164,6 +165,9 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
         buildFreeform (i);
 
     rigLibrary = std::make_unique<RigLibrary>();
+    // MIDI LEARN: a new instance starts with the default links, if some were saved.
+    if (midiLinksDefaultFile().existsAsFile())
+        importMidiLinks (midiLinksDefaultFile());
     // A new PR7-K is the Init preset (every parameter at its default), so the
     // header names it and < > step on from there.
     currentRig = { "Init", {}, "Init" };
@@ -416,6 +420,7 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
     for (int k = 0; k < 2; ++k)
         s.modulation.buttons[(size_t) k] = isOn (ParamIDs::macroButtons[k]);
     s.modulation.bpm = hostBpm.load();
+    s.modulation.toModWheel = { isOn (ParamIDs::mwBreath), isOn (ParamIDs::mwExpression), isOn (ParamIDs::mwAftertouch), isOn (ParamIDs::mwSustain) };
 
     // The PITCH module (its envelope's points are added per block).
     auto& pm = s.pitch;
@@ -496,6 +501,23 @@ void ParagonX1AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
             const auto ppq = position->getPpqPosition();
             hostPpq = position->getIsPlaying() && ppq.hasValue() ? *ppq : -1.0;
         }
+
+    // MIDI LEARN: the last controller moved (for the strip and for learning), and the knobs linked to controllers.
+    for (const auto metadata : midi)
+    {
+        const auto message = metadata.getMessage();
+        if (! message.isController())
+            continue;
+        const auto cc = message.getControllerNumber();
+        if (cc < 0 || cc >= 120)
+            continue;   // 120-127: channel mode messages (all notes off...)
+        const auto value = (float) message.getControllerValue() / 127.0f;
+        lastController = cc;
+        lastControllerValue = value;
+        ++controllerCount;
+        if (auto* target = controllerTargets[(size_t) cc].load())
+            target->setValueNotifyingHost (value);
+    }
 
     // The on-screen keyboard's notes join the DAW's.
     keyboardMidi.clear();
@@ -581,6 +603,7 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
 //==============================================================================
 void ParagonX1AudioProcessor::timerCallback()
 {
+    finishMidiLearn();
     updateWavetables();
     recordCheckpointIfReady();
 }
@@ -1133,6 +1156,8 @@ void ParagonX1AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     state.appendChild (drawn, nullptr);
     if (! matrix.isEmpty())
         state.appendChild (juce::ValueTree::fromXml (*matrix.toXml()), nullptr);
+    if (! midiLinks.isEmpty())
+        state.appendChild (juce::ValueTree::fromXml (*midiLinks.toXml()), nullptr);
 
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
@@ -1187,6 +1212,13 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
             newMatrix = ModMatrix::fromXml (*xml);
         state.removeChild (saved, nullptr);
     }
+    // MIDI LEARN's links: the project's, if it has any (else the ones this instance has: its default).
+    if (auto saved = state.getChildWithName (midiLinksKey); saved.isValid())
+    {
+        if (const auto links = saved.createXml())
+            setMidiLinks (MidiLinks::fromXml (*links));
+        state.removeChild (saved, nullptr);
+    }
     parameters.replaceState (state);
     matrix = newMatrix;
     compileMatrix();
@@ -1215,4 +1247,69 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new ParagonX1AudioProcessor();
+}
+
+//==============================================================================
+// MIDI LEARN (stage 4f)
+void ParagonX1AudioProcessor::setMidiLinks (const MidiLinks& links)
+{
+    midiLinks = links;
+    std::array<juce::RangedAudioParameter*, 128> targets {};
+    for (const auto& l : midiLinks.links)
+        if (auto* p = parameters.getParameter (l.parameterId))
+            targets[(size_t) l.controller] = p;
+    for (size_t cc = 0; cc < targets.size(); ++cc)
+        controllerTargets[cc] = targets[cc];
+}
+
+void ParagonX1AudioProcessor::finishMidiLearn()
+{
+    // A controller moved since a knob asked to learn: link them.
+    if (learning.isNotEmpty() && controllerCount.load() != learnFromCount && lastController.load() >= 0)
+    {
+        auto links = midiLinks;
+        links.link (lastController.load(), learning);
+        learning = {};
+        setMidiLinks (links);
+    }
+}
+
+void ParagonX1AudioProcessor::startMidiLearn (const juce::String& parameterId)
+{
+    learning = parameterId;
+    learnFromCount = controllerCount.load();
+}
+
+juce::File ParagonX1AudioProcessor::midiLinksDefaultFile() const
+{
+    return rigLibrary->getFolder().getChildFile ("MIDI Links.xml");
+}
+
+bool ParagonX1AudioProcessor::saveMidiLinksAsDefault() const
+{
+    return exportMidiLinks (midiLinksDefaultFile());
+}
+
+bool ParagonX1AudioProcessor::exportMidiLinks (const juce::File& file) const
+{
+    file.getParentDirectory().createDirectory();
+    return midiLinks.toXml()->writeTo (file);
+}
+
+bool ParagonX1AudioProcessor::importMidiLinks (const juce::File& file)
+{
+    const auto xml = juce::XmlDocument::parse (file);
+    if (xml == nullptr || ! xml->hasTagName ("MidiLinks"))
+        return false;
+    setMidiLinks (MidiLinks::fromXml (*xml));
+    return true;
+}
+
+void ParagonX1AudioProcessor::controllerForTest (int controller, float value)
+{
+    juce::MidiBuffer midi;
+    midi.addEvent (juce::MidiMessage::controllerEvent (1, controller, juce::roundToInt (value * 127.0f)), 0);
+    juce::AudioBuffer<float> buffer (2, 64);
+    buffer.clear();
+    processBlock (buffer, midi);
 }

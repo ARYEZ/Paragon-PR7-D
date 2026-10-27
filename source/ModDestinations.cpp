@@ -25,7 +25,10 @@ namespace ModDestinations
                 { "UniSpread", { "Unison Spread", Field::oscUnisonSpread } },
                 { "VibRate", { "Vibrato Rate", Field::oscVibratoRate } }, { "VibAmount", { "Vibrato Amount", Field::oscVibratoAmount } },
                 { "FftLp", { "FFT LP", Field::oscFftLp } }, { "FftHp", { "FFT HP", Field::oscFftHp } },
-                { "FftSlope", { "FFT Slope", Field::oscFftSlope } }, { "FftVSpeed", { "FFT VSpeed", Field::oscFftVSpeed } } };
+                { "FftSlope", { "FFT Slope", Field::oscFftSlope } }, { "FftVSpeed", { "FFT VSpeed", Field::oscFftVSpeed } },
+                // Stage 4f.
+                { "Skew", { "Skew", Field::oscSkew } }, { "Pinch", { "Pinch", Field::oscPinch } },
+                { "TrStrength", { "Travel Strength", Field::oscTravelStrength } }, { "TrPhase", { "Travel Phase", Field::oscTravelPhase } } };
             for (int i = 0; i < ParamIDs::numOscillators; ++i)
                 for (const auto& [setting, entry] : oscFields)
                     d.push_back ({ ParamIDs::osc (i, setting), "Osc " + juce::String (i + 1), entry.first, { entry.second, i } });
@@ -42,8 +45,16 @@ namespace ModDestinations
                 d.push_back ({ ParamIDs::shp (k, "Drive"), group, "Drive", { Field::shaperDrive, k } });
                 d.push_back ({ ParamIDs::shp (k, "Mix"), group, "Mix", { Field::shaperMix, k } });
                 d.push_back ({ ParamIDs::shp (k, "Output"), group, "Output", { Field::shaperOutput, k } });
+                const std::pair<const char*, std::pair<const char*, Field>> eq[] = {
+                    { "Eq1Gain", { "EQ 1 Gain", Field::shaperEq1Gain } }, { "Eq1Freq", { "EQ 1 Freq", Field::shaperEq1Freq } }, { "Eq1Q", { "EQ 1 Q", Field::shaperEq1Q } },
+                    { "Eq2Gain", { "EQ 2 Gain", Field::shaperEq2Gain } }, { "Eq2Freq", { "EQ 2 Freq", Field::shaperEq2Freq } }, { "Eq2Q", { "EQ 2 Q", Field::shaperEq2Q } } };
+                for (const auto& [setting, entry] : eq)
+                    d.push_back ({ ParamIDs::shp (k, setting), group, entry.first, { entry.second, k } });
             }
 
+            d.push_back ({ ParamIDs::pitchEnvRange, "Pitch", "Envelope Range", { Field::pitchEnvRange, 0 } });
+            d.push_back ({ ParamIDs::pitchKeytrack, "Pitch", "Keytrack", { Field::pitchKeytrack, 0 } });
+            d.push_back ({ ParamIDs::seqVolMix, "Step Seq", "Vol Mix", { Field::stepSeqVolMix, 0 } });
             d.push_back ({ ParamIDs::ampVolume, "Amp", "Volume", { Field::ampVolume, 0 } });
             d.push_back ({ ParamIDs::ampPan, "Amp", "Pan", { Field::ampPan, 0 } });
             return d;

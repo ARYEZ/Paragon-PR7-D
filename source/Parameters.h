@@ -176,8 +176,14 @@ namespace ParamIDs
     inline constexpr auto bendDown  = "bendDown";
     inline constexpr auto voices    = "voices";       // notes at once
 
+    // CONTROLLER TO MOD WHEEL (stage 4f, 0.14.0): these controllers drive the mod wheel too (the "mw" switches).
+    inline constexpr auto mwBreath     = "mwBreath";
+    inline constexpr auto mwExpression = "mwExpression";
+    inline constexpr auto mwAftertouch = "mwAftertouch";
+    inline constexpr auto mwSustain    = "mwSustain";
+
     // Global settings: kept when switching presets. Everything else is part of a preset.
-    inline const juce::StringArray notInRigs { outputGain, bypass, tune };
+    inline const juce::StringArray notInRigs { outputGain, bypass, tune, mwBreath, mwExpression, mwAftertouch, mwSustain };
 }
 
 namespace ParamRanges

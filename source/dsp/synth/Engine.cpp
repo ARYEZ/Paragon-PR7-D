@@ -329,6 +329,7 @@ namespace synth
 
     void Engine::prepare (double newSampleRate)
     {
+        WarpTable::Grid::get();   // SKEW / PINCH's curves for modulated notes: worked out once, here, not on the audio thread
         sampleRate = newSampleRate;
         killStep = (float) (1.0 / juce::jmax (1.0, killMs * 0.001 * sampleRate));
         dcPole = (float) (1.0 - juce::MathConstants<double>::twoPi * 5.0 / sampleRate);
@@ -1032,7 +1033,13 @@ namespace synth
             values[(size_t) mod::Source::macro1 + (size_t) k] = modulation.macros[(size_t) k];
         values[(size_t) mod::Source::button1] = modulation.buttons[0] ? 1.0f : 0.0f;
         values[(size_t) mod::Source::button2] = modulation.buttons[1] ? 1.0f : 0.0f;
-        values[(size_t) mod::Source::modWheel] = modWheel;
+        auto wheel = modWheel;
+        const auto& toWheel = modulation.toModWheel;
+        if (toWheel[0]) wheel = juce::jmax (wheel, breath);
+        if (toWheel[1]) wheel = juce::jmax (wheel, expression);
+        if (toWheel[2]) wheel = juce::jmax (wheel, juce::jmax (channelPressure, voice.pressure));
+        if (toWheel[3] && pedalDown) wheel = 1.0f;
+        values[(size_t) mod::Source::modWheel] = wheel;
         values[(size_t) mod::Source::pitchBend] = bend;
         values[(size_t) mod::Source::velocity] = voice.velocity;
         values[(size_t) mod::Source::aftertouch] = juce::jmax (channelPressure, voice.pressure);
@@ -1080,7 +1087,6 @@ namespace synth
             && (pitchModule.envelopeOn || (unmodulated.modulation.numRoutes > 0 && unmodulated.modulation.uses (mod::Source::pitchEnvelope))))
             voice.pitchEnvelopeValue = 2.0f * voice.pitchEnvelope.next (*pitchModule.shape, pitchModule.envelope, (double) n / sampleRate,
                                                                         unmodulated.modulation.bpm) - 1.0f;
-        voice.pitchSemitones = pitchModule.envelopeOn && pitchModule.shape != nullptr ? voice.pitchEnvelopeValue * pitchModule.rangeSemitones : 0.0f;
 
         // The STEP SEQUENCER for this interval: its value at each sample (the whole
         // synth's, or this note's own), and how far DELAY and FADE IN let it in.
@@ -1109,11 +1115,14 @@ namespace synth
         else
             voice.seqValue = 0.0f;
         voice.seqAge += (double) n / sampleRate;
-        const auto gating = seqActive && stepSeq.on && stepSeq.volMix > 0.0f && seqEnd + seqStart > 0.0f;
+        const auto gating = seqActive && stepSeq.on && seqEnd + seqStart > 0.0f;
 
         // With modulation, this note plays its own copy of the settings.
         const auto modulated = unmodulated.modulation.numRoutes > 0;
+        baseSettings = &unmodulated;
         const auto& settings = modulated ? modulate (voice, n, unmodulated, interval) : unmodulated;
+        // The PITCH envelope in semitones (RANGE can be moved by the matrix).
+        voice.pitchSemitones = pitchModule.envelopeOn && pitchModule.shape != nullptr ? voice.pitchEnvelopeValue * settings.pitch.rangeSemitones : 0.0f;
         if (modulated)
             balance (voice.notePan + settings.amp.pan - unmodulated.amp.pan, voice.panLeft, voice.panRight);
 
@@ -1218,7 +1227,7 @@ namespace synth
             if (gating)
             {
                 // The trance gate: the volume down by VOL MIX where the step sequencer is low.
-                const auto depth = stepSeq.volMix * (seqStart + (seqEnd - seqStart) * (float) i / (float) n);
+                const auto depth = settings.stepSeq.volMix * (seqStart + (seqEnd - seqStart) * (float) i / (float) n);
                 gainLeft *= 1.0f - depth * (1.0f - seqLeft[(size_t) i]);
                 gainRight *= 1.0f - depth * (1.0f - seqRight[(size_t) i]);
             }
@@ -1286,6 +1295,19 @@ namespace synth
             case Field::shaperOutput: shaper.outputDb = value; break;
             case Field::ampVolume: s.amp.volume = value; break;
             case Field::ampPan: s.amp.pan = value; break;
+            case Field::oscSkew: o.skew = value; break;
+            case Field::oscPinch: o.pinch = value; break;
+            case Field::oscTravelStrength: o.travel.strength = value; break;
+            case Field::oscTravelPhase: o.travel.phase = value; break;
+            case Field::shaperEq1Gain: shaper.eqGainDb[0] = value; break;
+            case Field::shaperEq1Freq: shaper.eqFreqHz[0] = value; break;
+            case Field::shaperEq1Q: shaper.eqQ[0] = value; break;
+            case Field::shaperEq2Gain: shaper.eqGainDb[1] = value; break;
+            case Field::shaperEq2Freq: shaper.eqFreqHz[1] = value; break;
+            case Field::shaperEq2Q: shaper.eqQ[1] = value; break;
+            case Field::pitchEnvRange: s.pitch.rangeSemitones = value; break;
+            case Field::pitchKeytrack: s.pitch.keytrack = value; break;
+            case Field::stepSeqVolMix: s.stepSeq.volMix = value; break;
         }
     }
 
@@ -1395,7 +1417,18 @@ namespace synth
     void Engine::processShaper (Path& path, int k, float* left, float* right, int n, const Settings& settings, float velocityDown) noexcept
     {
         const auto& sh = settings.shapers[(size_t) k];
-        const auto& bells = shaperCoefficients[(size_t) k].bells;
+        // The EQ bands: the shaper's (worked out once a block), or this note's own when the matrix moves them.
+        std::array<shaper::Bell, 2> ownBells;
+        auto movedEq = false;
+        if (baseSettings != nullptr)
+        {
+            const auto& base = baseSettings->shapers[(size_t) k];
+            movedEq = base.eqGainDb != sh.eqGainDb || base.eqFreqHz != sh.eqFreqHz || base.eqQ != sh.eqQ;
+        }
+        if (movedEq)
+            for (size_t b = 0; b < 2; ++b)
+                ownBells[b] = shaper::Bell::make (sh.eqGainDb[b], sh.eqFreqHz[b], sh.eqQ[b], sampleRate);
+        const auto& bells = movedEq ? ownBells : shaperCoefficients[(size_t) k].bells;
         auto& chLeft = path.shapeLeft[(size_t) k];
         auto& chRight = path.shapeRight[(size_t) k];
 
@@ -1697,8 +1730,14 @@ namespace synth
 
             // SHAPE: bent waves read a level with fewer harmonics, as many as the
             // fastest the bend plays any part of the wave leaves room for.
-            warpTables[index].update (s.skew, s.pinch);
-            const auto bending = WaveBend::make (s, warpTables[index]);
+            // SKEW and PINCH: the oscillator's curve, or this note's own when the matrix moves them.
+            const auto* base = baseSettings != nullptr ? &baseSettings->oscillators[index] : nullptr;
+            const auto ownWarp = base != nullptr && (! juce::exactlyEqual (s.skew, base->skew) || ! juce::exactlyEqual (s.pinch, base->pinch));
+            if (ownWarp)
+                osc.warp.updateFromGrid (s.skew, s.pinch);
+            else
+                warpTables[index].update (s.skew, s.pinch);
+            const auto bending = WaveBend::make (s, ownWarp ? osc.warp : warpTables[index]);
 
             // SYNC, FM and AM: the same, with the copy's or modulator's rate.
             Modulation mod;

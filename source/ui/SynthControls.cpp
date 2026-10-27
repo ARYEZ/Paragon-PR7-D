@@ -45,9 +45,149 @@ ParamControl::ParamControl (juce::AudioProcessorValueTreeState& stateToUse, cons
         addAndMakeVisible (*slider);
     }
     attach (id);
+    addMouseListener (this, true);   // right-clicks on the knob, menu or switch open the control's menu
 }
 
 ParamControl::~ParamControl() = default;
+
+juce::Range<float> ParamControl::getModulationRange() const
+{
+    const auto* h = host();
+    auto* parameter = state.getParameter (parameterId);
+    if (h == nullptr || parameter == nullptr)
+        return {};
+    const auto routes = h->routesTo (parameterId);
+    if (routes.empty())
+        return {};
+    // Where the routes can take the knob from where it is: + adds the amount of the
+    // travel, % a share of what's left (as the engine combines them).
+    const auto at = parameter->getValue();
+    auto up = 0.0f, down = 0.0f;
+    for (const auto& r : routes)
+    {
+        const auto push = r.percent ? r.amount * (r.amount >= 0.0f ? 1.0f - at : at) : r.amount;
+        // A source swinging both ways (an LFO, the pitch wheel) pushes both ways.
+        (push >= 0.0f ? up : down) += push;
+    }
+    return { juce::jlimit (0.0f, 1.0f, at + down), juce::jlimit (0.0f, 1.0f, at + up) };
+}
+
+void ParamControl::paintOverChildren (juce::Graphics& g)
+{
+    if (dropHover)
+    {
+        g.setColour (ParagonColours::accent.withAlpha (0.8f));
+        g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (1.0f), 4.0f, 1.5f);
+    }
+    const auto* h = host();
+    if (h == nullptr)
+        return;
+    if (h->isLearning (parameterId))
+    {
+        // Waiting for a controller: a dashed outline.
+        g.setColour (ParagonColours::glow);
+        juce::Path outline;
+        outline.addRoundedRectangle (getLocalBounds().toFloat().reduced (1.5f), 4.0f);
+        juce::Path dashed;
+        const float dashes[] = { 4.0f, 3.0f };
+        juce::PathStrokeType (1.5f).createDashedStroke (dashed, outline, dashes, 2);
+        g.fillPath (dashed);
+    }
+    if (const auto cc = h->linkedController (parameterId); cc >= 0)
+    {
+        g.setColour (ParagonColours::textDim);
+        g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+        g.drawText ("CC" + juce::String (cc), getLocalBounds().removeFromTop (12).removeFromRight (30), juce::Justification::centredRight, false);
+    }
+
+    // The modulation ring, outside the knob's own arc.
+    if (slider == nullptr || ! slider->isVisible())
+        return;
+    const auto range = getModulationRange();
+    if (range.isEmpty() && h->routesTo (parameterId).empty())
+        return;
+    const auto layout = slider->getLookAndFeel().getSliderLayout (*slider);
+    const auto bounds = layout.sliderBounds.toFloat().translated ((float) slider->getX(), (float) slider->getY()).reduced (4.0f);
+    const auto radius = juce::jmin (bounds.getWidth(), bounds.getHeight()) / 2.0f;
+    const auto ring = radius + 1.5f;
+    const auto rotary = slider->getRotaryParameters();
+    const auto angle = [&rotary] (float p) { return rotary.startAngleRadians + p * (rotary.endAngleRadians - rotary.startAngleRadians); };
+    juce::Path arc;
+    arc.addCentredArc (bounds.getCentreX(), bounds.getCentreY(), ring, ring, 0.0f, angle (range.getStart()), angle (juce::jmax (range.getEnd(), range.getStart() + 0.005f)), true);
+    g.setColour (ParagonColours::text.withAlpha (0.85f));
+    g.strokePath (arc, juce::PathStrokeType (2.0f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+}
+
+void ParamControl::mouseDown (const juce::MouseEvent& e)
+{
+    if (e.mods.isPopupMenu() && host() != nullptr)
+        showMenu();
+}
+
+void ParamControl::showMenu()
+{
+    auto* h = host();
+    juce::PopupMenu menu;
+    const auto cc = h->linkedController (parameterId);
+    menu.addSectionHeader (label.getText().isNotEmpty() ? label.getText() : parameterId);
+    menu.addItem (1, h->isLearning (parameterId) ? "Stop MIDI learn" : "MIDI learn (move a knob or fader on your controller)");
+    if (cc >= 0)
+        menu.addItem (2, "Forget MIDI (CC " + juce::String (cc) + ")");
+    const auto routes = h->routesTo (parameterId);
+    if (! routes.empty())
+    {
+        menu.addSeparator();
+        for (const auto& r : routes)
+            menu.addItem (100 + r.index, "Remove modulation: " + r.source + " (" + (r.amount >= 0.0f ? "+" : "")
+                                         + juce::String (juce::roundToInt (r.amount * 100.0f)) + (r.percent ? "% of what's left)" : "%)"));
+    }
+    else if (h->canModulate (parameterId))
+    {
+        menu.addSeparator();
+        menu.addItem (3, "To modulate it: drag a source from the strip above the keyboard onto it", false);
+    }
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this),
+                        [safe = juce::Component::SafePointer<ParamControl> (this)] (int chosen)
+                        {
+                            if (safe == nullptr || chosen <= 0)
+                                return;
+                            auto* h = safe->host();
+                            if (h == nullptr)
+                                return;
+                            if (chosen == 1)
+                                h->learn (safe->parameterId);
+                            else if (chosen == 2)
+                                h->forget (safe->parameterId);
+                            else if (chosen >= 100)
+                                h->removeRoute (chosen - 100);
+                            safe->repaint();
+                        });
+}
+
+bool ParamControl::isInterestedInDragSource (const SourceDetails& details)
+{
+    const auto what = details.description.toString();
+    const auto* h = host();
+    if (h == nullptr)
+        return false;
+    if (what.startsWith ("mod:"))
+        return h->canModulate (parameterId);
+    return what.startsWith ("cc:");
+}
+
+void ParamControl::itemDropped (const SourceDetails& details)
+{
+    dropHover = false;
+    const auto what = details.description.toString();
+    if (auto* h = host())
+    {
+        if (what.startsWith ("mod:"))
+            h->addRoute (what.fromFirstOccurrenceOf ("mod:", false, false), parameterId);
+        else if (what.startsWith ("cc:"))
+            h->linkController (what.fromFirstOccurrenceOf ("cc:", false, false).getIntValue(), parameterId);
+    }
+    repaint();
+}
 
 void ParamControl::attach (const juce::String& id)
 {
