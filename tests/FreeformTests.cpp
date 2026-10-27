@@ -5,6 +5,8 @@
 #include "PluginProcessor.h"
 #include "dsp/synth/Freeform.h"
 
+using Catch::Matchers::WithinRel;
+
 namespace
 {
     double harmonicOf (const std::vector<float>& cycle, int h)
