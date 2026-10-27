@@ -350,6 +350,9 @@ namespace synth
         bend = 0.0f;
         pedalDown = false;
         lastPitch = -1.0f;
+        modWheel = breath = expression = channelPressure = 0.0f;
+        for (auto& lfo : globalLfos)
+            lfo = {};
     }
 
     int Engine::getNumActiveVoices() const noexcept
@@ -375,6 +378,7 @@ namespace synth
 
         std::fill (left, left + numSamples, 0.0f);
         std::fill (right, right + numSamples, 0.0f);
+        samplesIntoBlock = 0.0;
 
         int done = 0;
         for (const auto metadata : midi)
@@ -403,6 +407,20 @@ namespace synth
             noteOff (message.getNoteNumber(), settings);
         else if (message.isPitchWheel())
             bend = juce::jlimit (-1.0f, 1.0f, (float) (message.getPitchWheelValue() - 8192) / 8192.0f);
+        else if (message.isController() && message.getControllerNumber() == 1)
+            modWheel = (float) message.getControllerValue() / 127.0f;
+        else if (message.isController() && message.getControllerNumber() == 2)
+            breath = (float) message.getControllerValue() / 127.0f;
+        else if (message.isController() && message.getControllerNumber() == 11)
+            expression = (float) message.getControllerValue() / 127.0f;
+        else if (message.isChannelPressure())
+            channelPressure = (float) message.getChannelPressureValue() / 127.0f;
+        else if (message.isAftertouch())
+        {
+            for (auto& voice : voices)
+                if (voice.playing && voice.note == message.getNoteNumber())
+                    voice.pressure = (float) message.getAfterTouchValue() / 127.0f;
+        }
         else if (message.isSustainPedalOn())
             sustainPedal (true);
         else if (message.isSustainPedalOff())
@@ -432,6 +450,14 @@ namespace synth
         {
             noteOff (note, settings);
             return;
+        }
+        // LFOs set to FIRST NOTE start with a note when none is held; LAST NOTE with every note.
+        const auto anyHeld = std::any_of (voices.begin(), voices.end(), [] (const Voice& v) { return v.playing && v.held && ! v.killing; });
+        for (int k = 0; k < mod::numLfos; ++k)
+        {
+            const auto& lfo = settings.modulation.lfos[(size_t) k];
+            if (lfo.trigger == mod::LfoTrigger::lastNote || (lfo.trigger == mod::LfoTrigger::firstNote && ! anyHeld))
+                globalLfos[(size_t) k].start (lfo, random);
         }
         if (settings.play.mode == PlayMode::poly)
             polyNoteOn (note, velocity, settings);
@@ -659,6 +685,7 @@ namespace synth
 
         voice.amp.trigger (settings.amp.envelope);
         voice.filter.trigger (settings.filter.envelope);
+        startLfos (voice, settings);
         voice.spikePosition = 0.0f;
 
         for (size_t i = 0; i < voice.oscillators.size(); ++i)
@@ -750,6 +777,7 @@ namespace synth
             pan += (voice.age % 2 == 0 ? amp.spread : -amp.spread);       // alternating left and right
         else if (amp.spread < 0.0f)
             pan += (random.nextFloat() * 2.0f - 1.0f) * -amp.spread;     // anywhere, at random
+        voice.notePan = pan;
         balance (pan, voice.panLeft, voice.panRight);
     }
 
@@ -816,17 +844,122 @@ namespace synth
     //==========================================================================
     void Engine::render (float* left, float* right, int numSamples, const Settings& settings) noexcept
     {
-        for (auto& voice : voices)
+        // In pieces of up to maxIntervals intervals, so the global LFOs' values for each fit.
+        constexpr int piece = maxIntervals * controlInterval;
+        for (int start = 0; start < numSamples; start += piece)
         {
-            if (! voice.playing)
-                continue;
-            for (int done = 0; done < numSamples && voice.playing; done += controlInterval)
-                renderVoice (voice, left + done, right + done, juce::jmin (controlInterval, numSamples - done), settings);
+            const auto length = juce::jmin (piece, numSamples - start);
+            const auto& modulation = settings.modulation;
+            if (modulation.numRoutes > 0)
+            {
+                // The LFOs running once for the whole synth: their value for each interval.
+                const auto secondsPerSample = 1.0 / sampleRate;
+                for (int k = 0; k < mod::numLfos; ++k)
+                {
+                    const auto& lfo = modulation.lfos[(size_t) k];
+                    if (lfo.trigger == mod::LfoTrigger::voice)
+                        continue;
+                    auto& state = globalLfos[(size_t) k];
+                    const auto cycles = lfo.cyclesPerSecond (modulation.bpm);
+                    for (int i = 0, at = 0; at < length; ++i, at += controlInterval)
+                    {
+                        const auto n = juce::jmin (controlInterval, length - at);
+                        if (lfo.trigger == mod::LfoTrigger::global && lfo.sync != mod::LfoSync::free && modulation.ppq >= 0.0)
+                        {
+                            // GLOBAL and synced, with the song playing: in step with the song's beats.
+                            const auto beats = modulation.ppq + (samplesIntoBlock + start + at) * secondsPerSample * modulation.bpm / 60.0;
+                            const auto position = beats * cycles * 60.0 / modulation.bpm + lfo.phase;
+                            state.phase = position - std::floor (position);
+                        }
+                        globalLfoValues[(size_t) k][(size_t) i] = state.next (lfo, cycles, n * secondsPerSample, random);
+                    }
+                }
+            }
+            for (auto& voice : voices)
+            {
+                if (! voice.playing)
+                    continue;
+                for (int done = 0, interval = 0; done < length && voice.playing; done += controlInterval, ++interval)
+                    renderVoice (voice, left + start + done, right + start + done, juce::jmin (controlInterval, length - done), settings, interval);
+            }
         }
+        samplesIntoBlock += numSamples;
     }
 
-    void Engine::renderVoice (Voice& voice, float* left, float* right, int n, const Settings& settings) noexcept
+    void Engine::startLfos (Voice& voice, const Settings& settings) noexcept
     {
+        for (int k = 0; k < mod::numLfos; ++k)
+            voice.lfos[(size_t) k].start (settings.modulation.lfos[(size_t) k], random);
+        voice.randomValue = random.nextFloat();
+        voice.pressure = 0.0f;
+        voice.lagFresh = true;
+    }
+
+    const Settings& Engine::modulate (Voice& voice, int n, const Settings& settings, int interval) noexcept
+    {
+        const auto& modulation = settings.modulation;
+        voiceSettings = settings;
+
+        // Each source's value for this note now.
+        std::array<float, mod::numSources> values {};
+        const auto seconds = (double) n / sampleRate;
+        for (int k = 0; k < mod::numLfos; ++k)
+        {
+            const auto& lfo = modulation.lfos[(size_t) k];
+            values[(size_t) mod::Source::lfo1 + (size_t) k] = lfo.trigger == mod::LfoTrigger::voice
+                ? voice.lfos[(size_t) k].next (lfo, lfo.cyclesPerSecond (modulation.bpm), seconds, random)
+                : globalLfoValues[(size_t) k][(size_t) juce::jlimit (0, maxIntervals - 1, interval)];
+        }
+        for (int k = 0; k < 3; ++k)
+            values[(size_t) mod::Source::macro1 + (size_t) k] = modulation.macros[(size_t) k];
+        values[(size_t) mod::Source::button1] = modulation.buttons[0] ? 1.0f : 0.0f;
+        values[(size_t) mod::Source::button2] = modulation.buttons[1] ? 1.0f : 0.0f;
+        values[(size_t) mod::Source::modWheel] = modWheel;
+        values[(size_t) mod::Source::pitchBend] = bend;
+        values[(size_t) mod::Source::velocity] = voice.velocity;
+        values[(size_t) mod::Source::aftertouch] = juce::jmax (channelPressure, voice.pressure);
+        values[(size_t) mod::Source::keytrack] = (float) voice.note / 127.0f;
+        values[(size_t) mod::Source::breath] = breath;
+        values[(size_t) mod::Source::expression] = expression;
+        values[(size_t) mod::Source::sustain] = pedalDown ? 1.0f : 0.0f;
+        values[(size_t) mod::Source::random] = voice.randomValue;
+
+        // Each route, in turn. Routes to the same destination come together
+        // (the processor sorts them), each pushing on from where the last left it.
+        float position = 0.0f;
+        const mod::Route* previous = nullptr;
+        for (int r = 0; r < juce::jmin (modulation.numRoutes, mod::maxRoutes); ++r)
+        {
+            const auto& route = modulation.routes[r];
+            if (route.range == nullptr || route.source == mod::Source::none)
+                continue;
+            auto source = mod::bend (values[(size_t) route.source], route.curve);
+            auto& lagged = voice.lagged[(size_t) r];
+            if (voice.lagFresh || route.lagMs <= 0.0f)
+                lagged = source;
+            else
+                lagged += (source - lagged) * (1.0f - std::exp (-(float) n / (route.lagMs * 0.001f * (float) sampleRate)));
+            source = lagged;
+
+            const auto sameDestination = previous != nullptr && previous->target.field == route.target.field && previous->target.index == route.target.index;
+            if (! sameDestination)
+                position = route.base;
+            position = mod::combine (position, route.amount * source, route.percent);
+            mod::apply (voiceSettings, route.target, route.range->convertFrom0to1 (position));
+            previous = &route;
+        }
+        voice.lagFresh = false;
+        return voiceSettings;
+    }
+
+    void Engine::renderVoice (Voice& voice, float* left, float* right, int n, const Settings& unmodulated, int interval) noexcept
+    {
+        // With modulation, this note plays its own copy of the settings.
+        const auto modulated = unmodulated.modulation.numRoutes > 0;
+        const auto& settings = modulated ? modulate (voice, n, unmodulated, interval) : unmodulated;
+        if (modulated)
+            balance (voice.notePan + settings.amp.pan - unmodulated.amp.pan, voice.panLeft, voice.panRight);
+
         const auto& filterSettings = settings.filter;
         const auto& ampSettings = settings.amp;
         voice.amp.update (ampSettings.envelope);
@@ -924,6 +1057,52 @@ namespace synth
             || (amp.isReleasing() && amp.getLevel() < silence)
             || amp.isSilentSustain())
             free (voice);
+    }
+
+    void mod::apply (Settings& s, Target target, float value) noexcept
+    {
+        const auto i = (size_t) juce::jlimit (0, numOscillators - 1, target.index);
+        auto& o = s.oscillators[i];
+        auto& shaper = s.shapers[(size_t) juce::jlimit (0, numShapers - 1, target.index)];
+        switch (target.field)
+        {
+            case Field::oscVolume: o.volume = value; break;
+            case Field::oscPan: o.pan = value; break;
+            case Field::oscTranspose: o.transpose = value; break;
+            case Field::oscFine: o.fineCents = value; break;
+            case Field::oscGain: o.gain = value; break;
+            case Field::oscWidth: o.pulseWidth = value; break;
+            case Field::oscNoise: o.noise = value; break;
+            case Field::oscNoiseColour: o.noiseColour = value; break;
+            case Field::oscSub: o.sub = value; break;
+            case Field::oscTableIndex: o.tableIndex = value; break;
+            case Field::oscFormant: o.formant = value; break;
+            case Field::oscCrush: o.crush = value; break;
+            case Field::oscSyncAmount: o.syncAmount = value; break;
+            case Field::oscSyncEnv: o.syncEnvAmount = value; break;
+            case Field::oscFmAmount: o.fmAmount = value; break;
+            case Field::oscAmAmount: o.amAmount = value; break;
+            case Field::oscModRate: o.modRate = value; break;
+            case Field::oscUnisonMix: o.unisonMix = value; break;
+            case Field::oscUnisonDetune: o.unisonDetune = value; break;
+            case Field::oscUnisonSpread: o.unisonSpread = value; break;
+            case Field::oscVibratoRate: o.vibratoRateHz = value; break;
+            case Field::oscVibratoAmount: o.vibratoCents = value; break;
+            case Field::oscFftLp: o.fftLp = value; break;
+            case Field::oscFftHp: o.fftHp = value; break;
+            case Field::oscFftSlope: o.fftSlope = value; break;
+            case Field::oscFftVSpeed: o.fftVSpeedHz = value; break;
+            case Field::filterCutoff: s.filter.cutoffHz = value; break;
+            case Field::filterResonance: s.filter.resonance = value; break;
+            case Field::filterDrive: s.filter.drive = value; break;
+            case Field::filterKeytrack: s.filter.keytrack = value; break;
+            case Field::filterEnvelope: s.filter.envelopeAmount = value; break;
+            case Field::shaperDrive: shaper.drive = value; break;
+            case Field::shaperMix: shaper.mix = value; break;
+            case Field::shaperOutput: shaper.outputDb = value; break;
+            case Field::ampVolume: s.amp.volume = value; break;
+            case Field::ampPan: s.amp.pan = value; break;
+        }
     }
 
     void Engine::assignPaths (Voice& voice, const Settings& settings) noexcept

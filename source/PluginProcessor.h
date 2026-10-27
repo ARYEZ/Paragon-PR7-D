@@ -161,6 +161,17 @@ public:
     void setDrawing (int osc, const synth::FreeformDrawing&);
     void drawingEditFinished() { requestCheckpoint(); }
 
+    //==========================================================================
+    // The MOD MATRIX (message thread; stage 4a): routes from sources to knobs,
+    // kept with the preset. Changing it rebuilds what the audio thread plays.
+    const ModMatrix& getModMatrix() const noexcept { return matrix; }
+    void setModMatrix (const ModMatrix&);
+    void modMatrixEditFinished() { requestCheckpoint(); }
+    // The MOD page's on-screen mod wheel (0 to 1): sent to the synth as MIDI controller 1 in the next block.
+    void setScreenModWheel (float value) noexcept { pendingModWheel = juce::jlimit (0.0f, 1.0f, value); }
+    // How many routes the audio thread is playing (on, with a source and a known destination). For tests and the display.
+    int getNumPlayingRoutes() const noexcept;
+
     // The DAW's tempo, as last seen by the audio thread (120 if it hasn't said).
     double getHostBpm() const noexcept { return hostBpm.load(); }
 
@@ -194,7 +205,7 @@ private:
         bool operator== (const Snapshot& other) const
         {
             return rig.parameters == other.rig.parameters && rig.wavetables == other.rig.wavetables && rig.spectra == other.rig.spectra
-                && rig.drawings == other.rig.drawings && current == other.current;
+                && rig.drawings == other.rig.drawings && rig.modulation == other.rig.modulation && current == other.current;
         }
     };
     Snapshot takeSnapshot() const;
@@ -215,6 +226,8 @@ private:
     std::array<OscParameters, ParamIDs::numOscillators> oscParameters {};
     struct ShaperParameters { std::atomic<float>* values[std::size (ParamIDs::shaperSettings)] {}; };
     std::array<ShaperParameters, ParamIDs::numShapers> shaperParameters {};
+    struct LfoParameters { std::atomic<float>* values[std::size (ParamIDs::lfoSettings)] {}; };
+    std::array<LfoParameters, ParamIDs::numLfos> lfoParameters {};
 
     // WAVETABLES: tables loaded from files (null: the factory's), what each
     // oscillator plays now, the same for the audio thread (a plain pointer it
@@ -274,6 +287,26 @@ private:
 
     int preparedBlockSize = 512;
     std::atomic<double> hostBpm { 120.0 };
+    double hostPpq = -1.0;   // the song position at this block's start (-1: stopped); audio thread
+    std::atomic<float> pendingModWheel { -1.0f };   // -1: nothing new
+
+    // The MOD MATRIX, and the routes the audio thread plays (rebuilt from it
+    // on the message thread, swapped in by pointer, the old kept 2 s).
+    ModMatrix matrix;
+    struct CompiledRoute
+    {
+        synth::mod::Source source;
+        synth::mod::Target target;
+        juce::RangedAudioParameter* parameter;
+        float amount, lagMs, curve;
+        bool percent;
+    };
+    using CompiledMatrix = std::vector<CompiledRoute>;
+    std::shared_ptr<const CompiledMatrix> compiledMatrix;
+    std::atomic<const CompiledMatrix*> matrixForAudio { nullptr };
+    std::vector<std::pair<std::shared_ptr<const CompiledMatrix>, double>> retiredMatrices;
+    std::array<synth::mod::Route, synth::mod::maxRoutes> routeBuffer {};   // audio thread
+    void compileMatrix();
 
     LevelMeterSource outputMeter;
 

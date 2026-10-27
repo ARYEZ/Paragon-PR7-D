@@ -73,6 +73,8 @@ std::unique_ptr<juce::XmlElement> Rig::toXml() const
         element->setAttribute ("osc", oscillator + 1);
         element->setAttribute ("drawing", drawing.encode());
     }
+    if (! modulation.isEmpty())
+        xml->addChildElement (modulation.toXml().release());
     return xml;
 }
 
@@ -120,6 +122,8 @@ std::optional<Rig> Rig::fromXml (const juce::XmlElement& xml)
         if (oscillator >= 0 && oscillator < 8)
             rig.drawings[oscillator] = synth::FreeformDrawing::decode (element->getStringAttribute ("drawing"));
     }
+    if (const auto* modulation = xml.getChildByName ("Modulation"))
+        rig.modulation = ModMatrix::fromXml (*modulation);
 
     return rig;
 }

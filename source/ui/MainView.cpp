@@ -86,11 +86,12 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
       play (processorToShow),
       outputColumn ("OUTPUT", processorToShow.getParameters(), ParamIDs::outputGain, processorToShow.getOutputMeter()),
       keyboard (processorToShow.getKeyboardState(), juce::MidiKeyboardComponent::horizontalKeyboard),
+      modPage (processorToShow),
       rigBrowser (processorToShow),
       settingsPage (processorToShow)
 {
     // Header
-    for (auto* tab : { &synthTab, &presetsTab, &settingsTab })
+    for (auto* tab : { &synthTab, &modTab, &presetsTab, &settingsTab })
     {
         tab->setClickingTogglesState (true);
         tab->setRadioGroupId (100);
@@ -101,6 +102,8 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     presetsTab.setComponentID ("presetsTab");
     settingsTab.setComponentID ("settingsTab");
     synthTab.onClick = [this] { showPage (Page::synth); };
+    modTab.setComponentID ("modTab");
+    modTab.onClick = [this] { showPage (Page::modulation); };
     presetsTab.onClick = [this] { showPage (Page::presets); };
     settingsTab.onClick = [this] { showPage (Page::settings); };
 
@@ -141,6 +144,7 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     keyboard.setScrollButtonsVisible (false);  // all seven octaves fit
     addAndMakeVisible (keyboard);
 
+    addChildComponent (modPage);
     addChildComponent (rigBrowser);
     addChildComponent (settingsPage);
 
@@ -158,10 +162,11 @@ MainView::~MainView()
 void MainView::showPage (Page newPage)
 {
     page = newPage;
-    auto& tab = newPage == Page::presets ? presetsTab : newPage == Page::settings ? settingsTab : synthTab;
+    auto& tab = newPage == Page::presets ? presetsTab : newPage == Page::settings ? settingsTab : newPage == Page::modulation ? modTab : synthTab;
     tab.setToggleState (true, juce::dontSendNotification);
     for (auto* component : synthPage)
         component->setVisible (newPage == Page::synth);
+    modPage.setVisible (newPage == Page::modulation);
     rigBrowser.setVisible (newPage == Page::presets);
     settingsPage.setVisible (newPage == Page::settings);
 }
@@ -253,7 +258,7 @@ void MainView::paint (juce::Graphics& g)
         g.setColour (ParagonColours::panelEdge);
         g.drawRoundedRectangle (group.reduced (0.5f), 5.0f, 1.0f);
     }
-    for (auto x : { 505.0f, 650.0f })
+    for (auto x : { 450.0f, 563.0f, 678.0f })
         g.drawVerticalLine (juce::roundToInt (x * mockScale), tabsGroup.getY() + 8.0f, tabsGroup.getBottom() - 8.0f);
 
     g.setColour (ParagonColours::panelEdge);
@@ -266,9 +271,10 @@ void MainView::paint (juce::Graphics& g)
 void MainView::resized()
 {
     // Header
-    synthTab.setBounds (mock (338, 12, 505, 53));
-    presetsTab.setBounds (mock (507, 12, 650, 53));
-    settingsTab.setBounds (mock (652, 12, 793, 53));
+    synthTab.setBounds (mock (338, 12, 449, 53));
+    modTab.setBounds (mock (451, 12, 562, 53));
+    presetsTab.setBounds (mock (564, 12, 677, 53));
+    settingsTab.setBounds (mock (679, 12, 793, 53));
     previousRig.setBounds (mock (846, 14, 886, 51));
     nextRig.setBounds (mock (1087, 14, 1127, 51));
     rigNameButton.setBounds (mock (888, 14, 1085, 51));
@@ -291,6 +297,7 @@ void MainView::resized()
     keyboard.setKeyWidth ((float) keys.getWidth() / 49.0f);
     keyboard.setLowestVisibleKey (24);
 
+    modPage.setBounds (pageArea);
     rigBrowser.setBounds (pageArea);
     settingsPage.setBounds (pageArea);
 }

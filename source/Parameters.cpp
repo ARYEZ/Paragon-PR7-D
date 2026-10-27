@@ -9,7 +9,7 @@ namespace
     using Range = juce::NormalisableRange<float>;
     using ToText = std::function<juce::String (float, int)>;
 
-    // Version hint: the PR7-K version that introduced a parameter (1 for 0.1.0, 2 for 0.2.0, 3 for 0.3.0, 4 for 0.4.0, 5 for 0.5.0, 6 for 0.6.0, 7 for 0.8.0).
+    // Version hint: the PR7-K version that introduced a parameter (1 for 0.1.0, 2 for 0.2.0, 3 for 0.3.0, 4 for 0.4.0, 5 for 0.5.0, 6 for 0.6.0, 7 for 0.8.0, 8 for 0.9.0).
     constexpr int firstVersion = 1;
     constexpr int stage2 = 2;
     constexpr int stage3 = 3;
@@ -17,6 +17,7 @@ namespace
     constexpr int stage3c = 5;   // 0.5.0
     constexpr int stage3d = 6;   // 0.6.0
     constexpr int stage3e = 7;   // 0.8.0 (0.7.0 added no parameters)
+    constexpr int stage4a = 8;   // 0.9.0
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -323,6 +324,27 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         add (layout, shp (k, "Mix"), name + "Mix", { 0.0f, 1.0f }, shaper.mix, asPercent, stage3e);
         add (layout, shp (k, "Output"), name + "Output", { -24.0f, 12.0f, 0.1f }, shaper.outputDb, asDb, stage3e);
     }
+
+    // MODULATION (stage 4a): the LFOs and macros.
+    const synth::mod::LfoSettings lfoDefaults;
+    for (int k = 0; k < numLfos; ++k)
+    {
+        const auto name = "LFO " + juce::String (k + 1) + " ";
+        addChoice (layout, lfo (k, "Wave"), name + "Wave", synth::mod::lfoWaveNames, (int) lfoDefaults.wave, stage4a);
+        add (layout, lfo (k, "Rate"), name + "Rate", logRange (0.02, 40.0), lfoDefaults.rateHz, asHz, stage4a);
+        addChoice (layout, lfo (k, "Sync"), name + "Sync", synth::mod::lfoSyncNames, (int) lfoDefaults.sync, stage4a);
+        addChoice (layout, lfo (k, "Division"), name + "Sync Length", synth::mod::lfoDivisionNames, lfoDefaults.division, stage4a);
+        addChoice (layout, lfo (k, "Trigger"), name + "Trigger", synth::mod::lfoTriggerNames, (int) lfoDefaults.trigger, stage4a);
+        add (layout, lfo (k, "Phase"), name + "Phase", { 0.0f, 1.0f }, lfoDefaults.phase, asPercent, stage4a);
+        add (layout, lfo (k, "Offset"), name + "Offset", { -1.0f, 1.0f }, lfoDefaults.offset, asSignedPercent, stage4a);
+        add (layout, lfo (k, "Delay"), name + "Delay", timeRange (10000.0f), lfoDefaults.delayMs, asMs, stage4a);
+        add (layout, lfo (k, "FadeIn"), name + "Fade In", timeRange (10000.0f), lfoDefaults.fadeInMs, asMs, stage4a);
+        addSwitch (layout, lfo (k, "OneShot"), name + "One Shot", lfoDefaults.oneShot, stage4a);
+    }
+    for (int k = 0; k < 3; ++k)
+        add (layout, macros[k], "Macro " + juce::String (k + 1), { 0.0f, 1.0f }, 0.0f, asPercent, stage4a);
+    for (int k = 0; k < 2; ++k)
+        addSwitch (layout, macroButtons[k], "Macro Button " + juce::String (k + 1), false, stage4a);
 
     // The AMP.
     const synth::AmpSettings amp;

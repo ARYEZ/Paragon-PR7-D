@@ -9,6 +9,7 @@
 #include "ui/LevelMeter.h"
 #include "ui/ParagonLookAndFeel.h"
 #include "ui/RigBrowser.h"
+#include "ui/ModPage.h"
 #include "ui/SynthPanels.h"
 
 // A side strip: a title, a gain knob with its value underneath, and a level meter.
@@ -31,12 +32,12 @@ private:
 // Everything in the plugin window, laid out on a fixed 1600 x 900 canvas
 // (the editor scales it to the window, staying sharp: it's all vectors).
 //
-//   header:   logo | SYNTH PRESETS SETTINGS | < preset > | undo redo save settings
+//   header:   logo | SYNTH MOD PRESETS SETTINGS | < preset > | undo redo save settings
 //   SYNTH:    OSCILLATORS            | FILTER          | OUTPUT
 //             FILTER ENV | AMP ENV | AMP | PLAY         |
 //   keyboard: the on-screen keyboard, always there (play it with the mouse)
 //
-// PRESETS and SETTINGS cover the synth panels; the keyboard stays.
+// MOD, PRESETS and SETTINGS cover the synth panels; the keyboard stays.
 class MainView final : public juce::Component,
                        private juce::ChangeListener,
                        private juce::Timer
@@ -48,12 +49,13 @@ public:
     static constexpr int width = 1600;
     static constexpr int height = 900;
 
-    enum class Page { synth, presets, settings };
+    enum class Page { synth, presets, settings, modulation };
     void showPage (Page);
 
     // For snapshots and tests: the oscillator tabs.
     OscillatorPanel& getOscillatorPanel() noexcept { return oscillators; }
     FilterPanel& getFilterPanel() noexcept { return filter; }
+    ModPage& getModPage() noexcept { return modPage; }
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -69,6 +71,7 @@ private:
 
     // Header
     IconButton synthTab { "The synth", Icons::Type::processor, "SYNTH" },
+               modTab { "Modulation: LFOs, macros and the mod matrix", Icons::Type::modulation, "MOD" },
                presetsTab { "Browse, save and organise presets", Icons::Type::presets, "PRESETS" },
                settingsTab { "Tuning and other settings", Icons::Type::settings, "SETTINGS" };
     IconButton previousRig { "Previous preset", Icons::Type::chevronLeft }, nextRig { "Next preset", Icons::Type::chevronRight };
@@ -89,6 +92,7 @@ private:
     juce::MidiKeyboardComponent keyboard;
 
     // Other pages
+    ModPage modPage;
     RigBrowser rigBrowser;
     SettingsPage settingsPage;
     Page page = Page::synth;

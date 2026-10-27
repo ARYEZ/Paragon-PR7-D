@@ -79,6 +79,10 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         view->getOscillatorPanel().showPage (OscillatorPanel::Page::fm);
     if (env ("PARAGON_SNAPSHOT_OSCPAGE") == "fft")
         view->getOscillatorPanel().showPage (OscillatorPanel::Page::fft);
+    if (env ("PARAGON_SNAPSHOT_PAGE") == "mod")
+        view->showPage (MainView::Page::modulation);
+    if (const auto lfo = env ("PARAGON_SNAPSHOT_LFO").getIntValue(); lfo > 0)
+        view->getModPage().getLfoPanel().selectLfo (lfo - 1);
     if (const auto page = env ("PARAGON_SNAPSHOT_FILTERPAGE").getIntValue(); page > 0)
         view->getFilterPanel().showPage (page);
     if (env ("PARAGON_SNAPSHOT_OSCPAGE") == "draw")

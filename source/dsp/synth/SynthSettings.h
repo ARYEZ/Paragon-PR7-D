@@ -3,6 +3,7 @@
 #include "Envelope.h"
 #include "Filter.h"
 #include "Shaper.h"
+#include "Modulation.h"
 
 #include <array>
 
@@ -241,6 +242,7 @@ namespace synth
         std::array<ShaperSettings, numShapers> shapers {};
         AmpSettings amp;
         PlaySettings play;
+        mod::ModulationSettings modulation;
 
         Settings() { oscillators[0].on = true; }
     };

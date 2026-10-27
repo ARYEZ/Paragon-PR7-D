@@ -46,6 +46,7 @@ juce_add_binary_data(ParagonX1Fonts
 target_sources(ParagonX1
     PRIVATE
         source/Parameters.cpp
+        source/ModDestinations.cpp
         source/PluginProcessor.cpp
         source/PluginEditor.cpp
         source/dsp/synth/WaveTables.cpp
@@ -71,6 +72,7 @@ target_sources(ParagonX1
         source/ui/SynthDisplays.cpp
         source/ui/SynthPanels.cpp
         source/ui/FreeformEditor.cpp
+        source/ui/ModPage.cpp
         source/ui/SpectrumEditor.cpp
         source/ui/MainView.cpp
         source/ui/ParagonLookAndFeel.cpp

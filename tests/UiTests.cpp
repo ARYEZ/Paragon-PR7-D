@@ -461,3 +461,54 @@ TEST_CASE ("The FILTER panel's SHP tabs: each shaper's page, its controls pointe
     panel.showPage (0);
     CHECK (controlFor (*w.view, ParamIDs::fltCutoff)->isVisible());
 }
+
+TEST_CASE ("The MOD page: LFOs, macros and the matrix; adding and editing a route reaches the synth", "[ui][mod]")
+{
+    Window w;
+    w.view->showPage (MainView::Page::modulation);
+    auto& page = w.view->getModPage();
+    REQUIRE (page.isVisible());
+    CHECK_FALSE (w.view->getOscillatorPanel().isVisible());
+    checkLayout (*w.view, "mod");
+
+    // Each LFO tab points the controls at its LFO; SYNC swaps RATE for LENGTH.
+    page.getLfoPanel().selectLfo (2);
+    CHECK (controlFor (*w.view, ParamIDs::lfo (2, "Rate"))->isVisible());
+    auto* sync = w.processor.getParameters().getParameter (ParamIDs::lfo (2, "Sync"));
+    sync->setValueNotifyingHost (sync->convertTo0to1 ((float) synth::mod::LfoSync::straight));
+    page.getLfoPanel().selectLfo (2);
+    CHECK (controlFor (*w.view, ParamIDs::lfo (2, "Division"))->isVisible());
+    CHECK_FALSE (controlFor (*w.view, ParamIDs::lfo (2, "Rate"))->isVisible());
+    for (const auto* id : ParamIDs::macros)
+        CHECK (controlFor (*w.view, id) != nullptr);
+
+    // + ADD ROUTE adds a row (LFO 1, no destination yet: not playing).
+    auto& matrix = page.getMatrixPanel();
+    CHECK (matrix.getNumRows() == 0);
+    matrix.addRoute();
+    REQUIRE (matrix.getNumRows() == 1);
+    CHECK (w.processor.getModMatrix().routes.size() == 1);
+    CHECK (w.processor.getNumPlayingRoutes() == 0);
+
+    // A destination (as its menu would set it), a source and an amount, from the row's own controls.
+    auto edited = w.processor.getModMatrix();
+    edited.routes[0].destination = ParamIDs::fltCutoff;
+    w.processor.setModMatrix (edited);
+    auto* row = matrix.getRow (0);
+    REQUIRE (row != nullptr);
+    row->source.setSelectedId ((int) synth::mod::Source::modWheel + 1, juce::sendNotificationSync);
+    row->amount.setValue (-0.25, juce::sendNotificationSync);
+    row->mode.triggerClick();
+    juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+    const auto& route = w.processor.getModMatrix().routes[0];
+    CHECK (route.source == "modWheel");
+    CHECK_THAT (route.amount, WithinAbs (-0.25, 1.0e-6));
+    CHECK (route.percent);
+    CHECK (w.processor.getNumPlayingRoutes() == 1);
+    checkLayout (*w.view, "mod with a route");
+
+    // X deletes it.
+    row->remove.triggerClick();
+    juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+    CHECK (w.processor.getModMatrix().routes.empty());
+}

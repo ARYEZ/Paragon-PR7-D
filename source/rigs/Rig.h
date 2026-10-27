@@ -5,6 +5,7 @@
 #include "dsp/synth/Freeform.h"
 #include "dsp/synth/Spectrum.h"
 #include "dsp/synth/Wavetable.h"
+#include "rigs/ModMatrix.h"
 
 #include <map>
 #include <optional>
@@ -43,6 +44,9 @@ struct Rig
 
     // FREEFORM drawings, by oscillator (only the ones drawn on).
     std::map<int, synth::FreeformDrawing> drawings;
+
+    // The MOD MATRIX's routes and the macros' names (stage 4a).
+    ModMatrix modulation;
 
     // Free text shown with the rig: what it's for.
     juce::String notes;

@@ -334,5 +334,51 @@ std::vector<Rig> makeFactoryRigs()
         .mono (60.0f);
     add (wide);
 
+    // MODULATION (stage 4a).
+    const auto route = [] (Builder& b, const char* source, const juce::String& destination, float amount, bool percent = false)
+    {
+        b.rig.modulation.routes.push_back ({ true, source, destination, amount, percent, 0.0f, 0.0f });
+    };
+    Builder wobble ("Wobble Bass", 26, { "Bass", "Modulation" },
+                    "LFO 1, synced to eighth notes, sweeps the filter: the classic wobble, in time with your song. "
+                    "Try LFO 1's LENGTH at 1/16 or 1/8 T.");
+    wobble.osc (0, "Sub", 0.6f).osc (0, "PhaseRand", 0.0f).osc (0, "UniVoices", 3.0f).osc (0, "UniMix", 0.5f).osc (0, "UniDetune", 0.15f)
+          .filter (FilterType::lp24, 200.0f, 0.45f, 0.0f).set (ParamIDs::fltDrive, 0.3f)
+          .set (ParamIDs::lfo (0, "Wave"), (float) synth::mod::LfoWave::sine)
+          .set (ParamIDs::lfo (0, "Sync"), (float) synth::mod::LfoSync::straight)
+          .set (ParamIDs::lfo (0, "Division"), 6.0f)   // 1/8
+          .set (ParamIDs::lfo (0, "Trigger"), (float) synth::mod::LfoTrigger::global)
+          .set (ParamIDs::lfo (0, "Offset"), 1.0f)     // only ever opens the filter
+          .ampEnvelope (1.0f, 300.0f, 1.0f, 80.0f)
+          .mono (20.0f);
+    route (wobble, "lfo1", ParamIDs::fltCutoff, 0.45f);
+    add (wobble);
+
+    Builder pad ("Mod Wheel Pad", 27, { "Pad", "Modulation" },
+                 "A wide supersaw pad. The MOD WHEEL opens the filter and brings in vibrato; a slow global LFO keeps the unison drifting.");
+    pad.osc (0, "UniVoices", 7.0f).osc (0, "UniMix", 0.8f).osc (0, "UniDetune", 0.25f).osc (0, "UniSpread", 1.0f).osc (0, "Volume", 0.5f)
+       .osc (0, "VibRate", 5.0f)
+       .filter (FilterType::lp12, 900.0f, 0.15f, 0.0f)
+       .set (ParamIDs::lfo (1, "Rate"), 0.15f).set (ParamIDs::lfo (1, "Trigger"), (float) synth::mod::LfoTrigger::global)
+       .ampEnvelope (600.0f, 1000.0f, 0.9f, 1500.0f);
+    route (pad, "modWheel", ParamIDs::fltCutoff, 0.35f);
+    route (pad, "modWheel", ParamIDs::osc (0, "VibAmount"), 0.25f);
+    route (pad, "lfo2", ParamIDs::osc (0, "UniDetune"), 0.15f);
+    add (pad);
+
+    Builder keys ("Velocity Keys", 28, { "Keys", "Modulation" },
+                  "Play harder for brighter and grittier: velocity opens the filter and drives SHAPER 1. MACRO 1 (TONE) darkens or brightens everything.");
+    keys.osc (0, "Wave", (float) synth::OscWave::pulse).osc (0, "Width", 0.35f).osc (0, "Volume", 0.7f)
+        .osc (1, "On", 1.0f).osc (1, "Wave", (float) synth::OscWave::triangle).osc (1, "Transpose", 12.0f).osc (1, "Volume", 0.4f)
+        .shaper (0, synth::ShaperModel::tube, 0.1f)
+        .filter (FilterType::lp24, 500.0f, 0.1f, 0.3f).filterEnvelope (0.0f, 600.0f, 0.2f, 300.0f)
+        .set (ParamIDs::macros[0], 0.5f)
+        .ampEnvelope (2.0f, 1200.0f, 0.3f, 400.0f);
+    route (keys, "velocity", ParamIDs::fltCutoff, 0.35f);
+    route (keys, "velocity", ParamIDs::shp (0, "Drive"), 0.5f);
+    route (keys, "macro1", ParamIDs::fltCutoff, 0.3f);
+    keys.rig.modulation.macroNames[0] = "TONE";
+    add (keys);
+
     return rigs;
 }

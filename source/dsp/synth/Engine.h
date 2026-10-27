@@ -149,6 +149,14 @@ namespace synth
 
             float pitch = 60.0f, targetPitch = 60.0f, glideRate = 0.0f;   // semitones; per sample
             float panLeft = 1.0f, panRight = 1.0f;      // the AMP's PAN, KEYTRACK and SPREAD for this note
+            float notePan = 0.0f;                       // ...as a position, -1 to 1 (modulation moves it from here)
+
+            // MODULATION (stage 4a): this note's LFOs (those set to VOICE),
+            // its RANDOM value, its poly aftertouch, and each route's LAG.
+            std::array<mod::LfoState, mod::numLfos> lfos {};
+            float randomValue = 0.0f, pressure = 0.0f;
+            std::array<float, mod::maxRoutes> lagged {};
+            bool lagFresh = true;
             float spikePosition = 1.0f;                 // 0 to 1 through the spike (1: done)
 
             std::array<OscState, numOscillators> oscillators;
@@ -156,7 +164,10 @@ namespace synth
 
         void handle (const juce::MidiMessage&, const Settings&) noexcept;
         void render (float* left, float* right, int numSamples, const Settings&) noexcept;
-        void renderVoice (Voice&, float* left, float* right, int numSamples, const Settings&) noexcept;
+        void renderVoice (Voice&, float* left, float* right, int numSamples, const Settings&, int interval) noexcept;
+        // This note's own copy of the settings with its modulation applied (`interval`: which of render's intervals it is).
+        const Settings& modulate (Voice&, int n, const Settings&, int interval) noexcept;
+        void startLfos (Voice&, const Settings&) noexcept;
         void renderOscillators (Voice&, int numSamples, const Settings&, float bendSemitones) noexcept;
         void assignPaths (Voice&, const Settings&) noexcept;   // each oscillator's route, and a path for each
         void processPath (Voice&, Path&, float* left, float* right, int n, const Settings&,
@@ -222,5 +233,15 @@ namespace synth
         float dcPole = 0.9993f;   // the shapers' DC blocker: 5 Hz
 
         float killStep = 1.0f / 144.0f;   // 3 ms at 48 kHz
+
+        // MODULATION: the controllers as last heard (0 to 1), the LFOs running
+        // once for the whole synth, their values for each interval of the
+        // render under way, and a scratch copy of the settings for a note.
+        float modWheel = 0.0f, breath = 0.0f, expression = 0.0f, channelPressure = 0.0f;
+        std::array<mod::LfoState, mod::numLfos> globalLfos {};
+        static constexpr int maxIntervals = 64;   // render() works in pieces of up to 64 intervals (1024 samples)
+        std::array<std::array<float, maxIntervals>, mod::numLfos> globalLfoValues {};
+        double samplesIntoBlock = 0.0;            // for the song position (synced GLOBAL LFOs)
+        Settings voiceSettings;
     };
 }

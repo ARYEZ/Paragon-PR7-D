@@ -104,6 +104,23 @@ namespace ParamIDs
         throw "not a shaper setting";
     }
 
+    // MODULATION (stage 4a, 0.9.0): four LFOs ("lfo1" to "lfo4", each with
+    // these settings), three macro knobs and two macro buttons. The mod
+    // matrix itself isn't parameters: it's kept with the preset (ModMatrix).
+    inline constexpr int numLfos = 4;
+    inline constexpr const char* lfoSettings[] = {
+        "Wave", "Rate", "Sync", "Division", "Trigger", "Phase", "Offset", "Delay", "FadeIn", "OneShot" };
+    inline juce::String lfo (int index, const char* what) { return "lfo" + juce::String (index + 1) + what; }
+    consteval int lfoSetting (std::string_view what)
+    {
+        for (int i = 0; i < (int) std::size (lfoSettings); ++i)
+            if (std::string_view (lfoSettings[i]) == what)
+                return i;
+        throw "not an LFO setting";
+    }
+    inline constexpr const char* macros[] = { "macro1", "macro2", "macro3" };
+    inline constexpr const char* macroButtons[] = { "macroButton1", "macroButton2" };
+
     // How the keyboard plays it.
     inline constexpr auto playMode  = "playMode";     // choice: Poly, Mono, Mono Low, Mono High
     inline constexpr auto legato    = "legato";

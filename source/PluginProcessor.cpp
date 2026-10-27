@@ -1,5 +1,7 @@
 #include "PluginProcessor.h"
 
+#include "ModDestinations.h"
+
 #include "Parameters.h"
 #include "PluginEditor.h"
 
@@ -22,6 +24,7 @@ namespace
     const juce::Identifier spectrumKey { "Spectrum" };
     const juce::Identifier drawingsKey { "Drawings" };
     const juce::Identifier drawingKey { "Drawing" };
+    const juce::Identifier modulationKey { "Modulation" };
     constexpr int parameterVersion = 1;
 }
 
@@ -129,6 +132,12 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
         {
             oscParameters[(size_t) i].values[s] = parameters.getRawParameterValue (ParamIDs::osc (i, ParamIDs::oscSettings[s]));
             jassert (oscParameters[(size_t) i].values[s] != nullptr);
+        }
+    for (int k = 0; k < ParamIDs::numLfos; ++k)
+        for (size_t s = 0; s < std::size (ParamIDs::lfoSettings); ++s)
+        {
+            lfoParameters[(size_t) k].values[s] = parameters.getRawParameterValue (ParamIDs::lfo (k, ParamIDs::lfoSettings[s]));
+            jassert (lfoParameters[(size_t) k].values[s] != nullptr);
         }
     for (int k = 0; k < ParamIDs::numShapers; ++k)
         for (size_t s = 0; s < std::size (ParamIDs::shaperSettings); ++s)
@@ -346,6 +355,30 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
         sh.outputDb = get (shaperSetting ("Output"));
     }
 
+    // MODULATION: the LFOs and macros (the routes are added per block).
+    for (size_t k = 0; k < s.modulation.lfos.size(); ++k)
+    {
+        const auto& v = lfoParameters[k].values;   // in lfoSettings' order
+        const auto get = [&v] (int index) { return v[(size_t) index]->load(); };
+        using ParamIDs::lfoSetting;
+        auto& l = s.modulation.lfos[k];
+        l.wave = (synth::mod::LfoWave) choice (get (lfoSetting ("Wave")), synth::mod::lfoWaveNames.size());
+        l.rateHz = get (lfoSetting ("Rate"));
+        l.sync = (synth::mod::LfoSync) choice (get (lfoSetting ("Sync")), synth::mod::lfoSyncNames.size());
+        l.division = choice (get (lfoSetting ("Division")), synth::mod::lfoDivisionNames.size());
+        l.trigger = (synth::mod::LfoTrigger) choice (get (lfoSetting ("Trigger")), synth::mod::lfoTriggerNames.size());
+        l.phase = get (lfoSetting ("Phase"));
+        l.offset = get (lfoSetting ("Offset"));
+        l.delayMs = get (lfoSetting ("Delay"));
+        l.fadeInMs = get (lfoSetting ("FadeIn"));
+        l.oneShot = get (lfoSetting ("OneShot")) > 0.5f;
+    }
+    for (int k = 0; k < 3; ++k)
+        s.modulation.macros[(size_t) k] = param (ParamIDs::macros[k]);
+    for (int k = 0; k < 2; ++k)
+        s.modulation.buttons[(size_t) k] = isOn (ParamIDs::macroButtons[k]);
+    s.modulation.bpm = hostBpm.load();
+
     auto& a = s.amp;
     a.volume = param (ampVolume);
     a.velocity = param (ampVel);
@@ -387,13 +420,19 @@ void ParagonX1AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
 
     if (auto* host = getPlayHead())
         if (const auto position = host->getPosition())
+        {
             if (const auto bpm = position->getBpm(); bpm.hasValue() && *bpm > 0.0)
                 hostBpm = *bpm;
+            const auto ppq = position->getPpqPosition();
+            hostPpq = position->getIsPlaying() && ppq.hasValue() ? *ppq : -1.0;
+        }
 
     // The on-screen keyboard's notes join the DAW's.
     keyboardMidi.clear();
     keyboardMidi.addEvents (midi, 0, numSamples, 0);
     keyboardState.processNextMidiBuffer (keyboardMidi, 0, numSamples, true);
+    if (const auto wheel = pendingModWheel.exchange (-1.0f); wheel >= 0.0f)
+        keyboardMidi.addEvent (juce::MidiMessage::controllerEvent (1, 1, juce::roundToInt (wheel * 127.0f)), 0);
 
     // Some hosts occasionally send more samples than they promised in
     // prepareToPlay; work through an oversized block in promised-size pieces.
@@ -415,7 +454,27 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
     {
         const auto n = juce::jmin ((int) std::size (scratchRight), numSamples - done);
         auto* right = numChannels > 1 ? buffer.getWritePointer (1, start + done) : scratchRight;
-        const auto settings = getSynthSettings();
+        auto settings = getSynthSettings();
+        // The MOD MATRIX: each route with its knob's position now.
+        if (const auto* compiled = matrixForAudio.load())
+        {
+            int count = 0;
+            for (const auto& c : *compiled)
+            {
+                auto& r = routeBuffer[(size_t) count++];
+                r.source = c.source;
+                r.target = c.target;
+                r.base = c.parameter->getValue();
+                r.range = &c.parameter->getNormalisableRange();
+                r.amount = c.amount;
+                r.percent = c.percent;
+                r.lagMs = c.lagMs;
+                r.curve = c.curve;
+            }
+            settings.modulation.routes = routeBuffer.data();
+            settings.modulation.numRoutes = count;
+        }
+        settings.modulation.ppq = hostPpq >= 0.0 ? hostPpq + (start + done) / getSampleRate() * settings.modulation.bpm / 60.0 : -1.0;
         engine.process (left + done, right, n, midi, start + done, settings);
         if (numChannels == 1)
             for (int i = 0; i < n; ++i)
@@ -479,6 +538,50 @@ void ParagonX1AudioProcessor::updateWavetables()
     }
     updateSpectra();
     std::erase_if (retiredTables, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
+    std::erase_if (retiredMatrices, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
+}
+
+void ParagonX1AudioProcessor::compileMatrix()
+{
+    // The routes the audio thread can play: on, with a source, to a knob this version knows;
+    // sorted by destination (so routes to one knob add up), otherwise in order.
+    auto compiled = std::make_shared<CompiledMatrix>();
+    for (const auto& r : matrix.routes)
+    {
+        const auto source = synth::mod::sourceFromId (r.source);
+        const auto* destination = ModDestinations::find (r.destination);
+        auto* parameter = destination != nullptr ? parameters.getParameter (destination->parameterId) : nullptr;
+        if (! r.on || source == synth::mod::Source::none || parameter == nullptr || juce::exactlyEqual (r.amount, 0.0f))
+            continue;
+        compiled->push_back ({ source, destination->target, parameter, r.amount, r.lagMs, r.curve, r.percent });
+        if ((int) compiled->size() == synth::mod::maxRoutes)
+            break;
+    }
+    std::stable_sort (compiled->begin(), compiled->end(), [] (const CompiledRoute& a, const CompiledRoute& b)
+    {
+        return std::pair ((int) a.target.field, a.target.index) < std::pair ((int) b.target.field, b.target.index);
+    });
+    if (compiledMatrix != nullptr)
+        retiredMatrices.emplace_back (compiledMatrix, juce::Time::getMillisecondCounterHiRes());
+    compiledMatrix = compiled->empty() ? nullptr : std::shared_ptr<const CompiledMatrix> (compiled);
+    matrixForAudio = compiledMatrix.get();
+}
+
+void ParagonX1AudioProcessor::setModMatrix (const ModMatrix& newMatrix)
+{
+    if (matrix == newMatrix)
+        return;
+    matrix = newMatrix;
+    if ((int) matrix.routes.size() > synth::mod::maxRoutes)
+        matrix.routes.resize ((size_t) synth::mod::maxRoutes);
+    compileMatrix();
+    markModified();
+}
+
+int ParagonX1AudioProcessor::getNumPlayingRoutes() const noexcept
+{
+    const auto* compiled = matrixForAudio.load();
+    return compiled != nullptr ? (int) compiled->size() : 0;
 }
 
 void ParagonX1AudioProcessor::updateSpectra()
@@ -731,6 +834,7 @@ Rig ParagonX1AudioProcessor::captureRig() const
         if (! (drawings[(size_t) i] == synth::FreeformDrawing {}))
             rig.drawings[i] = drawings[(size_t) i];
     }
+    rig.modulation = matrix;
     return rig;
 }
 
@@ -767,6 +871,11 @@ void ParagonX1AudioProcessor::applyRig (const Rig& rig)
         }
     }
     updateWavetables();
+    if (! (matrix == rig.modulation))
+    {
+        matrix = rig.modulation;
+        compileMatrix();
+    }
 
     applyingRig = false;
     rigModified = false;
@@ -930,6 +1039,8 @@ void ParagonX1AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
         if (! (drawings[(size_t) i] == synth::FreeformDrawing {}))
             drawn.appendChild (juce::ValueTree (drawingKey, { { "osc", i + 1 }, { "drawing", drawings[(size_t) i].encode() } }), nullptr);
     state.appendChild (drawn, nullptr);
+    if (! matrix.isEmpty())
+        state.appendChild (juce::ValueTree::fromXml (*matrix.toXml()), nullptr);
 
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
@@ -977,7 +1088,16 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
         }
         state.removeChild (saved, nullptr);
     }
+    ModMatrix newMatrix;
+    if (auto saved = state.getChildWithName (modulationKey); saved.isValid())
+    {
+        if (const auto xml = saved.createXml())
+            newMatrix = ModMatrix::fromXml (*xml);
+        state.removeChild (saved, nullptr);
+    }
     parameters.replaceState (state);
+    matrix = newMatrix;
+    compileMatrix();
     spectra = curves;
     drawings = newDrawings;
     for (int i = 0; i < ParamIDs::numOscillators; ++i)
