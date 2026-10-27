@@ -423,3 +423,41 @@ TEST_CASE ("The oscillator's DRAW page: drawing switches the oscillator to FREEF
     CHECK (editor.pointAt (editor.getPlotArea().getRight() + 50.0f) == synth::FreeformDrawing::points - 1);
     CHECK_THAT (editor.valueAt (area.getCentreY()), WithinAbs (0.0, 0.01));
 }
+
+TEST_CASE ("The FILTER panel's SHP tabs: each shaper's page, its controls pointed at it, laid out cleanly", "[ui][shaper]")
+{
+    Window w;
+    auto& panel = w.view->getFilterPanel();
+    CHECK (controlFor (*w.view, ParamIDs::fltCutoff)->isVisible());
+    for (int k = 0; k < ParamIDs::numShapers; ++k)
+    {
+        INFO ("shaper " << k + 1);
+        panel.showPage (k + 1);
+        CHECK (panel.getPage() == k + 1);
+        CHECK_FALSE (controlFor (*w.view, ParamIDs::fltCutoff)->isVisible());
+        for (const auto* what : { "On", "Model", "Place", "Drive", "DriveVel", "Mix", "Output", "Eq1Gain", "Eq1Freq", "Eq1Q",
+                                  "Eq2Gain", "Eq2Freq", "Eq2Q", "EqSplit" })
+        {
+            INFO (what);
+            auto* control = controlFor (*w.view, ParamIDs::shp (k, what));
+            REQUIRE (control != nullptr);
+            CHECK (control->isVisible());
+        }
+        for (int i = 0; i < ParamIDs::numOscillators; ++i)
+            CHECK (controlFor (*w.view, ParamIDs::osc (i, ParamIDs::oscSettings[ParamIDs::oscSetting ("Shp1") + k])) != nullptr);
+        checkLayout (*w.view, "shaper");
+
+        std::vector<juce::Component*> shown;
+        for (auto* child : panel.getChildren())
+            if (child->isVisible())
+                shown.push_back (child);
+        for (size_t i = 0; i < shown.size(); ++i)
+            for (size_t j = i + 1; j < shown.size(); ++j)
+            {
+                INFO (shown[i]->getBounds().toString() << " and " << shown[j]->getBounds().toString());
+                CHECK_FALSE (shown[i]->getBounds().intersects (shown[j]->getBounds()));
+            }
+    }
+    panel.showPage (0);
+    CHECK (controlFor (*w.view, ParamIDs::fltCutoff)->isVisible());
+}

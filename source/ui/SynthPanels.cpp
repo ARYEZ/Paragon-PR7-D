@@ -660,42 +660,196 @@ void OscillatorPanel::resized()
 }
 
 //==============================================================================
-FilterPanel::FilterPanel (juce::AudioProcessorValueTreeState& state)
-    : SynthPanel ("FILTER"), display (state),
-      on (state, ParamIDs::fltOn, "ON", "Switch the filter on. Each oscillator chooses whether it goes through it (TO FILTER)."),
-      type (state, ParamIDs::fltType, "TYPE", "Low-pass (LP) keeps the lows, high-pass (HP) the highs, band-pass (BP) a band, band-stop (BS) cuts one. "
-                                              "The number is the slope in dB per octave: higher is steeper."),
-      cutoff (state, ParamIDs::fltCutoff, "CUTOFF", "Where the filter starts to cut."),
-      resonance (state, ParamIDs::fltRes, "RESONANCE", "A peak at the cutoff: from none to a whistle. (The 6 dB types have none.)"),
-      drive (state, ParamIDs::fltDrive, "DRIVE", "Saturation going into the filter, for grit and warmth."),
-      keytrack (state, ParamIDs::fltKey, "KEYTRACK", "How far the cutoff follows the note: at 100% it moves an octave with each octave you play."),
-      envelope (state, ParamIDs::fltEnv, "ENVELOPE", "How far the filter envelope moves the cutoff, up (right) or down (left)."),
-      velocity (state, ParamIDs::fltVel, "VELOCITY", "Softer notes close the cutoff: how much."),
-      resonanceVelocity (state, ParamIDs::fltResVel, "RES VEL", "Softer notes have less resonance: how much."),
-      envelopeVelocity (state, ParamIDs::fltEnvVel, "ENV VEL", "Softer notes move the filter less: how much.")
+FilterPanel::PageTab::PageTab (const juce::String& name, std::function<bool()> lit)
+    : juce::Button (name), isLit (std::move (lit))
 {
+    setClickingTogglesState (true);
+    setRadioGroupId (811);
+}
+
+void FilterPanel::PageTab::paintButton (juce::Graphics& g, bool highlighted, bool)
+{
+    const auto area = getLocalBounds().toFloat().reduced (1.0f);
+    const auto isSelected = getToggleState();
+    g.setColour (isSelected ? juce::Colour (0xff1c1418) : juce::Colour (0xff0d0a0e));
+    g.fillRoundedRectangle (area, 4.0f);
+    if (isSelected)
+    {
+        g.setGradientFill (ParagonLookAndFeel::menuHighlight (area));
+        g.fillRect (area.withTop (area.getBottom() - 2.0f));
+    }
+    g.setColour (isSelected ? ParagonColours::accent.withAlpha (0.6f) : ParagonColours::panelEdge);
+    g.drawRoundedRectangle (area, 4.0f, 1.0f);
+    // The light: this filter or shaper is on.
+    wasLit = isLit != nullptr && isLit();
+    const auto led = juce::Rectangle<float> (7.0f, 7.0f).withCentre ({ area.getX() + 10.0f, area.getCentreY() });
+    g.setColour (wasLit ? ParagonColours::accent : juce::Colour (0xff3a2f33));
+    g.fillEllipse (led);
+    g.setColour (isSelected || highlighted ? ParagonColours::text : ParagonColours::textDim);
+    g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+    g.drawText (getName(), area.withTrimmedLeft (16.0f), juce::Justification::centred, false);
+}
+
+FilterPanel::FilterPanel (juce::AudioProcessorValueTreeState& s)
+    : SynthPanel ({}), state (s), display (s),
+      on (s, ParamIDs::fltOn, "ON", "Switch the filter on. Each oscillator chooses whether it goes through it (TO FILTER)."),
+      type (s, ParamIDs::fltType, "TYPE", "Low-pass (LP) keeps the lows, high-pass (HP) the highs, band-pass (BP) a band, band-stop (BS) cuts one. "
+                                          "The number is the slope in dB per octave: higher is steeper."),
+      cutoff (s, ParamIDs::fltCutoff, "CUTOFF", "Where the filter starts to cut."),
+      resonance (s, ParamIDs::fltRes, "RESONANCE", "A peak at the cutoff: from none to a whistle. (The 6 dB types have none.)"),
+      drive (s, ParamIDs::fltDrive, "DRIVE", "Saturation going into the filter, for grit and warmth."),
+      keytrack (s, ParamIDs::fltKey, "KEYTRACK", "How far the cutoff follows the note: at 100% it moves an octave with each octave you play."),
+      envelope (s, ParamIDs::fltEnv, "ENVELOPE", "How far the filter envelope moves the cutoff, up (right) or down (left)."),
+      velocity (s, ParamIDs::fltVel, "VELOCITY", "Softer notes close the cutoff: how much."),
+      resonanceVelocity (s, ParamIDs::fltResVel, "RES VEL", "Softer notes have less resonance: how much."),
+      envelopeVelocity (s, ParamIDs::fltEnvVel, "ENV VEL", "Softer notes move the filter less: how much."),
+      shaperDisplay (s),
+      shaperOn (s, ParamIDs::shp (0, "On"), "ON", "Switch this shaper on. The oscillators ticked under the picture go through it (all of them, unless you untick some)."),
+      model (s, ParamIDs::shp (0, "Model"), "MODEL", "The kind of distortion. SOFT, SMOOTH and CUBIC round off gently; HARD clips flat; "
+                                                    "TUBE and DIODE lean to one side (warmer, with even harmonics); the FOLDs fold the wave back on itself "
+                                                    "(metallic, more so the harder they're driven); RECTIFY flips the bottom half up (an octave up), HALF RECT cuts it."),
+      place (s, ParamIDs::shp (0, "Place"), "PLACE", "Before the filter (the filter then tames the distortion's buzz) or after it (the distortion "
+                                                    "colours what the filter leaves). Shapers on the same side run in number order."),
+      shaperDrive (s, ParamIDs::shp (0, "Drive"), "DRIVE", "How hard the sound is pushed into the distortion, up to +36 dB. The level is kept about the same: more drive, more grit."),
+      driveVelocity (s, ParamIDs::shp (0, "DriveVel"), "DRIVE VEL", "Softer notes are driven less: how much. A note at full velocity gets DRIVE as set."),
+      mix (s, ParamIDs::shp (0, "Mix"), "MIX", "The distorted sound against the sound coming in: below 100%, both together (parallel distortion)."),
+      output (s, ParamIDs::shp (0, "Output"), "OUTPUT", "The shaper's level out."),
+      eq1Gain (s, ParamIDs::shp (0, "Eq1Gain"), "EQ1 GAIN", "Boosts or cuts a band before the distortion, so that band distorts more (or less). Centre: off."),
+      eq1Freq (s, ParamIDs::shp (0, "Eq1Freq"), "EQ1 FREQ", "Where band 1 is."),
+      eq1Q (s, ParamIDs::shp (0, "Eq1Q"), "EQ1 Q", "How narrow band 1 is: higher is narrower."),
+      eq2Gain (s, ParamIDs::shp (0, "Eq2Gain"), "EQ2 GAIN", "Boosts or cuts a second band before the distortion. Centre: off."),
+      eq2Freq (s, ParamIDs::shp (0, "Eq2Freq"), "EQ2 FREQ", "Where band 2 is."),
+      eq2Q (s, ParamIDs::shp (0, "Eq2Q"), "EQ2 Q", "How narrow band 2 is: higher is narrower."),
+      eqSplit (s, ParamIDs::shp (0, "EqSplit"), "SPLIT", "Band 1 on the left channel only and band 2 on the right only: the two sides distort differently, "
+                                                         "which makes the sound much wider.")
+{
+    // The tabs, in place of the title.
+    tabs.push_back (std::make_unique<PageTab> ("FILTER", [this] { return state.getRawParameterValue (ParamIDs::fltOn)->load() > 0.5f; }));
+    for (int k = 0; k < ParamIDs::numShapers; ++k)
+        tabs.push_back (std::make_unique<PageTab> ("SHP " + juce::String (k + 1),
+                                                   [this, k] { return state.getRawParameterValue (ParamIDs::shp (k, "On"))->load() > 0.5f; }));
+    for (size_t i = 0; i < tabs.size(); ++i)
+    {
+        tabs[i]->setTooltip (i == 0 ? "The filter" : "Shaper " + juce::String ((int) i) + ": a distortion on each note, with two EQ bands to colour it");
+        tabs[i]->onClick = [this, i] { showPage ((int) i); };
+        addAndMakeVisible (*tabs[i]);
+    }
+    tabs.front()->setToggleState (true, juce::dontSendNotification);
+
     addAndMakeVisible (display);
     for (auto* control : { &on, &type, &cutoff, &resonance, &drive, &keytrack, &envelope, &velocity, &resonanceVelocity, &envelopeVelocity })
         addAndMakeVisible (control);
     on.setCompact (true);
     type.setCompact (true);
+
+    addChildComponent (shaperDisplay);
+    for (auto* control : { &shaperOn, &model, &place, &shaperDrive, &driveVelocity, &mix, &output,
+                           &eq1Gain, &eq1Freq, &eq1Q, &eq2Gain, &eq2Freq, &eq2Q, &eqSplit })
+        addChildComponent (control);
+    shaperOn.setCompact (true);
+    model.setCompact (true);
+
+    routeLabel.setText ("OSCILLATORS", juce::dontSendNotification);
+    routeLabel.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+    routeLabel.setColour (juce::Label::textColourId, ParagonColours::textDim);
+    routeLabel.setJustificationType (juce::Justification::centredLeft);
+    routeLabel.setBorderSize ({});
+    addChildComponent (routeLabel);
+    for (int i = 0; i < ParamIDs::numOscillators; ++i)
+    {
+        routes.push_back (std::make_unique<ParamControl> (s, ParamIDs::osc (i, "Shp1"), juce::String (i + 1),
+                                                          "Oscillator " + juce::String (i + 1) + " goes through this shaper (when both are on)."));
+        routes.back()->setCompact (true);
+        addChildComponent (*routes.back());
+    }
+    startTimerHz (8);
+}
+
+void FilterPanel::showPage (int newPage)
+{
+    page = juce::jlimit (0, ParamIDs::numShapers, newPage);
+    tabs[(size_t) page]->setToggleState (true, juce::dontSendNotification);
+    const auto filterPage = page == 0;
+    for (auto* control : std::initializer_list<juce::Component*> { &display, &on, &type, &cutoff, &resonance, &drive, &keytrack, &envelope,
+                                                                   &velocity, &resonanceVelocity, &envelopeVelocity })
+        control->setVisible (filterPage);
+    for (auto* control : std::initializer_list<juce::Component*> { &shaperDisplay, &shaperOn, &model, &place, &shaperDrive, &driveVelocity,
+                                                                   &mix, &output, &eq1Gain, &eq1Freq, &eq1Q, &eq2Gain, &eq2Freq, &eq2Q,
+                                                                   &eqSplit, &routeLabel })
+        control->setVisible (! filterPage);
+    for (auto& route : routes)
+        route->setVisible (! filterPage);
+
+    if (! filterPage)
+    {
+        // Point the shaper page's controls at this shaper.
+        const auto k = page - 1;
+        const std::pair<ParamControl*, const char*> controls[] = {
+            { &shaperOn, "On" }, { &model, "Model" }, { &place, "Place" }, { &shaperDrive, "Drive" }, { &driveVelocity, "DriveVel" },
+            { &mix, "Mix" }, { &output, "Output" }, { &eq1Gain, "Eq1Gain" }, { &eq1Freq, "Eq1Freq" }, { &eq1Q, "Eq1Q" },
+            { &eq2Gain, "Eq2Gain" }, { &eq2Freq, "Eq2Freq" }, { &eq2Q, "Eq2Q" }, { &eqSplit, "EqSplit" } };
+        for (const auto& [control, what] : controls)
+            control->attach (ParamIDs::shp (k, what));
+        for (int i = 0; i < ParamIDs::numOscillators; ++i)
+            routes[(size_t) i]->attach (ParamIDs::osc (i, ParamIDs::oscSettings[ParamIDs::oscSetting ("Shp1") + k]));
+        shaperDisplay.setShaper (k);
+    }
+    resized();
+}
+
+void FilterPanel::timerCallback()
+{
+    // A tab's light follows its ON (from the page, automation, a preset or undo).
+    for (auto& tab : tabs)
+        if (tab->isLit != nullptr && tab->isLit() != tab->wasLit)
+            tab->repaint();
 }
 
 void FilterPanel::resized()
 {
-    // ON and TYPE beside the title.
+    // The tabs along the title strip; ON and TYPE (or the shaper's ON and MODEL) at its right.
     auto titleArea = getTitleArea().withTrimmedTop (4);
-    type.setBounds (titleArea.removeFromRight (96));
-    titleArea.removeFromRight (10);
-    on.setBounds (titleArea.removeFromRight (56));
+    auto right = titleArea.removeFromRight (162);
+    auto strip = titleArea.reduced (0, 3).withTrimmedBottom (1);
+    for (size_t i = 0; i < tabs.size(); ++i)
+    {
+        tabs[i]->setBounds (strip.removeFromLeft (i == 0 ? 72 : 60));
+        strip.removeFromLeft (4);
+    }
+    const auto h = ParamControl::knobHeight;
+    if (page == 0)
+    {
+        type.setBounds (right.removeFromRight (96));
+        right.removeFromRight (10);
+        on.setBounds (right.removeFromRight (56));
+
+        auto area = getContentArea().withTrimmedTop (6);
+        display.setBounds (area.removeFromTop (136));
+        area.removeFromTop (8);
+        SynthPanel::layoutRow (area.removeFromTop (h), { &cutoff, &resonance, &drive, &keytrack, &envelope }, 86);
+        area.removeFromTop (4);
+        SynthPanel::layoutRow (area.removeFromTop (h), { &velocity, &resonanceVelocity, &envelopeVelocity }, 86);
+        return;
+    }
+
+    model.setBounds (right.removeFromRight (96));
+    right.removeFromRight (10);
+    shaperOn.setBounds (right.removeFromRight (56));
 
     auto area = getContentArea().withTrimmedTop (6);
-    display.setBounds (area.removeFromTop (136));
-    area.removeFromTop (8);
-    const auto h = ParamControl::knobHeight;
-    SynthPanel::layoutRow (area.removeFromTop (h), { &cutoff, &resonance, &drive, &keytrack, &envelope }, 86);
+    shaperDisplay.setBounds (area.removeFromTop (96));
+    area.removeFromTop (6);
+    // Which oscillators go through it.
+    auto routeRow = area.removeFromTop (22);
+    routeLabel.setBounds (routeRow.removeFromLeft (84));
+    const auto routeWidth = juce::jmin (52, routeRow.getWidth() / ParamIDs::numOscillators);
+    for (auto& route : routes)
+        route->setBounds (routeRow.removeFromLeft (routeWidth));
+    area.removeFromTop (6);
+    SynthPanel::layoutRow (area.removeFromTop (h), { &shaperDrive, &driveVelocity, &mix, &output, &place }, 86);
     area.removeFromTop (4);
-    SynthPanel::layoutRow (area.removeFromTop (h), { &velocity, &resonanceVelocity, &envelopeVelocity }, 86);
+    SynthPanel::layoutRow (area.removeFromTop (h), { &eq1Gain, &eq1Freq, &eq1Q, &eq2Gain, &eq2Freq, &eq2Q, &eqSplit },
+                           juce::jmin (74, (area.getWidth() - 24) / 7));
 }
 
 //==============================================================================

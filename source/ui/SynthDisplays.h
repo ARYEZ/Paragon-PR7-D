@@ -87,6 +87,26 @@ private:
     std::vector<float> snapshot() const override;
 };
 
+// A SHAPER (stage 3e): its curve at the DRIVE set (left: what comes out for
+// each level going in; the faint diagonal is no change), and its two EQ
+// bands (right; with EQ SPLIT, band 1 is drawn as the left channel's and
+// band 2 the right's).
+class ShaperDisplay final : public ParameterDisplay
+{
+public:
+    explicit ShaperDisplay (juce::AudioProcessorValueTreeState&);
+    void setShaper (int index);
+    void paint (juce::Graphics&) override;
+
+    // An EQ band's response in dB at `hz`. For tests too.
+    static double bellDb (double gainDb, double freqHz, double q, double hz);
+
+private:
+    std::vector<float> snapshot() const override;
+    float shaperValue (const char* what) const;
+    int shaper = 0;
+};
+
 // An envelope's shape: attack, hold, decay, a stretch of sustain, release,
 // with their curves. Time is drawn squeezed (long stages take less room than
 // their length) so a 10 ms attack and a 5 s release are both readable.

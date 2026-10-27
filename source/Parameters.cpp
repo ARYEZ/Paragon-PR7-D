@@ -9,13 +9,14 @@ namespace
     using Range = juce::NormalisableRange<float>;
     using ToText = std::function<juce::String (float, int)>;
 
-    // Version hint: the PR7-K version that introduced a parameter (1 for 0.1.0, 2 for 0.2.0, 3 for 0.3.0, 4 for 0.4.0, 5 for 0.5.0, 6 for 0.6.0).
+    // Version hint: the PR7-K version that introduced a parameter (1 for 0.1.0, 2 for 0.2.0, 3 for 0.3.0, 4 for 0.4.0, 5 for 0.5.0, 6 for 0.6.0, 7 for 0.8.0).
     constexpr int firstVersion = 1;
     constexpr int stage2 = 2;
     constexpr int stage3 = 3;
     constexpr int stage3b = 4;   // 0.4.0
     constexpr int stage3c = 5;   // 0.5.0
     constexpr int stage3d = 6;   // 0.6.0
+    constexpr int stage3e = 7;   // 0.8.0 (0.7.0 added no parameters)
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -89,6 +90,13 @@ namespace
     // FFT LP / HP: a harmonic number (Off at the ends).
     const ToText asHarmonicLp = [] (float value, int) { return value >= 511.5f ? juce::String ("Off") : "H" + juce::String (juce::roundToInt (value)); };
     const ToText asHarmonicHp = [] (float value, int) { return value <= 1.01f ? juce::String ("Off") : "H" + juce::String (juce::roundToInt (value)); };
+    // The SHAPER's DRIVE, as the gain into its curve.
+    const ToText asShaperDrive = [] (float value, int) { return "+" + juce::String (value * synth::shaper::maxDriveDb, 1) + " dB"; };
+    const ToText asEqGain = [] (float value, int)
+    {
+        return std::abs (value) < 0.05f ? juce::String ("Off") : (value > 0.0f ? "+" : "") + juce::String (value, 1) + " dB";
+    };
+    const ToText asQ = [] (float value, int) { return juce::String (value, value < 10.0f ? 2 : 1); };
     const ToText asSweep = [] (float value, int)
     {
         const auto octaves = value * 4.0f;
@@ -269,6 +277,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         add (layout, osc (i, "FftSlope"), name + "FFT Slope", { 0.0f, 1.0f }, defaults.fftSlope, asPercent, stage3d);
         add (layout, osc (i, "FftVSpeed"), name + "FFT VSpeed", logRange (0.05, 20.0), defaults.fftVSpeedHz, asHz, stage3d);
         add (layout, osc (i, "FftVStrength"), name + "FFT VStrength", { 0.0f, 1.0f }, defaults.fftVStrength, asPercent, stage3d);
+
+        // Which SHAPERs it goes through (stage 3e): all of them unless unticked, so switching one on is heard at once.
+        for (int k = 0; k < numShapers; ++k)
+            addSwitch (layout, osc (i, ParamIDs::oscSettings[ParamIDs::oscSetting ("Shp1") + k]),
+                       name + "To Shaper " + juce::String (k + 1), defaults.toShaper[(size_t) k], stage3e);
     }
 
     // The FILTER: off in a new sound (Avenger's starts without one), ready at a 24 dB low-pass at 2 kHz.
@@ -285,6 +298,31 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     add (layout, fltEnvVel, "Filter Envelope Velocity", { 0.0f, 1.0f }, filter.envelopeVelocity, asPercent);
     addEnvelope (layout, "Filter", fltAttack, fltHold, fltDecay, fltSustain, fltRelease,
                  fltAttackCurve, fltDecayCurve, fltReleaseCurve, filter.envelope);
+
+    // The SHAPERs (stage 3e): four, off in a new sound.
+    const synth::ShaperSettings shaper;
+    for (int k = 0; k < numShapers; ++k)
+    {
+        const auto name = "Shaper " + juce::String (k + 1) + " ";
+        addSwitch (layout, shp (k, "On"), name + "On", shaper.on, stage3e);
+        addChoice (layout, shp (k, "Model"), name + "Model", synth::shaperModelNames, (int) shaper.model, stage3e);
+        add (layout, shp (k, "Drive"), name + "Drive", { 0.0f, 1.0f }, shaper.drive, asShaperDrive, stage3e);
+        add (layout, shp (k, "DriveVel"), name + "Drive Velocity", { 0.0f, 1.0f }, shaper.driveVelocity, asPercent, stage3e);
+        for (int b = 0; b < 2; ++b)
+        {
+            const auto band = juce::String (b + 1);
+            add (layout, shp (k, ("Eq" + band + "Gain").toRawUTF8()), name + "EQ " + band + " Gain", { -18.0f, 18.0f, 0.1f },
+                 shaper.eqGainDb[(size_t) b], asEqGain, stage3e);
+            add (layout, shp (k, ("Eq" + band + "Freq").toRawUTF8()), name + "EQ " + band + " Frequency", logRange (20.0, 20000.0),
+                 shaper.eqFreqHz[(size_t) b], asFrequency, stage3e);
+            add (layout, shp (k, ("Eq" + band + "Q").toRawUTF8()), name + "EQ " + band + " Q", logRange (0.2, 12.0),
+                 shaper.eqQ[(size_t) b], asQ, stage3e);
+        }
+        addSwitch (layout, shp (k, "EqSplit"), name + "EQ Split", shaper.eqSplit, stage3e);
+        addChoice (layout, shp (k, "Place"), name + "Place", synth::shaperPlaceNames, shaper.afterFilter ? 1 : 0, stage3e);
+        add (layout, shp (k, "Mix"), name + "Mix", { 0.0f, 1.0f }, shaper.mix, asPercent, stage3e);
+        add (layout, shp (k, "Output"), name + "Output", { -24.0f, 12.0f, 0.1f }, shaper.outputDb, asDb, stage3e);
+    }
 
     // The AMP.
     const synth::AmpSettings amp;

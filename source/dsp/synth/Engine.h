@@ -12,7 +12,7 @@
 
 // PR7-K's synth engine (stage 1): MIDI in, stereo out. Our own design,
 // laid out like Avenger's: up to 8 oscillators per note, each through the
-// FILTER (or not), then the AMP.
+// FILTER (or not) and up to 4 SHAPERs (each before or after the filter), then the AMP.
 //
 // Where the CPU goes, and how little of it this uses:
 //   - Every oscillator reads band-limited tables (WaveTables.h), so nothing
@@ -103,6 +103,33 @@ namespace synth
             std::array<Copy, maxCopies> copies;
         };
 
+        // A route through the note: the FILTER (or not) and which SHAPERs, with their state.
+        struct Path
+        {
+            int key = -1;               // bit 0: the FILTER; bits 1 to 4: SHAPERs 1 to 4 (-1: not in use)
+            FilterChannel filterLeft, filterRight;
+            Saturator driveLeft, driveRight;
+            FilterChannel::Coefficients coefficients;   // the filter's now (glided to each update)
+            bool coefficientsFresh = true;
+            std::array<shaper::Channel, numShapers> shapeLeft, shapeRight;
+            std::array<float, numShapers> shapeGain {}, shapeMakeUp {};   // as of the last update, glided from (0: not yet)
+
+            void reset() noexcept
+            {
+                filterLeft.reset();
+                filterRight.reset();
+                driveLeft.reset();
+                driveRight.reset();
+                coefficientsFresh = true;
+                for (int k = 0; k < numShapers; ++k)
+                {
+                    shapeLeft[(size_t) k].reset();
+                    shapeRight[(size_t) k].reset();
+                    shapeGain[(size_t) k] = shapeMakeUp[(size_t) k] = 0.0f;
+                }
+            }
+        };
+
         struct Voice
         {
             bool playing = false;       // has a note (sounding or releasing)
@@ -114,10 +141,11 @@ namespace synth
             float killGain = 1.0f;
 
             Envelope amp, filter;
-            FilterChannel filterLeft, filterRight;
-            Saturator driveLeft, driveRight;
-            FilterChannel::Coefficients coefficients;   // the filter's now (glided to each update)
-            bool coefficientsFresh = true;
+            // One per route its oscillators take (stage 3e): oscillators going
+            // through the same FILTER and SHAPERs share one; one set to its own
+            // route gets its own filter and shapers. With no shapers on, every
+            // oscillator through the filter shares one path, as before.
+            std::array<Path, numOscillators> paths;
 
             float pitch = 60.0f, targetPitch = 60.0f, glideRate = 0.0f;   // semitones; per sample
             float panLeft = 1.0f, panRight = 1.0f;      // the AMP's PAN, KEYTRACK and SPREAD for this note
@@ -130,6 +158,10 @@ namespace synth
         void render (float* left, float* right, int numSamples, const Settings&) noexcept;
         void renderVoice (Voice&, float* left, float* right, int numSamples, const Settings&) noexcept;
         void renderOscillators (Voice&, int numSamples, const Settings&, float bendSemitones) noexcept;
+        void assignPaths (Voice&, const Settings&) noexcept;   // each oscillator's route, and a path for each
+        void processPath (Voice&, Path&, float* left, float* right, int n, const Settings&,
+                          const FilterChannel::Coefficients& filterTarget) noexcept;
+        void processShaper (Path&, int shaper, float* left, float* right, int n, const Settings&, float velocityDown) noexcept;
         float vibratoValue (VibratoWave, float& phase, float& held, float advance) noexcept;   // -1 to 1, then moves on
 
         void startVoice (Voice&, int note, float velocity, float fromPitch, const Settings&) noexcept;
@@ -178,8 +210,16 @@ namespace synth
         std::array<bool, numOscillators> alternate {};   // RANDOM's alternating direction, per oscillator
         juce::Random random;
 
-        // Scratch for one control interval: what goes through the filter and what doesn't, per channel.
-        std::array<float, controlInterval> filteredLeft {}, filteredRight {}, dryLeft {}, dryRight {}, scratch {};
+        // Scratch for one control interval: each path's sound, per channel; which
+        // path each oscillator plays into (-1: none) and which paths are in use.
+        std::array<std::array<float, controlInterval>, numOscillators> pathLeft {}, pathRight {};
+        std::array<int, numOscillators> oscillatorPath {};
+        std::array<bool, numOscillators> pathUsed {};
+        std::array<float, controlInterval> mixLeft {}, mixRight {}, scratch {};
+
+        // The SHAPERs' EQ bands, worked out once per block (they're the same for every note).
+        std::array<shaper::Coefficients, numShapers> shaperCoefficients {};
+        float dcPole = 0.9993f;   // the shapers' DC blocker: 5 Hz
 
         float killStep = 1.0f / 144.0f;   // 3 ms at 48 kHz
     };

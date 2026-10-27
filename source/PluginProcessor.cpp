@@ -130,6 +130,12 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
             oscParameters[(size_t) i].values[s] = parameters.getRawParameterValue (ParamIDs::osc (i, ParamIDs::oscSettings[s]));
             jassert (oscParameters[(size_t) i].values[s] != nullptr);
         }
+    for (int k = 0; k < ParamIDs::numShapers; ++k)
+        for (size_t s = 0; s < std::size (ParamIDs::shaperSettings); ++s)
+        {
+            shaperParameters[(size_t) k].values[s] = parameters.getRawParameterValue (ParamIDs::shp (k, ParamIDs::shaperSettings[s]));
+            jassert (shaperParameters[(size_t) k].values[s] != nullptr);
+        }
 
     playingFactoryTable.fill (-1);
     for (auto& table : tablesForAudio)
@@ -238,6 +244,8 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
         o.subInvert = get (oscSetting ("SubInvert")) > 0.5f;
         o.toFilter = get (oscSetting ("Filter")) > 0.5f;
         o.voiceLimit = juce::jlimit (1, synth::maxVoices, juce::roundToInt (get (oscSetting ("Voices"))));
+        for (int k = 0; k < synth::numShapers; ++k)
+            o.toShaper[(size_t) k] = get (oscSetting ("Shp1") + k) > 0.5f;
 
         o.table = tablesForAudio[i].load();
         o.spectral = spectralForAudio[i].load();
@@ -317,6 +325,26 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
     f.envelopeAmount = param (fltEnv);
     f.envelopeVelocity = param (fltEnvVel);
     f.envelope = envelope (fltAttack, fltHold, fltDecay, fltSustain, fltRelease, fltAttackCurve, fltDecayCurve, fltReleaseCurve);
+
+    static_assert (synth::numShapers == ParamIDs::numShapers);
+    for (size_t k = 0; k < s.shapers.size(); ++k)
+    {
+        const auto& v = shaperParameters[k].values;   // in shaperSettings' order
+        const auto get = [&v] (int index) { return v[(size_t) index]->load(); };
+        using ParamIDs::shaperSetting;
+        auto& sh = s.shapers[k];
+        sh.on = get (shaperSetting ("On")) > 0.5f;
+        sh.model = (synth::ShaperModel) choice (get (shaperSetting ("Model")), synth::shaperModelNames.size());
+        sh.drive = get (shaperSetting ("Drive"));
+        sh.driveVelocity = get (shaperSetting ("DriveVel"));
+        sh.eqGainDb = { get (shaperSetting ("Eq1Gain")), get (shaperSetting ("Eq2Gain")) };
+        sh.eqFreqHz = { get (shaperSetting ("Eq1Freq")), get (shaperSetting ("Eq2Freq")) };
+        sh.eqQ = { get (shaperSetting ("Eq1Q")), get (shaperSetting ("Eq2Q")) };
+        sh.eqSplit = get (shaperSetting ("EqSplit")) > 0.5f;
+        sh.afterFilter = choice (get (shaperSetting ("Place")), synth::shaperPlaceNames.size()) == 1;
+        sh.mix = get (shaperSetting ("Mix"));
+        sh.outputDb = get (shaperSetting ("Output"));
+    }
 
     auto& a = s.amp;
     a.volume = param (ampVolume);

@@ -55,6 +55,14 @@ namespace
             return set (ParamIDs::ampRelease, release);
         }
 
+        Builder& shaper (int k, synth::ShaperModel model, float drive, bool afterFilter = false)
+        {
+            set (ParamIDs::shp (k, "On"), 1.0f);
+            set (ParamIDs::shp (k, "Model"), (float) model);
+            set (ParamIDs::shp (k, "Drive"), drive);
+            return set (ParamIDs::shp (k, "Place"), afterFilter ? 1.0f : 0.0f);
+        }
+
         Builder& mono (float glideMs)
         {
             set (ParamIDs::playMode, (float) synth::PlayMode::mono);
@@ -297,6 +305,34 @@ std::vector<Rig> makeFactoryRigs()
          .ampEnvelope (1.0f, 300.0f, 0.9f, 120.0f)
          .mono (30.0f);
     add (drawn);
+
+    // The SHAPER (stage 3e).
+    Builder tube ("Tube Bass", 24, { "Bass", "Shaper" },
+                  "A saw and its sub through TUBE (warm, with even harmonics) before a low-pass, with the low mids lifted going in so they "
+                  "growl first, and DRIVE following velocity: play harder for more bite.");
+    tube.osc (0, "Sub", 0.5f).osc (0, "PhaseRand", 0.0f).osc (0, "Volume", 0.8f)
+        .shaper (0, synth::ShaperModel::tube, 0.55f)
+        .set (ParamIDs::shp (0, "DriveVel"), 0.6f)
+        .set (ParamIDs::shp (0, "Eq1Gain"), 6.0f).set (ParamIDs::shp (0, "Eq1Freq"), 250.0f).set (ParamIDs::shp (0, "Eq1Q"), 0.8f)
+        .filter (FilterType::lp24, 700.0f, 0.2f, 0.4f).filterEnvelope (0.0f, 400.0f, 0.3f, 150.0f)
+        .ampEnvelope (1.0f, 300.0f, 0.9f, 120.0f)
+        .mono (25.0f);
+    add (tube);
+
+    Builder wide ("Wide Fold Lead", 25, { "Lead", "Shaper" },
+                  "Two detuned saws folded (SINE FOLD) with EQ SPLIT, so the left and right channels fold differently and the lead spreads wide; "
+                  "SOFT after the filter rounds it off.");
+    wide.osc (0, "Fine", -6.0f).osc (0, "Volume", 0.6f)
+        .osc (1, "On", 1.0f).osc (1, "Wave", saw).osc (1, "Fine", 6.0f).osc (1, "Volume", 0.6f)
+        .shaper (0, synth::ShaperModel::sineFold, 0.35f)
+        .set (ParamIDs::shp (0, "Eq1Gain"), 9.0f).set (ParamIDs::shp (0, "Eq1Freq"), 900.0f)
+        .set (ParamIDs::shp (0, "Eq2Gain"), 9.0f).set (ParamIDs::shp (0, "Eq2Freq"), 2400.0f)
+        .set (ParamIDs::shp (0, "EqSplit"), 1.0f).set (ParamIDs::shp (0, "Mix"), 0.7f)
+        .shaper (1, synth::ShaperModel::soft, 0.2f, true)
+        .filter (FilterType::lp12, 4500.0f, 0.15f, 0.2f).filterEnvelope (5.0f, 600.0f, 0.5f, 300.0f)
+        .ampEnvelope (5.0f, 400.0f, 0.85f, 250.0f)
+        .mono (60.0f);
+    add (wide);
 
     return rigs;
 }

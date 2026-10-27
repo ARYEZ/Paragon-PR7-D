@@ -2,6 +2,7 @@
 
 #include "Envelope.h"
 #include "Filter.h"
+#include "Shaper.h"
 
 #include <array>
 
@@ -111,6 +112,8 @@ namespace synth
         int subOctave = 1;          // index into subOctaveNames
         bool subInvert = false;
         bool toFilter = true;       // through the FILTER (off: straight to the AMP)
+        // Through which SHAPERs (stage 3e), when they're on: all four, unless unticked.
+        std::array<bool, numShapers> toShaper { true, true, true, true };
         int voiceLimit = maxVoices; // this oscillator's own notes-at-once limit
 
         // UNISON (stage 2, as Avenger's V-Saw): copies of each note, detuned and spread.
@@ -235,6 +238,7 @@ namespace synth
     {
         std::array<OscSettings, numOscillators> oscillators {};
         FilterSettings filter;
+        std::array<ShaperSettings, numShapers> shapers {};
         AmpSettings amp;
         PlaySettings play;
 

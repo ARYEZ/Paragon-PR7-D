@@ -331,6 +331,7 @@ namespace synth
     {
         sampleRate = newSampleRate;
         killStep = (float) (1.0 / juce::jmax (1.0, killMs * 0.001 * sampleRate));
+        dcPole = (float) (1.0 - juce::MathConstants<double>::twoPi * 5.0 / sampleRate);
         (void) tables::get (tables::Wave::saw, 0);   // builds the tables now, not on the first note
         for (auto& voice : voices)
         {
@@ -361,6 +362,16 @@ namespace synth
                           const juce::MidiBuffer& midi, int midiStart, const Settings& settings) noexcept
     {
         followMode (settings);
+
+        // The SHAPERs' EQ bands: the same for every note, so worked out once here.
+        for (int k = 0; k < numShapers; ++k)
+        {
+            const auto& sh = settings.shapers[(size_t) k];
+            for (int b = 0; b < 2; ++b)
+                shaperCoefficients[(size_t) k].bells[(size_t) b] = sh.on ? shaper::Bell::make (sh.eqGainDb[(size_t) b], sh.eqFreqHz[(size_t) b],
+                                                                                                sh.eqQ[(size_t) b], sampleRate)
+                                                                         : shaper::Bell {};
+        }
 
         std::fill (left, left + numSamples, 0.0f);
         std::fill (right, right + numSamples, 0.0f);
@@ -624,11 +635,11 @@ namespace synth
         voice.velocity = velocity;
         voice.age = ++noteCounter;
         voice.pitch = fromPitch;
-        voice.coefficientsFresh = true;
-        voice.filterLeft.reset();
-        voice.filterRight.reset();
-        voice.driveLeft.reset();
-        voice.driveRight.reset();
+        for (auto& path : voice.paths)
+        {
+            path.key = -1;
+            path.reset();
+        }
         setGlide (voice, (float) note, ! juce::approximatelyEqual (fromPitch, (float) note), settings);
         retrigger (voice, note, velocity, true, ! juce::approximatelyEqual (fromPitch, (float) note), settings);
     }
@@ -835,10 +846,14 @@ namespace synth
         }
         const auto bendSemitones = bend >= 0.0f ? bend * settings.play.bendUp : bend * settings.play.bendDown;
 
-        std::fill (filteredLeft.begin(), filteredLeft.begin() + n, 0.0f);
-        std::fill (filteredRight.begin(), filteredRight.begin() + n, 0.0f);
-        std::fill (dryLeft.begin(), dryLeft.begin() + n, 0.0f);
-        std::fill (dryRight.begin(), dryRight.begin() + n, 0.0f);
+        // Each oscillator's route this interval, and the path it plays into.
+        assignPaths (voice, settings);
+        for (size_t p = 0; p < pathUsed.size(); ++p)
+            if (pathUsed[p])
+            {
+                std::fill (pathLeft[p].begin(), pathLeft[p].begin() + n, 0.0f);
+                std::fill (pathRight[p].begin(), pathRight[p].begin() + n, 0.0f);
+            }
         renderOscillators (voice, n, settings, bendSemitones);
 
         // Every oscillator in it taken by newer notes: the note is over.
@@ -848,9 +863,10 @@ namespace synth
             return;
         }
 
-        // The FILTER: its cutoff for the end of this interval, glided to from where it was.
+        // The FILTER's cutoff for the end of this interval (each path glides to it from where it was).
         const auto velocityDown = 1.0f - voice.velocity;
         const auto filterEnvelope = voice.filter.step (n);
+        FilterChannel::Coefficients filterTarget;
         if (filterSettings.on)
         {
             auto octaves = filterSettings.keytrack * (voice.pitch - 60.0f) / 12.0f
@@ -859,30 +875,22 @@ namespace synth
                                * (1.0f - filterSettings.envelopeVelocity * velocityDown);
             const auto cutoff = (double) filterSettings.cutoffHz * std::exp2 ((double) octaves);
             const auto resonance = filterSettings.resonance * (1.0f - filterSettings.resonanceVelocity * velocityDown);
-            const auto target = FilterChannel::Coefficients::make (cutoff, resonance, sampleRate);
-            const auto from = voice.coefficientsFresh ? target : voice.coefficients;
-            voice.coefficientsFresh = false;
+            filterTarget = FilterChannel::Coefficients::make (cutoff, resonance, sampleRate);
+        }
 
-            // DRIVE: up to +24 dB into the saturation, scaled back so a full-scale
-            // wave still peaks near full scale (quieter sounds come out louder,
-            // as from any overdriven input).
-            const auto drive = filterSettings.drive;
-            const auto driveGain = 1.0f + drive * 15.0f;
-            const auto makeUp = 1.0f / std::tanh (driveGain);
-            const auto type = filterSettings.type;
+        // Each path through its shapers and filter, then all of them together.
+        std::fill (mixLeft.begin(), mixLeft.begin() + n, 0.0f);
+        std::fill (mixRight.begin(), mixRight.begin() + n, 0.0f);
+        for (size_t p = 0; p < pathUsed.size(); ++p)
+        {
+            if (! pathUsed[p])
+                continue;
+            processPath (voice, voice.paths[p], pathLeft[p].data(), pathRight[p].data(), n, settings, filterTarget);
             for (int i = 0; i < n; ++i)
             {
-                const auto c = FilterChannel::Coefficients::lerp (from, target, (float) (i + 1) / (float) n);
-                auto l = filteredLeft[(size_t) i], r = filteredRight[(size_t) i];
-                if (drive > 0.0f)
-                {
-                    l = voice.driveLeft.process (l, driveGain, makeUp);
-                    r = voice.driveRight.process (r, driveGain, makeUp);
-                }
-                filteredLeft[(size_t) i] = voice.filterLeft.process (l, type, c);
-                filteredRight[(size_t) i] = voice.filterRight.process (r, type, c);
+                mixLeft[(size_t) i] += pathLeft[p][(size_t) i];
+                mixRight[(size_t) i] += pathRight[p][(size_t) i];
             }
-            voice.coefficients = target;
         }
 
         // The AMP: envelope, velocity, SPIKE, VOLUME, then this note's pan.
@@ -905,8 +913,8 @@ namespace synth
                 if (voice.killGain <= 0.0f)
                     voice.killGain = 0.0f;
             }
-            left[i] += (filteredLeft[(size_t) i] + dryLeft[(size_t) i]) * gain * voice.panLeft;
-            right[i] += (filteredRight[(size_t) i] + dryRight[(size_t) i]) * gain * voice.panRight;
+            left[i] += mixLeft[(size_t) i] * gain * voice.panLeft;
+            right[i] += mixRight[(size_t) i] * gain * voice.panRight;
         }
 
         // Over once it can't be heard.
@@ -916,6 +924,162 @@ namespace synth
             || (amp.isReleasing() && amp.getLevel() < silence)
             || amp.isSilentSustain())
             free (voice);
+    }
+
+    void Engine::assignPaths (Voice& voice, const Settings& settings) noexcept
+    {
+        // An oscillator's route: through the FILTER (if it's on and the
+        // oscillator goes to it) and through each SHAPER that's on and the
+        // oscillator is routed to.
+        std::array<int, numOscillators> keys {};
+        for (size_t i = 0; i < keys.size(); ++i)
+        {
+            const auto& s = settings.oscillators[i];
+            keys[i] = -1;
+            if (! s.on || ! voice.oscillators[i].active)
+                continue;
+            auto key = s.toFilter && settings.filter.on ? 1 : 0;
+            for (int k = 0; k < numShapers; ++k)
+                if (settings.shapers[(size_t) k].on && s.toShaper[(size_t) k])
+                    key |= 2 << k;
+            keys[i] = key;
+        }
+
+        // Routes this note already has keep their paths (and their filters'
+        // and shapers' state); a new route takes a path no route wants.
+        pathUsed.fill (false);
+        oscillatorPath.fill (-1);
+        const auto find = [&voice] (int key)
+        {
+            for (size_t p = 0; p < voice.paths.size(); ++p)
+                if (voice.paths[p].key == key)
+                    return (int) p;
+            return -1;
+        };
+        for (size_t i = 0; i < keys.size(); ++i)
+            if (keys[i] >= 0)
+                if (const auto p = find (keys[i]); p >= 0)
+                {
+                    oscillatorPath[i] = p;
+                    pathUsed[(size_t) p] = true;
+                }
+        for (size_t i = 0; i < keys.size(); ++i)
+        {
+            if (keys[i] < 0 || oscillatorPath[i] >= 0)
+                continue;
+            auto p = find (keys[i]);
+            if (p < 0 || ! pathUsed[(size_t) p])
+            {
+                // A route new to this note: an unused path, started afresh.
+                for (size_t q = 0; q < voice.paths.size(); ++q)
+                    if (! pathUsed[q])
+                    {
+                        p = (int) q;
+                        break;
+                    }
+                voice.paths[(size_t) p].key = keys[i];
+                voice.paths[(size_t) p].reset();
+            }
+            oscillatorPath[i] = p;
+            pathUsed[(size_t) p] = true;
+        }
+    }
+
+    void Engine::processPath (Voice& voice, Path& path, float* left, float* right, int n, const Settings& settings,
+                              const FilterChannel::Coefficients& filterTarget) noexcept
+    {
+        const auto velocityDown = 1.0f - voice.velocity;
+        // SHAPERs placed before the FILTER, in order...
+        for (int k = 0; k < numShapers; ++k)
+            if ((path.key & (2 << k)) != 0 && ! settings.shapers[(size_t) k].afterFilter)
+                processShaper (path, k, left, right, n, settings, velocityDown);
+
+        // ...the FILTER...
+        if ((path.key & 1) != 0)
+        {
+            const auto& filterSettings = settings.filter;
+            const auto from = path.coefficientsFresh ? filterTarget : path.coefficients;
+            path.coefficientsFresh = false;
+
+            // DRIVE: up to +24 dB into the saturation, scaled back so a full-scale
+            // wave still peaks near full scale (quieter sounds come out louder,
+            // as from any overdriven input).
+            const auto drive = filterSettings.drive;
+            const auto driveGain = 1.0f + drive * 15.0f;
+            const auto makeUp = 1.0f / std::tanh (driveGain);
+            const auto type = filterSettings.type;
+            for (int i = 0; i < n; ++i)
+            {
+                const auto c = FilterChannel::Coefficients::lerp (from, filterTarget, (float) (i + 1) / (float) n);
+                auto l = left[i], r = right[i];
+                if (drive > 0.0f)
+                {
+                    l = path.driveLeft.process (l, driveGain, makeUp);
+                    r = path.driveRight.process (r, driveGain, makeUp);
+                }
+                left[i] = path.filterLeft.process (l, type, c);
+                right[i] = path.filterRight.process (r, type, c);
+            }
+            path.coefficients = filterTarget;
+        }
+
+        // ...and the ones after it.
+        for (int k = 0; k < numShapers; ++k)
+            if ((path.key & (2 << k)) != 0 && settings.shapers[(size_t) k].afterFilter)
+                processShaper (path, k, left, right, n, settings, velocityDown);
+    }
+
+    void Engine::processShaper (Path& path, int k, float* left, float* right, int n, const Settings& settings, float velocityDown) noexcept
+    {
+        const auto& sh = settings.shapers[(size_t) k];
+        const auto& bells = shaperCoefficients[(size_t) k].bells;
+        auto& chLeft = path.shapeLeft[(size_t) k];
+        auto& chRight = path.shapeRight[(size_t) k];
+
+        // DRIVE for this note (softer notes driven less, by DRIVE VELOCITY), glided to from the last update.
+        const auto gain = shaper::driveGain (sh.drive * (1.0f - sh.driveVelocity * velocityDown));
+        const auto makeUp = shaper::makeUp (sh.model, gain);
+        auto& lastGain = path.shapeGain[(size_t) k];
+        auto& lastMakeUp = path.shapeMakeUp[(size_t) k];
+        const auto fromGain = lastGain > 0.0f ? lastGain : gain;
+        const auto fromMakeUp = lastMakeUp > 0.0f ? lastMakeUp : makeUp;
+        lastGain = gain;
+        lastMakeUp = makeUp;
+
+        const auto output = std::pow (10.0f, sh.outputDb / 20.0f);
+        const auto wet = sh.mix * output, dry = (1.0f - sh.mix) * output;
+        const auto asymmetric = shaper::isAsymmetric (sh.model);
+        const auto model = sh.model;
+        for (int i = 0; i < n; ++i)
+        {
+            const auto t = (float) (i + 1) / (float) n;
+            const auto g = fromGain + (gain - fromGain) * t;
+            const auto m = fromMakeUp + (makeUp - fromMakeUp) * t;
+            const auto inLeft = left[i], inRight = right[i];
+
+            // The two EQ bands colour what's distorted (with EQ SPLIT, band 1 the left and band 2 the right).
+            auto l = inLeft, r = inRight;
+            if (sh.eqSplit)
+            {
+                l = chLeft.eq (l, bells[0], 0);
+                r = chRight.eq (r, bells[1], 1);
+            }
+            else
+            {
+                l = chLeft.eq (chLeft.eq (l, bells[0], 0), bells[1], 1);
+                r = chRight.eq (chRight.eq (r, bells[0], 0), bells[1], 1);
+            }
+
+            l = chLeft.shape (l, model, g) * m;
+            r = chRight.shape (r, model, g) * m;
+            if (asymmetric)
+            {
+                l = chLeft.blockDc (l, dcPole);
+                r = chRight.blockDc (r, dcPole);
+            }
+            left[i] = l * wet + inLeft * dry;
+            right[i] = r * wet + inRight * dry;
+        }
     }
 
     float Engine::unisonPosition (int copy, int voices) noexcept
@@ -1036,7 +1200,6 @@ namespace synth
 
     void Engine::renderOscillators (Voice& voice, int n, const Settings& settings, float bendSemitones) noexcept
     {
-        const auto filterOn = settings.filter.on;
         std::array<float, controlInterval> gains {};
 
         // FM from other oscillators: an oscillator chosen as another's
@@ -1251,8 +1414,9 @@ namespace synth
             {
                 float panLeft, panRight;
                 balance (s.pan, panLeft, panRight);
-                auto* outLeft = (s.toFilter && filterOn ? filteredLeft : dryLeft).data();
-                auto* outRight = (s.toFilter && filterOn ? filteredRight : dryRight).data();
+                const auto path = (size_t) juce::jmax (0, oscillatorPath[index]);
+                auto* outLeft = pathLeft[path].data();
+                auto* outRight = pathRight[path].data();
 
                 const auto noise = s.noise;
                 const auto colour = s.noiseColour;

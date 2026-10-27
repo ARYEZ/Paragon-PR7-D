@@ -27,7 +27,8 @@ namespace ParamIDs
     // stage 3 (0.3.0) the WAVETABLE's: which factory table, INDEX, its mode and FRAMES,
     // 0.4.0 SHAPE's: SKEW, PINCH, FORMANT and its mode, CRUSH and its mode,
     // 0.5.0 SYNC (with its envelope), FM, AM and their modulator's RATE, GRID and PHASE LOCK,
-    // 0.6.0 the FFT editor's SWEEP, FLIP, LP, HP, SLOPE, VSPEED and VSTRENGTH (its curve is kept with the preset).
+    // 0.6.0 the FFT editor's SWEEP, FLIP, LP, HP, SLOPE, VSPEED and VSTRENGTH (its curve is kept with the preset),
+    // 0.8.0 which SHAPERs the oscillator goes through ("Shp1" to "Shp4").
     inline constexpr const char* oscSettings[] = {
         "On", "Wave", "Volume", "Pan", "Transpose", "Fine", "Random", "PhaseRand", "Phase", "Gain", "Width", "FadeIn", "Invert",
         "Noise", "NoiseColour", "NoiseWidth", "Sub", "SubWave", "SubOct", "SubInvert", "Filter", "Voices",
@@ -39,7 +40,8 @@ namespace ParamIDs
         "Skew", "Pinch", "Formant", "FormantMode", "Crush", "CrushMode",
         "SyncAmount", "SyncMode", "SyncEnv", "SyncEnvTime", "SyncEnvCurve", "FmAmount", "FmSource", "AmAmount", "AmShape",
         "ModRate", "ModGrid", "ModLock",
-        "FftSweep", "FftFlip", "FftLp", "FftHp", "FftSlope", "FftVSpeed", "FftVStrength" };
+        "FftSweep", "FftFlip", "FftLp", "FftHp", "FftSlope", "FftVSpeed", "FftVStrength",
+        "Shp1", "Shp2", "Shp3", "Shp4" };
 
     // Where a setting is in oscSettings, worked out by the compiler (a typo won't compile).
     consteval int oscSetting (std::string_view what)
@@ -88,6 +90,19 @@ namespace ParamIDs
     inline constexpr auto ampAttackCurve  = "amp1AttackCurve";
     inline constexpr auto ampDecayCurve   = "amp1DecayCurve";
     inline constexpr auto ampReleaseCurve = "amp1ReleaseCurve";
+
+    // The SHAPERs (stage 3e, 0.8.0): four, numbered "shp1" to "shp4", each with these settings.
+    inline constexpr int numShapers = 4;
+    inline constexpr const char* shaperSettings[] = {
+        "On", "Model", "Drive", "DriveVel", "Eq1Gain", "Eq1Freq", "Eq1Q", "Eq2Gain", "Eq2Freq", "Eq2Q", "EqSplit", "Place", "Mix", "Output" };
+    inline juce::String shp (int index, const char* what) { return "shp" + juce::String (index + 1) + what; }
+    consteval int shaperSetting (std::string_view what)
+    {
+        for (int i = 0; i < (int) std::size (shaperSettings); ++i)
+            if (std::string_view (shaperSettings[i]) == what)
+                return i;
+        throw "not a shaper setting";
+    }
 
     // How the keyboard plays it.
     inline constexpr auto playMode  = "playMode";     // choice: Poly, Mono, Mono Low, Mono High

@@ -575,6 +575,136 @@ void FilterDisplay::paint (juce::Graphics& g)
 }
 
 //==============================================================================
+ShaperDisplay::ShaperDisplay (juce::AudioProcessorValueTreeState& s) : ParameterDisplay (s) {}
+
+void ShaperDisplay::setShaper (int index)
+{
+    shaper = juce::jlimit (0, ParamIDs::numShapers - 1, index);
+    repaint();
+}
+
+float ShaperDisplay::shaperValue (const char* what) const { return value (ParamIDs::shp (shaper, what)); }
+
+std::vector<float> ShaperDisplay::snapshot() const
+{
+    std::vector<float> values { (float) shaper };
+    for (const auto* what : ParamIDs::shaperSettings)
+        values.push_back (shaperValue (what));
+    return values;
+}
+
+double ShaperDisplay::bellDb (double gainDb, double freqHz, double q, double hz)
+{
+    // The analog bell the EQ band is made from: (s^2 + s A / Q + 1) / (s^2 + s / (A Q) + 1).
+    if (std::abs (gainDb) < 0.05)
+        return 0.0;
+    const auto a = std::pow (10.0, gainDb / 40.0);
+    const auto w = hz / freqHz;
+    const std::complex<double> s (0.0, w);
+    const auto h = (s * s + s * (a / q) + 1.0) / (s * s + s / (a * q) + 1.0);
+    return 20.0 * std::log10 (std::abs (h));
+}
+
+void ShaperDisplay::paint (juce::Graphics& g)
+{
+    const auto bounds = getLocalBounds().toFloat();
+    DisplayStyle::drawScreen (g, bounds);
+    auto inner = bounds.reduced (10.0f, 8.0f);
+    const auto on = shaperValue ("On") > 0.5f;
+
+    // Left: the curve, square.
+    const auto curveArea = inner.removeFromLeft (inner.getHeight()).reduced (2.0f);
+    inner.removeFromLeft (14.0f);
+    const auto model = (synth::ShaperModel) juce::jlimit (0, synth::shaperModelNames.size() - 1, juce::roundToInt (shaperValue ("Model")));
+    const auto gain = synth::shaper::driveGain (shaperValue ("Drive"));
+    const auto makeUp = synth::shaper::makeUp (model, gain);
+    const auto mix = shaperValue ("Mix");
+    const auto output = juce::Decibels::decibelsToGain (shaperValue ("Output"));
+    g.setColour (ParagonColours::panelEdge.withAlpha (0.6f));
+    g.drawHorizontalLine (juce::roundToInt (curveArea.getCentreY()), curveArea.getX(), curveArea.getRight());
+    g.drawVerticalLine (juce::roundToInt (curveArea.getCentreX()), curveArea.getY(), curveArea.getBottom());
+    g.drawLine ({ curveArea.getBottomLeft(), curveArea.getTopRight() }, 1.0f);
+    juce::Path curve;
+    const auto points = juce::jmax (2, (int) curveArea.getWidth());
+    for (int i = 0; i < points; ++i)
+    {
+        const auto x = -1.0 + 2.0 * i / (points - 1);
+        const auto wet = synth::shaper::curve (model, x * gain) * makeUp;
+        const auto y = juce::jlimit (-1.1, 1.1, (wet * mix + x * (1.0f - mix)) * output);
+        const juce::Point<float> point (curveArea.getX() + (float) i, curveArea.getCentreY() - (float) y * curveArea.getHeight() * 0.5f);
+        if (i == 0) curve.startNewSubPath (point); else curve.lineTo (point);
+    }
+    DisplayStyle::drawCurve (g, curve, curveArea, curveArea.getCentreY(), on);
+
+    // Right: the EQ bands that colour what's distorted.
+    const auto area = inner.withTrimmedBottom (12.0f);
+    constexpr double minHz = 20.0, maxHz = 20000.0, rangeDb = 20.0;
+    const auto xFor = [&area] (double hz) { return area.getX() + area.getWidth() * (float) (std::log (hz / minHz) / std::log (maxHz / minHz)); };
+    const auto yFor = [&area] (double db) { return area.getCentreY() - area.getHeight() * 0.5f * (float) (juce::jlimit (-rangeDb, rangeDb, db) / rangeDb); };
+    g.setFont (juce::FontOptions (9.5f));
+    for (const auto hz : { 100.0, 1000.0, 10000.0 })
+    {
+        g.setColour (ParagonColours::panelEdge.withAlpha (0.6f));
+        g.drawVerticalLine (juce::roundToInt (xFor (hz)), area.getY(), area.getBottom());
+        g.setColour (ParagonColours::textDim.withAlpha (0.7f));
+        g.drawText (hz >= 1000.0 ? juce::String ((int) (hz / 1000.0)) + "k" : juce::String ((int) hz),
+                    juce::Rectangle<float> (40.0f, 12.0f).withCentre ({ xFor (hz), area.getBottom() + 8.0f }), juce::Justification::centred, false);
+    }
+    g.setColour (ParagonColours::panelEdge);
+    g.drawHorizontalLine (juce::roundToInt (yFor (0.0)), area.getX(), area.getRight());
+
+    const std::array<double, 2> gains { shaperValue ("Eq1Gain"), shaperValue ("Eq2Gain") };
+    const std::array<double, 2> freqs { shaperValue ("Eq1Freq"), shaperValue ("Eq2Freq") };
+    const std::array<double, 2> qs { shaperValue ("Eq1Q"), shaperValue ("Eq2Q") };
+    const auto split = shaperValue ("EqSplit") > 0.5f;
+    const auto response = [&] (std::initializer_list<int> bands)
+    {
+        juce::Path path;
+        const auto count = juce::jmax (2, (int) area.getWidth());
+        for (int i = 0; i < count; ++i)
+        {
+            const auto hz = minHz * std::pow (maxHz / minHz, (double) i / (count - 1));
+            double db = 0.0;
+            for (const auto b : bands)
+                db += bellDb (gains[(size_t) b], freqs[(size_t) b], qs[(size_t) b], hz);
+            const juce::Point<float> point (area.getX() + (float) i, yFor (db));
+            if (i == 0) path.startNewSubPath (point); else path.lineTo (point);
+        }
+        return path;
+    };
+    if (split)
+    {
+        // EQ SPLIT: band 1 on the left channel, band 2 on the right, drawn apart.
+        DisplayStyle::drawCurve (g, response ({ 0 }), area, yFor (0.0), on);
+        g.setColour (ParagonColours::text.withAlpha (on ? 0.55f : 0.25f));
+        g.strokePath (response ({ 1 }), juce::PathStrokeType (1.5f));
+        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+        g.setColour (ParagonColours::textDim);
+        g.drawText ("SPLIT: 1 LEFT, 2 RIGHT", area.reduced (4.0f, 2.0f), juce::Justification::topLeft, false);
+    }
+    else
+        DisplayStyle::drawCurve (g, response ({ 0, 1 }), area, yFor (0.0), on);
+    for (int b = 0; b < 2; ++b)
+    {
+        if (std::abs (gains[(size_t) b]) < 0.05)
+            continue;
+        const juce::Point<float> centre (xFor (juce::jlimit (minHz, maxHz, freqs[(size_t) b])), yFor (gains[(size_t) b]));
+        g.setColour (ParagonColours::accent.withAlpha (on ? 0.85f : 0.3f));
+        g.fillEllipse (juce::Rectangle<float> (14.0f, 14.0f).withCentre (centre));
+        g.setColour (juce::Colours::black);
+        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+        g.drawText (juce::String (b + 1), juce::Rectangle<float> (14.0f, 14.0f).withCentre (centre), juce::Justification::centred, false);
+    }
+
+    if (! on)
+    {
+        g.setColour (ParagonColours::textDim);
+        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        g.drawText ("OFF", bounds.reduced (8.0f), juce::Justification::topRight, false);
+    }
+}
+
+//==============================================================================
 EnvelopeDisplay::EnvelopeDisplay (juce::AudioProcessorValueTreeState& s, std::array<juce::String, 8> idsToShow)
     : ParameterDisplay (s), ids (std::move (idsToShow)) {}
 

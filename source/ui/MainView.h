@@ -53,6 +53,7 @@ public:
 
     // For snapshots and tests: the oscillator tabs.
     OscillatorPanel& getOscillatorPanel() noexcept { return oscillators; }
+    FilterPanel& getFilterPanel() noexcept { return filter; }
 
     void paint (juce::Graphics&) override;
     void resized() override;

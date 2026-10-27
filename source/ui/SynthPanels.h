@@ -111,15 +111,43 @@ private:
 };
 
 // FILTER: ON and TYPE beside the title, its response, and its knobs.
-class FilterPanel final : public SynthPanel
+// Tabbed: FILTER, and the four SHAPERs (stage 3e), each a page in the same
+// space (a tab's light is on while its shaper is).
+class FilterPanel final : public SynthPanel,
+                          private juce::Timer
 {
 public:
     explicit FilterPanel (juce::AudioProcessorValueTreeState&);
     void resized() override;
 
+    // 0: the FILTER; 1 to 4: SHAPER 1 to 4.
+    void showPage (int);
+    int getPage() const noexcept { return page; }
+
 private:
+    void timerCallback() override;
+
+    struct PageTab final : public juce::Button
+    {
+        PageTab (const juce::String& name, std::function<bool()> isLit);
+        void paintButton (juce::Graphics&, bool highlighted, bool down) override;
+        std::function<bool()> isLit;
+        bool wasLit = false;
+    };
+
+    juce::AudioProcessorValueTreeState& state;
+    std::vector<std::unique_ptr<PageTab>> tabs;
+    int page = 0;
+
     FilterDisplay display;
     ParamControl on, type, cutoff, resonance, drive, keytrack, envelope, velocity, resonanceVelocity, envelopeVelocity;
+
+    // The shaper page: one set of controls, pointed at the shaper shown.
+    ShaperDisplay shaperDisplay;
+    ParamControl shaperOn, model, place, shaperDrive, driveVelocity, mix, output,
+                 eq1Gain, eq1Freq, eq1Q, eq2Gain, eq2Freq, eq2Q, eqSplit;
+    juce::Label routeLabel;
+    std::vector<std::unique_ptr<ParamControl>> routes;   // which oscillators go through it
 };
 
 // An envelope: its shape, and ATTACK HOLD DECAY SUSTAIN RELEASE with their curves.

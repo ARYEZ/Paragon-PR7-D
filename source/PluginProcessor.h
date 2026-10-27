@@ -213,6 +213,8 @@ private:
     // everything else by ID: read once per block into synth::Settings.
     struct OscParameters { std::atomic<float>* values[std::size (ParamIDs::oscSettings)] {}; };
     std::array<OscParameters, ParamIDs::numOscillators> oscParameters {};
+    struct ShaperParameters { std::atomic<float>* values[std::size (ParamIDs::shaperSettings)] {}; };
+    std::array<ShaperParameters, ParamIDs::numShapers> shaperParameters {};
 
     // WAVETABLES: tables loaded from files (null: the factory's), what each
     // oscillator plays now, the same for the audio thread (a plain pointer it
