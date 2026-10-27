@@ -30,6 +30,22 @@ namespace synth
     enum class CrushMode { rate, bit, both };
     inline const juce::StringArray crushModeNames { "Rate", "Bit", "Both" };
 
+    // Saved by index: only ever append. SYNC, FM and AM (stage 3c, 0.5.0).
+    // SYNC: PURE plays the synced copy alone, ADD with the wave; WIN fades
+    // the copy in and out each cycle (no edge).
+    enum class SyncMode { pure, add, pureWindowed, addWindowed };
+    inline const juce::StringArray syncModeNames { "Pure", "Add", "Pure Win", "Add Win" };
+    // The modulator's shapes (AM), and FM's: those, or another oscillator.
+    enum class ModShape { sine, triangle, saw, square };
+    inline const juce::StringArray modShapeNames { "Sine", "Triangle", "Saw", "Square" };
+    inline const juce::StringArray fmSourceNames { "Sine", "Triangle", "Saw", "Square",
+                                                   "Osc 1", "Osc 2", "Osc 3", "Osc 4", "Osc 5", "Osc 6", "Osc 7", "Osc 8" };
+    inline constexpr int fmFirstOscillator = 4;   // fmSourceNames' index of "Osc 1"
+    // Which rates the modulator's RATE allows (as Avenger's): FREE any; the
+    // others steps of whole intervals above the note, which sound cleaner.
+    enum class ModGrid { free, harmonic, semitone, octave, octaveMinor, octaveMajor, octaveFourth, octaveFifth };
+    inline const juce::StringArray modGridNames { "Free", "Harmonic", "Semi", "Octave", "Oct+Min3", "Oct+Maj3", "Oct+4th", "Oct+5th" };
+
     // Saved by index (osc*SubWave): only ever append.
     enum class SubWave { sine, triangle, square, saw };
     inline const juce::StringArray subWaveNames { "Sine", "Triangle", "Square", "Saw" };
@@ -137,6 +153,25 @@ namespace synth
         {
             return ! juce::exactlyEqual (skew, 0.0f) || ! juce::exactlyEqual (pinch, 0.0f) || ! juce::exactlyEqual (formant, 0.0f) || crush > 0.0f;
         }
+
+        // SYNC, FM and AM (stage 3c; see OscModulation.h). All at 0: off, costing nothing.
+        float syncAmount = 0.0f;        // 0 to 1: the synced copy 0 to 5 octaves above the note
+        SyncMode syncMode = SyncMode::pure;
+        float syncEnvAmount = 0.0f;     // -1 to 1: SYNC's own envelope, added to it
+        float syncEnvMs = 500.0f;       // 50 to 3500: how long it takes to fall
+        float syncEnvCurve = 0.0f;      // -1 to 1
+        float fmAmount = 0.0f;          // 0 to 1
+        int fmSource = 0;               // index into fmSourceNames
+        float amAmount = 0.0f;          // 0 to 1
+        ModShape amShape = ModShape::sine;
+        float modRate = 0.5f;           // 0 to 1: the modulator's RATE knob (see modRatio)
+        ModGrid modGrid = ModGrid::harmonic;
+        bool modPhaseLock = true;       // the modulator starts with the wave (locked) or anywhere
+
+        bool hasSync() const noexcept { return syncAmount > 0.0f || ! juce::exactlyEqual (syncEnvAmount, 0.0f); }
+        bool hasFm() const noexcept { return fmAmount > 0.0f; }
+        bool hasAm() const noexcept { return amAmount > 0.0f; }
+        bool hasModulation() const noexcept { return hasSync() || hasFm() || hasAm(); }
 
         bool hasUnison() const noexcept { return unisonMix > 0.0f && unisonVoices > 1; }
     };

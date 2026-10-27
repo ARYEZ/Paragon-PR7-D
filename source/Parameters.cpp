@@ -1,6 +1,7 @@
 #include "Parameters.h"
 
 #include "dsp/synth/SynthSettings.h"
+#include "dsp/synth/OscModulation.h"
 #include "dsp/synth/Wavetable.h"
 
 namespace
@@ -8,11 +9,12 @@ namespace
     using Range = juce::NormalisableRange<float>;
     using ToText = std::function<juce::String (float, int)>;
 
-    // Version hint: the PR7-K version that introduced a parameter (1 for 0.1.0, 2 for 0.2.0, 3 for 0.3.0, 4 for 0.4.0).
+    // Version hint: the PR7-K version that introduced a parameter (1 for 0.1.0, 2 for 0.2.0, 3 for 0.3.0, 4 for 0.4.0, 5 for 0.5.0).
     constexpr int firstVersion = 1;
     constexpr int stage2 = 2;
     constexpr int stage3 = 3;
     constexpr int stage3b = 4;   // 0.4.0
+    constexpr int stage3c = 5;   // 0.5.0
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -74,6 +76,14 @@ namespace
             return juce::String ("Off");
         const auto k = value < 0.0f ? std::exp2 (-3.0f * value) : std::exp2 (-2.0f * value);
         return k >= 1.0f ? "x" + juce::String (k, 2) : "/" + juce::String (1.0f / k, 2);
+    };
+    // SYNC: how far above the note its copy runs.
+    const ToText asSync = [] (float value, int)
+    {
+        if (value < 0.005f)
+            return juce::String ("Off");
+        const auto semitones = 60.0f * value;
+        return semitones < 12.0f ? "+" + juce::String (semitones, 1) + " st" : "+" + juce::String (semitones / 12.0f, 2) + " oct";
     };
     const ToText asCrush = [] (float value, int) { return value < 0.005f ? juce::String ("Off") : juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
     // WAVETABLE FRAMES: at the top, every frame the table has (however many that is).
@@ -225,6 +235,22 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         addChoice (layout, osc (i, "FormantMode"), name + "Formant Mode", synth::formantModeNames, (int) defaults.formantMode, stage3b);
         add (layout, osc (i, "Crush"), name + "Crush", { 0.0f, 1.0f }, defaults.crush, asCrush, stage3b);
         addChoice (layout, osc (i, "CrushMode"), name + "Crush Mode", synth::crushModeNames, (int) defaults.crushMode, stage3b);
+
+        // Stage 3c: SYNC, FM and AM.
+        add (layout, osc (i, "SyncAmount"), name + "Sync", { 0.0f, 1.0f }, defaults.syncAmount, asSync, stage3c);
+        addChoice (layout, osc (i, "SyncMode"), name + "Sync Mode", synth::syncModeNames, (int) defaults.syncMode, stage3c);
+        add (layout, osc (i, "SyncEnv"), name + "Sync Envelope", { -1.0f, 1.0f }, defaults.syncEnvAmount, asSignedPercent, stage3c);
+        add (layout, osc (i, "SyncEnvTime"), name + "Sync Envelope Length", logRange (50.0, 3500.0), defaults.syncEnvMs, asMs, stage3c);
+        add (layout, osc (i, "SyncEnvCurve"), name + "Sync Envelope Curve", { -1.0f, 1.0f }, defaults.syncEnvCurve, asSignedPercent, stage3c);
+        add (layout, osc (i, "FmAmount"), name + "FM", { 0.0f, 1.0f }, defaults.fmAmount, asCrush, stage3c);
+        addChoice (layout, osc (i, "FmSource"), name + "FM Source", synth::fmSourceNames, defaults.fmSource, stage3c);
+        add (layout, osc (i, "AmAmount"), name + "AM", { 0.0f, 1.0f }, defaults.amAmount, asCrush, stage3c);
+        addChoice (layout, osc (i, "AmShape"), name + "AM Shape", synth::modShapeNames, (int) defaults.amShape, stage3c);
+        // RATE's text depends on GRID, which it can't see: shown as FREE would
+        // read; the oscillator's FM page shows the real ratio beside it.
+        add (layout, osc (i, "ModRate"), name + "Mod Rate", { 0.0f, 1.0f }, defaults.modRate, asPercent, stage3c);
+        addChoice (layout, osc (i, "ModGrid"), name + "Mod Grid", synth::modGridNames, (int) defaults.modGrid, stage3c);
+        addSwitch (layout, osc (i, "ModLock"), name + "Mod Phase Lock", defaults.modPhaseLock, stage3c);
     }
 
     // The FILTER: off in a new sound (Avenger's starts without one), ready at a 24 dB low-pass at 2 kHz.

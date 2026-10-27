@@ -145,6 +145,19 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
         o.crush = get (oscSetting ("Crush"));
         o.crushMode = (synth::CrushMode) choice (get (oscSetting ("CrushMode")), synth::crushModeNames.size());
 
+        o.syncAmount = get (oscSetting ("SyncAmount"));
+        o.syncMode = (synth::SyncMode) choice (get (oscSetting ("SyncMode")), synth::syncModeNames.size());
+        o.syncEnvAmount = get (oscSetting ("SyncEnv"));
+        o.syncEnvMs = get (oscSetting ("SyncEnvTime"));
+        o.syncEnvCurve = get (oscSetting ("SyncEnvCurve"));
+        o.fmAmount = get (oscSetting ("FmAmount"));
+        o.fmSource = choice (get (oscSetting ("FmSource")), synth::fmSourceNames.size());
+        o.amAmount = get (oscSetting ("AmAmount"));
+        o.amShape = (synth::ModShape) choice (get (oscSetting ("AmShape")), synth::modShapeNames.size());
+        o.modRate = get (oscSetting ("ModRate"));
+        o.modGrid = (synth::ModGrid) choice (get (oscSetting ("ModGrid")), synth::modGridNames.size());
+        o.modPhaseLock = get (oscSetting ("ModLock")) > 0.5f;
+
         o.unisonVoices = juce::jlimit (2, synth::maxUnison, juce::roundToInt (get (oscSetting ("UniVoices"))));
         o.unisonMix = get (oscSetting ("UniMix"));
         o.unisonDetune = get (oscSetting ("UniDetune"));

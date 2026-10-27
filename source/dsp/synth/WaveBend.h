@@ -121,6 +121,7 @@ namespace synth
         int levels = 0;            // BIT: levels each side of zero (0: off)
         float bitGain = 1.0f;      // BIT's level made up, so the loudest step reaches full scale
         float speed = 1.0f;        // the fastest the bent wave plays any of the original (and some headroom): for choosing a table level
+        bool syncEdge = false;     // SYNC (not windowed) restarts its copy at the cycle's start: an edge there too (set by the engine)
         static constexpr float headroom = 1.6f;
 
         // From the oscillator's settings and its SKEW / PINCH curve (once an
@@ -235,7 +236,7 @@ namespace synth
         float sample (float phase, float increment, Read&& read) const noexcept
         {
             auto value = stepped (phase, read);
-            if (increment <= 0.0f || (steps == 0 && ! hasFormant))
+            if (increment <= 0.0f || (steps == 0 && ! hasFormant && ! syncEdge))
                 return value;
             const auto near = [&] (float at)   // how many samples from `at` (wrapping round the cycle)
             {
@@ -260,7 +261,7 @@ namespace synth
                 return value;
             }
 
-            // FORMANT: the cycle's start, and (playing faster) the end of the
+            // FORMANT (and SYNC): the cycle's start, and (FORMANT playing faster) the end of the
             // wave, are where the wave can jump or turn a corner. The slopes
             // either side are measured a hair away from the edge.
             const auto edgeAt = [&] (float after, float before, float t)
@@ -273,7 +274,7 @@ namespace synth
             };
             if (const auto t = near (0.0f); std::abs (t) < 1.0f)
                 edgeAt (0.0f, 1.0f, t);
-            if (k > 1.0f)
+            if (hasFormant && k > 1.0f)
                 if (const auto t = near (1.0f / k); std::abs (t) < 1.0f)
                     edgeAt (1.0f / k, 1.0f / k, t);
             return value;

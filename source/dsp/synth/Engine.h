@@ -4,6 +4,7 @@
 
 #include "Noise.h"
 #include "SynthSettings.h"
+#include "OscModulation.h"
 #include "WaveBend.h"
 
 #include <array>
@@ -72,6 +73,8 @@ namespace synth
             float vibratoPhase = 0.0f, vibratoRate = 1.0f;   // INDEPENDENT vibrato: its own phase, and speed (a factor)
             float vibratoHeld = 0.0f;                        // ...and the RANDOM wave's value this cycle
             float crushPrevious = 0.0f;                      // CRUSH BIT's last input
+            float modPhase = 0.0f;                           // FM / AM's modulator, at RATE times this copy's pitch
+            float lastX = 0.0f;                              // where in the wave the last sample read (FM moves it)
         };
         // Copies are numbered note x maxUnison + unison copy: note 0 is the key
         // itself, 1 to 4 the chord notes; unison copy 0 is the note's own pitch.
@@ -89,6 +92,8 @@ namespace synth
             int vibratoAge = 0;                              // samples since the note started, for the vibrato's FADE IN
             float tableIndex = -1.0f;                        // WAVETABLE's INDEX as of the last interval (-1: the note just started)
             float crushPrevious = 0.0f;                      // CRUSH BIT's last input (the key's own copy)
+            float modPhase = 0.0f, lastX = 0.0f;             // ...and its modulator and last read, as Copy's
+            int syncAge = 0;                                 // samples since the note started, for SYNC's envelope
             std::array<Copy, maxCopies> copies;
         };
 
@@ -156,6 +161,10 @@ namespace synth
         std::array<int, 128> heldNotes {};
         std::array<float, 128> heldVelocities {};
         int numHeld = 0;
+
+        // FM from another oscillator: what each oscillator chosen as a modulator
+        // played this interval (rendered first, and not heard itself).
+        std::array<std::array<float, controlInterval>, numOscillators> fmSignals {};
 
         // SHAPE's SKEW / PINCH curve for each oscillator, remade when they change (on the heap: 4 KB each).
         std::vector<WarpTable> warpTables = std::vector<WarpTable> (numOscillators);

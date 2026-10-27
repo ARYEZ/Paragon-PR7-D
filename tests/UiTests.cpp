@@ -308,3 +308,41 @@ TEST_CASE ("The oscillator's SHAPE page: SKEW, PINCH, FORMANT and CRUSH beside t
     CHECK_THAT (value (w.processor, ParamIDs::osc (2, "Skew")), WithinAbs (0.4, 1.0e-3));
     CHECK (w.processor.getSynthSettings().oscillators[2].hasBend());
 }
+
+TEST_CASE ("The oscillator's FM page: SYNC, FM and AM beside the wave, laid out cleanly", "[ui][modulation]")
+{
+    Window w;
+    auto& oscillators = w.view->getOscillatorPanel();
+    oscillators.selectOscillator (4);
+    CHECK_FALSE (controlFor (*w.view, ParamIDs::osc (4, "FmAmount"))->isVisible());
+
+    oscillators.showPage (OscillatorPanel::Page::fm);
+    for (const auto* what : { "SyncAmount", "SyncMode", "SyncEnv", "SyncEnvTime", "SyncEnvCurve", "FmAmount", "FmSource", "AmAmount", "AmShape",
+                              "ModRate", "ModGrid", "ModLock", "Wave", "Gain" })
+    {
+        INFO (what);
+        CHECK (controlFor (*w.view, ParamIDs::osc (4, what))->isVisible());
+    }
+    for (const auto* what : { "Skew", "Transpose", "UniMix" })
+    {
+        INFO (what);
+        CHECK_FALSE (controlFor (*w.view, ParamIDs::osc (4, what))->isVisible());
+    }
+    checkLayout (*w.view, "fm");
+
+    std::vector<juce::Component*> shown;
+    for (auto* child : oscillators.getChildren())
+        if (child->isVisible() && dynamic_cast<juce::Button*> (child) == nullptr)
+            shown.push_back (child);
+    for (size_t i = 0; i < shown.size(); ++i)
+        for (size_t j = i + 1; j < shown.size(); ++j)
+        {
+            INFO (shown[i]->getBounds().toString() << " and " << shown[j]->getBounds().toString());
+            CHECK_FALSE (shown[i]->getBounds().intersects (shown[j]->getBounds()));
+        }
+
+    auto* fm = inside<juce::Slider> (*controlFor (*w.view, ParamIDs::osc (4, "FmAmount")));
+    REQUIRE (fm != nullptr);
+    fm->setValue (0.3, juce::sendNotificationSync);
+    CHECK (w.processor.getSynthSettings().oscillators[4].hasFm());
+}

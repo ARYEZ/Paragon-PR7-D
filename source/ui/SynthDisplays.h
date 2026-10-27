@@ -55,8 +55,9 @@ private:
     int oscillator = 0;
 };
 
-// SHAPE: the selected oscillator's wave over two cycles, large: as it is
-// (dim) and as SKEW, PINCH, FORMANT and CRUSH bend it (bright).
+// The selected oscillator's wave over two cycles, large: as it is (dim) and
+// as it comes out (bright) after SHAPE (SKEW, PINCH, FORMANT, CRUSH) and
+// SYNC, FM and AM. On the SHAPE and FM pages.
 class ShapeDisplay final : public ParameterDisplay
 {
 public:

@@ -7,7 +7,7 @@
 // PR7-K's first factory presets: a few starting points that show what each
 // stage can do (0.1.0: oscillators, sub, noise, the filter and its envelope,
 // mono and glide; 0.2.0: unison, vibrato and the chorder; 0.3.0: wavetables;
-// 0.4.0: SHAPE). Our own sounds, set up from common synth
+// 0.4.0: SHAPE; 0.5.0: SYNC, FM and AM). Our own sounds, set up from common synth
 // recipes, not copies of anyone's presets, and not yet tuned by ear: the
 // full factory set comes in a later stage (presets), once the engine has
 // unison, wavetables, modulation and effects to build them with.
@@ -227,6 +227,31 @@ std::vector<Rig> makeFactoryRigs()
            .filter (FilterType::lp12, 5000.0f, 0.0f, 0.0f)
            .ampEnvelope (3.0f, 900.0f, 0.3f, 400.0f).set (ParamIDs::ampVel, 0.6f);
     add (crushed);
+
+    // 0.5.0: SYNC, FM and AM.
+    Builder syncSweep ("Sync Sweep", 18, { "Lead", "Sync" },
+                   "A saw synced an octave and a half up, its own envelope sweeping it down from three octaves higher at each note: the classic tearing sync lead.");
+    syncSweep.osc (0, "SyncAmount", 0.3f).osc (0, "SyncEnv", 0.45f).osc (0, "SyncEnvTime", 450.0f).osc (0, "SyncEnvCurve", -0.4f)
+         .osc (0, "UniVoices", 3.0f).osc (0, "UniMix", 0.5f).osc (0, "UniDetune", 0.2f).osc (0, "UniSpread", 0.6f).osc (0, "Volume", 0.55f)
+         .filter (FilterType::lp24, 7000.0f, 0.1f, 0.0f)
+         .ampEnvelope (2.0f, 300.0f, 0.85f, 250.0f)
+         .mono (40.0f);
+    add (syncSweep);
+
+    Builder bell ("FM Bell", 19, { "Keys", "FM" },
+                  "A sine frequency-modulated by a sine six times as fast (oscillator 2, two octaves and a fifth up): a bright, glassy bell that rings away.");
+    bell.osc (0, "Wave", (float) synth::OscWave::sine).osc (0, "FmAmount", 0.45f).osc (0, "FmSource", (float) (synth::fmFirstOscillator + 1))
+        .osc (0, "Volume", 0.7f)
+        .osc (1, "On", 1.0f).osc (1, "Wave", (float) synth::OscWave::sine).osc (1, "Transpose", 31.0f).osc (1, "PhaseRand", 0.0f)
+        .ampEnvelope (1.0f, 2500.0f, 0.0f, 1500.0f).set (ParamIDs::ampDecayCurve, -0.6f).set (ParamIDs::ampVel, 0.7f);
+    add (bell);
+
+    Builder ring ("Ring Mod", 20, { "FX", "AM" },
+                  "A triangle ring-modulated (AM at full) by a sine at 1.5 times the note: clangy, metallic, robot-like.");
+    ring.osc (0, "Wave", (float) synth::OscWave::triangle).osc (0, "AmAmount", 1.0f).osc (0, "ModRate", 0.5f + 0.5f / 8.0f)
+        .osc (0, "Volume", 0.8f)
+        .ampEnvelope (5.0f, 800.0f, 0.6f, 500.0f);
+    add (ring);
 
     return rigs;
 }

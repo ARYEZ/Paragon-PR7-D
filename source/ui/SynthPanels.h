@@ -46,8 +46,9 @@ public:
 
     // WAVE: the oscillator's sound (wave, pitch, start, noise, sub, level).
     // SHAPE: bending its wave (stage 3b).
+    // FM: SYNC, FM and AM (stage 3c).
     // VOICES: its unison copies, vibrato and chorder (stage 2).
-    enum class Page { wave, voices, shape };
+    enum class Page { wave, voices, shape, fm };
     void showPage (Page);
     Page getPage() const noexcept { return page; }
 
@@ -82,7 +83,7 @@ private:
     std::vector<std::unique_ptr<Tab>> tabs;
     WavetableChooser tableChooser;
     bool showingWavetable = false;
-    juce::TextButton wavePageButton { "WAVE" }, shapePageButton { "SHAPE" }, voicesPageButton { "VOICES" };
+    juce::TextButton wavePageButton { "WAVE" }, shapePageButton { "SHAPE" }, fmPageButton { "FM" }, voicesPageButton { "VOICES" };
     Page page = Page::wave;
     WaveDisplay wave;
     VoicesDisplay voicesDisplay;

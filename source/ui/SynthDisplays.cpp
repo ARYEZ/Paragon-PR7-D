@@ -2,6 +2,7 @@
 
 #include "Parameters.h"
 #include "dsp/synth/Engine.h"
+#include "dsp/synth/OscModulation.h"
 #include "dsp/synth/WaveBend.h"
 #include "dsp/synth/WaveTables.h"
 #include "ui/ParagonLookAndFeel.h"
@@ -76,10 +77,19 @@ namespace
         return value != nullptr ? value->load() : 0.0f;
     }
 
-    // Oscillator `osc`'s SHAPE settings, as the processor reads them.
+    // Oscillator `osc`'s SHAPE, SYNC, FM and AM settings, as the processor reads them.
     synth::OscSettings shapeOf (const juce::AudioProcessorValueTreeState& state, int osc)
     {
         synth::OscSettings s;
+        const auto choice = [&] (const char* what, int count) { return juce::jlimit (0, count - 1, juce::roundToInt (raw (state, ParamIDs::osc (osc, what)))); };
+        s.syncAmount = raw (state, ParamIDs::osc (osc, "SyncAmount"));
+        s.syncMode = (synth::SyncMode) choice ("SyncMode", synth::syncModeNames.size());
+        s.fmAmount = raw (state, ParamIDs::osc (osc, "FmAmount"));
+        s.fmSource = choice ("FmSource", synth::fmSourceNames.size());
+        s.amAmount = raw (state, ParamIDs::osc (osc, "AmAmount"));
+        s.amShape = (synth::ModShape) choice ("AmShape", synth::modShapeNames.size());
+        s.modRate = raw (state, ParamIDs::osc (osc, "ModRate"));
+        s.modGrid = (synth::ModGrid) choice ("ModGrid", synth::modGridNames.size());
         s.skew = raw (state, ParamIDs::osc (osc, "Skew"));
         s.pinch = raw (state, ParamIDs::osc (osc, "Pinch"));
         s.formant = raw (state, ParamIDs::osc (osc, "Formant"));
@@ -89,17 +99,44 @@ namespace
         return s;
     }
 
-    // A wave bent as the oscillator bends it. (Drawn, so its edges needn't be smoothed.)
+    // A wave as the oscillator plays it: bent by SHAPE, with SYNC (its
+    // envelope left out), FM from a shape and AM, the modulator in step with
+    // the wave. (Drawn, so its edges needn't be smoothed.)
     template <typename Read>
-    float bentAt (const synth::WaveBend& bending, float phase, Read&& read)
+    float bentAt (const synth::OscSettings& s, const synth::WaveBend& bending, float phase, Read&& read)
     {
-        auto v = bending.stepped (phase - std::floor (phase), read);
+        namespace mod = synth::modulation;
+        phase -= std::floor (phase);
+        const auto ratio = mod::ratio (s.modRate, s.modGrid);
+        auto modPhase = phase * ratio;
+        modPhase -= std::floor (modPhase);
+        const auto level = synth::tables::levelFor (220.0 * ratio, 48000.0);
+        auto x = phase;
+        if (s.hasFm() && s.fmSource < synth::fmFirstOscillator)
+        {
+            x += mod::fmDepth (s.fmAmount) * mod::shapeAt ((synth::ModShape) s.fmSource, modPhase, level);
+            x -= std::floor (x);
+        }
+        const auto syncRatio = mod::syncRatio (s.syncAmount);
+        const auto synced = [&] (float y)
+        {
+            if (! s.hasSync())
+                return read (y);
+            auto copy = read (y * syncRatio - std::floor (y * syncRatio));
+            if (s.syncMode == synth::SyncMode::pureWindowed || s.syncMode == synth::SyncMode::addWindowed)
+                copy *= mod::window (y);
+            return s.syncMode == synth::SyncMode::add || s.syncMode == synth::SyncMode::addWindowed ? 0.5f * (read (y) + copy) : copy;
+        };
+        auto v = bending.stepped (x, synced);
+        if (s.hasAm())
+            v *= 1.0f - s.amAmount + s.amAmount * mod::shapeAt (s.amShape, modPhase, level);
         if (bending.levels > 0)
             v = (std::floor (v * (float) bending.levels) + 0.5f) / (float) bending.levels * bending.bitGain;
         return v;
     }
 
-    const char* const shapeSettings[] = { "Skew", "Pinch", "Formant", "FormantMode", "Crush", "CrushMode" };
+    const char* const shapeSettings[] = { "Skew", "Pinch", "Formant", "FormantMode", "Crush", "CrushMode",
+                                          "SyncAmount", "SyncMode", "FmAmount", "FmSource", "AmAmount", "AmShape", "ModRate", "ModGrid" };
 }
 
 WaveDisplay::WaveDisplay (juce::AudioProcessorValueTreeState& s) : ParameterDisplay (s) {}
@@ -200,7 +237,7 @@ void WaveDisplay::paint (juce::Graphics& g)
     for (int i = 0; i < points; ++i)
     {
         const auto phase = (float) i / (float) (points - 1);
-        main[(size_t) i] = (bending.active ? bentAt (bending, phase * 0.9999f, waveAt) : waveAt (phase)) * gain * invert;
+        main[(size_t) i] = (bending.active || shape.hasModulation() ? bentAt (shape, bending, phase * 0.9999f, waveAt) : waveAt (phase)) * gain * invert;
         under[(size_t) i] = subAt (phase) * sub * subSign * invert;
         peak = juce::jmax (peak, std::abs (main[(size_t) i] + under[(size_t) i]));
     }
@@ -310,7 +347,7 @@ void WaveDisplay::paintWavetable (juce::Graphics& g, juce::Rectangle<float> area
         const auto a = synth::Wavetable::read (below, phase);
         return a + (synth::Wavetable::read (above, phase) - a) * between;
     };
-    const auto path = curve ([&] (float phase) { return bending.active ? bentAt (bending, phase, plain) : plain (phase); }, now);
+    const auto path = curve ([&] (float phase) { return bending.active || shape.hasModulation() ? bentAt (shape, bending, phase, plain) : plain (phase); }, now);
     DisplayStyle::drawCurve (g, path, now, now.getCentreY(), on);
 
     // The table's name, and which frame.
@@ -402,15 +439,16 @@ void ShapeDisplay::paint (juce::Graphics& g)
         {
             const auto phase = 2.0f * (float) i / (float) (points - 1) * 0.99995f;
             const auto x = phase - std::floor (phase);
-            const auto v = (bent ? bentAt (bending, x, plain) : plain (x)) * sign;
+            const auto v = (bent ? bentAt (shape, bending, x, plain) : plain (x)) * sign;
             const juce::Point<float> point (area.getX() + (float) i, mid - juce::jlimit (-1.25f, 1.25f, v) * area.getHeight() * 0.4f);
             if (i == 0) path.startNewSubPath (point); else path.lineTo (point);
         }
         return path;
     };
-    g.setColour (ParagonColours::textDim.withAlpha (bending.active ? 0.45f : 0.7f));
+    const auto changed = bending.active || shape.hasModulation();
+    g.setColour (ParagonColours::textDim.withAlpha (changed ? 0.45f : 0.7f));
     g.strokePath (trace (false), juce::PathStrokeType (1.2f));
-    if (bending.active)
+    if (changed)
         DisplayStyle::drawCurve (g, trace (true), area, mid, on);
 
     // What's what.
@@ -418,15 +456,24 @@ void ShapeDisplay::paint (juce::Graphics& g)
     const auto header = bounds.reduced (12.0f, 6.0f).withHeight (14.0f);
     g.setColour (ParagonColours::textDim);
     g.drawText ("PLAIN", header, juce::Justification::centredLeft, false);
-    if (bending.active)
+    juce::StringArray notes;
+    if (shape.hasFm() || shape.hasAm())
+        notes.add ("RATE x" + juce::String (synth::modulation::ratio (shape.modRate, shape.modGrid), 2));
+    if (shape.hasSync())
+        notes.add ("SYNC x" + juce::String (synth::modulation::syncRatio (shape.syncAmount), 2) + " (its envelope not drawn)");
+    if (shape.hasFm() && shape.fmSource >= synth::fmFirstOscillator)
+        notes.add ("FM from " + synth::fmSourceNames[shape.fmSource] + ": not drawn");
+    if (changed)
     {
         g.setColour (ParagonColours::accent);
-        g.drawText ("SHAPED", header.withTrimmedLeft (50.0f), juce::Justification::centredLeft, false);
+        g.drawText ("RESULT", header.withTrimmedLeft (50.0f), juce::Justification::centredLeft, false);
+        g.setColour (ParagonColours::textDim);
+        g.drawText (notes.joinIntoString ("   "), header, juce::Justification::centredRight, false);
     }
     else
     {
         g.setColour (ParagonColours::textDim);
-        g.drawText ("Turn SKEW, PINCH, FORMANT or CRUSH to bend the wave", header, juce::Justification::centredRight, false);
+        g.drawText ("Bend or modulate the wave and the result shows here", header, juce::Justification::centredRight, false);
     }
 }
 

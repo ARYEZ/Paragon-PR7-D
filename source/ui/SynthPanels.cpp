@@ -150,8 +150,8 @@ OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
     addChildComponent (shapeDisplay);
     addChildComponent (tableChooser);
 
-    // WAVE / SHAPE / VOICES: which of the oscillator's pages shows.
-    for (auto* button : { &wavePageButton, &shapePageButton, &voicesPageButton })
+    // WAVE / SHAPE / FM / VOICES: which of the oscillator's pages shows.
+    for (auto* button : { &wavePageButton, &shapePageButton, &fmPageButton, &voicesPageButton })
     {
         button->setClickingTogglesState (true);
         button->setRadioGroupId (702);
@@ -167,6 +167,8 @@ OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
     wavePageButton.setToggleState (true, juce::dontSendNotification);
     wavePageButton.onClick = [this] { showPage (Page::wave); };
     shapePageButton.onClick = [this] { showPage (Page::shape); };
+    fmPageButton.setTooltip ("The oscillator's SYNC, FM and AM");
+    fmPageButton.onClick = [this] { showPage (Page::fm); };
     voicesPageButton.onClick = [this] { showPage (Page::voices); };
 
     // Each control, labelled as on the panel, with a tooltip saying what it does.
@@ -203,6 +205,20 @@ OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
         { "FormantMode", { "MODE", "What FORMANT does at the edges of the wave it plays: CUT leaves a hard edge (a buzzy click), FADE fades its end to silence, X-FADE fades both ends, X-FADE 2 fades its end into its start, so it never jumps." } },
         { "Crush", { "CRUSH", "Lo-fi: at full, RATE holds the wave in 3 steps a cycle and BIT rounds it to a square." } },
         { "CrushMode", { "MODE", "RATE: the wave held in steps (fewer, the more CRUSH). BIT: rounded to fewer levels. BOTH: both at once." } },
+
+        // The FM page (stage 3c).
+        { "SyncAmount", { "SYNC", "A copy of the wave restarted at the start of every cycle, running faster: up to 5 octaves above the note. The classic tearing \"sync\" sound, especially swept." } },
+        { "SyncMode", { "MODE", "PURE: the synced copy alone. ADD: with the wave. WIN: the copy fades in and out each cycle, so there's no edge (smoother)." } },
+        { "SyncEnv", { "ENV", "SYNC's own envelope: how far it sweeps SYNC up (right) or down (left) from each note's start, falling back over LENGTH." } },
+        { "SyncEnvTime", { "LENGTH", "How long SYNC's envelope takes to fall back." } },
+        { "SyncEnvCurve", { "CURVE", "The envelope's shape: left falls fast at first, right starts slow." } },
+        { "FmAmount", { "FM", "Frequency modulation: the wave read ahead and behind as the modulator swings. A little thickens, more makes bells, basses and metallic tones." } },
+        { "FmSource", { "SOURCE", "The modulator: a shape at RATE times the note, or another oscillator (which is then only used to modulate, not heard itself)." } },
+        { "AmAmount", { "AM", "Amplitude modulation: the wave's level swung by the modulator. At 100%, ring modulation." } },
+        { "AmShape", { "SHAPE", "AM's modulator shape (at RATE times the note)." } },
+        { "ModRate", { "RATE", "How fast FM and AM's modulator runs against the note; GRID decides which rates it can land on. The display shows the ratio." } },
+        { "ModGrid", { "GRID", "Which rates RATE allows: FREE any (1/16 to 16 times the note); the others step through octaves and an interval, which sound cleaner." } },
+        { "ModLock", { "LOCK", "The modulator starts in step with the wave on every note (lit), so each note sounds the same, or anywhere." } },
 
         // The VOICES page (stage 2).
         { "UniVoices", { "VOICES", "How many copies of each note, the note itself included (2 to 7)." } },
@@ -254,8 +270,8 @@ bool OscillatorPanel::isWavetable() const
 bool OscillatorPanel::isShown (const char* what) const
 {
     const juce::String name (what);
-    const auto leftColumn = name == "Wave" || name == "Width" || name == "Gain";   // under the wave picture, on SHAPE too
-    if (pageOf (what) != page && ! (leftColumn && page == Page::shape))
+    const auto leftColumn = name == "Wave" || name == "Width" || name == "Gain";   // under the wave picture, on SHAPE and FM too
+    if (pageOf (what) != page && ! (leftColumn && (page == Page::shape || page == Page::fm)))
         return false;
     if (name.startsWith ("Wt"))
         return showingWavetable;
@@ -307,16 +323,19 @@ OscillatorPanel::Page OscillatorPanel::pageOf (const char* what) const
         return Page::voices;
     if (juce::StringArray { "Skew", "Pinch", "Formant", "FormantMode", "Crush", "CrushMode" }.contains (name))
         return Page::shape;
+    if (name.startsWith ("Sync") || name.startsWith ("Fm") || name.startsWith ("Am") || name.startsWith ("Mod"))
+        return Page::fm;
     return Page::wave;
 }
 
 void OscillatorPanel::showPage (Page newPage)
 {
     page = newPage;
-    (page == Page::voices ? voicesPageButton : page == Page::shape ? shapePageButton : wavePageButton).setToggleState (true, juce::dontSendNotification);
+    (page == Page::voices ? voicesPageButton : page == Page::shape ? shapePageButton : page == Page::fm ? fmPageButton : wavePageButton)
+        .setToggleState (true, juce::dontSendNotification);
     wave.setVisible (page != Page::voices);
     voicesDisplay.setVisible (page == Page::voices);
-    shapeDisplay.setVisible (page == Page::shape);
+    shapeDisplay.setVisible (page == Page::shape || page == Page::fm);
     updateVisibility();
 }
 
@@ -354,6 +373,8 @@ void OscillatorPanel::resized()
     // The tabs run along the title strip, right of the title; WAVE and VOICES at its end.
     auto tabStrip = getTitleArea().withTrimmedLeft (110).reduced (0, 5).withTrimmedTop (2);
     voicesPageButton.setBounds (tabStrip.removeFromRight (66));
+    tabStrip.removeFromRight (4);
+    fmPageButton.setBounds (tabStrip.removeFromRight (40));
     tabStrip.removeFromRight (4);
     shapePageButton.setBounds (tabStrip.removeFromRight (62));
     tabStrip.removeFromRight (4);
@@ -428,6 +449,19 @@ void OscillatorPanel::resized()
                                                        { "FORMANT", { "Formant", "FormantMode" } },
                                                        { "CRUSH", { "Crush", "CrushMode" } } });
         area.removeFromTop (12);
+        shapeDisplay.setBounds (area);
+        return;
+    }
+    if (page == Page::fm)
+    {
+        // Right: SYNC and its envelope, then FM, AM and their modulator, and the result under them.
+        placeRow (area.removeFromTop (rowHeight), 7, { { "SYNC", { "SyncAmount", "SyncMode" } },
+                                                       { "SYNC ENVELOPE", { "SyncEnv", "SyncEnvTime", "SyncEnvCurve" } } });
+        area.removeFromTop (6);
+        placeRow (area.removeFromTop (rowHeight), 7, { { "FM", { "FmAmount", "FmSource" } },
+                                                       { "AM", { "AmAmount", "AmShape" } },
+                                                       { "MODULATOR", { "ModRate", "ModGrid", "ModLock" } } });
+        area.removeFromTop (10);
         shapeDisplay.setBounds (area);
         return;
     }

@@ -63,12 +63,34 @@ namespace synth
             }
         }
 
-        // SHAPE: the wave bent (WaveBend.h), sample by sample, for `n` samples:
-        // calls `out (i, value)` for each. Slower than the plain reads, so
-        // only used while something is bent.
+        // SYNC, FM and AM for one oscillator this interval (OscModulation.h).
+        struct Modulation
+        {
+            bool active = false;
+            bool sync = false, syncAdd = false, syncWindowed = false;
+            float syncFrom = 1.0f, syncTo = 1.0f;   // how many times faster SYNC's copy runs, at the interval's start and end
+            float fmDepth = 0.0f;                   // cycles
+            const float* fmSignal = nullptr;        // another oscillator this interval, or null: fmShape
+            ModShape fmShape = ModShape::sine;
+            float amDepth = 0.0f;
+            ModShape amShape = ModShape::sine;
+            float ratio = 1.0f;                     // the modulator's rate, times the copy's
+            float speed = 1.0f;                     // how much faster than the note they can make the wave run (for the table level)
+            bool usesModulator() const noexcept { return (fmDepth > 0.0f && fmSignal == nullptr) || amDepth > 0.0f; }
+        };
+
+        float floorAny (float x) noexcept   // std::floor without the library call (see WaveBend)
+        {
+            const auto t = (float) (int) x;
+            return t > x ? t - 1.0f : t;
+        }
+
+        // SHAPE (WaveBend.h), SYNC, FM and AM, sample by sample, for `n`
+        // samples: calls `out (i, value)` for each. Slower than the plain
+        // reads, so only used while one of them is on.
         template <typename Out>
-        void renderBent (const WaveSource& source, const WaveBend& bending, int level, int n, float& phase, float increment,
-                         float& crushPrevious, Out&& out) noexcept
+        void renderBent (const WaveSource& source, WaveBend bending, const Modulation& mod, int level, int modLevel, int n, float& phase,
+                         float increment, float& crushPrevious, float& modPhase, float& lastX, Out&& out) noexcept
         {
             const float* table = nullptr;
             Wavetable::Level below {}, above {};
@@ -80,7 +102,10 @@ namespace synth
             else
                 table = tables::get (source.wave == OscWave::saw || source.wave == OscWave::pulse ? tables::Wave::saw
                                    : source.wave == OscWave::triangle ? tables::Wave::triangle : tables::Wave::sine, level);
+            bending.syncEdge = mod.sync && ! mod.syncWindowed;
             const auto step = (source.mixTo - source.mixFrom) / (float) n;
+            const auto syncStep = (mod.syncTo - mod.syncFrom) / (float) n;
+            const auto modIncrement = increment * mod.ratio;
             for (int i = 0; i < n; ++i)
             {
                 const auto mix = source.mixFrom + step * (float) (i + 1);
@@ -106,7 +131,45 @@ namespace synth
                     }
                     return tables::read (table, x);
                 };
-                out (i, bending.bits (bending.sample (phase, increment, read), crushPrevious));
+
+                // SYNC: a copy restarted each cycle, running `ratio` times faster.
+                const auto ratio = mod.syncFrom + syncStep * (float) (i + 1);
+                const auto synced = [&] (float y) -> float
+                {
+                    if (! mod.sync)
+                        return read (y);
+                    auto z = y * ratio;
+                    z -= (float) (int) z;
+                    auto copy = read (z);
+                    if (mod.syncWindowed)
+                        copy *= modulation::window (y);
+                    return mod.syncAdd ? 0.5f * (read (y) + copy) : copy;
+                };
+
+                // FM: where in the wave this sample reads, swung by the modulator.
+                auto x = phase;
+                auto speed = increment;
+                if (mod.fmDepth > 0.0f)
+                {
+                    const auto m = mod.fmSignal != nullptr ? mod.fmSignal[i] : modulation::shapeAt (mod.fmShape, modPhase, modLevel);
+                    x += mod.fmDepth * m;
+                    x -= floorAny (x);
+                    auto moved = x - lastX;   // how far it really moved (for smoothing edges), wrapping round
+                    moved += moved < -0.5f ? 1.0f : moved > 0.5f ? -1.0f : 0.0f;
+                    speed = juce::jmax (1.0e-6f, std::abs (moved));
+                }
+                lastX = x;
+
+                auto value = bending.sample (x, speed, synced);
+                if (mod.amDepth > 0.0f)
+                    value *= 1.0f - mod.amDepth + mod.amDepth * modulation::shapeAt (mod.amShape, modPhase, modLevel);
+                out (i, bending.bits (value, crushPrevious));
+
+                if (mod.usesModulator())
+                {
+                    modPhase += modIncrement;
+                    modPhase -= floorAny (modPhase);
+                }
                 phase += increment;
                 phase -= (float) (phase >= 1.0f);
             }
@@ -591,9 +654,23 @@ namespace synth
                 osc.crushPrevious = 0.0f;
                 for (auto& c : osc.copies)
                     c.crushPrevious = 0.0f;
+
+                // FM and AM's modulator: PHASE LOCK starts it with the wave (each
+                // copy's at its own start), else anywhere.
+                const auto ratio = modulation::ratio (s.modRate, s.modGrid);
+                osc.modPhase = s.modPhaseLock ? wrap (osc.phase * ratio) : random.nextFloat();
+                osc.lastX = osc.phase;
+                for (auto& c : osc.copies)
+                {
+                    c.modPhase = s.modPhaseLock ? wrap (c.phase * ratio) : random.nextFloat();
+                    c.lastX = c.phase;
+                }
             }
             if (! wasActive || restartEnvelopes)
+            {
                 osc.vibratoAge = 0;   // the vibrato fades in again with each new note
+                osc.syncAge = 0;      // ...and SYNC's envelope starts again
+            }
         }
     }
 
@@ -917,7 +994,27 @@ namespace synth
     {
         const auto filterOn = settings.filter.on;
         std::array<float, controlInterval> gains {};
-        for (size_t index = 0; index < voice.oscillators.size(); ++index)
+
+        // FM from other oscillators: an oscillator chosen as another's
+        // modulator is rendered first, into fmSignals, and isn't heard itself.
+        std::array<bool, numOscillators> isModulator {};
+        for (size_t i = 0; i < settings.oscillators.size(); ++i)
+        {
+            const auto& s = settings.oscillators[i];
+            if (s.on && s.hasFm() && s.fmSource >= fmFirstOscillator && (size_t) (s.fmSource - fmFirstOscillator) != i)
+                isModulator[(size_t) (s.fmSource - fmFirstOscillator)] = true;
+        }
+        std::array<size_t, numOscillators> order {};
+        size_t count = 0;
+        for (const auto modulators : { true, false })
+            for (size_t i = 0; i < order.size(); ++i)
+                if (isModulator[i] == modulators)
+                    order[count++] = i;
+        for (size_t i = 0; i < order.size(); ++i)
+            if (isModulator[i])
+                std::fill (fmSignals[i].begin(), fmSignals[i].end(), 0.0f);
+
+        for (const auto index : order)
         {
             auto& osc = voice.oscillators[index];
             const auto& s = settings.oscillators[index];
@@ -984,10 +1081,61 @@ namespace synth
             warpTables[index].update (s.skew, s.pinch);
             const auto bending = WaveBend::make (s, warpTables[index]);
 
+            // SYNC, FM and AM: the same, with the copy's or modulator's rate.
+            Modulation mod;
+            if (s.hasModulation())
+            {
+                mod.active = true;
+                mod.ratio = modulation::ratio (s.modRate, s.modGrid);
+                if (s.hasSync())
+                {
+                    // SYNC's envelope: from the note's start, falling over LENGTH.
+                    const auto msPerSample = 1000.0f / (float) sampleRate;
+                    const auto from = modulation::syncEnvelope ((float) osc.syncAge * msPerSample, s.syncEnvMs, s.syncEnvCurve);
+                    const auto to = modulation::syncEnvelope ((float) (osc.syncAge + n) * msPerSample, s.syncEnvMs, s.syncEnvCurve);
+                    osc.syncAge += n;
+                    mod.sync = true;
+                    mod.syncAdd = s.syncMode == SyncMode::add || s.syncMode == SyncMode::addWindowed;
+                    mod.syncWindowed = s.syncMode == SyncMode::pureWindowed || s.syncMode == SyncMode::addWindowed;
+                    mod.syncFrom = modulation::syncRatio (s.syncAmount + s.syncEnvAmount * from);
+                    mod.syncTo = modulation::syncRatio (s.syncAmount + s.syncEnvAmount * to);
+                    mod.speed *= juce::jmax (mod.syncFrom, mod.syncTo);
+                }
+                if (s.hasFm() && s.fmSource != fmFirstOscillator + (int) index)   // an oscillator can't modulate itself
+                {
+                    mod.fmDepth = modulation::fmDepth (s.fmAmount);
+                    if (s.fmSource >= fmFirstOscillator)
+                    {
+                        // Another oscillator: rendered first (see the loop's order),
+                        // its speed estimated from its pitch against this one's.
+                        const auto modulator = (size_t) (s.fmSource - fmFirstOscillator);
+                        mod.fmSignal = fmSignals[modulator].data();
+                        const auto& other = settings.oscillators[modulator];
+                        const auto pitchRatio = std::exp2 ((other.transpose - s.transpose + (other.fineCents - s.fineCents) * 0.01f) / 12.0f);
+                        mod.speed *= modulation::fmSpeed (mod.fmDepth, pitchRatio, ModShape::saw);
+                    }
+                    else
+                    {
+                        mod.fmShape = (ModShape) s.fmSource;
+                        mod.speed *= modulation::fmSpeed (mod.fmDepth, mod.ratio, mod.fmShape);
+                    }
+                }
+                if (s.hasAm())
+                {
+                    mod.amDepth = juce::jlimit (0.0f, 1.0f, s.amAmount);
+                    mod.amShape = s.amShape;
+                    mod.speed *= 1.0f + mod.ratio;   // each harmonic gains side tones the modulator's rate away
+                }
+                if ((mod.sync || mod.fmDepth > 0.0f) && ! (bending.hasFormant || bending.warp != nullptr))
+                    mod.speed *= WaveBend::headroom;   // room for side tones, as SHAPE's
+            }
+            const auto modLevel = tables::levelFor (hz * mod.ratio * 2.0f, sampleRate);
+
             auto* mono = scratch.data();
-            if (audible && bending.active)
-                renderBent (source, bending.forIncrement (increment), tables::levelFor (hz * bending.speed, sampleRate), n, osc.phase, increment,
-                            osc.crushPrevious, [mono, gain = s.gain] (int i, float v) { mono[i] = v * gain; });
+            if (audible && (bending.active || mod.active))
+                renderBent (source, bending.forIncrement (increment), mod, tables::levelFor (hz * bending.speed * mod.speed, sampleRate), modLevel,
+                            n, osc.phase, increment, osc.crushPrevious, osc.modPhase, osc.lastX,
+                            [mono, gain = s.gain] (int i, float v) { mono[i] = v * gain; });
             else if (audible)
                 renderWave (source, mono, n, osc.phase, increment, level, s.gain);
             else
@@ -1021,73 +1169,83 @@ namespace synth
                 }
             }
 
-            float panLeft, panRight;
-            balance (s.pan, panLeft, panRight);
-            auto* outLeft = (s.toFilter && filterOn ? filteredLeft : dryLeft).data();
-            auto* outRight = (s.toFilter && filterOn ? filteredRight : dryRight).data();
-
-            const auto noise = s.noise;
-            const auto colour = s.noiseColour;
-            for (int i = 0; i < n; ++i)
+            if (isModulator[index])
             {
-                auto l = mono[i], r = mono[i];
-                if (noise > 0.0f)
-                {
-                    const auto noiseLeft = osc.noiseLeft.next (colour);
-                    auto noiseRight = noiseLeft;
-                    if (s.noiseWidth != NoiseWidth::mono)
-                    {
-                        const auto other = osc.noiseRight.next (colour);
-                        noiseRight = s.noiseWidth == NoiseWidth::stereo ? other : 0.5f * (noiseLeft + other);
-                    }
-                    l += noiseLeft * noise;
-                    r += noiseRight * noise;
-                }
-                outLeft[i] += l * gains[(size_t) i] * panLeft;
-                outRight[i] += r * gains[(size_t) i] * panRight;
+                // FM's modulator for another oscillator (with its VOLUME and FADE IN): kept for it, not heard.
+                for (int i = 0; i < n; ++i)
+                    fmSignals[index][(size_t) i] = mono[i] * gains[(size_t) i];
             }
-
-            // The other copies: the key's unison copies, then each chord note and
-            // its unison copies. The wave only (the sub and noise stay with the key),
-            // each with its own pitch, pan and level. None at all unless asked for.
-            const auto unison = s.hasUnison() ? s.unisonVoices : 1;
-            const auto detuneCents = s.unisonDetune * s.unisonDetune * maxDetuneCents;   // squared: fine control at the low end
-            if (audible && (unison > 1 || std::any_of (s.chord.begin(), s.chord.end(), [] (const ChordVoice& c) { return c.on; })))
+            else
             {
-                for (int note = 0; note <= numChordVoices; ++note)
+                float panLeft, panRight;
+                balance (s.pan, panLeft, panRight);
+                auto* outLeft = (s.toFilter && filterOn ? filteredLeft : dryLeft).data();
+                auto* outRight = (s.toFilter && filterOn ? filteredRight : dryRight).data();
+
+                const auto noise = s.noise;
+                const auto colour = s.noiseColour;
+                for (int i = 0; i < n; ++i)
                 {
-                    const auto* chord = note > 0 ? &s.chord[(size_t) note - 1] : nullptr;
-                    if (chord != nullptr && ! chord->on)
-                        continue;
-                    const auto notePitch = chord != nullptr ? chord->coarse + chord->fineCents * 0.01f : 0.0f;
-                    const auto noteVolume = chord != nullptr ? chord->volume : 1.0f;
-                    const auto notePan = chord != nullptr ? chord->pan : 0.0f;
-                    for (int u = note == 0 ? 1 : 0; u < unison; ++u)
+                    auto l = mono[i], r = mono[i];
+                    if (noise > 0.0f)
                     {
-                        auto& c = osc.copies[(size_t) (note * maxUnison + u)];
-                        const auto position = unisonPosition (u, unison);
-                        const auto octave = u > 0 && s.unisonOctaves > 0 ? (float) ((u - 1) % (s.unisonOctaves + 1)) * 12.0f : 0.0f;
-                        const auto copyVibrato = independent ? vibratoValue (s.vibratoWave, c.vibratoPhase, c.vibratoHeld, vibratoAdvance * c.vibratoRate) * vibratoDepth
-                                                             : globalVibrato;
-                        const auto copyHz = pitchToHz (basePitch + notePitch + octave + position * detuneCents * 0.01f + copyVibrato);
-                        float left, right;
-                        balance (s.pan + notePan + position * s.unisonSpread, left, right);
-                        const auto copyLevel = (u == 0 ? 1.0f : s.unisonMix) * noteVolume * s.gain * sign;
-                        const auto copyIncrement = juce::jlimit (0.0f, 0.5f, copyHz / (float) sampleRate);
-                        if (bending.active)
+                        const auto noiseLeft = osc.noiseLeft.next (colour);
+                        auto noiseRight = noiseLeft;
+                        if (s.noiseWidth != NoiseWidth::mono)
                         {
-                            const auto gainLeft = left * copyLevel, gainRight = right * copyLevel;
-                            renderBent (source, bending.forIncrement (copyIncrement), tables::levelFor (copyHz * bending.speed, sampleRate), n, c.phase,
-                                        copyIncrement, c.crushPrevious, [&] (int i, float v)
-                                        {
-                                            v *= gains[(size_t) i];
-                                            outLeft[i] += v * gainLeft;
-                                            outRight[i] += v * gainRight;
-                                        });
+                            const auto other = osc.noiseRight.next (colour);
+                            noiseRight = s.noiseWidth == NoiseWidth::stereo ? other : 0.5f * (noiseLeft + other);
                         }
-                        else
-                            addCopy (source, outLeft, outRight, gains.data(), n, c.phase, copyIncrement,
-                                     tables::levelFor (copyHz, sampleRate), left * copyLevel, right * copyLevel);
+                        l += noiseLeft * noise;
+                        r += noiseRight * noise;
+                    }
+                    outLeft[i] += l * gains[(size_t) i] * panLeft;
+                    outRight[i] += r * gains[(size_t) i] * panRight;
+                }
+
+                // The other copies: the key's unison copies, then each chord note and
+                // its unison copies. The wave only (the sub and noise stay with the key),
+                // each with its own pitch, pan and level. None at all unless asked for.
+                const auto unison = s.hasUnison() ? s.unisonVoices : 1;
+                const auto detuneCents = s.unisonDetune * s.unisonDetune * maxDetuneCents;   // squared: fine control at the low end
+                if (audible && (unison > 1 || std::any_of (s.chord.begin(), s.chord.end(), [] (const ChordVoice& c) { return c.on; })))
+                {
+                    for (int note = 0; note <= numChordVoices; ++note)
+                    {
+                        const auto* chord = note > 0 ? &s.chord[(size_t) note - 1] : nullptr;
+                        if (chord != nullptr && ! chord->on)
+                            continue;
+                        const auto notePitch = chord != nullptr ? chord->coarse + chord->fineCents * 0.01f : 0.0f;
+                        const auto noteVolume = chord != nullptr ? chord->volume : 1.0f;
+                        const auto notePan = chord != nullptr ? chord->pan : 0.0f;
+                        for (int u = note == 0 ? 1 : 0; u < unison; ++u)
+                        {
+                            auto& c = osc.copies[(size_t) (note * maxUnison + u)];
+                            const auto position = unisonPosition (u, unison);
+                            const auto octave = u > 0 && s.unisonOctaves > 0 ? (float) ((u - 1) % (s.unisonOctaves + 1)) * 12.0f : 0.0f;
+                            const auto copyVibrato = independent ? vibratoValue (s.vibratoWave, c.vibratoPhase, c.vibratoHeld, vibratoAdvance * c.vibratoRate) * vibratoDepth
+                                                                 : globalVibrato;
+                            const auto copyHz = pitchToHz (basePitch + notePitch + octave + position * detuneCents * 0.01f + copyVibrato);
+                            float left, right;
+                            balance (s.pan + notePan + position * s.unisonSpread, left, right);
+                            const auto copyLevel = (u == 0 ? 1.0f : s.unisonMix) * noteVolume * s.gain * sign;
+                            const auto copyIncrement = juce::jlimit (0.0f, 0.5f, copyHz / (float) sampleRate);
+                            if (bending.active || mod.active)
+                            {
+                                const auto gainLeft = left * copyLevel, gainRight = right * copyLevel;
+                                renderBent (source, bending.forIncrement (copyIncrement), mod, tables::levelFor (copyHz * bending.speed * mod.speed, sampleRate),
+                                            tables::levelFor (copyHz * mod.ratio * 2.0f, sampleRate), n, c.phase,
+                                            copyIncrement, c.crushPrevious, c.modPhase, c.lastX, [&] (int i, float v)
+                                            {
+                                                v *= gains[(size_t) i];
+                                                outLeft[i] += v * gainLeft;
+                                                outRight[i] += v * gainRight;
+                                            });
+                            }
+                            else
+                                addCopy (source, outLeft, outRight, gains.data(), n, c.phase, copyIncrement,
+                                         tables::levelFor (copyHz, sampleRate), left * copyLevel, right * copyLevel);
+                        }
                     }
                 }
             }

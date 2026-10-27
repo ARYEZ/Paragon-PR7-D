@@ -2,6 +2,20 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.5.0
+
+Stage 3, part 3: **SYNC, FM and AM**, modelled on Avenger's (our own design and code). Each oscillator has a new **FM** page, between **SHAPE** and **VOICES**.
+
+- **SYNC**: a copy of the wave restarted at the start of every cycle of the note, running faster, from the note's own pitch up to 5 octaves above: the classic tearing "sync" sound. **MODE**: **PURE** (the copy alone), **ADD** (the copy with the wave), and **PURE WIN** / **ADD WIN**, which fade the copy in and out each cycle so there's no hard edge (smoother, more vocal).
+- **SYNC ENVELOPE**: SYNC's own little envelope, as on Avenger: **ENV** (how far it sweeps SYNC up, or down, from each note's start), **LENGTH** (50 ms to 3.5 s to fall back) and **CURVE**.
+- **FM**: the wave read ahead and behind as a modulator swings (phase modulation, as most "FM" synths do it). **SOURCE**: a sine, triangle, saw or square at **RATE** times the note, or **another oscillator**, which then only modulates and isn't heard itself (as on Avenger, "real FM").
+- **AM**: the wave's level swung by the modulator (**SHAPE**); at 100% it's ring modulation.
+- **The modulator: RATE** and **GRID**, Avenger's eight: **FREE** (1/16 to 16 times the note), **HARMONIC** (octaves and fifths), **SEMI** (semitones), **OCTAVE**, and octaves with a minor third, major third, fourth or fifth. The grids step from 1 (the middle of the knob) up to 16 times the note. **LOCK** starts the modulator in step with the wave on every note, so every note sounds the same; off, each starts anywhere. The display under the controls shows the result and the ratio RATE has landed on.
+- **Kept clean without oversampling**, measured on a saw at A5 (880 Hz), loudest between its harmonics: SYNC -51 dB (WIN -93), FM -119 dB, AM -116 dB, where doing it the plain way leaves -13 to -33 dB. Avenger's FM has four quality modes, the cleanest of which oversamples (its manual warns it's CPU-heavy); ours has one, which reads band-limited tables chosen with room for FM's side tones. Its table-based FM modes aren't built: tell me if you hear FM getting harsh up high and I'll add one.
+- **CPU:** nothing at all until you turn SYNC, FM or AM up. The supersaw test chord (2 oscillators x 7 copies x 8 keys) took about 3% of one core plain, 9% with SYNC, 12% with AM, 14% with FM and 19% with all three. Your computer will differ.
+- **Three new factory presets:** Sync Sweep (A18), FM Bell (A19, oscillator 2 modulating oscillator 1) and Ring Mod (A20). Our own, not tuned by ear.
+- In the tests: SYNC at twice the note is exactly the octave, at 2.5 times only the note's harmonics; ADD half and half; the WIN modes never jump; the envelope sweeps from far up back to the note; FM matches the textbook formula sample for sample (within 1%), from a shape and from another oscillator (which isn't heard); AM at full gives just the sum and difference tones, at half the right mix; the grids' ratios; LOCK makes every note the same; how much less folds back than the plain way; CPU; the FM page's layout. Not checked here: how it sounds (I can't listen).
+
 ## 0.4.0
 
 Stage 3, part 2: **SHAPE**, bending each oscillator's wave while it plays, modelled on Avenger's shape controls (our own design and code: the manual says what each does, not how). Each oscillator has a new **SHAPE** page, between **WAVE** and **VOICES**.
