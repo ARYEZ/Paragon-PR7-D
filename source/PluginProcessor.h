@@ -308,6 +308,7 @@ private:
         std::vector<CompiledRoute> routes;
         std::array<synth::mod::Shape, synth::mod::numEnvelopes> envelopes {};
         std::array<synth::mod::Shape, synth::mod::numLfoShapes> lfoShapes {};
+        synth::mod::Shape pitchEnvelope {};
         std::uint32_t usedSources = 0;
     };
     std::shared_ptr<const CompiledMatrix> compiledMatrix;

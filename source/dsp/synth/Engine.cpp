@@ -351,6 +351,7 @@ namespace synth
         pedalDown = false;
         lastPitch = -1.0f;
         modWheel = breath = expression = channelPressure = 0.0f;
+        smoothedBend = 0.0f;
         for (auto& lfo : globalLfos)
             lfo = {};
         for (auto& envelope : globalEnvelopes)
@@ -529,7 +530,7 @@ namespace synth
         }
 
         auto* voice = findFreeVoice();
-        const auto glide = settings.play.glideMs > 0.0f && lastPitch >= 0.0f
+        const auto glide = settings.play.glideMs > 0.0f && lastPitch >= 0.0f && glides (note, settings)
                         && (settings.play.glideMode == GlideMode::always || anyHeld);
         startVoice (*voice, note, velocity, glide ? lastPitch : (float) note, settings);
         applyOscillatorLimits (*voice, settings);
@@ -559,7 +560,7 @@ namespace synth
         if (! sounding)
         {
             auto* voice = findFreeVoice();
-            const auto glide = settings.play.glideMs > 0.0f && lastPitch >= 0.0f && settings.play.glideMode == GlideMode::always;
+            const auto glide = settings.play.glideMs > 0.0f && lastPitch >= 0.0f && glides (target, settings) && settings.play.glideMode == GlideMode::always;
             startVoice (*voice, target, heldVelocities[(size_t) target], glide ? lastPitch : (float) target, settings);
             monoVoice = voice;   // after starting it: starting a voice clears whatever it was
             return;
@@ -571,7 +572,7 @@ namespace synth
         // envelopes); otherwise the envelopes start again from where they are.
         const auto overlapping = monoVoice->held;
         const auto legato = settings.play.legato && overlapping;
-        const auto glide = settings.play.glideMs > 0.0f && (settings.play.glideMode == GlideMode::always || overlapping);
+        const auto glide = settings.play.glideMs > 0.0f && glides (target, settings) && (settings.play.glideMode == GlideMode::always || overlapping);
         retrigger (*monoVoice, target, heldVelocities[(size_t) target], ! legato, glide, settings);
     }
 
@@ -689,7 +690,8 @@ namespace synth
         voice.sustained = false;
         setGlide (voice, (float) note, glide, settings);
         setNotePan (voice, settings);
-        lastPitch = (float) note;
+        if (glides (note, settings))   // GLIDE SPLIT: notes below it don't glide, nor are they glided from
+            lastPitch = (float) note;
 
         if (! restartEnvelopes)
             return;
@@ -777,7 +779,11 @@ namespace synth
             return;
         }
         // GLIDE is the time to get there, however far.
-        voice.glideRate = std::abs (toPitch - voice.pitch) / juce::jmax (1.0f, settings.play.glideMs * 0.001f * (float) sampleRate);
+        const auto samples = juce::jmax (1.0f, settings.play.glideMs * 0.001f * (float) sampleRate);
+        voice.glideRate = std::abs (toPitch - voice.pitch) / samples;
+        voice.glideFrom = voice.pitch;
+        voice.glideProgress = 0.0f;
+        voice.glideStep = 1.0f / samples;
     }
 
     void Engine::setNotePan (Voice& voice, const Settings& settings) noexcept
@@ -827,6 +833,7 @@ namespace synth
         voice.filter.release();
         for (auto& envelope : voice.envelopes)
             envelope.release();
+        voice.pitchEnvelope.release();
     }
 
     void Engine::releaseGlobalEnvelopesIfNoneHeld() noexcept
@@ -871,6 +878,17 @@ namespace synth
         {
             const auto length = juce::jmin (piece, numSamples - start);
             const auto& modulation = settings.modulation;
+
+            // The pitch wheel, smoothed by BEND LAG, for each interval.
+            for (int i = 0, at = 0; at < length; ++i, at += controlInterval)
+            {
+                const auto n = juce::jmin (controlInterval, length - at);
+                if (settings.pitch.bendLagMs <= 0.0f)
+                    smoothedBend = bend;
+                else
+                    smoothedBend += (bend - smoothedBend) * (1.0f - std::exp (-(float) n / (settings.pitch.bendLagMs * 0.001f * (float) sampleRate)));
+                bendValues[(size_t) i] = smoothedBend;
+            }
             if (modulation.numRoutes > 0)
             {
                 // The LFOs running once for the whole synth: their value for each interval.
@@ -925,6 +943,7 @@ namespace synth
             voice.lfos[(size_t) k].start (settings.modulation.lfos[(size_t) k], random);
         for (auto& envelope : voice.envelopes)
             envelope.start();
+        voice.pitchEnvelope.start();
         voice.randomValue = random.nextFloat();
         voice.pressure = 0.0f;
         voice.lagFresh = true;
@@ -971,6 +990,7 @@ namespace synth
         values[(size_t) mod::Source::expression] = expression;
         values[(size_t) mod::Source::sustain] = pedalDown ? 1.0f : 0.0f;
         values[(size_t) mod::Source::random] = voice.randomValue;
+        values[(size_t) mod::Source::pitchEnvelope] = voice.pitchEnvelopeValue;
 
         // Each route, in turn. Routes to the same destination come together
         // (the processor sorts them), each pushing on from where the last left it.
@@ -1002,6 +1022,14 @@ namespace synth
 
     void Engine::renderVoice (Voice& voice, float* left, float* right, int n, const Settings& unmodulated, int interval) noexcept
     {
+        // The PITCH module's envelope (also a source for the matrix).
+        const auto& pitchModule = unmodulated.pitch;
+        if (pitchModule.shape != nullptr
+            && (pitchModule.envelopeOn || (unmodulated.modulation.numRoutes > 0 && unmodulated.modulation.uses (mod::Source::pitchEnvelope))))
+            voice.pitchEnvelopeValue = 2.0f * voice.pitchEnvelope.next (*pitchModule.shape, pitchModule.envelope, (double) n / sampleRate,
+                                                                        unmodulated.modulation.bpm) - 1.0f;
+        voice.pitchSemitones = pitchModule.envelopeOn && pitchModule.shape != nullptr ? voice.pitchEnvelopeValue * pitchModule.rangeSemitones : 0.0f;
+
         // With modulation, this note plays its own copy of the settings.
         const auto modulated = unmodulated.modulation.numRoutes > 0;
         const auto& settings = modulated ? modulate (voice, n, unmodulated, interval) : unmodulated;
@@ -1013,8 +1041,18 @@ namespace synth
         voice.amp.update (ampSettings.envelope);
         voice.filter.update (filterSettings.envelope);
 
-        // Glide, once per interval.
-        if (voice.glideRate > 0.0f)
+        // Glide, once per interval: straight, or along GLIDE CURVE's path.
+        if (voice.glideRate > 0.0f && ! juce::exactlyEqual (settings.pitch.glideCurve, 0.0f))
+        {
+            voice.glideProgress = juce::jmin (1.0f, voice.glideProgress + voice.glideStep * (float) n);
+            voice.pitch = voice.glideFrom + (voice.targetPitch - voice.glideFrom) * synth::bend (voice.glideProgress, settings.pitch.glideCurve);
+            if (voice.glideProgress >= 1.0f)
+            {
+                voice.pitch = voice.targetPitch;
+                voice.glideRate = 0.0f;
+            }
+        }
+        else if (voice.glideRate > 0.0f)
         {
             const auto step = voice.glideRate * (float) n;
             if (std::abs (voice.targetPitch - voice.pitch) <= step)
@@ -1025,7 +1063,8 @@ namespace synth
             else
                 voice.pitch += voice.targetPitch > voice.pitch ? step : -step;
         }
-        const auto bendSemitones = bend >= 0.0f ? bend * settings.play.bendUp : bend * settings.play.bendDown;
+        const auto wheel = bendValues[(size_t) juce::jlimit (0, maxIntervals - 1, interval)];
+        const auto bendSemitones = wheel >= 0.0f ? wheel * settings.play.bendUp : wheel * settings.play.bendDown;
 
         // Each oscillator's route this interval, and the path it plays into.
         assignPaths (voice, settings);
@@ -1477,7 +1516,9 @@ namespace synth
                                      ? vibratoValue (s.vibratoWave, osc.vibratoPhase, osc.vibratoHeld, vibratoAdvance) * vibratoDepth : 0.0f;
 
             // Its pitch for this interval, and the tables to read for it.
-            const auto basePitch = voice.pitch + bendSemitones + s.transpose + s.fineCents * 0.01f + osc.randomOffset
+            // KEYTRACK (from middle C; at 100% the note as played) and the PITCH envelope, if it follows it.
+            const auto keyPitch = juce::exactlyEqual (settings.pitch.keytrack, 1.0f) ? voice.pitch : 60.0f + (voice.pitch - 60.0f) * settings.pitch.keytrack;
+            const auto basePitch = keyPitch + (s.pitchEnvelope ? voice.pitchSemitones : 0.0f) + bendSemitones + s.transpose + s.fineCents * 0.01f + osc.randomOffset
                                  + settings.play.tuneCents * 0.01f;
             const auto independent = vibratoDepth > 0.0f && s.vibratoMode == VibratoMode::independent;
             const auto ownVibrato = independent ? vibratoValue (s.vibratoWave, osc.copies[0].vibratoPhase, osc.copies[0].vibratoHeld,

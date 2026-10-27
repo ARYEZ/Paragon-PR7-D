@@ -148,6 +148,9 @@ namespace synth
             std::array<Path, numOscillators> paths;
 
             float pitch = 60.0f, targetPitch = 60.0f, glideRate = 0.0f;   // semitones; per sample
+            float glideFrom = 60.0f, glideProgress = 1.0f, glideStep = 0.0f; // GLIDE CURVE's path: from where, how far (0 to 1), per sample
+            mod::EnvelopeState pitchEnvelope {};                             // the PITCH module's envelope (stage 4c)
+            float pitchEnvelopeValue = 0.0f, pitchSemitones = 0.0f;          // ...-1 to 1, and as semitones on the oscillators
             float panLeft = 1.0f, panRight = 1.0f;      // the AMP's PAN, KEYTRACK and SPREAD for this note
             float notePan = 0.0f;                       // ...as a position, -1 to 1 (modulation moves it from here)
 
@@ -245,6 +248,10 @@ namespace synth
         std::array<mod::EnvelopeState, mod::numEnvelopes> globalEnvelopes {};   // FIRST NOTE and LAST NOTE envelopes
         std::array<std::array<float, maxIntervals>, mod::numEnvelopes> globalEnvelopeValues {};
         void releaseGlobalEnvelopesIfNoneHeld() noexcept;
+        // The pitch wheel smoothed by BEND LAG, for each interval of the render under way.
+        float smoothedBend = 0.0f;
+        std::array<float, maxIntervals> bendValues {};
+        bool glides (int note, const Settings& s) const noexcept { return s.pitch.glideSplit <= 0 || note >= s.pitch.glideSplit; }
         double samplesIntoBlock = 0.0;            // for the song position (synced GLOBAL LFOs)
         Settings voiceSettings;
     };

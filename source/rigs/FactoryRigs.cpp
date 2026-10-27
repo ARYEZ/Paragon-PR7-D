@@ -413,5 +413,18 @@ std::vector<Rig> makeFactoryRigs()
     route (swell, "lfo1", ParamIDs::osc (1, "Fine"), 0.06f);
     add (swell);
 
+    // The PITCH module (stage 4c).
+    Builder zap ("Zap Bass", 31, { "Bass", "Pitch" },
+                 "Each note starts with a fast two-octave pitch drop (the PITCH envelope, RANGE 24): a zappy attack on a solid bass. "
+                 "A short glide with a swooping GLIDE CURVE for slides.");
+    zap.osc (0, "Wave", (float) synth::OscWave::pulse).osc (0, "Width", 0.3f).osc (0, "Sub", 0.6f).osc (0, "PhaseRand", 0.0f).osc (0, "Volume", 0.8f)
+       .filter (FilterType::lp24, 900.0f, 0.25f, 0.3f).filterEnvelope (0.0f, 250.0f, 0.3f, 100.0f)
+       .set (ParamIDs::pitchEnvOn, 1.0f).set (ParamIDs::pitchEnvRange, 24.0f)
+       .set (ParamIDs::glideCurve, -0.6f)
+       .ampEnvelope (0.5f, 300.0f, 0.85f, 90.0f)
+       .mono (40.0f);
+    zap.rig.modulation.pitchEnvelope = { { SP { 0.0f, 1.0f, -0.7f }, SP { 0.06f, 0.5f, 0.0f } }, -1, -1, -1 };
+    add (zap);
+
     return rigs;
 }

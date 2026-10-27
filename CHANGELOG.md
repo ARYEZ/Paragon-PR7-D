@@ -2,6 +2,39 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.11.0
+
+Stage 4, part 3: **the PITCH module**, modelled on Avenger's (our own design and code). It's on the MOD page, under the new **PITCH** tab.
+
+- **The pitch envelope:** a multipoint envelope on the oscillators' pitch, drawn and edited like the modulation envelopes.
+  - Its middle line is no change; **RANGE** (up to ±24 semitones) is how far its top and bottom go.
+  - **ON**, **MODE** (one shot, sustain, sus jump, loop, ping pong and their +REL versions), **SPEED** (x0.1 to x10), **STEPS** (stepped, for arcade and FX sounds), **FLIP**.
+  - **FOLLOWING IT:** which oscillators it moves (all to start with). In Avenger an oscillator is routed to a pitch module; here each has a switch.
+  - It's also a source in the matrix, **PITCH ENV**, even with the envelope itself off.
+  - **START FROM:** a drop, a kick-drum drop, a rise, a fall away, arpeggio steps, a wobble.
+  - A new sound starts with a short drop (+6 semitones to none in 150 ms), switched off.
+- **KEYTRACK:** how far the pitch follows the keys, from middle C. 100% is normal; 0% plays every key as middle C; -100% turns the keyboard upside down.
+- **BEND LAG:** smooths the pitch wheel (and its automation), so jumps glide.
+- **GLIDE CURVE:** the glide's path.
+  - 0 is the straight glide as before (unchanged, sample for sample).
+  - Below 0 it gets most of the way at once and settles (the manual's siren-like swoop); above 0 it starts slowly.
+  - GLIDE's time and modes stay on the PLAY panel.
+- **GLIDE SPLIT:** notes below this one never glide and aren't glided from, so a bass line can sit under a gliding lead (the manual's "split zone").
+- Saved with the preset and the project; undo covers the pitch envelope's points; its knobs can be automated.
+- **A new factory preset:** **Zap Bass** (A31): a fast two-octave pitch drop on each note. Our own, not tuned by ear.
+- In the tests:
+  - the pitch envelope moving a note by the right number of semitones over time;
+  - RANGE, FLIP, STEPS;
+  - an oscillator not following it staying put;
+  - KEYTRACK at 0%, 50% and -100%;
+  - BEND LAG easing a jump;
+  - GLIDE CURVE's path, and CURVE 0 identical to before;
+  - GLIDE SPLIT;
+  - PITCH ENV as a matrix source;
+  - the plugin playing the envelope from a fresh start and keeping it through presets, projects and undo;
+  - the tab's layout.
+- Not checked here: how it sounds (I can't listen).
+
 ## 0.10.0
 
 Stage 4, part 2: **8 modulation envelopes** and **3 drawn LFO shapes**, modelled on Avenger's multipoint envelopes (our own design and code).

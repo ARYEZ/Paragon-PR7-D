@@ -28,7 +28,8 @@ namespace ParamIDs
     // 0.4.0 SHAPE's: SKEW, PINCH, FORMANT and its mode, CRUSH and its mode,
     // 0.5.0 SYNC (with its envelope), FM, AM and their modulator's RATE, GRID and PHASE LOCK,
     // 0.6.0 the FFT editor's SWEEP, FLIP, LP, HP, SLOPE, VSPEED and VSTRENGTH (its curve is kept with the preset),
-    // 0.8.0 which SHAPERs the oscillator goes through ("Shp1" to "Shp4").
+    // 0.8.0 which SHAPERs the oscillator goes through ("Shp1" to "Shp4"),
+    // 0.11.0 whether it follows the PITCH module's envelope.
     inline constexpr const char* oscSettings[] = {
         "On", "Wave", "Volume", "Pan", "Transpose", "Fine", "Random", "PhaseRand", "Phase", "Gain", "Width", "FadeIn", "Invert",
         "Noise", "NoiseColour", "NoiseWidth", "Sub", "SubWave", "SubOct", "SubInvert", "Filter", "Voices",
@@ -41,7 +42,8 @@ namespace ParamIDs
         "SyncAmount", "SyncMode", "SyncEnv", "SyncEnvTime", "SyncEnvCurve", "FmAmount", "FmSource", "AmAmount", "AmShape",
         "ModRate", "ModGrid", "ModLock",
         "FftSweep", "FftFlip", "FftLp", "FftHp", "FftSlope", "FftVSpeed", "FftVStrength",
-        "Shp1", "Shp2", "Shp3", "Shp4" };
+        "Shp1", "Shp2", "Shp3", "Shp4",
+        "PitchEnv" };
 
     // Where a setting is in oscSettings, worked out by the compiler (a typo won't compile).
     consteval int oscSetting (std::string_view what)
@@ -131,6 +133,18 @@ namespace ParamIDs
     }
     inline constexpr const char* macros[] = { "macro1", "macro2", "macro3" };
     inline constexpr const char* macroButtons[] = { "macroButton1", "macroButton2" };
+
+    // The PITCH module (stage 4c, 0.11.0). Its envelope's points are kept with the preset (ModMatrix).
+    inline constexpr auto pitchEnvOn    = "pitchEnvOn";
+    inline constexpr auto pitchEnvMode  = "pitchEnvMode";
+    inline constexpr auto pitchEnvSpeed = "pitchEnvSpeed";
+    inline constexpr auto pitchEnvRange = "pitchEnvRange";   // semitones, 0 to 24
+    inline constexpr auto pitchEnvSteps = "pitchEnvSteps";
+    inline constexpr auto pitchEnvFlip  = "pitchEnvFlip";
+    inline constexpr auto pitchKeytrack = "pitchKeytrack";   // -1 to 1
+    inline constexpr auto bendLag       = "bendLag";         // ms
+    inline constexpr auto glideCurve    = "glideCurve";      // -1 to 1
+    inline constexpr auto glideSplit    = "glideSplit";      // a note (0: off)
 
     // How the keyboard plays it.
     inline constexpr auto playMode  = "playMode";     // choice: Poly, Mono, Mono Low, Mono High

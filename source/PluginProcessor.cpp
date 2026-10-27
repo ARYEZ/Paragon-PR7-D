@@ -151,6 +151,7 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
             shaperParameters[(size_t) k].values[s] = parameters.getRawParameterValue (ParamIDs::shp (k, ParamIDs::shaperSettings[s]));
             jassert (shaperParameters[(size_t) k].values[s] != nullptr);
         }
+    compileMatrix();   // the PITCH envelope's points, ready from the start
 
     playingFactoryTable.fill (-1);
     for (auto& table : tablesForAudio)
@@ -261,6 +262,7 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
         o.voiceLimit = juce::jlimit (1, synth::maxVoices, juce::roundToInt (get (oscSetting ("Voices"))));
         for (int k = 0; k < synth::numShapers; ++k)
             o.toShaper[(size_t) k] = get (oscSetting ("Shp1") + k) > 0.5f;
+        o.pitchEnvelope = get (oscSetting ("PitchEnv")) > 0.5f;
 
         o.table = tablesForAudio[i].load();
         o.spectral = spectralForAudio[i].load();
@@ -399,6 +401,19 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
         s.modulation.buttons[(size_t) k] = isOn (ParamIDs::macroButtons[k]);
     s.modulation.bpm = hostBpm.load();
 
+    // The PITCH module (its envelope's points are added per block).
+    auto& pm = s.pitch;
+    pm.envelopeOn = isOn (ParamIDs::pitchEnvOn);
+    pm.envelope.mode = (synth::mod::EnvelopeMode) choice (param (ParamIDs::pitchEnvMode), synth::mod::envelopeModeNames.size());
+    pm.envelope.speed = param (ParamIDs::pitchEnvSpeed);
+    pm.envelope.steps = juce::roundToInt (param (ParamIDs::pitchEnvSteps));
+    pm.envelope.flip = isOn (ParamIDs::pitchEnvFlip);
+    pm.rangeSemitones = param (ParamIDs::pitchEnvRange);
+    pm.keytrack = param (ParamIDs::pitchKeytrack);
+    pm.bendLagMs = param (ParamIDs::bendLag);
+    pm.glideCurve = param (ParamIDs::glideCurve);
+    pm.glideSplit = juce::roundToInt (param (ParamIDs::glideSplit));
+
     auto& a = s.amp;
     a.volume = param (ampVolume);
     a.velocity = param (ampVel);
@@ -478,6 +493,7 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
         // The MOD MATRIX: each route with its knob's position now.
         if (const auto* compiled = matrixForAudio.load())
         {
+            settings.pitch.shape = &compiled->pitchEnvelope;
             int count = 0;
             for (const auto& c : compiled->routes)
             {
@@ -491,7 +507,7 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
                 r.lagMs = c.lagMs;
                 r.curve = c.curve;
             }
-            settings.modulation.routes = routeBuffer.data();
+            settings.modulation.routes = count > 0 ? routeBuffer.data() : nullptr;
             settings.modulation.numRoutes = count;
             settings.modulation.envelopeShapes = compiled->envelopes.data();
             settings.modulation.lfoShapes = compiled->lfoShapes.data();
@@ -585,13 +601,14 @@ void ParagonX1AudioProcessor::compileMatrix()
         compiled->envelopes[(size_t) k] = matrix.envelopes[(size_t) k].toShape();
     for (int k = 0; k < synth::mod::numLfoShapes; ++k)
         compiled->lfoShapes[(size_t) k] = matrix.lfoShapes[(size_t) k].toShape();
+    compiled->pitchEnvelope = matrix.pitchEnvelope.toShape();
     std::stable_sort (compiled->routes.begin(), compiled->routes.end(), [] (const CompiledRoute& a, const CompiledRoute& b)
     {
         return std::pair ((int) a.target.field, a.target.index) < std::pair ((int) b.target.field, b.target.index);
     });
     if (compiledMatrix != nullptr)
         retiredMatrices.emplace_back (compiledMatrix, juce::Time::getMillisecondCounterHiRes());
-    compiledMatrix = compiled->routes.empty() ? nullptr : std::shared_ptr<const CompiledMatrix> (compiled);
+    compiledMatrix = compiled;   // always (the PITCH envelope plays without routes)
     matrixForAudio = compiledMatrix.get();
 }
 

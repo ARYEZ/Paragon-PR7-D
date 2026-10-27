@@ -27,16 +27,18 @@ namespace synth
         enum class Source { none, lfo1, lfo2, lfo3, lfo4, macro1, macro2, macro3, button1, button2,
                             modWheel, pitchBend, velocity, aftertouch, keytrack, breath, expression, sustain, random,
                             // 0.10.0: the modulation envelopes
-                            env1, env2, env3, env4, env5, env6, env7, env8 };
-        inline constexpr int numSources = 27;
+                            env1, env2, env3, env4, env5, env6, env7, env8,
+                            // 0.11.0: the PITCH module's envelope (-1 to 1)
+                            pitchEnvelope };
+        inline constexpr int numSources = 28;
         inline constexpr std::array<const char*, numSources> sourceIds {
             "none", "lfo1", "lfo2", "lfo3", "lfo4", "macro1", "macro2", "macro3", "button1", "button2",
             "modWheel", "pitchBend", "velocity", "aftertouch", "keytrack", "breath", "expression", "sustain", "random",
-            "env1", "env2", "env3", "env4", "env5", "env6", "env7", "env8" };
+            "env1", "env2", "env3", "env4", "env5", "env6", "env7", "env8", "pitchEnv" };
         inline constexpr std::array<const char*, numSources> sourceNames {
             "--", "LFO 1", "LFO 2", "LFO 3", "LFO 4", "Macro 1", "Macro 2", "Macro 3", "Button 1", "Button 2",
             "Mod Wheel", "Pitch Bend", "Velocity", "Aftertouch", "Keytrack", "Breath", "Expression", "Sustain Pedal", "Random",
-            "Env 1", "Env 2", "Env 3", "Env 4", "Env 5", "Env 6", "Env 7", "Env 8" };
+            "Env 1", "Env 2", "Env 3", "Env 4", "Env 5", "Env 6", "Env 7", "Env 8", "Pitch Env" };
         inline Source sourceFromId (const juce::String& id) noexcept
         {
             for (int i = 0; i < numSources; ++i)
@@ -47,7 +49,7 @@ namespace synth
         // LFOs and the pitch wheel swing both ways (-1 to 1); the rest run 0 to 1.
         inline bool isBipolar (Source s) noexcept
         {
-            return (s >= Source::lfo1 && s <= Source::lfo4) || s == Source::pitchBend;
+            return (s >= Source::lfo1 && s <= Source::lfo4) || s == Source::pitchBend || s == Source::pitchEnvelope;
         }
 
         // A destination: which of the engine's settings a route moves.

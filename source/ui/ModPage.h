@@ -25,7 +25,7 @@ private:
     int lfo = 0;
 };
 
-// MODULATORS: the LFOs, the modulation envelopes and the drawn LFO shapes,
+// MODULATORS: the LFOs, the modulation envelopes, the drawn LFO shapes and the PITCH module,
 // a tab each (one set of controls, pointed at the tab chosen): a picture or
 // editor on the left, its controls on the right.
 class ModulatorPanel final : public SynthPanel,
@@ -33,10 +33,11 @@ class ModulatorPanel final : public SynthPanel,
 {
 public:
     explicit ModulatorPanel (ParagonX1AudioProcessor&);
-    enum class Kind { lfo, envelope, shape };
+    enum class Kind { lfo, envelope, shape, pitch };
     void selectLfo (int index) { select (Kind::lfo, index); }
     void selectEnvelope (int index) { select (Kind::envelope, index); }
     void selectShape (int index) { select (Kind::shape, index); }
+    void selectPitch() { select (Kind::pitch, 0); }
     Kind getKind() const noexcept { return kind; }
     int getSelected() const noexcept { return selected; }
     MultiPointEditor& getEditor() noexcept { return editor; }
@@ -57,6 +58,10 @@ private:
     MultiPointEditor editor;
     ParamControl wave, sync, rate, division, trigger, phase, offset, delay, fadeIn, oneShot;
     ParamControl envMode, envTrigger, envSync, envSpeed, envSteps, envFlip, envOffset;
+    // The PITCH module (stage 4c), and which oscillators follow its envelope.
+    ParamControl pitchOn, pitchMode, pitchSpeed, pitchRange, pitchSteps, pitchFlip, keytrack, bendLag, glideCurve, glideSplit;
+    std::vector<std::unique_ptr<ParamControl>> pitchRoutes;
+    juce::Label pitchRouteLabel;
     juce::ComboBox startFromBox;
     juce::Label startFromLabel, hint;
     Kind kind = Kind::lfo;

@@ -103,6 +103,23 @@ namespace
     // START FROM: shapes to begin an envelope or a drawn LFO shape from.
     const juce::StringArray envelopeStarts { "Attack, decay, sustain, release", "Ramp up", "Ramp down", "Pluck", "Swell", "Gate (1 beat)", "Wobble (loop)" };
     const juce::StringArray lfoShapeStarts { "Triangle", "Ramp up", "Ramp down", "Square", "Steps (4)", "Bounce", "Spike" };
+    const juce::StringArray pitchStarts { "Drop (150 ms)", "Kick drop", "Rise", "Fall away", "Arpeggio steps", "Wobble (loop)", "Flat (none)" };
+
+    ModShapeData pitchStart (int choice)
+    {
+        using P = synth::mod::ShapePoint;
+        switch (choice)
+        {
+            case 1: return { { P { 0.0f, 1.0f, -0.7f }, P { 0.08f, 0.5f, 0.0f } }, -1, -1, -1 };
+            case 2: return { { P { 0.0f, 0.25f, 0.4f }, P { 0.4f, 0.5f, 0.0f } }, -1, -1, -1 };
+            case 3: return { { P { 0.0f, 0.5f, 0.0f }, P { 0.5f, 0.5f, 0.5f }, P { 1.5f, 0.0f, 0.0f } }, 1, -1, -1 };
+            case 4: return { { P { 0.0f, 0.5f, 0.0f }, P { 0.1f, 1.0f, 0.0f }, P { 0.101f, 0.5f, 0.0f }, P { 0.2f, 0.5f, 0.0f }, P { 0.201f, 0.75f, 0.0f },
+                               P { 0.3f, 0.75f, 0.0f } }, -1, 0, 5 };
+            case 5: return { { P { 0.0f, 0.5f, 0.0f }, P { 0.1f, 0.6f, 0.0f }, P { 0.2f, 0.4f, 0.0f }, P { 0.3f, 0.5f, 0.0f } }, -1, 0, 3 };
+            case 6: return { { P { 0.0f, 0.5f, 0.0f }, P { 1.0f, 0.5f, 0.0f } }, -1, -1, -1 };
+            default: return ModShapeData::defaultPitchEnvelope();
+        }
+    }
 
     ModShapeData envelopeStart (int choice)
     {
@@ -161,7 +178,20 @@ ModulatorPanel::ModulatorPanel (ParagonX1AudioProcessor& p)
       envSpeed (state, ParamIDs::env (0, "Speed"), "SPEED", "How fast it runs through its points: x0.1 (ten times slower) to x10."),
       envSteps (state, ParamIDs::env (0, "Steps"), "STEPS", "Makes it move in steps (for arcade and FX sounds): how many levels. SMOOTH: none."),
       envFlip (state, ParamIDs::env (0, "Flip"), "FLIP", "Upside down."),
-      envOffset (state, ParamIDs::env (0, "Offset"), "OFFSET", "The level counted as zero: above 0, it pushes both ways (at 50%, as far down as up).")
+      envOffset (state, ParamIDs::env (0, "Offset"), "OFFSET", "The level counted as zero: above 0, it pushes both ways (at 50%, as far down as up)."),
+      pitchOn (state, ParamIDs::pitchEnvOn, "ON", "Switch the pitch envelope on (for the oscillators ticked below). It's also a source in the matrix, PITCH ENV."),
+      pitchMode (state, ParamIDs::pitchEnvMode, "MODE", "ONE SHOT: once through. SUSTAIN / SUS JUMP: holds at the S point while the key is down. "
+                                                      "LOOP, PING PONG (+REL): round or back and forth between L1 and L2."),
+      pitchSpeed (state, ParamIDs::pitchEnvSpeed, "SPEED", "How fast it runs through its points: x0.1 (ten times slower) to x10."),
+      pitchRange (state, ParamIDs::pitchEnvRange, "RANGE", "How far the top and bottom of the picture move the pitch, in semitones (the middle is no change)."),
+      pitchSteps (state, ParamIDs::pitchEnvSteps, "STEPS", "Moves the pitch in steps (arcade and FX sounds): how many levels. SMOOTH: none."),
+      pitchFlip (state, ParamIDs::pitchEnvFlip, "FLIP", "Upside down: rises become falls."),
+      keytrack (state, ParamIDs::pitchKeytrack, "KEYTRACK", "How far the pitch follows the keys: 100% as normal, 0% every key the same note (middle C), "
+                                                          "-100% upside down (higher keys lower). The pitch envelope, bend and glide still move it."),
+      bendLag (state, ParamIDs::bendLag, "BEND LAG", "Smooths the pitch wheel (and its automation), so steps in it glide."),
+      glideCurve (state, ParamIDs::glideCurve, "GLIDE CURVE", "The glide's path: 0 straight; below 0 it gets most of the way at once and settles "
+                                                             "(a siren's swoop); above 0 it starts slowly. GLIDE's time is on the PLAY panel."),
+      glideSplit (state, ParamIDs::glideSplit, "GLIDE SPLIT", "Notes below this one never glide, nor are glided from: a bass line under a gliding lead. Off: every note.")
 {
     const auto addTab = [this] (Kind k, int i, const juce::String& text, const juce::String& tip)
     {
@@ -180,11 +210,24 @@ ModulatorPanel::ModulatorPanel (ParagonX1AudioProcessor& p)
         addTab (Kind::envelope, k, juce::String (k + 1), "Modulation envelope " + juce::String (k + 1) + " (ENV " + juce::String (k + 1) + " in the matrix)");
     for (int k = 0; k < synth::mod::numLfoShapes; ++k)
         addTab (Kind::shape, k, juce::String (k + 1), "Drawn LFO shape " + juce::String (k + 1) + " (an LFO's WAVE: CUSTOM " + juce::String (k + 1) + ")");
+    addTab (Kind::pitch, 0, "PITCH", "The PITCH module: a pitch envelope, keytrack, bend lag and the glide's curve and split");
+    for (int i = 0; i < ParamIDs::numOscillators; ++i)
+    {
+        pitchRoutes.push_back (std::make_unique<ParamControl> (state, ParamIDs::osc (i, "PitchEnv"), juce::String (i + 1),
+                                                               "Oscillator " + juce::String (i + 1) + " follows the pitch envelope."));
+        pitchRoutes.back()->setCompact (true);
+        addChildComponent (*pitchRoutes.back());
+    }
+    pitchRouteLabel.setText ("FOLLOWING IT", juce::dontSendNotification);
+    pitchRouteLabel.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+    pitchRouteLabel.setColour (juce::Label::textColourId, ParagonColours::textDim);
+    addChildComponent (pitchRouteLabel);
 
     addAndMakeVisible (display);
     addChildComponent (editor);
     for (auto* control : { &wave, &sync, &rate, &division, &trigger, &phase, &offset, &delay, &fadeIn, &oneShot,
-                           &envMode, &envTrigger, &envSync, &envSpeed, &envSteps, &envFlip, &envOffset })
+                           &envMode, &envTrigger, &envSync, &envSpeed, &envSteps, &envFlip, &envOffset,
+                           &pitchOn, &pitchMode, &pitchSpeed, &pitchRange, &pitchSteps, &pitchFlip, &keytrack, &bendLag, &glideCurve, &glideSplit })
         addChildComponent (control);
     startFromBox.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff151217));
     startFromBox.setColour (juce::ComboBox::outlineColourId, ParagonColours::panelEdge);
@@ -243,8 +286,16 @@ void ModulatorPanel::select (Kind newKind, int index)
             control->attach (ParamIDs::env (selected, what));
         editor.setTarget (MultiPointEditor::Kind::envelope, selected);
     }
+    else if (kind == Kind::pitch)
+        editor.setTarget (MultiPointEditor::Kind::pitchEnvelope, 0);
     else
         editor.setTarget (MultiPointEditor::Kind::lfoShape, selected);
+    const auto pitch = kind == Kind::pitch;
+    for (auto* control : { &pitchOn, &pitchMode, &pitchSpeed, &pitchRange, &pitchSteps, &pitchFlip, &keytrack, &bendLag, &glideCurve, &glideSplit })
+        control->setVisible (pitch);
+    for (auto& route : pitchRoutes)
+        route->setVisible (pitch);
+    pitchRouteLabel.setVisible (pitch);
 
     showingSync = isSynced();
     display.setVisible (lfo);
@@ -257,9 +308,9 @@ void ModulatorPanel::select (Kind newKind, int index)
     editor.setVisible (! lfo);
     startFromBox.setVisible (! lfo);
     startFromLabel.setVisible (! lfo);
-    hint.setVisible (! lfo);
+    hint.setVisible (! lfo && ! pitch);
     startFromBox.clear (juce::dontSendNotification);
-    startFromBox.addItemList (envelope ? envelopeStarts : lfoShapeStarts, 1);
+    startFromBox.addItemList (envelope ? envelopeStarts : pitch ? pitchStarts : lfoShapeStarts, 1);
     hint.setText (envelope ? "ENV " + juce::String (selected + 1) + " is a source in the matrix. Double-click to add points, drag lines to curve them, "
                                  "right-click a point for SUSTAIN and LOOP."
                            : "Choose CUSTOM " + juce::String (selected + 1) + " as an LFO's WAVE to play this shape. Double-click to add points, "
@@ -271,7 +322,7 @@ void ModulatorPanel::select (Kind newKind, int index)
 
 void ModulatorPanel::startFrom (int choice)
 {
-    editor.setShape (kind == Kind::envelope ? envelopeStart (choice) : lfoShapeStart (choice), true);
+    editor.setShape (kind == Kind::envelope ? envelopeStart (choice) : kind == Kind::pitch ? pitchStart (choice) : lfoShapeStart (choice), true);
 }
 
 void ModulatorPanel::timerCallback()
@@ -287,7 +338,8 @@ void ModulatorPanel::paint (juce::Graphics& g)
     // The tab groups' names.
     g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
     g.setColour (ParagonColours::text);
-    for (const auto& [group, name] : { std::pair { Kind::lfo, "LFO" }, std::pair { Kind::envelope, "ENV" }, std::pair { Kind::shape, "SHAPE" } })
+    for (const auto& [group, name] : { std::pair { Kind::lfo, "LFO" }, std::pair { Kind::envelope, "ENV" }, std::pair { Kind::shape, "SHAPE" },
+                                       std::pair { Kind::pitch, "" } })
         for (const auto& tab : tabs)
             if (tab.kind == group && tab.index == 0)
             {
@@ -309,7 +361,7 @@ void ModulatorPanel::resized()
             strip.removeFromLeft (64);
             last = tab.kind;
         }
-        tab.button->setBounds (strip.removeFromLeft (32));
+        tab.button->setBounds (strip.removeFromLeft (tab.kind == Kind::pitch ? 64 : 32));
         strip.removeFromLeft (4);
     }
 
@@ -339,6 +391,23 @@ void ModulatorPanel::resized()
         startFromBox.setBounds (startArea.removeFromTop (30).reduced (4, 2));
         controls.removeFromTop (10);
         hint.setBounds (controls.reduced (6, 0));
+        return;
+    }
+    if (kind == Kind::pitch)
+    {
+        SynthPanel::layoutRow (controls.removeFromTop (h), { &pitchOn, &pitchMode, &pitchSpeed, &pitchRange, &pitchSteps, &pitchFlip }, 84);
+        controls.removeFromTop (6);
+        SynthPanel::layoutRow (controls.removeFromTop (h), { &keytrack, &bendLag, &glideCurve, &glideSplit }, 98);
+        controls.removeFromTop (8);
+        auto row = controls.removeFromTop (24);
+        controls.removeFromTop (6);
+        auto startArea = controls.removeFromTop (28).removeFromRight (230);
+        pitchRouteLabel.setBounds (row.removeFromLeft (86));
+        const auto width = row.getWidth() / (int) pitchRoutes.size();
+        for (auto& route : pitchRoutes)
+            route->setBounds (row.removeFromLeft (width));
+        startFromLabel.setBounds (startArea.removeFromLeft (80));
+        startFromBox.setBounds (startArea.reduced (0, 1));
         return;
     }
     auto startArea = controls.removeFromTop (60).withSizeKeepingCentre (200, 60);

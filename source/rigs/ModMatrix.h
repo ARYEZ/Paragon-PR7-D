@@ -51,6 +51,11 @@ struct ModShapeData
     {
         return { { { 0.0f, 0.0f, 0.0f }, { 0.05f, 1.0f, -0.4f }, { 0.4f, 0.6f, 0.0f }, { 1.2f, 0.0f, -0.4f } }, 2, 1, 2 };
     }
+    // A new PITCH envelope: from +half the RANGE down to no change (the middle) in 150 ms.
+    static ModShapeData defaultPitchEnvelope()
+    {
+        return { { { 0.0f, 0.75f, -0.5f }, { 0.15f, 0.5f, 0.0f } }, -1, -1, -1 };
+    }
     // A new drawn LFO shape: a triangle.
     static ModShapeData defaultLfoShape()
     {
@@ -110,6 +115,8 @@ struct ModMatrix
     // The modulation envelopes' and drawn LFO shapes' points (stage 4b).
     std::array<ModShapeData, synth::mod::numEnvelopes> envelopes = filled<synth::mod::numEnvelopes> (ModShapeData::defaultEnvelope());
     std::array<ModShapeData, synth::mod::numLfoShapes> lfoShapes = filled<synth::mod::numLfoShapes> (ModShapeData::defaultLfoShape());
+    // The PITCH module's envelope (stage 4c).
+    ModShapeData pitchEnvelope = ModShapeData::defaultPitchEnvelope();
 
     template <int N>
     static std::array<ModShapeData, (size_t) N> filled (const ModShapeData& d)
@@ -121,7 +128,8 @@ struct ModMatrix
 
     bool operator== (const ModMatrix& o) const noexcept
     {
-        return routes == o.routes && macroNames == o.macroNames && envelopes == o.envelopes && lfoShapes == o.lfoShapes;
+        return routes == o.routes && macroNames == o.macroNames && envelopes == o.envelopes && lfoShapes == o.lfoShapes
+            && pitchEnvelope == o.pitchEnvelope;
     }
     bool isEmpty() const noexcept { return *this == ModMatrix {}; }
 
@@ -165,6 +173,8 @@ struct ModMatrix
         for (int i = 0; i < synth::mod::numLfoShapes; ++i)
             if (! (lfoShapes[(size_t) i] == ModShapeData::defaultLfoShape()))
                 addShape ("LfoShape", i, lfoShapes[(size_t) i]);
+        if (! (pitchEnvelope == ModShapeData::defaultPitchEnvelope()))
+            addShape ("PitchEnvelope", 0, pitchEnvelope);
         return xml;
     }
 
@@ -198,6 +208,9 @@ struct ModMatrix
                                                      e->getIntAttribute ("loopStart", -1), e->getIntAttribute ("loopEnd", -1), lfo);
                 (lfo ? m.lfoShapes[(size_t) index] : m.envelopes[(size_t) index]) = d;
             }
+        if (const auto* e = xml.getChildByName ("PitchEnvelope"))
+            m.pitchEnvelope = ModShapeData::decode (e->getStringAttribute ("points"), e->getIntAttribute ("sustain", -1),
+                                                    e->getIntAttribute ("loopStart", -1), e->getIntAttribute ("loopEnd", -1), false);
         return m;
     }
 };

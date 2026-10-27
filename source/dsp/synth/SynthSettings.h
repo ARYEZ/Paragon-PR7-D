@@ -115,6 +115,8 @@ namespace synth
         bool toFilter = true;       // through the FILTER (off: straight to the AMP)
         // Through which SHAPERs (stage 3e), when they're on: all four, unless unticked.
         std::array<bool, numShapers> toShaper { true, true, true, true };
+        // Follows the PITCH module's envelope (stage 4c), when it's on.
+        bool pitchEnvelope = true;
         int voiceLimit = maxVoices; // this oscillator's own notes-at-once limit
 
         // UNISON (stage 2, as Avenger's V-Saw): copies of each note, detuned and spread.
@@ -235,6 +237,21 @@ namespace synth
         float tuneCents = 0.0f;     // the whole synth, -100 to 100
     };
 
+    // The PITCH module (stage 4c), modelled on Avenger's: a bipolar
+    // multipoint envelope on the oscillators' pitch, KEYTRACK, the pitch
+    // wheel's lag, and the glide's curve and split note.
+    struct PitchSettings
+    {
+        bool envelopeOn = false;
+        mod::EnvelopeSettings envelope;      // MODE, SPEED, STEPS, FLIP (SYNC and OFFSET unused)
+        const mod::Shape* shape = nullptr;   // its points: the middle (0.5) is no change
+        float rangeSemitones = 12.0f;        // 0 to 24: how far the top and bottom go
+        float keytrack = 1.0f;               // -1 to 1: how far the pitch follows the keys (from middle C)
+        float bendLagMs = 0.0f;              // the pitch wheel, smoothed
+        float glideCurve = 0.0f;             // -1 to 1: the glide's path (0: straight)
+        int glideSplit = 0;                  // notes below this one don't glide (0: off)
+    };
+
     struct Settings
     {
         std::array<OscSettings, numOscillators> oscillators {};
@@ -243,6 +260,7 @@ namespace synth
         AmpSettings amp;
         PlaySettings play;
         mod::ModulationSettings modulation;
+        PitchSettings pitch;
 
         Settings() { oscillators[0].on = true; }
     };

@@ -28,6 +28,8 @@ void MultiPointEditor::setTarget (Kind newKind, int newIndex)
 ModShapeData MultiPointEditor::getShape() const
 {
     const auto& matrix = processor.getModMatrix();
+    if (kind == Kind::pitchEnvelope)
+        return matrix.pitchEnvelope;
     return kind == Kind::envelope ? matrix.envelopes[(size_t) juce::jlimit (0, synth::mod::numEnvelopes - 1, index)]
                                   : matrix.lfoShapes[(size_t) juce::jlimit (0, synth::mod::numLfoShapes - 1, index)];
 }
@@ -35,7 +37,10 @@ ModShapeData MultiPointEditor::getShape() const
 void MultiPointEditor::setShape (const ModShapeData& shape, bool finished)
 {
     auto matrix = processor.getModMatrix();
-    (kind == Kind::envelope ? matrix.envelopes[(size_t) index] : matrix.lfoShapes[(size_t) index]) = shape;
+    if (kind == Kind::pitchEnvelope)
+        matrix.pitchEnvelope = shape;
+    else
+        (kind == Kind::envelope ? matrix.envelopes[(size_t) index] : matrix.lfoShapes[(size_t) index]) = shape;
     processor.setModMatrix (matrix);
     shown = shape;
     if (finished)
@@ -89,8 +94,8 @@ void MultiPointEditor::paint (juce::Graphics& g)
     const auto bounds = getLocalBounds().toFloat();
     DisplayStyle::drawScreen (g, bounds);
     const auto area = getPlotArea();
-    const auto envelope = kind == Kind::envelope;
-    const auto sync = envelope && processor.getParameters().getRawParameterValue (ParamIDs::env (index, "Sync"))->load() > 0.5f;
+    const auto envelope = kind != Kind::lfoShape;   // an envelope's time axis and flags (the PITCH envelope's too)
+    const auto sync = kind == Kind::envelope && processor.getParameters().getRawParameterValue (ParamIDs::env (index, "Sync"))->load() > 0.5f;
 
     // Grid: time marks for an envelope, quarters of the cycle for an LFO shape.
     g.setFont (juce::FontOptions (9.5f));
@@ -116,7 +121,17 @@ void MultiPointEditor::paint (juce::Graphics& g)
         g.drawText (label, juce::Rectangle<float> (60.0f, 12.0f).withCentre ({ pixelX (x), area.getBottom() + 8.0f }), juce::Justification::centred, false);
     }
     g.setColour (ParagonColours::panelEdge);
-    g.drawHorizontalLine (juce::roundToInt (pixelY (kind == Kind::lfoShape ? 0.5f : 0.0f)), area.getX(), area.getRight());
+    const auto middle = kind == Kind::envelope ? 0.0f : 0.5f;   // LFO shapes and the PITCH envelope swing both ways
+    g.drawHorizontalLine (juce::roundToInt (pixelY (middle)), area.getX(), area.getRight());
+    if (kind == Kind::pitchEnvelope)
+    {
+        // The top and bottom in semitones.
+        const auto range = juce::roundToInt (processor.getParameters().getRawParameterValue (ParamIDs::pitchEnvRange)->load());
+        g.setColour (ParagonColours::textDim.withAlpha (0.7f));
+        g.setFont (juce::FontOptions (9.5f));
+        g.drawText ("+" + juce::String (range) + " st", juce::Rectangle<float> (area.getX() + 4.0f, area.getY(), 60.0f, 12.0f), juce::Justification::centredLeft, false);
+        g.drawText ("-" + juce::String (range) + " st", juce::Rectangle<float> (area.getX() + 4.0f, area.getBottom() - 12.0f, 60.0f, 12.0f), juce::Justification::centredLeft, false);
+    }
 
     if (shown.points.empty())
         return;
@@ -158,7 +173,7 @@ void MultiPointEditor::paint (juce::Graphics& g)
         if (envelope && x >= end)
             break;
     }
-    DisplayStyle::drawCurve (g, path, area, pixelY (kind == Kind::lfoShape ? 0.5f : 0.0f), true);
+    DisplayStyle::drawCurve (g, path, area, pixelY (middle), true);
 
     for (int i = 0; i < (int) shown.points.size(); ++i)
     {
@@ -180,7 +195,7 @@ void MultiPointEditor::mouseDown (const juce::MouseEvent& e)
         if (near < 0)
             return;
         juce::PopupMenu menu;
-        const auto envelope = kind == Kind::envelope;
+        const auto envelope = kind != Kind::lfoShape;
         const auto canDelete = (int) shown.points.size() > 2 && ! (kind == Kind::lfoShape && (near == 0 || near == (int) shown.points.size() - 1)) && near != 0;
         menu.addItem (1, "Delete this point", canDelete);
         if (envelope)

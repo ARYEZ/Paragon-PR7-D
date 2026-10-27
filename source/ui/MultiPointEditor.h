@@ -18,7 +18,7 @@ class MultiPointEditor final : public juce::Component,
 public:
     explicit MultiPointEditor (ParagonX1AudioProcessor&);
 
-    enum class Kind { envelope, lfoShape };
+    enum class Kind { envelope, lfoShape, pitchEnvelope };
     void setTarget (Kind, int index);
     Kind getKind() const noexcept { return kind; }
     int getIndex() const noexcept { return index; }

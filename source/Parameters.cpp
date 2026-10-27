@@ -9,7 +9,7 @@ namespace
     using Range = juce::NormalisableRange<float>;
     using ToText = std::function<juce::String (float, int)>;
 
-    // Version hint: the PR7-K version that introduced a parameter (1 for 0.1.0, 2 for 0.2.0, 3 for 0.3.0, 4 for 0.4.0, 5 for 0.5.0, 6 for 0.6.0, 7 for 0.8.0, 8 for 0.9.0, 9 for 0.10.0).
+    // Version hint: the PR7-K version that introduced a parameter (1 for 0.1.0, 2 for 0.2.0, 3 for 0.3.0, 4 for 0.4.0, 5 for 0.5.0, 6 for 0.6.0, 7 for 0.8.0, 8 for 0.9.0, 9 for 0.10.0, 10 for 0.11.0).
     constexpr int firstVersion = 1;
     constexpr int stage2 = 2;
     constexpr int stage3 = 3;
@@ -19,6 +19,7 @@ namespace
     constexpr int stage3e = 7;   // 0.8.0 (0.7.0 added no parameters)
     constexpr int stage4a = 8;   // 0.9.0
     constexpr int stage4b = 9;   // 0.10.0
+    constexpr int stage4c = 10;  // 0.11.0
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -92,6 +93,12 @@ namespace
     // FFT LP / HP: a harmonic number (Off at the ends).
     const ToText asHarmonicLp = [] (float value, int) { return value >= 511.5f ? juce::String ("Off") : "H" + juce::String (juce::roundToInt (value)); };
     const ToText asHarmonicHp = [] (float value, int) { return value <= 1.01f ? juce::String ("Off") : "H" + juce::String (juce::roundToInt (value)); };
+    const ToText asRange = [] (float value, int) { return juce::String::fromUTF8 ("\xc2\xb1") + juce::String (juce::roundToInt (value)) + " st"; };
+    const ToText asSplit = [] (float value, int)
+    {
+        const auto note = juce::roundToInt (value);
+        return note <= 0 ? juce::String ("Off") : juce::MidiMessage::getMidiNoteName (note, true, true, 4);
+    };
     const ToText asTimes = [] (float value, int) { return "x" + juce::String (value, value < 1.0f ? 2 : 1); };
     const ToText asSteps = [] (float value, int) { return value < 0.5f ? juce::String ("Smooth") : juce::String (juce::roundToInt (value)); };
     // The SHAPER's DRIVE, as the gain into its curve.
@@ -286,6 +293,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         for (int k = 0; k < numShapers; ++k)
             addSwitch (layout, osc (i, ParamIDs::oscSettings[ParamIDs::oscSetting ("Shp1") + k]),
                        name + "To Shaper " + juce::String (k + 1), defaults.toShaper[(size_t) k], stage3e);
+        // Whether it follows the PITCH envelope (stage 4c).
+        addSwitch (layout, osc (i, "PitchEnv"), name + "Pitch Envelope", defaults.pitchEnvelope, stage4c);
     }
 
     // The FILTER: off in a new sound (Avenger's starts without one), ready at a 24 dB low-pass at 2 kHz.
@@ -356,6 +365,21 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         addSwitch (layout, env (k, "Flip"), name + "Flip", envelopeDefaults.flip, stage4b);
         add (layout, env (k, "Offset"), name + "Offset", { 0.0f, 1.0f }, envelopeDefaults.offset, asPercent, stage4b);
     }
+    // The PITCH module (stage 4c).
+    const synth::PitchSettings pitch;
+    addSwitch (layout, pitchEnvOn, "Pitch Envelope On", pitch.envelopeOn, stage4c);
+    addChoice (layout, pitchEnvMode, "Pitch Envelope Mode", synth::mod::envelopeModeNames, (int) pitch.envelope.mode, stage4c);
+    add (layout, pitchEnvSpeed, "Pitch Envelope Speed", logRange (0.1, 10.0), pitch.envelope.speed, asTimes, stage4c);
+    add (layout, pitchEnvRange, "Pitch Envelope Range", { 0.0f, 24.0f, 1.0f }, pitch.rangeSemitones, asRange, stage4c);
+    add (layout, pitchEnvSteps, "Pitch Envelope Steps", { 0.0f, 32.0f, 1.0f }, (float) pitch.envelope.steps, asSteps, stage4c);
+    addSwitch (layout, pitchEnvFlip, "Pitch Envelope Flip", pitch.envelope.flip, stage4c);
+    add (layout, pitchKeytrack, "Pitch Keytrack", { -1.0f, 1.0f }, pitch.keytrack, asSignedPercent, stage4c);
+    Range lagRange { 0.0f, 1000.0f };
+    lagRange.setSkewForCentre (100.0f);
+    add (layout, bendLag, "Pitch Bend Lag", lagRange, pitch.bendLagMs, asMs, stage4c);
+    add (layout, glideCurve, "Glide Curve", { -1.0f, 1.0f }, pitch.glideCurve, asSignedPercent, stage4c);
+    add (layout, glideSplit, "Glide Split", { 0.0f, 127.0f, 1.0f }, (float) pitch.glideSplit, asSplit, stage4c);
+
     for (int k = 0; k < 3; ++k)
         add (layout, macros[k], "Macro " + juce::String (k + 1), { 0.0f, 1.0f }, 0.0f, asPercent, stage4a);
     for (int k = 0; k < 2; ++k)
