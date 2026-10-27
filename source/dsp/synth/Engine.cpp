@@ -1,6 +1,7 @@
 #include "Engine.h"
 
 #include "WaveTables.h"
+#include "WaveBend.h"
 #include "Wavetable.h"
 
 namespace synth
@@ -59,6 +60,55 @@ namespace synth
                 const auto a = Wavetable::read (below, positions[i]);
                 const auto b = Wavetable::read (above, positions[i]);
                 write (i, a + (b - a) * (source.mixFrom + step * (float) (i + 1)));
+            }
+        }
+
+        // SHAPE: the wave bent (WaveBend.h), sample by sample, for `n` samples:
+        // calls `out (i, value)` for each. Slower than the plain reads, so
+        // only used while something is bent.
+        template <typename Out>
+        void renderBent (const WaveSource& source, const WaveBend& bending, int level, int n, float& phase, float increment,
+                         float& crushPrevious, Out&& out) noexcept
+        {
+            const float* table = nullptr;
+            Wavetable::Level below {}, above {};
+            if (source.wave == OscWave::wavetable)
+            {
+                below = source.table->get (source.below, level);
+                above = source.table->get (source.above, level);
+            }
+            else
+                table = tables::get (source.wave == OscWave::saw || source.wave == OscWave::pulse ? tables::Wave::saw
+                                   : source.wave == OscWave::triangle ? tables::Wave::triangle : tables::Wave::sine, level);
+            const auto step = (source.mixTo - source.mixFrom) / (float) n;
+            for (int i = 0; i < n; ++i)
+            {
+                const auto mix = source.mixFrom + step * (float) (i + 1);
+                const auto read = [&] (float x) -> float
+                {
+                    switch (source.wave)
+                    {
+                        case OscWave::pulse:
+                        {
+                            auto other = x + source.pulseWidth;   // 0 to 2
+                            other -= (float) (other >= 1.0f);
+                            return tables::read (table, x) - tables::read (table, other);
+                        }
+                        case OscWave::wavetable:
+                        {
+                            const auto a = Wavetable::read (below, x);
+                            return source.oneFrame ? a : a + (Wavetable::read (above, x) - a) * mix;
+                        }
+                        case OscWave::saw:
+                        case OscWave::triangle:
+                        case OscWave::sine:
+                            break;
+                    }
+                    return tables::read (table, x);
+                };
+                out (i, bending.bits (bending.sample (phase, increment, read), crushPrevious));
+                phase += increment;
+                phase -= (float) (phase >= 1.0f);
             }
         }
 
@@ -538,6 +588,9 @@ namespace synth
                 osc.vibratoPhase = 0.0f;
                 osc.vibratoHeld = random.nextFloat() * 2.0f - 1.0f;
                 osc.tableIndex = -1.0f;
+                osc.crushPrevious = 0.0f;
+                for (auto& c : osc.copies)
+                    c.crushPrevious = 0.0f;
             }
             if (! wasActive || restartEnvelopes)
                 osc.vibratoAge = 0;   // the vibrato fades in again with each new note
@@ -926,8 +979,16 @@ namespace synth
                 }
             }
 
+            // SHAPE: bent waves read a level with fewer harmonics, as many as the
+            // fastest the bend plays any part of the wave leaves room for.
+            warpTables[index].update (s.skew, s.pinch);
+            const auto bending = WaveBend::make (s, warpTables[index]);
+
             auto* mono = scratch.data();
-            if (audible)
+            if (audible && bending.active)
+                renderBent (source, bending.forIncrement (increment), tables::levelFor (hz * bending.speed, sampleRate), n, osc.phase, increment,
+                            osc.crushPrevious, [mono, gain = s.gain] (int i, float v) { mono[i] = v * gain; });
+            else if (audible)
                 renderWave (source, mono, n, osc.phase, increment, level, s.gain);
             else
             {
@@ -1012,8 +1073,21 @@ namespace synth
                         float left, right;
                         balance (s.pan + notePan + position * s.unisonSpread, left, right);
                         const auto copyLevel = (u == 0 ? 1.0f : s.unisonMix) * noteVolume * s.gain * sign;
-                        addCopy (source, outLeft, outRight, gains.data(), n, c.phase, juce::jlimit (0.0f, 0.5f, copyHz / (float) sampleRate),
-                                 tables::levelFor (copyHz, sampleRate), left * copyLevel, right * copyLevel);
+                        const auto copyIncrement = juce::jlimit (0.0f, 0.5f, copyHz / (float) sampleRate);
+                        if (bending.active)
+                        {
+                            const auto gainLeft = left * copyLevel, gainRight = right * copyLevel;
+                            renderBent (source, bending.forIncrement (copyIncrement), tables::levelFor (copyHz * bending.speed, sampleRate), n, c.phase,
+                                        copyIncrement, c.crushPrevious, [&] (int i, float v)
+                                        {
+                                            v *= gains[(size_t) i];
+                                            outLeft[i] += v * gainLeft;
+                                            outRight[i] += v * gainRight;
+                                        });
+                        }
+                        else
+                            addCopy (source, outLeft, outRight, gains.data(), n, c.phase, copyIncrement,
+                                     tables::levelFor (copyHz, sampleRate), left * copyLevel, right * copyLevel);
                     }
                 }
             }

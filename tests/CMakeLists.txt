@@ -8,6 +8,7 @@ add_executable(ParagonX1Tests
     TestMain.cpp
     SynthTests.cpp
     WavetableTests.cpp
+    ShapeTests.cpp
     ProcessorTests.cpp
     RigTests.cpp
     UiTests.cpp

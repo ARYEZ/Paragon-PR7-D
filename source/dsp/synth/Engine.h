@@ -4,6 +4,7 @@
 
 #include "Noise.h"
 #include "SynthSettings.h"
+#include "WaveBend.h"
 
 #include <array>
 #include <vector>
@@ -70,6 +71,7 @@ namespace synth
             float phase = 0.0f;
             float vibratoPhase = 0.0f, vibratoRate = 1.0f;   // INDEPENDENT vibrato: its own phase, and speed (a factor)
             float vibratoHeld = 0.0f;                        // ...and the RANDOM wave's value this cycle
+            float crushPrevious = 0.0f;                      // CRUSH BIT's last input
         };
         // Copies are numbered note x maxUnison + unison copy: note 0 is the key
         // itself, 1 to 4 the chord notes; unison copy 0 is the note's own pitch.
@@ -86,6 +88,7 @@ namespace synth
             float vibratoPhase = 0.0f, vibratoHeld = 0.0f;   // GLOBAL vibrato
             int vibratoAge = 0;                              // samples since the note started, for the vibrato's FADE IN
             float tableIndex = -1.0f;                        // WAVETABLE's INDEX as of the last interval (-1: the note just started)
+            float crushPrevious = 0.0f;                      // CRUSH BIT's last input (the key's own copy)
             std::array<Copy, maxCopies> copies;
         };
 
@@ -153,6 +156,9 @@ namespace synth
         std::array<int, 128> heldNotes {};
         std::array<float, 128> heldVelocities {};
         int numHeld = 0;
+
+        // SHAPE's SKEW / PINCH curve for each oscillator, remade when they change (on the heap: 4 KB each).
+        std::vector<WarpTable> warpTables = std::vector<WarpTable> (numOscillators);
 
         std::array<bool, numOscillators> alternate {};   // RANDOM's alternating direction, per oscillator
         juce::Random random;

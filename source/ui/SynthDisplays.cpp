@@ -2,6 +2,7 @@
 
 #include "Parameters.h"
 #include "dsp/synth/Engine.h"
+#include "dsp/synth/WaveBend.h"
 #include "dsp/synth/WaveTables.h"
 #include "ui/ParagonLookAndFeel.h"
 
@@ -67,6 +68,40 @@ void ParameterDisplay::timerCallback()
 }
 
 //==============================================================================
+namespace
+{
+    float raw (const juce::AudioProcessorValueTreeState& state, const juce::String& id)
+    {
+        const auto* value = state.getRawParameterValue (id);
+        return value != nullptr ? value->load() : 0.0f;
+    }
+
+    // Oscillator `osc`'s SHAPE settings, as the processor reads them.
+    synth::OscSettings shapeOf (const juce::AudioProcessorValueTreeState& state, int osc)
+    {
+        synth::OscSettings s;
+        s.skew = raw (state, ParamIDs::osc (osc, "Skew"));
+        s.pinch = raw (state, ParamIDs::osc (osc, "Pinch"));
+        s.formant = raw (state, ParamIDs::osc (osc, "Formant"));
+        s.formantMode = (synth::FormantMode) juce::jlimit (0, synth::formantModeNames.size() - 1, juce::roundToInt (raw (state, ParamIDs::osc (osc, "FormantMode"))));
+        s.crush = raw (state, ParamIDs::osc (osc, "Crush"));
+        s.crushMode = (synth::CrushMode) juce::jlimit (0, synth::crushModeNames.size() - 1, juce::roundToInt (raw (state, ParamIDs::osc (osc, "CrushMode"))));
+        return s;
+    }
+
+    // A wave bent as the oscillator bends it. (Drawn, so its edges needn't be smoothed.)
+    template <typename Read>
+    float bentAt (const synth::WaveBend& bending, float phase, Read&& read)
+    {
+        auto v = bending.stepped (phase - std::floor (phase), read);
+        if (bending.levels > 0)
+            v = (std::floor (v * (float) bending.levels) + 0.5f) / (float) bending.levels * bending.bitGain;
+        return v;
+    }
+
+    const char* const shapeSettings[] = { "Skew", "Pinch", "Formant", "FormantMode", "Crush", "CrushMode" };
+}
+
 WaveDisplay::WaveDisplay (juce::AudioProcessorValueTreeState& s) : ParameterDisplay (s) {}
 
 juce::String WaveDisplay::id (const char* what) const { return ParamIDs::osc (oscillator, what); }
@@ -82,6 +117,8 @@ std::vector<float> WaveDisplay::snapshot() const
     std::vector<float> values { (float) oscillator };
     for (const auto* what : { "On", "Wave", "Gain", "Width", "Invert", "Sub", "SubWave", "SubOct", "SubInvert", "Noise", "Phase", "PhaseRand",
                               "Table", "WtIndex", "WtMode", "WtFrames" })
+        values.push_back (value (id (what)));
+    for (const auto* what : shapeSettings)
         values.push_back (value (id (what)));
     // Which table (a file can be loaded without any parameter changing).
     if (juce::roundToInt (value (id ("Wave"))) == (int) synth::OscWave::wavetable && tableFor)
@@ -153,13 +190,17 @@ void WaveDisplay::paint (juce::Graphics& g)
         return 0.0f;
     };
 
+    const auto shape = shapeOf (state, oscillator);
+    synth::WarpTable warp;
+    warp.update (shape.skew, shape.pinch);
+    const auto bending = synth::WaveBend::make (shape, warp);
     const auto points = juce::jmax (2, (int) area.getWidth());
     std::vector<float> main ((size_t) points), under ((size_t) points);
     auto peak = 1.0f;
     for (int i = 0; i < points; ++i)
     {
         const auto phase = (float) i / (float) (points - 1);
-        main[(size_t) i] = waveAt (phase) * gain * invert;
+        main[(size_t) i] = (bending.active ? bentAt (bending, phase * 0.9999f, waveAt) : waveAt (phase)) * gain * invert;
         under[(size_t) i] = subAt (phase) * sub * subSign * invert;
         peak = juce::jmax (peak, std::abs (main[(size_t) i] + under[(size_t) i]));
     }
@@ -260,11 +301,16 @@ void WaveDisplay::paintWavetable (juce::Graphics& g, juce::Rectangle<float> area
     const auto below = table->get (position.below, level), above = table->get (position.above, level);
     const auto between = position.between;
     const auto now = plane (index);
-    const auto path = curve ([&] (float phase)
+    const auto shape = shapeOf (state, oscillator);
+    synth::WarpTable warp;
+    warp.update (shape.skew, shape.pinch);
+    const auto bending = synth::WaveBend::make (shape, warp);
+    const auto plain = [&] (float phase)
     {
         const auto a = synth::Wavetable::read (below, phase);
         return a + (synth::Wavetable::read (above, phase) - a) * between;
-    }, now);
+    };
+    const auto path = curve ([&] (float phase) { return bending.active ? bentAt (bending, phase, plain) : plain (phase); }, now);
     DisplayStyle::drawCurve (g, path, now, now.getCentreY(), on);
 
     // The table's name, and which frame.
@@ -275,6 +321,113 @@ void WaveDisplay::paintWavetable (juce::Graphics& g, juce::Rectangle<float> area
     g.setColour (ParagonColours::textDim.withAlpha (on ? 0.9f : 0.4f));
     g.drawText ("FRAME " + juce::String (frameNumber) + " / " + juce::String (table->getNumFrames()), area.withHeight (header).withTrimmedRight (on ? 0.0f : 34.0f),
                 juce::Justification::topRight, false);
+}
+
+//==============================================================================
+ShapeDisplay::ShapeDisplay (juce::AudioProcessorValueTreeState& s) : ParameterDisplay (s) {}
+
+void ShapeDisplay::setOscillator (int index)
+{
+    oscillator = index;
+    repaint();
+}
+
+std::vector<float> ShapeDisplay::snapshot() const
+{
+    std::vector<float> values { (float) oscillator };
+    for (const auto* what : { "On", "Wave", "Width", "Invert", "Table", "WtIndex", "WtMode", "WtFrames" })
+        values.push_back (value (ParamIDs::osc (oscillator, what)));
+    for (const auto* what : shapeSettings)
+        values.push_back (value (ParamIDs::osc (oscillator, what)));
+    if (tableFor)
+        if (const auto table = tableFor (oscillator))
+            values.push_back ((float) (reinterpret_cast<std::uintptr_t> (table.get()) % 16777213u));
+    return values;
+}
+
+void ShapeDisplay::paint (juce::Graphics& g)
+{
+    const auto bounds = getLocalBounds().toFloat();
+    DisplayStyle::drawScreen (g, bounds);
+    const auto area = bounds.reduced (14.0f, 22.0f);
+    const auto mid = area.getCentreY();
+    const auto id = [this] (const char* what) { return ParamIDs::osc (oscillator, what); };
+
+    g.setColour (ParagonColours::panelEdge.withAlpha (0.6f));
+    g.drawHorizontalLine (juce::roundToInt (mid), area.getX(), area.getRight());
+    for (int i = 1; i < 8; ++i)
+        g.drawVerticalLine (juce::roundToInt (area.getX() + area.getWidth() * (float) i / 8.0f), area.getY(), area.getBottom());
+
+    // The plain wave, as the oscillator reads it (round A3).
+    const auto level = synth::tables::levelFor (220.0, 48000.0);
+    const auto wave = (synth::OscWave) juce::roundToInt (value (id ("Wave")));
+    const auto width = juce::jlimit (0.01f, 0.99f, value (id ("Width")));
+    const auto sign = value (id ("Invert")) > 0.5f ? -1.0f : 1.0f;
+    const auto basic = [level] (synth::tables::Wave w, float x) { return synth::tables::read (synth::tables::get (w, level), x - std::floor (x)); };
+    std::shared_ptr<const synth::Wavetable> table;
+    synth::Wavetable::Position position;
+    if (wave == synth::OscWave::wavetable && tableFor)
+        if ((table = tableFor (oscillator)) != nullptr)
+            position = table->locate (value (id ("WtIndex")), juce::roundToInt (value (id ("WtFrames"))), juce::roundToInt (value (id ("WtMode"))) == 1);
+    const auto plain = [&] (float x) -> float
+    {
+        switch (wave)
+        {
+            case synth::OscWave::saw:      return basic (synth::tables::Wave::saw, x);
+            case synth::OscWave::pulse:    return basic (synth::tables::Wave::saw, x) - basic (synth::tables::Wave::saw, x + width);
+            case synth::OscWave::triangle: return basic (synth::tables::Wave::triangle, x);
+            case synth::OscWave::sine:     return basic (synth::tables::Wave::sine, x);
+            case synth::OscWave::wavetable:
+                if (table == nullptr)
+                    return 0.0f;
+                {
+                    const auto a = synth::Wavetable::read (table->get (position.below, level), x);
+                    return a + (synth::Wavetable::read (table->get (position.above, level), x) - a) * position.between;
+                }
+        }
+        return 0.0f;
+    };
+    const auto shape = shapeOf (state, oscillator);
+    synth::WarpTable warp;
+    warp.update (shape.skew, shape.pinch);
+    const auto bending = synth::WaveBend::make (shape, warp);
+    const auto on = value (id ("On")) > 0.5f;
+
+    // Two cycles of each.
+    const auto points = juce::jmax (2, (int) area.getWidth());
+    const auto trace = [&] (bool bent)
+    {
+        juce::Path path;
+        for (int i = 0; i < points; ++i)
+        {
+            const auto phase = 2.0f * (float) i / (float) (points - 1) * 0.99995f;
+            const auto x = phase - std::floor (phase);
+            const auto v = (bent ? bentAt (bending, x, plain) : plain (x)) * sign;
+            const juce::Point<float> point (area.getX() + (float) i, mid - juce::jlimit (-1.25f, 1.25f, v) * area.getHeight() * 0.4f);
+            if (i == 0) path.startNewSubPath (point); else path.lineTo (point);
+        }
+        return path;
+    };
+    g.setColour (ParagonColours::textDim.withAlpha (bending.active ? 0.45f : 0.7f));
+    g.strokePath (trace (false), juce::PathStrokeType (1.2f));
+    if (bending.active)
+        DisplayStyle::drawCurve (g, trace (true), area, mid, on);
+
+    // What's what.
+    g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    const auto header = bounds.reduced (12.0f, 6.0f).withHeight (14.0f);
+    g.setColour (ParagonColours::textDim);
+    g.drawText ("PLAIN", header, juce::Justification::centredLeft, false);
+    if (bending.active)
+    {
+        g.setColour (ParagonColours::accent);
+        g.drawText ("SHAPED", header.withTrimmedLeft (50.0f), juce::Justification::centredLeft, false);
+    }
+    else
+    {
+        g.setColour (ParagonColours::textDim);
+        g.drawText ("Turn SKEW, PINCH, FORMANT or CRUSH to bend the wave", header, juce::Justification::centredRight, false);
+    }
 }
 
 //==============================================================================

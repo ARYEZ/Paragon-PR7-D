@@ -6,7 +6,8 @@
 
 // PR7-K's first factory presets: a few starting points that show what each
 // stage can do (0.1.0: oscillators, sub, noise, the filter and its envelope,
-// mono and glide; 0.2.0: unison, vibrato and the chorder; 0.3.0: wavetables). Our own sounds, set up from common synth
+// mono and glide; 0.2.0: unison, vibrato and the chorder; 0.3.0: wavetables;
+// 0.4.0: SHAPE). Our own sounds, set up from common synth
 // recipes, not copies of anyone's presets, and not yet tuned by ear: the
 // full factory set comes in a later stage (presets), once the engine has
 // unison, wavetables, modulation and effects to build them with.
@@ -197,6 +198,35 @@ std::vector<Rig> makeFactoryRigs()
         .ampEnvelope (1.0f, 500.0f, 0.7f, 120.0f)
         .mono (0.0f);
     add (bits);
+
+    // 0.4.0: SHAPE.
+    Builder vox ("Formant Vox", 15, { "Lead", "Shape" },
+                 "A saw played faster inside each cycle (FORMANT, X-FADE 2), which gives it a fixed, vocal resonance as you play up and down; three copies and a slow vibrato.");
+    vox.osc (0, "Formant", -0.35f).osc (0, "FormantMode", (float) synth::FormantMode::crossfade2)
+       .osc (0, "UniVoices", 3.0f).osc (0, "UniMix", 0.6f).osc (0, "UniDetune", 0.25f).osc (0, "UniSpread", 0.6f)
+       .osc (0, "VibAmount", 12.0f).osc (0, "VibRate", 5.0f).osc (0, "VibFade", 500.0f).osc (0, "Volume", 0.6f)
+       .filter (FilterType::lp12, 6000.0f, 0.1f, 0.0f)
+       .ampEnvelope (40.0f, 400.0f, 0.85f, 400.0f)
+       .mono (80.0f);
+    add (vox);
+
+    Builder skewed ("Phase Bass", 16, { "Bass", "Shape" },
+                    "A sine bent hard to one side (SKEW) into a rounded, buzzy bass, the way phase-distortion synths make theirs, and a filter that closes after the attack.");
+    skewed.osc (0, "Wave", (float) synth::OscWave::sine).osc (0, "Skew", 0.75f).osc (0, "Pinch", -0.3f).osc (0, "Volume", 0.7f)
+          .osc (0, "Sub", 0.5f).osc (0, "SubOct", 1.0f)
+          .filter (FilterType::lp24, 900.0f, 0.15f, 0.45f).filterEnvelope (0.0f, 350.0f, 0.2f, 150.0f)
+          .set (ParamIDs::fltKey, 0.4f)
+          .ampEnvelope (1.0f, 600.0f, 0.75f, 120.0f)
+          .mono (0.0f);
+    add (skewed);
+
+    Builder crushed ("Crushed Keys", 17, { "Keys", "Shape" },
+                     "A triangle through CRUSH (BOTH: steps and fewer levels), the gritty sound of an old sampler, with a soft attack and a plucky decay.");
+    crushed.osc (0, "Wave", (float) synth::OscWave::triangle).osc (0, "Crush", 0.55f).osc (0, "CrushMode", (float) synth::CrushMode::both)
+           .osc (0, "Volume", 0.6f)
+           .filter (FilterType::lp12, 5000.0f, 0.0f, 0.0f)
+           .ampEnvelope (3.0f, 900.0f, 0.3f, 400.0f).set (ParamIDs::ampVel, 0.6f);
+    add (crushed);
 
     return rigs;
 }

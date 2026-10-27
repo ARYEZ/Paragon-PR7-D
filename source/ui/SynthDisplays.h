@@ -55,6 +55,22 @@ private:
     int oscillator = 0;
 };
 
+// SHAPE: the selected oscillator's wave over two cycles, large: as it is
+// (dim) and as SKEW, PINCH, FORMANT and CRUSH bend it (bright).
+class ShapeDisplay final : public ParameterDisplay
+{
+public:
+    explicit ShapeDisplay (juce::AudioProcessorValueTreeState&);
+    void setOscillator (int index);
+    void paint (juce::Graphics&) override;
+
+    std::function<std::shared_ptr<const synth::Wavetable> (int oscillator)> tableFor;
+
+private:
+    std::vector<float> snapshot() const override;
+    int oscillator = 0;
+};
+
 // The FILTER's response, worked out from its type, CUTOFF and RESONANCE: how
 // much each frequency is cut or boosted, 20 Hz to 20 kHz. Dimmed while it's off.
 class FilterDisplay final : public ParameterDisplay

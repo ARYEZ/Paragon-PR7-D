@@ -269,3 +269,42 @@ TEST_CASE ("WAVETABLE: the oscillator shows TABLE, INDEX, MODE and FRAMES in pla
     CHECK (w.processor.getWavetable (1)->getName() == "Vowels");
     CHECK (box->getText() == "Vowels");
 }
+
+TEST_CASE ("The oscillator's SHAPE page: SKEW, PINCH, FORMANT and CRUSH beside the wave, laid out cleanly", "[ui][shape]")
+{
+    Window w;
+    auto& oscillators = w.view->getOscillatorPanel();
+    oscillators.selectOscillator (2);
+    CHECK_FALSE (controlFor (*w.view, ParamIDs::osc (2, "Skew"))->isVisible());   // on the WAVE page, hidden
+
+    oscillators.showPage (OscillatorPanel::Page::shape);
+    for (const auto* what : { "Skew", "Pinch", "Formant", "FormantMode", "Crush", "CrushMode", "Wave", "Width", "Gain" })
+    {
+        INFO (what);
+        CHECK (controlFor (*w.view, ParamIDs::osc (2, what))->isVisible());
+    }
+    for (const auto* what : { "Transpose", "Noise", "UniMix" })
+    {
+        INFO (what);
+        CHECK_FALSE (controlFor (*w.view, ParamIDs::osc (2, what))->isVisible());
+    }
+    checkLayout (*w.view, "shape");
+
+    std::vector<juce::Component*> shown;
+    for (auto* child : oscillators.getChildren())
+        if (child->isVisible() && dynamic_cast<juce::Button*> (child) == nullptr)
+            shown.push_back (child);
+    for (size_t i = 0; i < shown.size(); ++i)
+        for (size_t j = i + 1; j < shown.size(); ++j)
+        {
+            INFO (shown[i]->getBounds().toString() << " and " << shown[j]->getBounds().toString());
+            CHECK_FALSE (shown[i]->getBounds().intersects (shown[j]->getBounds()));
+        }
+
+    // Its knobs turn oscillator 3's.
+    auto* skew = inside<juce::Slider> (*controlFor (*w.view, ParamIDs::osc (2, "Skew")));
+    REQUIRE (skew != nullptr);
+    skew->setValue (0.4, juce::sendNotificationSync);
+    CHECK_THAT (value (w.processor, ParamIDs::osc (2, "Skew")), WithinAbs (0.4, 1.0e-3));
+    CHECK (w.processor.getSynthSettings().oscillators[2].hasBend());
+}

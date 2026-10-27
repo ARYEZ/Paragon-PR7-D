@@ -138,6 +138,13 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
         o.tableSteppy = choice (get (oscSetting ("WtMode")), synth::wavetableModeNames.size()) == 1;
         o.tableFrames = juce::jlimit (2, synth::maxWavetableFrames, juce::roundToInt (get (oscSetting ("WtFrames"))));
 
+        o.skew = get (oscSetting ("Skew"));
+        o.pinch = get (oscSetting ("Pinch"));
+        o.formant = get (oscSetting ("Formant"));
+        o.formantMode = (synth::FormantMode) choice (get (oscSetting ("FormantMode")), synth::formantModeNames.size());
+        o.crush = get (oscSetting ("Crush"));
+        o.crushMode = (synth::CrushMode) choice (get (oscSetting ("CrushMode")), synth::crushModeNames.size());
+
         o.unisonVoices = juce::jlimit (2, synth::maxUnison, juce::roundToInt (get (oscSetting ("UniVoices"))));
         o.unisonMix = get (oscSetting ("UniMix"));
         o.unisonDetune = get (oscSetting ("UniDetune"));

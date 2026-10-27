@@ -45,8 +45,9 @@ public:
     int getSelected() const noexcept { return selected; }
 
     // WAVE: the oscillator's sound (wave, pitch, start, noise, sub, level).
+    // SHAPE: bending its wave (stage 3b).
     // VOICES: its unison copies, vibrato and chorder (stage 2).
-    enum class Page { wave, voices };
+    enum class Page { wave, voices, shape };
     void showPage (Page);
     Page getPage() const noexcept { return page; }
 
@@ -81,17 +82,18 @@ private:
     std::vector<std::unique_ptr<Tab>> tabs;
     WavetableChooser tableChooser;
     bool showingWavetable = false;
-    juce::TextButton wavePageButton { "WAVE" }, voicesPageButton { "VOICES" };
+    juce::TextButton wavePageButton { "WAVE" }, shapePageButton { "SHAPE" }, voicesPageButton { "VOICES" };
     Page page = Page::wave;
     WaveDisplay wave;
     VoicesDisplay voicesDisplay;
+    ShapeDisplay shapeDisplay;
     std::vector<std::unique_ptr<ParamControl>> controls;   // in oscSettings' order where they appear
     std::vector<const char*> settingNames;                 // ...which setting each is
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> sectionTitles;   // PITCH, START, NOISE, SUB, LEVEL
     int selected = 0;
 
     ParamControl& control (const char* what);
-    bool isOnVoicesPage (const char* what) const;   // which page a setting's control is on
+    Page pageOf (const char* what) const;   // which page a setting's control is on (WAVE's left column shows on SHAPE too)
 };
 
 // FILTER: ON and TYPE beside the title, its response, and its knobs.

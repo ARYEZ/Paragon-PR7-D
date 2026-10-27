@@ -52,7 +52,7 @@ namespace
         juce::MidiBuffer pending;
     };
 
-    double rms (const std::vector<float>& x, size_t from, size_t to)
+    inline double rms (const std::vector<float>& x, size_t from, size_t to)
     {
         double sum = 0.0;
         for (auto i = from; i < to; ++i)
@@ -60,10 +60,10 @@ namespace
         return std::sqrt (sum / (double) std::max<size_t> (1, to - from));
     }
 
-    double db (double gain) { return 20.0 * std::log10 (juce::jmax (1.0e-12, gain)); }
+    inline double db (double gain) { return 20.0 * std::log10 (juce::jmax (1.0e-12, gain)); }
 
     // The level of `hz` in samples [from, from + length), as a fraction of full scale (Goertzel, whole cycles).
-    double levelAt (const std::vector<float>& x, double hz, size_t from, size_t length)
+    inline double levelAt (const std::vector<float>& x, double hz, size_t from, size_t length)
     {
         const auto cycles = std::floor ((double) length * hz / sampleRate);
         length = std::max<size_t> (1, (size_t) std::round (cycles * sampleRate / hz));
@@ -79,7 +79,7 @@ namespace
     }
 
     // Frequency of a steady tone from its rising zero crossings, in [from, to).
-    double frequencyOf (const std::vector<float>& x, size_t from, size_t to)
+    inline double frequencyOf (const std::vector<float>& x, size_t from, size_t to)
     {
         double first = -1.0, last = -1.0;
         int crossings = 0;
@@ -141,6 +141,6 @@ namespace
         }
     };
 
-    double noteHz (double note) { return 440.0 * std::pow (2.0, (note - 69.0) / 12.0); }
+    inline double noteHz (double note) { return 440.0 * std::pow (2.0, (note - 69.0) / 12.0); }
 }
 

@@ -8,10 +8,11 @@ namespace
     using Range = juce::NormalisableRange<float>;
     using ToText = std::function<juce::String (float, int)>;
 
-    // Version hint: the PR7-K version that introduced a parameter (1 for 0.1.0, 2 for 0.2.0, 3 for 0.3.0).
+    // Version hint: the PR7-K version that introduced a parameter (1 for 0.1.0, 2 for 0.2.0, 3 for 0.3.0, 4 for 0.4.0).
     constexpr int firstVersion = 1;
     constexpr int stage2 = 2;
     constexpr int stage3 = 3;
+    constexpr int stage3b = 4;   // 0.4.0
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -66,6 +67,15 @@ namespace
         return juce::String (juce::roundToInt (value * 100.0f)) + "%";
     };
     const ToText asCount = [] (float value, int) { return juce::String (juce::roundToInt (value)); };
+    // FORMANT: how many times faster (left) or slower (right) the wave plays, as SHAPE does it.
+    const ToText asFormant = [] (float value, int)
+    {
+        if (std::abs (value) < 0.005f)
+            return juce::String ("Off");
+        const auto k = value < 0.0f ? std::exp2 (-3.0f * value) : std::exp2 (-2.0f * value);
+        return k >= 1.0f ? "x" + juce::String (k, 2) : "/" + juce::String (1.0f / k, 2);
+    };
+    const ToText asCrush = [] (float value, int) { return value < 0.005f ? juce::String ("Off") : juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
     // WAVETABLE FRAMES: at the top, every frame the table has (however many that is).
     const ToText asFrames = [] (float value, int)
     {
@@ -207,6 +217,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         addChoice (layout, osc (i, "WtMode"), name + "Wavetable Mode", synth::wavetableModeNames, 0, stage3);   // SMOOTH
         add (layout, osc (i, "WtFrames"), name + "Wavetable Frames", { 2.0f, (float) synth::maxWavetableFrames, 1.0f },
              (float) defaults.tableFrames, asFrames, stage3);
+
+        // Stage 3b: SHAPE.
+        add (layout, osc (i, "Skew"), name + "Skew", { -1.0f, 1.0f }, defaults.skew, asSignedPercent, stage3b);
+        add (layout, osc (i, "Pinch"), name + "Pinch", { -1.0f, 1.0f }, defaults.pinch, asSignedPercent, stage3b);
+        add (layout, osc (i, "Formant"), name + "Formant", { -1.0f, 1.0f }, defaults.formant, asFormant, stage3b);
+        addChoice (layout, osc (i, "FormantMode"), name + "Formant Mode", synth::formantModeNames, (int) defaults.formantMode, stage3b);
+        add (layout, osc (i, "Crush"), name + "Crush", { 0.0f, 1.0f }, defaults.crush, asCrush, stage3b);
+        addChoice (layout, osc (i, "CrushMode"), name + "Crush Mode", synth::crushModeNames, (int) defaults.crushMode, stage3b);
     }
 
     // The FILTER: off in a new sound (Avenger's starts without one), ready at a 24 dB low-pass at 2 kHz.

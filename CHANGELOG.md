@@ -2,6 +2,22 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.4.0
+
+Stage 3, part 2: **SHAPE**, bending each oscillator's wave while it plays, modelled on Avenger's shape controls (our own design and code: the manual says what each does, not how). Each oscillator has a new **SHAPE** page, between **WAVE** and **VOICES**.
+
+- **BEND: SKEW** squashes one side of the wave and stretches the other (right of centre the left side, left of centre the right side): the rounded, buzzy sound of a "phase distortion" synth. **PINCH** zooms into the middle of the wave (right, smoothing it there and sharpening its edges) or out of it (left).
+- **FORMANT** plays the wave faster with a gap after it (left, up to 8x), which gives a fixed, vocal resonance that stays put as you play up and down; or slower (right, up to 4x), so only its start fits in each cycle. Its **MODE** says what happens where the wave is cut: **CUT** leaves a hard edge (a buzzy click, as the manual describes Avenger's), **FADE** fades its end to silence, **X-FADE** fades both ends, **X-FADE 2** fades its end into its start, so it never jumps. The default is FADE (our choice).
+- **CRUSH** for lo-fi: **RATE** holds the wave in steps (down to 3 a cycle), **BIT** rounds it to fewer levels (down to a square), **BOTH** does both.
+- Works on every wave, wavetables included, and on unison copies and chord notes. The oscillator's wave picture shows the bent wave; the SHAPE page also shows the plain and the bent wave side by side, large.
+- **Our names:** SKEW and PINCH are what Avenger calls XCITE side and mid (that's its own name, so not used here). Tell me if you'd like other names. The four FORMANT modes are our reading of the manual's short description.
+- **Kept clean without oversampling** (what makes Avenger heavy):
+  - SKEW and PINCH bend the wave with curves that are smooth all the way round, and read a table level with room for how much faster they play parts of the wave. Measured at A5 (880 Hz) on a saw: nothing between its harmonics above -116 dB, where doing it the plain way leaves -22 to -32 dB.
+  - FORMANT and CRUSH make hard edges on purpose. Each edge is smoothed over the two samples around it, the way a clean edge would be. At A5: FORMANT 43 to 61 dB down, CRUSH 43 to 46 dB down, 8 to 18 dB cleaner than the plain way. Near the top of the keyboard (E7) hard edges are harder to keep clean (a cut saw is about 35 dB down there): CUT's clicks are the sound it's meant to make, and the fades are cleaner.
+- **CPU:** nothing at all until you turn a SHAPE control. A supersaw chord of 2 oscillators x 7 copies x 8 keys took about 3% of one core plain, 6 to 10% with one SHAPE control on, and about 19% with SKEW, FORMANT and CRUSH all on at once. Your computer will differ.
+- **Three new factory presets:** Formant Vox (A15), Phase Bass (A16) and Crushed Keys (A17). Our own, not tuned by ear.
+- In the tests: SKEW moves a sine's peak (earlier or later), PINCH makes its middle gentler or steeper, FORMANT plays it faster with silence after (or only its first part), each MODE's edges (only CUT jumps), RATE's 3 steps a cycle, BIT's square (its 3rd harmonic at a third, no 2nd), the curves smooth and never running backwards, how much less folds back than the plain way, wavetables and copies bent too, and the CPU figures. Not checked here: how it sounds (I can't listen).
+
 ## 0.3.0
 
 Stage 3, part 1: **wavetables**, modelled on Avenger's wavetable oscillator (our own design and code). Stage 3 comes in parts, each its own release: next are the wave-bending controls, then sync, FM and AM, then the FFT and freeform editors, then the shaper.

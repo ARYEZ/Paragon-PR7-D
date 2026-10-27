@@ -24,6 +24,12 @@ namespace synth
     inline const juce::StringArray wavetableModeNames { "Smooth", "Steppy" };
     inline constexpr int maxWavetableFrames = 256;
 
+    // Saved by index (osc*FormantMode, osc*CrushMode): only ever append. SHAPE (stage 3b, 0.4.0).
+    enum class FormantMode { cut, fade, crossfade, crossfade2 };
+    inline const juce::StringArray formantModeNames { "Cut", "Fade", "X-Fade", "X-Fade 2" };
+    enum class CrushMode { rate, bit, both };
+    inline const juce::StringArray crushModeNames { "Rate", "Bit", "Both" };
+
     // Saved by index (osc*SubWave): only ever append.
     enum class SubWave { sine, triangle, square, saw };
     inline const juce::StringArray subWaveNames { "Sine", "Triangle", "Square", "Saw" };
@@ -117,6 +123,20 @@ namespace synth
         float tableIndex = 0.0f;
         bool tableSteppy = false;
         int tableFrames = maxWavetableFrames;
+
+        // SHAPE (stage 3b): bending the wave as it plays (see WaveBend.h). All
+        // at 0: off, costing nothing.
+        float skew = 0.0f;          // -1 to 1
+        float pinch = 0.0f;         // -1 to 1
+        float formant = 0.0f;       // -1 (8x faster, a gap after) to 1 (4x slower, only the start plays)
+        FormantMode formantMode = FormantMode::fade;
+        float crush = 0.0f;         // 0 to 1
+        CrushMode crushMode = CrushMode::rate;
+
+        bool hasBend() const noexcept
+        {
+            return ! juce::exactlyEqual (skew, 0.0f) || ! juce::exactlyEqual (pinch, 0.0f) || ! juce::exactlyEqual (formant, 0.0f) || crush > 0.0f;
+        }
 
         bool hasUnison() const noexcept { return unisonMix > 0.0f && unisonVoices > 1; }
     };

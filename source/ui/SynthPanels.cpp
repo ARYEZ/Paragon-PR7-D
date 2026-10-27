@@ -134,7 +134,7 @@ void WavetableChooser::resized()
 //==============================================================================
 OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
     : SynthPanel ("OSCILLATORS"), processor (processorToUse), state (processorToUse.getParameters()),
-      tableChooser (processorToUse), wave (state), voicesDisplay (state)
+      tableChooser (processorToUse), wave (state), voicesDisplay (state), shapeDisplay (state)
 {
     for (int i = 0; i < ParamIDs::numOscillators; ++i)
     {
@@ -144,12 +144,14 @@ OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
         tabs.push_back (std::move (tab));
     }
     wave.tableFor = [this] (int osc) { return processor.getWavetable (osc); };
+    shapeDisplay.tableFor = wave.tableFor;
     addAndMakeVisible (wave);
     addChildComponent (voicesDisplay);
+    addChildComponent (shapeDisplay);
     addChildComponent (tableChooser);
 
-    // WAVE / VOICES: which of the oscillator's two pages shows.
-    for (auto* button : { &wavePageButton, &voicesPageButton })
+    // WAVE / SHAPE / VOICES: which of the oscillator's pages shows.
+    for (auto* button : { &wavePageButton, &shapePageButton, &voicesPageButton })
     {
         button->setClickingTogglesState (true);
         button->setRadioGroupId (702);
@@ -161,8 +163,10 @@ OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
     }
     wavePageButton.setTooltip ("The oscillator's wave, pitch, start, noise, sub and level");
     voicesPageButton.setTooltip ("The oscillator's unison copies (supersaw), vibrato and chorder");
+    shapePageButton.setTooltip ("Bend the oscillator's wave: SKEW, PINCH, FORMANT and CRUSH");
     wavePageButton.setToggleState (true, juce::dontSendNotification);
     wavePageButton.onClick = [this] { showPage (Page::wave); };
+    shapePageButton.onClick = [this] { showPage (Page::shape); };
     voicesPageButton.onClick = [this] { showPage (Page::voices); };
 
     // Each control, labelled as on the panel, with a tooltip saying what it does.
@@ -191,6 +195,14 @@ OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
         { "WtIndex", { "INDEX", "Where in the wavetable: each frame is a different wave, and moving INDEX morphs from one to the next." } },
         { "WtMode", { "MODE", "SMOOTH blends between neighbouring frames as INDEX moves; STEPPY jumps from one to the next, for a stepped, digital movement." } },
         { "WtFrames", { "FRAMES", "How many of the table's frames INDEX moves through, spread evenly from the first to the last: fewer makes broader, simpler steps." } },
+
+        // The SHAPE page (stage 3b).
+        { "Skew", { "SKEW", "Squashes one side of the wave and stretches the other: right of centre the left side, left of centre the right side. Brighter, more nasal, the further you go." } },
+        { "Pinch", { "PINCH", "Zooms into the middle of the wave (right), smoothing it there and sharpening its edges, or out of it (left), squeezing the middle." } },
+        { "Formant", { "FORMANT", "Left: the wave plays up to 8 times faster with a gap after it, a vocal, \"formant\" sound whose pitch stays put. Right: up to 4 times slower, so only its start fits in a cycle." } },
+        { "FormantMode", { "MODE", "What FORMANT does at the edges of the wave it plays: CUT leaves a hard edge (a buzzy click), FADE fades its end to silence, X-FADE fades both ends, X-FADE 2 fades its end into its start, so it never jumps." } },
+        { "Crush", { "CRUSH", "Lo-fi: at full, RATE holds the wave in 3 steps a cycle and BIT rounds it to a square." } },
+        { "CrushMode", { "MODE", "RATE: the wave held in steps (fewer, the more CRUSH). BIT: rounded to fewer levels. BOTH: both at once." } },
 
         // The VOICES page (stage 2).
         { "UniVoices", { "VOICES", "How many copies of each note, the note itself included (2 to 7)." } },
@@ -241,9 +253,10 @@ bool OscillatorPanel::isWavetable() const
 
 bool OscillatorPanel::isShown (const char* what) const
 {
-    if (isOnVoicesPage (what) != (page == Page::voices))
-        return false;
     const juce::String name (what);
+    const auto leftColumn = name == "Wave" || name == "Width" || name == "Gain";   // under the wave picture, on SHAPE too
+    if (pageOf (what) != page && ! (leftColumn && page == Page::shape))
+        return false;
     if (name.startsWith ("Wt"))
         return showingWavetable;
     if (name == "Width")
@@ -256,7 +269,7 @@ void OscillatorPanel::updateVisibility()
     showingWavetable = isWavetable();
     for (size_t i = 0; i < controls.size(); ++i)
         controls[i]->setVisible (isShown (settingNames[i]));
-    tableChooser.setVisible (page == Page::wave && showingWavetable);
+    tableChooser.setVisible (page != Page::voices && showingWavetable);
     resized();
     repaint();
 }
@@ -287,19 +300,23 @@ void OscillatorPanel::filesDropped (const juce::StringArray& files, int, int)
     tableChooser.refresh();
 }
 
-bool OscillatorPanel::isOnVoicesPage (const char* what) const
+OscillatorPanel::Page OscillatorPanel::pageOf (const char* what) const
 {
     const juce::String name (what);
-    return name.startsWith ("Uni") || name.startsWith ("Vib") || name.startsWith ("Ch");
+    if (name.startsWith ("Uni") || name.startsWith ("Vib") || name.startsWith ("Ch"))
+        return Page::voices;
+    if (juce::StringArray { "Skew", "Pinch", "Formant", "FormantMode", "Crush", "CrushMode" }.contains (name))
+        return Page::shape;
+    return Page::wave;
 }
 
 void OscillatorPanel::showPage (Page newPage)
 {
     page = newPage;
-    (page == Page::voices ? voicesPageButton : wavePageButton).setToggleState (true, juce::dontSendNotification);
-    const auto voices = page == Page::voices;
-    wave.setVisible (! voices);
-    voicesDisplay.setVisible (voices);
+    (page == Page::voices ? voicesPageButton : page == Page::shape ? shapePageButton : wavePageButton).setToggleState (true, juce::dontSendNotification);
+    wave.setVisible (page != Page::voices);
+    voicesDisplay.setVisible (page == Page::voices);
+    shapeDisplay.setVisible (page == Page::shape);
     updateVisibility();
 }
 
@@ -320,6 +337,7 @@ void OscillatorPanel::selectOscillator (int index)
         controls[i]->attach (ParamIDs::osc (selected, settingNames[i]));
     wave.setOscillator (selected);
     voicesDisplay.setOscillator (selected);
+    shapeDisplay.setOscillator (selected);
     tableChooser.setOscillator (selected);
     updateVisibility();
 }
@@ -336,6 +354,8 @@ void OscillatorPanel::resized()
     // The tabs run along the title strip, right of the title; WAVE and VOICES at its end.
     auto tabStrip = getTitleArea().withTrimmedLeft (110).reduced (0, 5).withTrimmedTop (2);
     voicesPageButton.setBounds (tabStrip.removeFromRight (66));
+    tabStrip.removeFromRight (4);
+    shapePageButton.setBounds (tabStrip.removeFromRight (62));
     tabStrip.removeFromRight (4);
     wavePageButton.setBounds (tabStrip.removeFromRight (56));
     tabStrip.removeFromRight (12);
@@ -400,6 +420,17 @@ void OscillatorPanel::resized()
         SynthPanel::layoutRow (left.removeFromTop (h), { &control ("Wave"), &control ("Gain") }, 96, 40);
     else
         SynthPanel::layoutRow (left.removeFromTop (h), { &control ("Wave"), &control ("Width"), &control ("Gain") }, 84);
+
+    if (page == Page::shape)
+    {
+        // Right: the controls in a row, and the plain and bent waves, large, under them.
+        placeRow (area.removeFromTop (rowHeight), 7, { { "BEND", { "Skew", "Pinch" } },
+                                                       { "FORMANT", { "Formant", "FormantMode" } },
+                                                       { "CRUSH", { "Crush", "CrushMode" } } });
+        area.removeFromTop (12);
+        shapeDisplay.setBounds (area);
+        return;
+    }
 
     // Right: three rows of titled sections on one grid of columns.
     placeRow (area.removeFromTop (rowHeight), 7, { { "PITCH", { "Transpose", "Fine", "Random" } },
