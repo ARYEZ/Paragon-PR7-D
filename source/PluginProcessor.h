@@ -228,6 +228,8 @@ private:
     std::array<ShaperParameters, ParamIDs::numShapers> shaperParameters {};
     struct LfoParameters { std::atomic<float>* values[std::size (ParamIDs::lfoSettings)] {}; };
     std::array<LfoParameters, ParamIDs::numLfos> lfoParameters {};
+    struct EnvelopeParameters { std::atomic<float>* values[std::size (ParamIDs::envelopeSettings)] {}; };
+    std::array<EnvelopeParameters, ParamIDs::numEnvelopes> envelopeParameters {};
 
     // WAVETABLES: tables loaded from files (null: the factory's), what each
     // oscillator plays now, the same for the audio thread (a plain pointer it
@@ -301,7 +303,13 @@ private:
         float amount, lagMs, curve;
         bool percent;
     };
-    using CompiledMatrix = std::vector<CompiledRoute>;
+    struct CompiledMatrix
+    {
+        std::vector<CompiledRoute> routes;
+        std::array<synth::mod::Shape, synth::mod::numEnvelopes> envelopes {};
+        std::array<synth::mod::Shape, synth::mod::numLfoShapes> lfoShapes {};
+        std::uint32_t usedSources = 0;
+    };
     std::shared_ptr<const CompiledMatrix> compiledMatrix;
     std::atomic<const CompiledMatrix*> matrixForAudio { nullptr };
     std::vector<std::pair<std::shared_ptr<const CompiledMatrix>, double>> retiredMatrices;

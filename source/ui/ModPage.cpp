@@ -98,82 +98,254 @@ void LfoDisplay::paint (juce::Graphics& g)
 }
 
 //==============================================================================
-LfoPanel::LfoPanel (juce::AudioProcessorValueTreeState& s)
-    : SynthPanel ("LFO"), state (s), display (s),
-      wave (s, ParamIDs::lfo (0, "Wave"), "WAVE", "The LFO's shape. S&H holds a random level for each cycle; SMOOTH RND glides between random levels."),
-      sync (s, ParamIDs::lfo (0, "Sync"), "SYNC", "FREE runs at RATE in Hz; NOTE, TRIPLET and DOTTED follow the song's tempo at LENGTH."),
-      rate (s, ParamIDs::lfo (0, "Rate"), "RATE", "How fast, in cycles a second."),
-      division (s, ParamIDs::lfo (0, "Division"), "LENGTH", "One cycle's length in notes, at the song's tempo (1/4: a beat)."),
-      trigger (s, ParamIDs::lfo (0, "Trigger"), "TRIGGER", "VOICE: every note has its own LFO, starting with it. GLOBAL: one LFO for all, always running "
-                                                         "(synced to the song when it plays). FIRST NOTE: one, restarted when you play with no other key down. "
-                                                         "LAST NOTE: one, restarted by every note."),
-      phase (s, ParamIDs::lfo (0, "Phase"), "PHASE", "Where in its cycle it starts."),
-      offset (s, ParamIDs::lfo (0, "Offset"), "OFFSET", "Moves the whole wave up or down, fitting it in: at +100% it runs from 0 to the top, so it only ever pushes up; at -100%, only down."),
-      delay (s, ParamIDs::lfo (0, "Delay"), "DELAY", "How long after the note (or the start) before it begins."),
-      fadeIn (s, ParamIDs::lfo (0, "FadeIn"), "FADE IN", "How long it takes to grow to its full depth, after DELAY."),
-      oneShot (s, ParamIDs::lfo (0, "OneShot"), "ONE SHOT", "Once through, then it stays where it ended: an envelope rather than a wobble.")
+namespace
 {
-    for (int k = 0; k < ParamIDs::numLfos; ++k)
+    // START FROM: shapes to begin an envelope or a drawn LFO shape from.
+    const juce::StringArray envelopeStarts { "Attack, decay, sustain, release", "Ramp up", "Ramp down", "Pluck", "Swell", "Gate (1 beat)", "Wobble (loop)" };
+    const juce::StringArray lfoShapeStarts { "Triangle", "Ramp up", "Ramp down", "Square", "Steps (4)", "Bounce", "Spike" };
+
+    ModShapeData envelopeStart (int choice)
     {
-        auto tab = std::make_unique<juce::TextButton> (juce::String (k + 1));
-        styleTab (*tab);
-        tab->setClickingTogglesState (true);
-        tab->setRadioGroupId (901);
-        tab->setTooltip ("LFO " + juce::String (k + 1));
-        tab->onClick = [this, k] { selectLfo (k); };
-        addAndMakeVisible (*tab);
-        tabs.push_back (std::move (tab));
+        using P = synth::mod::ShapePoint;
+        switch (choice)
+        {
+            case 1: return { { P { 0.0f, 0.0f, 0.0f }, P { 1.0f, 1.0f, 0.0f } }, -1, -1, -1 };
+            case 2: return { { P { 0.0f, 1.0f, 0.0f }, P { 1.0f, 0.0f, 0.0f } }, -1, -1, -1 };
+            case 3: return { { P { 0.0f, 0.0f, 0.0f }, P { 0.005f, 1.0f, 0.0f }, P { 0.6f, 0.0f, -0.6f } }, -1, -1, -1 };
+            case 4: return { { P { 0.0f, 0.0f, 0.5f }, P { 2.0f, 1.0f, 0.0f }, P { 3.0f, 0.0f, -0.4f } }, 1, -1, -1 };
+            case 5: return { { P { 0.0f, 1.0f, 0.0f }, P { 0.5f, 1.0f, 0.0f }, P { 0.501f, 0.0f, 0.0f }, P { 1.0f, 0.0f, 0.0f } }, -1, 0, 3 };
+            case 6: return { { P { 0.0f, 0.0f, 0.0f }, P { 0.25f, 1.0f, -0.3f }, P { 0.5f, 0.0f, 0.3f } }, -1, 0, 2 };
+            default: return ModShapeData::defaultEnvelope();
+        }
     }
+
+    ModShapeData lfoShapeStart (int choice)
+    {
+        using P = synth::mod::ShapePoint;
+        switch (choice)
+        {
+            case 1: return { { P { 0.0f, 0.0f, 0.0f }, P { 0.999f, 1.0f, 0.0f }, P { 1.0f, 0.0f, 0.0f } }, -1, -1, -1 };
+            case 2: return { { P { 0.0f, 1.0f, 0.0f }, P { 0.999f, 0.0f, 0.0f }, P { 1.0f, 1.0f, 0.0f } }, -1, -1, -1 };
+            case 3: return { { P { 0.0f, 1.0f, 0.0f }, P { 0.5f, 1.0f, 0.0f }, P { 0.501f, 0.0f, 0.0f }, P { 0.999f, 0.0f, 0.0f }, P { 1.0f, 1.0f, 0.0f } }, -1, -1, -1 };
+            case 4: return { { P { 0.0f, 0.0f, 0.0f }, P { 0.249f, 0.0f, 0.0f }, P { 0.25f, 0.33f, 0.0f }, P { 0.499f, 0.33f, 0.0f }, P { 0.5f, 0.67f, 0.0f },
+                               P { 0.749f, 0.67f, 0.0f }, P { 0.75f, 1.0f, 0.0f }, P { 0.999f, 1.0f, 0.0f }, P { 1.0f, 0.0f, 0.0f } }, -1, -1, -1 };
+            case 5: return { { P { 0.0f, 0.0f, -0.6f }, P { 0.5f, 1.0f, 0.6f }, P { 1.0f, 0.0f, 0.0f } }, -1, -1, -1 };
+            case 6: return { { P { 0.0f, 0.0f, 0.0f }, P { 0.05f, 1.0f, -0.7f }, P { 1.0f, 0.0f, 0.0f } }, -1, -1, -1 };
+            default: return ModShapeData::defaultLfoShape();
+        }
+    }
+}
+
+ModulatorPanel::ModulatorPanel (ParagonX1AudioProcessor& p)
+    : SynthPanel ({}), state (p.getParameters()), processor (p), display (p.getParameters()), editor (p),
+      wave (state, ParamIDs::lfo (0, "Wave"), "WAVE", "The LFO's shape. S&H holds a random level for each cycle; SMOOTH RND glides between random levels; "
+                                                     "CUSTOM 1 to 3 are the shapes drawn on the SHAPE tabs."),
+      sync (state, ParamIDs::lfo (0, "Sync"), "SYNC", "FREE runs at RATE in Hz; NOTE, TRIPLET and DOTTED follow the song's tempo at LENGTH."),
+      rate (state, ParamIDs::lfo (0, "Rate"), "RATE", "How fast, in cycles a second."),
+      division (state, ParamIDs::lfo (0, "Division"), "LENGTH", "One cycle's length in notes, at the song's tempo (1/4: a beat)."),
+      trigger (state, ParamIDs::lfo (0, "Trigger"), "TRIGGER", "VOICE: every note has its own LFO, starting with it. GLOBAL: one LFO for all, always running "
+                                                             "(synced to the song when it plays). FIRST NOTE: one, restarted when you play with no other key down. "
+                                                             "LAST NOTE: one, restarted by every note."),
+      phase (state, ParamIDs::lfo (0, "Phase"), "PHASE", "Where in its cycle it starts."),
+      offset (state, ParamIDs::lfo (0, "Offset"), "OFFSET", "Moves the whole wave up or down, fitting it in: at +100% it runs from 0 to the top, so it only ever pushes up; at -100%, only down."),
+      delay (state, ParamIDs::lfo (0, "Delay"), "DELAY", "How long after the note (or the start) before it begins."),
+      fadeIn (state, ParamIDs::lfo (0, "FadeIn"), "FADE IN", "How long it takes to grow to its full depth, after DELAY."),
+      oneShot (state, ParamIDs::lfo (0, "OneShot"), "ONE SHOT", "Once through, then it stays where it ended: an envelope rather than a wobble."),
+      envMode (state, ParamIDs::env (0, "Mode"), "MODE", "ONE SHOT: once through, then it holds the last point. SUSTAIN: holds at the S point while the key is down "
+                                                        "(let go earlier and it jumps there). SUS JUMP: the same, but jumps to where the level matches, so nothing jumps. "
+                                                        "LOOP: round L1 to L2 for ever. LOOP+REL: round them while the key is down, then on to the end. "
+                                                        "PING PONG: back and forth between them (+REL: then on to the end)."),
+      envTrigger (state, ParamIDs::env (0, "Trigger"), "TRIGGER", "VOICE: every note has its own, starting with it. FIRST NOTE: one, started when you play with no "
+                                                                "other key down. LAST NOTE: one, restarted by every note."),
+      envSync (state, ParamIDs::env (0, "Sync"), "SYNC", "Times in beats of your song (the grid shows beats) rather than seconds."),
+      envSpeed (state, ParamIDs::env (0, "Speed"), "SPEED", "How fast it runs through its points: x0.1 (ten times slower) to x10."),
+      envSteps (state, ParamIDs::env (0, "Steps"), "STEPS", "Makes it move in steps (for arcade and FX sounds): how many levels. SMOOTH: none."),
+      envFlip (state, ParamIDs::env (0, "Flip"), "FLIP", "Upside down."),
+      envOffset (state, ParamIDs::env (0, "Offset"), "OFFSET", "The level counted as zero: above 0, it pushes both ways (at 50%, as far down as up).")
+{
+    const auto addTab = [this] (Kind k, int i, const juce::String& text, const juce::String& tip)
+    {
+        auto button = std::make_unique<juce::TextButton> (text);
+        styleTab (*button);
+        button->setClickingTogglesState (true);
+        button->setRadioGroupId (901);
+        button->setTooltip (tip);
+        button->onClick = [this, k, i] { select (k, i); };
+        addAndMakeVisible (*button);
+        tabs.push_back ({ k, i, std::move (button) });
+    };
+    for (int k = 0; k < ParamIDs::numLfos; ++k)
+        addTab (Kind::lfo, k, juce::String (k + 1), "LFO " + juce::String (k + 1));
+    for (int k = 0; k < ParamIDs::numEnvelopes; ++k)
+        addTab (Kind::envelope, k, juce::String (k + 1), "Modulation envelope " + juce::String (k + 1) + " (ENV " + juce::String (k + 1) + " in the matrix)");
+    for (int k = 0; k < synth::mod::numLfoShapes; ++k)
+        addTab (Kind::shape, k, juce::String (k + 1), "Drawn LFO shape " + juce::String (k + 1) + " (an LFO's WAVE: CUSTOM " + juce::String (k + 1) + ")");
+
     addAndMakeVisible (display);
-    for (auto* control : { &wave, &sync, &rate, &division, &trigger, &phase, &offset, &delay, &fadeIn, &oneShot })
-        addAndMakeVisible (control);
+    addChildComponent (editor);
+    for (auto* control : { &wave, &sync, &rate, &division, &trigger, &phase, &offset, &delay, &fadeIn, &oneShot,
+                           &envMode, &envTrigger, &envSync, &envSpeed, &envSteps, &envFlip, &envOffset })
+        addChildComponent (control);
+    startFromBox.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff151217));
+    startFromBox.setColour (juce::ComboBox::outlineColourId, ParagonColours::panelEdge);
+    startFromBox.setColour (juce::ComboBox::textColourId, ParagonColours::accent);
+    startFromBox.setTextWhenNothingSelected ("Choose...");
+    startFromBox.setTooltip ("Start again from a ready-made shape (your points are replaced; undo brings them back)");
+    startFromBox.onChange = [this]
+    {
+        if (startFromBox.getSelectedId() > 0)
+            startFrom (startFromBox.getSelectedId() - 1);
+        startFromBox.setSelectedId (0, juce::dontSendNotification);
+    };
+    addChildComponent (startFromBox);
+    for (auto* label : { &startFromLabel, &hint })
+    {
+        label->setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        label->setColour (juce::Label::textColourId, ParagonColours::textDim);
+        addChildComponent (*label);
+    }
+    startFromLabel.setText ("START FROM", juce::dontSendNotification);
+    startFromLabel.setJustificationType (juce::Justification::centred);
+    hint.setJustificationType (juce::Justification::topLeft);
     selectLfo (0);
     startTimerHz (8);
 }
 
-bool LfoPanel::isSynced() const
+bool ModulatorPanel::isSynced() const
 {
-    return juce::roundToInt (state.getRawParameterValue (ParamIDs::lfo (selected, "Sync"))->load()) != (int) synth::mod::LfoSync::free;
+    return kind == Kind::lfo
+        && juce::roundToInt (state.getRawParameterValue (ParamIDs::lfo (selected, "Sync"))->load()) != (int) synth::mod::LfoSync::free;
 }
 
-void LfoPanel::selectLfo (int index)
+void ModulatorPanel::select (Kind newKind, int index)
 {
-    selected = juce::jlimit (0, ParamIDs::numLfos - 1, index);
-    tabs[(size_t) selected]->setToggleState (true, juce::dontSendNotification);
-    const std::pair<ParamControl*, const char*> controls[] = { { &wave, "Wave" }, { &sync, "Sync" }, { &rate, "Rate" }, { &division, "Division" },
-                                                               { &trigger, "Trigger" }, { &phase, "Phase" }, { &offset, "Offset" },
-                                                               { &delay, "Delay" }, { &fadeIn, "FadeIn" }, { &oneShot, "OneShot" } };
-    for (const auto& [control, what] : controls)
-        control->attach (ParamIDs::lfo (selected, what));
-    display.setLfo (selected);
+    kind = newKind;
+    selected = index;
+    for (auto& tab : tabs)
+        if (tab.kind == kind && tab.index == selected)
+            tab.button->setToggleState (true, juce::dontSendNotification);
+
+    const auto lfo = kind == Kind::lfo, envelope = kind == Kind::envelope;
+    if (lfo)
+    {
+        const std::pair<ParamControl*, const char*> controls[] = { { &wave, "Wave" }, { &sync, "Sync" }, { &rate, "Rate" }, { &division, "Division" },
+                                                                   { &trigger, "Trigger" }, { &phase, "Phase" }, { &offset, "Offset" },
+                                                                   { &delay, "Delay" }, { &fadeIn, "FadeIn" }, { &oneShot, "OneShot" } };
+        for (const auto& [control, what] : controls)
+            control->attach (ParamIDs::lfo (selected, what));
+        display.setLfo (selected);
+    }
+    else if (envelope)
+    {
+        const std::pair<ParamControl*, const char*> controls[] = { { &envMode, "Mode" }, { &envTrigger, "Trigger" }, { &envSync, "Sync" }, { &envSpeed, "Speed" },
+                                                                   { &envSteps, "Steps" }, { &envFlip, "Flip" }, { &envOffset, "Offset" } };
+        for (const auto& [control, what] : controls)
+            control->attach (ParamIDs::env (selected, what));
+        editor.setTarget (MultiPointEditor::Kind::envelope, selected);
+    }
+    else
+        editor.setTarget (MultiPointEditor::Kind::lfoShape, selected);
+
     showingSync = isSynced();
-    rate.setVisible (! showingSync);
-    division.setVisible (showingSync);
+    display.setVisible (lfo);
+    for (auto* control : { &wave, &sync, &trigger, &phase, &offset, &delay, &fadeIn, &oneShot })
+        control->setVisible (lfo);
+    rate.setVisible (lfo && ! showingSync);
+    division.setVisible (lfo && showingSync);
+    for (auto* control : { &envMode, &envTrigger, &envSync, &envSpeed, &envSteps, &envFlip, &envOffset })
+        control->setVisible (envelope);
+    editor.setVisible (! lfo);
+    startFromBox.setVisible (! lfo);
+    startFromLabel.setVisible (! lfo);
+    hint.setVisible (! lfo);
+    startFromBox.clear (juce::dontSendNotification);
+    startFromBox.addItemList (envelope ? envelopeStarts : lfoShapeStarts, 1);
+    hint.setText (envelope ? "ENV " + juce::String (selected + 1) + " is a source in the matrix. Double-click to add points, drag lines to curve them, "
+                                 "right-click a point for SUSTAIN and LOOP."
+                           : "Choose CUSTOM " + juce::String (selected + 1) + " as an LFO's WAVE to play this shape. Double-click to add points, "
+                                 "drag lines to curve them. The ends meet, so it loops without a click.",
+                  juce::dontSendNotification);
     resized();
+    repaint();
 }
 
-void LfoPanel::timerCallback()
+void ModulatorPanel::startFrom (int choice)
+{
+    editor.setShape (kind == Kind::envelope ? envelopeStart (choice) : lfoShapeStart (choice), true);
+}
+
+void ModulatorPanel::timerCallback()
 {
     // SYNC (or automation, a preset, undo) switches RATE for LENGTH.
     if (isSynced() != showingSync)
-        selectLfo (selected);
+        select (kind, selected);
 }
 
-void LfoPanel::resized()
+void ModulatorPanel::paint (juce::Graphics& g)
 {
-    auto strip = getTitleArea().withTrimmedLeft (60).reduced (0, 5).withTrimmedTop (2);
+    SynthPanel::paint (g);
+    // The tab groups' names.
+    g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+    g.setColour (ParagonColours::text);
+    for (const auto& [group, name] : { std::pair { Kind::lfo, "LFO" }, std::pair { Kind::envelope, "ENV" }, std::pair { Kind::shape, "SHAPE" } })
+        for (const auto& tab : tabs)
+            if (tab.kind == group && tab.index == 0)
+            {
+                const auto b = tab.button->getBounds();
+                g.drawText (name, juce::Rectangle<int> (b.getX() - 52, b.getY(), 48, b.getHeight()), juce::Justification::centredRight, false);
+            }
+}
+
+void ModulatorPanel::resized()
+{
+    // The tabs along the title strip, in three groups.
+    auto strip = getTitleArea().reduced (0, 5).withTrimmedTop (2);
+    Kind last = Kind::lfo;
+    strip.removeFromLeft (52);
     for (auto& tab : tabs)
     {
-        tab->setBounds (strip.removeFromLeft (40));
+        if (tab.kind != last)
+        {
+            strip.removeFromLeft (64);
+            last = tab.kind;
+        }
+        tab.button->setBounds (strip.removeFromLeft (32));
         strip.removeFromLeft (4);
     }
+
     auto area = getContentArea().withTrimmedTop (6);
-    display.setBounds (area.removeFromTop (120));
-    area.removeFromTop (8);
+    auto controls = area.removeFromRight (520);
+    area.removeFromRight (12);
+    display.setBounds (area);
+    editor.setBounds (area);
+
     const auto h = ParamControl::knobHeight;
-    SynthPanel::layoutRow (area.removeFromTop (h), { &wave, &sync, showingSync ? (juce::Component*) &division : &rate, &trigger, &oneShot }, 92);
-    area.removeFromTop (4);
-    SynthPanel::layoutRow (area.removeFromTop (h), { &phase, &offset, &delay, &fadeIn }, 92);
+    controls.removeFromTop (4);
+    if (kind == Kind::lfo)
+    {
+        SynthPanel::layoutRow (controls.removeFromTop (h), { &wave, &sync, showingSync ? (juce::Component*) &division : &rate, &trigger, &oneShot }, 98);
+        controls.removeFromTop (12);
+        SynthPanel::layoutRow (controls.removeFromTop (h), { &phase, &offset, &delay, &fadeIn }, 98);
+        return;
+    }
+    if (kind == Kind::envelope)
+    {
+        SynthPanel::layoutRow (controls.removeFromTop (h), { &envMode, &envTrigger, &envSync, &envSpeed }, 112);
+        controls.removeFromTop (12);
+        auto row = controls.removeFromTop (h);
+        auto startArea = row.removeFromRight (180);
+        SynthPanel::layoutRow (row, { &envSteps, &envFlip, &envOffset }, 98);
+        startFromLabel.setBounds (startArea.removeFromTop (16));
+        startFromBox.setBounds (startArea.removeFromTop (30).reduced (4, 2));
+        controls.removeFromTop (10);
+        hint.setBounds (controls.reduced (6, 0));
+        return;
+    }
+    auto startArea = controls.removeFromTop (60).withSizeKeepingCentre (200, 60);
+    startFromLabel.setBounds (startArea.removeFromTop (16));
+    startFromBox.setBounds (startArea.removeFromTop (30).reduced (4, 2));
+    controls.removeFromTop (12);
+    hint.setBounds (controls.reduced (6, 0));
 }
 
 //==============================================================================
@@ -542,9 +714,9 @@ void MatrixPanel::resized()
 }
 
 //==============================================================================
-ModPage::ModPage (ParagonX1AudioProcessor& p) : lfos (p.getParameters()), macros (p), matrix (p)
+ModPage::ModPage (ParagonX1AudioProcessor& p) : modulators (p), macros (p), matrix (p)
 {
-    addAndMakeVisible (lfos);
+    addAndMakeVisible (modulators);
     addAndMakeVisible (macros);
     addAndMakeVisible (matrix);
 }
@@ -552,10 +724,9 @@ ModPage::ModPage (ParagonX1AudioProcessor& p) : lfos (p.getParameters()), macros
 void ModPage::resized()
 {
     auto area = getLocalBounds();
-    auto left = area.removeFromLeft (530);
-    lfos.setBounds (left.removeFromTop (390));
-    left.removeFromTop (10);
-    macros.setBounds (left);
+    modulators.setBounds (area.removeFromTop (330));
+    area.removeFromTop (10);
+    macros.setBounds (area.removeFromLeft (420));
     area.removeFromLeft (10);
     matrix.setBounds (area);
 }

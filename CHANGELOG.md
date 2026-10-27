@@ -2,6 +2,53 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.10.0
+
+Stage 4, part 2: **8 modulation envelopes** and **3 drawn LFO shapes**, modelled on Avenger's multipoint envelopes (our own design and code).
+
+- **The MOD page has a new layout:** a wide **MODULATORS** panel on top with tabs **LFO 1-4**, **ENV 1-8** and **SHAPE 1-3**. The macros and the matrix are below it.
+- **The multipoint editor** (for envelopes and shapes alike):
+  - drag a point to move it;
+  - drag a line up or down to curve it;
+  - double-click empty space to add a point, or double-click a point to delete it;
+  - right-click a point for its menu: delete it, put **SUSTAIN** (S) there, or put the **LOOP** points (L1 and L2) there.
+  - Up to 64 points.
+  - **START FROM** gives ready-made shapes to begin from:
+    - envelopes: ADSR, ramps, pluck, swell, gate, wobble;
+    - LFO shapes: triangle, ramps, square, steps, bounce, spike.
+- **Modulation envelopes** (sources **ENV 1-8** in the matrix):
+  - **MODE**, as the manual describes them:
+    - **ONE SHOT:** once through, then it holds the last point.
+    - **SUSTAIN:** holds at S while the key is down; let go earlier and it jumps to S.
+    - **SUS JUMP:** the same, but it jumps to where the level matches, so nothing jumps.
+    - **LOOP:** round L1 to L2 for ever.
+    - **LOOP+REL:** loops while the key is down, then runs on to the end.
+    - **PING PONG** and **PINGPONG+REL:** back and forth instead of round.
+  - **TRIGGER:** **VOICE** (every note its own), **FIRST NOTE**, **LAST NOTE**. The arpeggiator and drum sequencer triggers come with those stages.
+  - **SYNC:** times in beats of your song instead of seconds.
+  - **SPEED** (x0.1 to x10), **STEPS** (stepped, for arcade and FX sounds), **FLIP**.
+  - **OFFSET:** the level counted as zero; at 50% it pushes both ways, as the manual's "bipolar" offset does.
+- **Drawn LFO shapes:** choose **CUSTOM 1, 2 or 3** as any LFO's WAVE to play the shape drawn on that SHAPE tab. Its two ends are kept level, so it loops without a click.
+- Envelopes and shapes are **saved with the preset** (and the project), and undo covers them. Their knobs (MODE, SPEED...) can be automated.
+- A modulator nothing uses costs nothing. The test chord with six routes per note still costs what it did.
+- **Not yet:**
+  - The manual says the drawn shapes can also drive the oscillators' vibrato and FM. Here they drive the LFOs only; vibrato and FM can follow in a later part.
+  - Avenger's envelope "scale" control: a route's AMOUNT does that job here.
+- **Two new factory presets:**
+  - **Gated Pad** (A29): a looping, synced envelope chopping a pad in time.
+  - **Swell Lead** (A30): a multipoint envelope on the filter, and a drawn bounce wobbling the pitch.
+  - Our own, not tuned by ear.
+- In the tests:
+  - curved and straight lines;
+  - every mode stepped through, with its release;
+  - SPEED, SYNC, STEPS, FLIP, OFFSET;
+  - an envelope moving a note's pitch exactly as drawn;
+  - VOICE against LAST NOTE measured as level;
+  - a drawn shape playing as an LFO;
+  - presets, projects and undo;
+  - the editor's mouse actions.
+- Not checked here: how it sounds (I can't listen).
+
 ## 0.9.0
 
 Stage 4, part 1: **modulation**: the MOD MATRIX, 4 LFOs, macros and your keyboard's controllers, modelled on Avenger's (our own design and code). Everything else in stage 4 (modulation envelopes, the pitch envelope, the step sequencer, the wavetable travel envelope, MIDI learn) plugs into this matrix.

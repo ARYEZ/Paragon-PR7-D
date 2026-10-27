@@ -154,6 +154,7 @@ namespace synth
             // MODULATION (stage 4a): this note's LFOs (those set to VOICE),
             // its RANDOM value, its poly aftertouch, and each route's LAG.
             std::array<mod::LfoState, mod::numLfos> lfos {};
+            std::array<mod::EnvelopeState, mod::numEnvelopes> envelopes {};   // those set to VOICE (0.10.0)
             float randomValue = 0.0f, pressure = 0.0f;
             std::array<float, mod::maxRoutes> lagged {};
             bool lagFresh = true;
@@ -241,6 +242,9 @@ namespace synth
         std::array<mod::LfoState, mod::numLfos> globalLfos {};
         static constexpr int maxIntervals = 64;   // render() works in pieces of up to 64 intervals (1024 samples)
         std::array<std::array<float, maxIntervals>, mod::numLfos> globalLfoValues {};
+        std::array<mod::EnvelopeState, mod::numEnvelopes> globalEnvelopes {};   // FIRST NOTE and LAST NOTE envelopes
+        std::array<std::array<float, maxIntervals>, mod::numEnvelopes> globalEnvelopeValues {};
+        void releaseGlobalEnvelopesIfNoneHeld() noexcept;
         double samplesIntoBlock = 0.0;            // for the song position (synced GLOBAL LFOs)
         Settings voiceSettings;
     };

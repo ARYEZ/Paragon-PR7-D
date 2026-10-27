@@ -2,6 +2,8 @@
 
 #include <juce_core/juce_core.h>
 
+#include "MultiPoint.h"
+
 #include <array>
 #include <cmath>
 
@@ -23,14 +25,18 @@ namespace synth
     {
         // Sources, saved by name (`sourceIds`): never rename one; append new ones.
         enum class Source { none, lfo1, lfo2, lfo3, lfo4, macro1, macro2, macro3, button1, button2,
-                            modWheel, pitchBend, velocity, aftertouch, keytrack, breath, expression, sustain, random };
-        inline constexpr int numSources = 19;
+                            modWheel, pitchBend, velocity, aftertouch, keytrack, breath, expression, sustain, random,
+                            // 0.10.0: the modulation envelopes
+                            env1, env2, env3, env4, env5, env6, env7, env8 };
+        inline constexpr int numSources = 27;
         inline constexpr std::array<const char*, numSources> sourceIds {
             "none", "lfo1", "lfo2", "lfo3", "lfo4", "macro1", "macro2", "macro3", "button1", "button2",
-            "modWheel", "pitchBend", "velocity", "aftertouch", "keytrack", "breath", "expression", "sustain", "random" };
+            "modWheel", "pitchBend", "velocity", "aftertouch", "keytrack", "breath", "expression", "sustain", "random",
+            "env1", "env2", "env3", "env4", "env5", "env6", "env7", "env8" };
         inline constexpr std::array<const char*, numSources> sourceNames {
             "--", "LFO 1", "LFO 2", "LFO 3", "LFO 4", "Macro 1", "Macro 2", "Macro 3", "Button 1", "Button 2",
-            "Mod Wheel", "Pitch Bend", "Velocity", "Aftertouch", "Keytrack", "Breath", "Expression", "Sustain Pedal", "Random" };
+            "Mod Wheel", "Pitch Bend", "Velocity", "Aftertouch", "Keytrack", "Breath", "Expression", "Sustain Pedal", "Random",
+            "Env 1", "Env 2", "Env 3", "Env 4", "Env 5", "Env 6", "Env 7", "Env 8" };
         inline Source sourceFromId (const juce::String& id) noexcept
         {
             for (int i = 0; i < numSources; ++i)
@@ -101,8 +107,12 @@ namespace synth
         inline constexpr int numLfos = 4;
 
         // Saved by index (lfo*Wave, lfo*Sync, lfo*Division, lfo*Trigger): only ever append.
-        enum class LfoWave { sine, triangle, sawUp, sawDown, square, sampleHold, smoothRandom };
-        inline const juce::StringArray lfoWaveNames { "Sine", "Triangle", "Saw Up", "Saw Down", "Square", "S&H", "Smooth Rnd" };
+        // CUSTOM 1 to 3 (0.10.0): the preset's drawn shapes.
+        enum class LfoWave { sine, triangle, sawUp, sawDown, square, sampleHold, smoothRandom, custom1, custom2, custom3 };
+        inline const juce::StringArray lfoWaveNames { "Sine", "Triangle", "Saw Up", "Saw Down", "Square", "S&H", "Smooth Rnd",
+                                                      "Custom 1", "Custom 2", "Custom 3" };
+        inline constexpr int numLfoShapes = 3;
+        inline constexpr int numEnvelopes = 8;
         enum class LfoSync { free, straight, triplet, dotted };
         inline const juce::StringArray lfoSyncNames { "Free", "Note", "Triplet", "Dotted" };
         inline const juce::StringArray lfoDivisionNames { "8/1", "4/1", "2/1", "1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/64" };
@@ -142,10 +152,14 @@ namespace synth
 
         // The wave at `phase` (0 to 1), -1 to 1. The random waves use the
         // values chosen for this cycle and the last.
-        inline float lfoWave (LfoWave wave, float phase, float held, float previousHeld) noexcept
+        inline float lfoWave (LfoWave wave, float phase, float held, float previousHeld, const Shape* shapes = nullptr) noexcept
         {
             switch (wave)
             {
+                case LfoWave::custom1:
+                case LfoWave::custom2:
+                case LfoWave::custom3:
+                    return shapes != nullptr ? lfoShapeValue (shapes[(int) wave - (int) LfoWave::custom1], phase) : 0.0f;
                 case LfoWave::sine: return std::sin (juce::MathConstants<float>::twoPi * phase);
                 case LfoWave::triangle: return phase < 0.25f ? 4.0f * phase : phase < 0.75f ? 2.0f - 4.0f * phase : 4.0f * phase - 4.0f;
                 case LfoWave::sawUp: return 2.0f * phase - 1.0f;
@@ -177,15 +191,15 @@ namespace synth
             }
 
             // Its value now (-1 to 1, with OFFSET and the FADE IN), then moves on by `seconds`.
-            float next (const LfoSettings& s, double cyclesPerSecond, double seconds, juce::Random& random) noexcept
+            float next (const LfoSettings& s, double cyclesPerSecond, double seconds, juce::Random& random, const Shape* shapes = nullptr) noexcept
             {
                 const auto delay = s.delayMs * 0.001;
                 float value = 0.0f;
                 if (age >= delay)
                 {
                     const auto shown = s.oneShot && phase >= 1.0 ? 1.0 : phase - std::floor (phase);
-                    const auto wave = s.oneShot && phase >= 1.0 ? lfoWave (s.wave, 0.999999f, held, previousHeld)
-                                                                : lfoWave (s.wave, (float) shown, held, previousHeld);
+                    const auto wave = s.oneShot && phase >= 1.0 ? lfoWave (s.wave, 0.999999f, held, previousHeld, shapes)
+                                                                : lfoWave (s.wave, (float) shown, held, previousHeld, shapes);
                     auto fade = 1.0f;
                     if (s.fadeInMs > 0.0f)
                         fade = (float) juce::jlimit (0.0, 1.0, (age - delay) / (s.fadeInMs * 0.001));
@@ -221,6 +235,14 @@ namespace synth
             std::array<bool, 2> buttons {};
             const Route* routes = nullptr;    // the processor's (or a test's), `numRoutes` of them
             int numRoutes = 0;
+            // The modulation envelopes (0.10.0): their settings and shapes, and the LFOs' drawn shapes
+            // (`numEnvelopes` and `numLfoShapes` of them; null: none).
+            std::array<EnvelopeSettings, numEnvelopes> envelopes {};
+            const Shape* envelopeShapes = nullptr;
+            const Shape* lfoShapes = nullptr;
+            // Which sources any route uses (bit per Source): the others aren't worked out.
+            std::uint32_t usedSources = 0xffffffffu;
+            bool uses (Source source) const noexcept { return (usedSources >> (int) source) & 1u; }
             double bpm = 120.0;
             double ppq = -1.0;                // the song position at the block's start, in beats (-1: stopped)
         };

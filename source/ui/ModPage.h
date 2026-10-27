@@ -2,13 +2,14 @@
 
 #include "PluginProcessor.h"
 #include "ui/SynthControls.h"
+#include "ui/MultiPointEditor.h"
 #include "ui/SynthDisplays.h"
 
-// The MOD page (stage 4a): the LFOs, the macros and the mod matrix.
+// The MOD page (stage 4a; envelopes and drawn shapes 4b):
 //
-//   LFO 1-4 (one set of controls, pointed at the tab chosen)  |  MATRIX:
-//   MACROS: three knobs (renamed by double-clicking), two     |  one row per route
-//           buttons, and an on-screen MOD WHEEL               |
+//   MODULATORS: LFO 1-4 | ENV 1-8 | SHAPE 1-3, a picture or editor and its controls
+//   MACROS: three knobs (renamed by double-clicking),  |  MATRIX: one row per route
+//   two buttons, an on-screen MOD WHEEL                |
 
 // An LFO's wave, two cycles of it, as set (with OFFSET; the start marked by PHASE).
 class LfoDisplay final : public ParameterDisplay
@@ -24,23 +25,41 @@ private:
     int lfo = 0;
 };
 
-class LfoPanel final : public SynthPanel,
-                       private juce::Timer
+// MODULATORS: the LFOs, the modulation envelopes and the drawn LFO shapes,
+// a tab each (one set of controls, pointed at the tab chosen): a picture or
+// editor on the left, its controls on the right.
+class ModulatorPanel final : public SynthPanel,
+                             private juce::Timer
 {
 public:
-    explicit LfoPanel (juce::AudioProcessorValueTreeState&);
-    void selectLfo (int index);
+    explicit ModulatorPanel (ParagonX1AudioProcessor&);
+    enum class Kind { lfo, envelope, shape };
+    void selectLfo (int index) { select (Kind::lfo, index); }
+    void selectEnvelope (int index) { select (Kind::envelope, index); }
+    void selectShape (int index) { select (Kind::shape, index); }
+    Kind getKind() const noexcept { return kind; }
     int getSelected() const noexcept { return selected; }
+    MultiPointEditor& getEditor() noexcept { return editor; }
     void resized() override;
+    void paint (juce::Graphics&) override;
 
 private:
+    void select (Kind, int index);
     void timerCallback() override;
     bool isSynced() const;
+    void startFrom (int choice);
 
     juce::AudioProcessorValueTreeState& state;
-    std::vector<std::unique_ptr<juce::TextButton>> tabs;
+    ParagonX1AudioProcessor& processor;
+    struct Tab { Kind kind; int index; std::unique_ptr<juce::TextButton> button; };
+    std::vector<Tab> tabs;
     LfoDisplay display;
+    MultiPointEditor editor;
     ParamControl wave, sync, rate, division, trigger, phase, offset, delay, fadeIn, oneShot;
+    ParamControl envMode, envTrigger, envSync, envSpeed, envSteps, envFlip, envOffset;
+    juce::ComboBox startFromBox;
+    juce::Label startFromLabel, hint;
+    Kind kind = Kind::lfo;
     int selected = 0;
     bool showingSync = false;
 };
@@ -115,11 +134,11 @@ public:
     explicit ModPage (ParagonX1AudioProcessor&);
     void resized() override;
 
-    LfoPanel& getLfoPanel() noexcept { return lfos; }
+    ModulatorPanel& getModulatorPanel() noexcept { return modulators; }
     MatrixPanel& getMatrixPanel() noexcept { return matrix; }
 
 private:
-    LfoPanel lfos;
+    ModulatorPanel modulators;
     MacroPanel macros;
     MatrixPanel matrix;
 };

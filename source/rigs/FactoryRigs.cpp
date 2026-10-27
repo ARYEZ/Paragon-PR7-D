@@ -380,5 +380,38 @@ std::vector<Rig> makeFactoryRigs()
     keys.rig.modulation.macroNames[0] = "TONE";
     add (keys);
 
+    // MODULATION ENVELOPES and drawn LFO shapes (stage 4b).
+    using SP = synth::mod::ShapePoint;
+    Builder gated ("Gated Pad", 29, { "Pad", "Modulation" },
+                   "A supersaw pad chopped in time with your song by ENV 1: a looping, synced envelope (eighth-note pulses) on the volume. "
+                   "Try its points, or STEPS, for other rhythms.");
+    gated.osc (0, "UniVoices", 7.0f).osc (0, "UniMix", 0.8f).osc (0, "UniDetune", 0.3f).osc (0, "UniSpread", 1.0f).osc (0, "Volume", 0.5f)
+         .filter (FilterType::lp12, 2500.0f, 0.1f, 0.0f)
+         .set (ParamIDs::env (0, "Mode"), (float) synth::mod::EnvelopeMode::loop)
+         .set (ParamIDs::env (0, "Trigger"), (float) synth::mod::EnvelopeTrigger::firstNote)
+         .set (ParamIDs::env (0, "Sync"), 1.0f)
+         .ampEnvelope (20.0f, 500.0f, 1.0f, 400.0f);
+    gated.rig.modulation.envelopes[0] = { { SP { 0.0f, 1.0f, 0.0f }, SP { 0.3f, 1.0f, -0.5f }, SP { 0.45f, 0.0f, 0.0f }, SP { 0.5f, 0.0f, 0.0f } }, -1, 0, 3 };
+    route (gated, "env1", ParamIDs::ampVolume, 0.5f);   // VOLUME at 0, pushed up half its travel (to 1, full) at the envelope's top
+    gated.set (ParamIDs::ampVolume, 0.0f);
+    add (gated);
+
+    Builder swell ("Swell Lead", 30, { "Lead", "Modulation" },
+                   "ENV 1 slowly opens the filter (two rises, drawn) while a drawn LFO shape (CUSTOM 1, a bounce) wobbles the pitch a little.");
+    swell.osc (0, "Volume", 0.7f).osc (1, "On", 1.0f).osc (1, "Wave", (float) synth::OscWave::pulse).osc (1, "Fine", 7.0f).osc (1, "Volume", 0.5f)
+         .filter (FilterType::lp24, 300.0f, 0.3f, 0.0f)
+         .set (ParamIDs::env (0, "Mode"), (float) synth::mod::EnvelopeMode::sustain)
+         .set (ParamIDs::lfo (0, "Wave"), (float) synth::mod::LfoWave::custom1)
+         .set (ParamIDs::lfo (0, "Rate"), 5.0f)
+         .ampEnvelope (10.0f, 500.0f, 0.9f, 400.0f)
+         .mono (60.0f);
+    swell.rig.modulation.envelopes[0] = { { SP { 0.0f, 0.0f, 0.4f }, SP { 0.6f, 0.45f, 0.0f }, SP { 0.9f, 0.35f, 0.5f }, SP { 2.0f, 1.0f, 0.0f },
+                                            SP { 3.0f, 0.2f, -0.4f } }, 3, -1, -1 };
+    swell.rig.modulation.lfoShapes[0] = { { SP { 0.0f, 0.0f, -0.6f }, SP { 0.5f, 1.0f, 0.6f }, SP { 1.0f, 0.0f, 0.0f } }, -1, -1, -1 };
+    route (swell, "env1", ParamIDs::fltCutoff, 0.55f);
+    route (swell, "lfo1", ParamIDs::osc (0, "Fine"), 0.06f);
+    route (swell, "lfo1", ParamIDs::osc (1, "Fine"), 0.06f);
+    add (swell);
+
     return rigs;
 }

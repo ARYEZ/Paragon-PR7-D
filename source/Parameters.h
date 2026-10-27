@@ -118,6 +118,17 @@ namespace ParamIDs
                 return i;
         throw "not an LFO setting";
     }
+    // The modulation envelopes (stage 4b, 0.10.0): "menv1" to "menv8". Their points are kept with the preset (ModMatrix).
+    inline constexpr int numEnvelopes = 8;
+    inline constexpr const char* envelopeSettings[] = { "Mode", "Trigger", "Sync", "Speed", "Steps", "Flip", "Offset" };
+    inline juce::String env (int index, const char* what) { return "menv" + juce::String (index + 1) + what; }
+    consteval int envelopeSetting (std::string_view what)
+    {
+        for (int i = 0; i < (int) std::size (envelopeSettings); ++i)
+            if (std::string_view (envelopeSettings[i]) == what)
+                return i;
+        throw "not an envelope setting";
+    }
     inline constexpr const char* macros[] = { "macro1", "macro2", "macro3" };
     inline constexpr const char* macroButtons[] = { "macroButton1", "macroButton2" };
 

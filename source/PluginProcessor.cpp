@@ -139,6 +139,12 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
             lfoParameters[(size_t) k].values[s] = parameters.getRawParameterValue (ParamIDs::lfo (k, ParamIDs::lfoSettings[s]));
             jassert (lfoParameters[(size_t) k].values[s] != nullptr);
         }
+    for (int k = 0; k < ParamIDs::numEnvelopes; ++k)
+        for (size_t s = 0; s < std::size (ParamIDs::envelopeSettings); ++s)
+        {
+            envelopeParameters[(size_t) k].values[s] = parameters.getRawParameterValue (ParamIDs::env (k, ParamIDs::envelopeSettings[s]));
+            jassert (envelopeParameters[(size_t) k].values[s] != nullptr);
+        }
     for (int k = 0; k < ParamIDs::numShapers; ++k)
         for (size_t s = 0; s < std::size (ParamIDs::shaperSettings); ++s)
         {
@@ -373,6 +379,20 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
         l.fadeInMs = get (lfoSetting ("FadeIn"));
         l.oneShot = get (lfoSetting ("OneShot")) > 0.5f;
     }
+    for (size_t k = 0; k < s.modulation.envelopes.size(); ++k)
+    {
+        const auto& v = envelopeParameters[k].values;   // in envelopeSettings' order
+        const auto get = [&v] (int index) { return v[(size_t) index]->load(); };
+        using ParamIDs::envelopeSetting;
+        auto& e = s.modulation.envelopes[k];
+        e.mode = (synth::mod::EnvelopeMode) choice (get (envelopeSetting ("Mode")), synth::mod::envelopeModeNames.size());
+        e.trigger = (synth::mod::EnvelopeTrigger) choice (get (envelopeSetting ("Trigger")), synth::mod::envelopeTriggerNames.size());
+        e.sync = get (envelopeSetting ("Sync")) > 0.5f;
+        e.speed = get (envelopeSetting ("Speed"));
+        e.steps = juce::roundToInt (get (envelopeSetting ("Steps")));
+        e.flip = get (envelopeSetting ("Flip")) > 0.5f;
+        e.offset = get (envelopeSetting ("Offset"));
+    }
     for (int k = 0; k < 3; ++k)
         s.modulation.macros[(size_t) k] = param (ParamIDs::macros[k]);
     for (int k = 0; k < 2; ++k)
@@ -459,7 +479,7 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
         if (const auto* compiled = matrixForAudio.load())
         {
             int count = 0;
-            for (const auto& c : *compiled)
+            for (const auto& c : compiled->routes)
             {
                 auto& r = routeBuffer[(size_t) count++];
                 r.source = c.source;
@@ -473,6 +493,9 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
             }
             settings.modulation.routes = routeBuffer.data();
             settings.modulation.numRoutes = count;
+            settings.modulation.envelopeShapes = compiled->envelopes.data();
+            settings.modulation.lfoShapes = compiled->lfoShapes.data();
+            settings.modulation.usedSources = compiled->usedSources;
         }
         settings.modulation.ppq = hostPpq >= 0.0 ? hostPpq + (start + done) / getSampleRate() * settings.modulation.bpm / 60.0 : -1.0;
         engine.process (left + done, right, n, midi, start + done, settings);
@@ -553,17 +576,22 @@ void ParagonX1AudioProcessor::compileMatrix()
         auto* parameter = destination != nullptr ? parameters.getParameter (destination->parameterId) : nullptr;
         if (! r.on || source == synth::mod::Source::none || parameter == nullptr || juce::exactlyEqual (r.amount, 0.0f))
             continue;
-        compiled->push_back ({ source, destination->target, parameter, r.amount, r.lagMs, r.curve, r.percent });
-        if ((int) compiled->size() == synth::mod::maxRoutes)
+        compiled->routes.push_back ({ source, destination->target, parameter, r.amount, r.lagMs, r.curve, r.percent });
+        compiled->usedSources |= 1u << (int) source;
+        if ((int) compiled->routes.size() == synth::mod::maxRoutes)
             break;
     }
-    std::stable_sort (compiled->begin(), compiled->end(), [] (const CompiledRoute& a, const CompiledRoute& b)
+    for (int k = 0; k < synth::mod::numEnvelopes; ++k)
+        compiled->envelopes[(size_t) k] = matrix.envelopes[(size_t) k].toShape();
+    for (int k = 0; k < synth::mod::numLfoShapes; ++k)
+        compiled->lfoShapes[(size_t) k] = matrix.lfoShapes[(size_t) k].toShape();
+    std::stable_sort (compiled->routes.begin(), compiled->routes.end(), [] (const CompiledRoute& a, const CompiledRoute& b)
     {
         return std::pair ((int) a.target.field, a.target.index) < std::pair ((int) b.target.field, b.target.index);
     });
     if (compiledMatrix != nullptr)
         retiredMatrices.emplace_back (compiledMatrix, juce::Time::getMillisecondCounterHiRes());
-    compiledMatrix = compiled->empty() ? nullptr : std::shared_ptr<const CompiledMatrix> (compiled);
+    compiledMatrix = compiled->routes.empty() ? nullptr : std::shared_ptr<const CompiledMatrix> (compiled);
     matrixForAudio = compiledMatrix.get();
 }
 
@@ -581,7 +609,7 @@ void ParagonX1AudioProcessor::setModMatrix (const ModMatrix& newMatrix)
 int ParagonX1AudioProcessor::getNumPlayingRoutes() const noexcept
 {
     const auto* compiled = matrixForAudio.load();
-    return compiled != nullptr ? (int) compiled->size() : 0;
+    return compiled != nullptr ? (int) compiled->routes.size() : 0;
 }
 
 void ParagonX1AudioProcessor::updateSpectra()

@@ -28,16 +28,102 @@ struct ModRouteData
     }
 };
 
+// A multipoint shape as presets keep it (stage 4b): a modulation envelope
+// (x in seconds or beats) or a drawn LFO shape (x 0 to 1 across a cycle).
+struct ModShapeData
+{
+    std::vector<synth::mod::ShapePoint> points;
+    int sustain = -1, loopStart = -1, loopEnd = -1;
+
+    bool operator== (const ModShapeData& o) const noexcept
+    {
+        if (points.size() != o.points.size() || sustain != o.sustain || loopStart != o.loopStart || loopEnd != o.loopEnd)
+            return false;
+        for (size_t i = 0; i < points.size(); ++i)
+            if (! juce::exactlyEqual (points[i].x, o.points[i].x) || ! juce::exactlyEqual (points[i].y, o.points[i].y)
+                || ! juce::exactlyEqual (points[i].curve, o.points[i].curve))
+                return false;
+        return true;
+    }
+
+    // A new envelope: up in 50 ms, down to 60% (SUSTAIN), out by 1.2 s; LOOP round the top and the sustain.
+    static ModShapeData defaultEnvelope()
+    {
+        return { { { 0.0f, 0.0f, 0.0f }, { 0.05f, 1.0f, -0.4f }, { 0.4f, 0.6f, 0.0f }, { 1.2f, 0.0f, -0.4f } }, 2, 1, 2 };
+    }
+    // A new drawn LFO shape: a triangle.
+    static ModShapeData defaultLfoShape()
+    {
+        return { { { 0.0f, 0.5f, 0.0f }, { 0.25f, 1.0f, 0.0f }, { 0.75f, 0.0f, 0.0f }, { 1.0f, 0.5f, 0.0f } }, -1, -1, -1 };
+    }
+
+    // For the audio thread: plain data, the points sorted, at most 64.
+    synth::mod::Shape toShape() const
+    {
+        synth::mod::Shape shape;
+        shape.count = juce::jmin ((int) points.size(), synth::mod::maxShapePoints);
+        for (int i = 0; i < shape.count; ++i)
+            shape.points[(size_t) i] = points[(size_t) i];
+        const auto valid = [&shape] (int index) { return index >= 0 && index < shape.count ? index : -1; };
+        shape.sustain = valid (sustain);
+        shape.loopStart = valid (loopStart);
+        shape.loopEnd = valid (loopEnd);
+        return shape;
+    }
+
+    // As text: "x:y:curve ..." then the flags.
+    juce::String encode() const
+    {
+        juce::StringArray items;
+        for (const auto& p : points)
+            items.add (juce::String (p.x, 4) + ":" + juce::String (p.y, 4) + ":" + juce::String (p.curve, 3));
+        return items.joinIntoString (" ");
+    }
+    static ModShapeData decode (const juce::String& text, int sustain, int loopStart, int loopEnd, bool lfo)
+    {
+        ModShapeData d;
+        float lastX = 0.0f;
+        for (const auto& item : juce::StringArray::fromTokens (text, " ", {}))
+        {
+            const auto parts = juce::StringArray::fromTokens (item, ":", {});
+            if (parts.size() != 3 || (int) d.points.size() >= synth::mod::maxShapePoints)
+                continue;
+            auto x = juce::jmax (lastX, parts[0].getFloatValue());   // never backwards
+            if (lfo)
+                x = juce::jlimit (0.0f, 1.0f, x);
+            d.points.push_back ({ x, juce::jlimit (0.0f, 1.0f, parts[1].getFloatValue()), juce::jlimit (-1.0f, 1.0f, parts[2].getFloatValue()) });
+            lastX = x;
+        }
+        if (d.points.size() < 2)
+            return lfo ? defaultLfoShape() : defaultEnvelope();
+        d.sustain = sustain;
+        d.loopStart = loopStart;
+        d.loopEnd = loopEnd;
+        return d;
+    }
+};
+
 struct ModMatrix
 {
     std::vector<ModRouteData> routes;
     std::array<juce::String, 3> macroNames;   // empty: "MACRO 1"... (the owner can rename them)
+    // The modulation envelopes' and drawn LFO shapes' points (stage 4b).
+    std::array<ModShapeData, synth::mod::numEnvelopes> envelopes = filled<synth::mod::numEnvelopes> (ModShapeData::defaultEnvelope());
+    std::array<ModShapeData, synth::mod::numLfoShapes> lfoShapes = filled<synth::mod::numLfoShapes> (ModShapeData::defaultLfoShape());
 
-    bool operator== (const ModMatrix& o) const noexcept { return routes == o.routes && macroNames == o.macroNames; }
-    bool isEmpty() const noexcept
+    template <int N>
+    static std::array<ModShapeData, (size_t) N> filled (const ModShapeData& d)
     {
-        return routes.empty() && std::all_of (macroNames.begin(), macroNames.end(), [] (const juce::String& n) { return n.isEmpty(); });
+        std::array<ModShapeData, (size_t) N> a;
+        a.fill (d);
+        return a;
     }
+
+    bool operator== (const ModMatrix& o) const noexcept
+    {
+        return routes == o.routes && macroNames == o.macroNames && envelopes == o.envelopes && lfoShapes == o.lfoShapes;
+    }
+    bool isEmpty() const noexcept { return *this == ModMatrix {}; }
 
     juce::String macroName (int index) const
     {
@@ -63,6 +149,22 @@ struct ModMatrix
             e->setAttribute ("lag", r.lagMs);
             e->setAttribute ("curve", r.curve);
         }
+        // Shapes, only those changed from new.
+        const auto addShape = [&xml] (const char* tag, int index, const ModShapeData& d)
+        {
+            auto* e = xml->createNewChildElement (tag);
+            e->setAttribute ("index", index + 1);
+            e->setAttribute ("points", d.encode());
+            e->setAttribute ("sustain", d.sustain);
+            e->setAttribute ("loopStart", d.loopStart);
+            e->setAttribute ("loopEnd", d.loopEnd);
+        };
+        for (int i = 0; i < synth::mod::numEnvelopes; ++i)
+            if (! (envelopes[(size_t) i] == ModShapeData::defaultEnvelope()))
+                addShape ("Envelope", i, envelopes[(size_t) i]);
+        for (int i = 0; i < synth::mod::numLfoShapes; ++i)
+            if (! (lfoShapes[(size_t) i] == ModShapeData::defaultLfoShape()))
+                addShape ("LfoShape", i, lfoShapes[(size_t) i]);
         return xml;
     }
 
@@ -85,6 +187,17 @@ struct ModMatrix
             r.curve = juce::jlimit (-1.0f, 1.0f, (float) e->getDoubleAttribute ("curve"));
             m.routes.push_back (r);
         }
+        for (const auto lfo : { false, true })
+            for (const auto* e : xml.getChildWithTagNameIterator (lfo ? "LfoShape" : "Envelope"))
+            {
+                const auto index = e->getIntAttribute ("index") - 1;
+                const auto count = lfo ? synth::mod::numLfoShapes : synth::mod::numEnvelopes;
+                if (index < 0 || index >= count)
+                    continue;
+                const auto d = ModShapeData::decode (e->getStringAttribute ("points"), e->getIntAttribute ("sustain", -1),
+                                                     e->getIntAttribute ("loopStart", -1), e->getIntAttribute ("loopEnd", -1), lfo);
+                (lfo ? m.lfoShapes[(size_t) index] : m.envelopes[(size_t) index]) = d;
+            }
         return m;
     }
 };

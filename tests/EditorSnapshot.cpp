@@ -82,7 +82,11 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
     if (env ("PARAGON_SNAPSHOT_PAGE") == "mod")
         view->showPage (MainView::Page::modulation);
     if (const auto lfo = env ("PARAGON_SNAPSHOT_LFO").getIntValue(); lfo > 0)
-        view->getModPage().getLfoPanel().selectLfo (lfo - 1);
+        view->getModPage().getModulatorPanel().selectLfo (lfo - 1);
+    if (const auto envelope = env ("PARAGON_SNAPSHOT_ENV").getIntValue(); envelope > 0)
+        view->getModPage().getModulatorPanel().selectEnvelope (envelope - 1);
+    if (const auto shape = env ("PARAGON_SNAPSHOT_SHAPE").getIntValue(); shape > 0)
+        view->getModPage().getModulatorPanel().selectShape (shape - 1);
     if (const auto page = env ("PARAGON_SNAPSHOT_FILTERPAGE").getIntValue(); page > 0)
         view->getFilterPanel().showPage (page);
     if (env ("PARAGON_SNAPSHOT_OSCPAGE") == "draw")

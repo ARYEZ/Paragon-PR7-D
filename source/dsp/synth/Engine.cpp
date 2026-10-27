@@ -353,6 +353,8 @@ namespace synth
         modWheel = breath = expression = channelPressure = 0.0f;
         for (auto& lfo : globalLfos)
             lfo = {};
+        for (auto& envelope : globalEnvelopes)
+            envelope = {};
     }
 
     int Engine::getNumActiveVoices() const noexcept
@@ -459,6 +461,12 @@ namespace synth
             if (lfo.trigger == mod::LfoTrigger::lastNote || (lfo.trigger == mod::LfoTrigger::firstNote && ! anyHeld))
                 globalLfos[(size_t) k].start (lfo, random);
         }
+        for (int k = 0; k < mod::numEnvelopes; ++k)
+        {
+            const auto trigger = settings.modulation.envelopes[(size_t) k].trigger;
+            if (trigger == mod::EnvelopeTrigger::lastNote || (trigger == mod::EnvelopeTrigger::firstNote && ! anyHeld))
+                globalEnvelopes[(size_t) k].start();
+        }
         if (settings.play.mode == PlayMode::poly)
             polyNoteOn (note, velocity, settings);
         else
@@ -471,6 +479,7 @@ namespace synth
         if (settings.play.mode != PlayMode::poly)
         {
             monoNoteOff (note, settings);
+            releaseGlobalEnvelopesIfNoneHeld();
             return;
         }
         for (auto& voice : voices)
@@ -482,6 +491,7 @@ namespace synth
                 else
                     releaseVoice (voice);
             }
+        releaseGlobalEnvelopesIfNoneHeld();
     }
 
     void Engine::polyNoteOn (int note, float velocity, const Settings& settings) noexcept
@@ -633,6 +643,7 @@ namespace synth
                 voice.sustained = false;
                 releaseVoice (voice);
             }
+        releaseGlobalEnvelopesIfNoneHeld();
     }
 
     //==========================================================================
@@ -814,6 +825,16 @@ namespace synth
     {
         voice.amp.release();
         voice.filter.release();
+        for (auto& envelope : voice.envelopes)
+            envelope.release();
+    }
+
+    void Engine::releaseGlobalEnvelopesIfNoneHeld() noexcept
+    {
+        // The FIRST NOTE / LAST NOTE envelopes let go when no key (or pedal) holds a note.
+        if (std::none_of (voices.begin(), voices.end(), [] (const Voice& v) { return v.playing && (v.held || v.sustained) && ! v.killing; }))
+            for (auto& envelope : globalEnvelopes)
+                envelope.release();
     }
 
     void Engine::kill (Voice& voice) noexcept
@@ -857,7 +878,7 @@ namespace synth
                 for (int k = 0; k < mod::numLfos; ++k)
                 {
                     const auto& lfo = modulation.lfos[(size_t) k];
-                    if (lfo.trigger == mod::LfoTrigger::voice)
+                    if (lfo.trigger == mod::LfoTrigger::voice || ! modulation.uses ((mod::Source) ((int) mod::Source::lfo1 + k)))
                         continue;
                     auto& state = globalLfos[(size_t) k];
                     const auto cycles = lfo.cyclesPerSecond (modulation.bpm);
@@ -871,8 +892,20 @@ namespace synth
                             const auto position = beats * cycles * 60.0 / modulation.bpm + lfo.phase;
                             state.phase = position - std::floor (position);
                         }
-                        globalLfoValues[(size_t) k][(size_t) i] = state.next (lfo, cycles, n * secondsPerSample, random);
+                        globalLfoValues[(size_t) k][(size_t) i] = state.next (lfo, cycles, n * secondsPerSample, random, modulation.lfoShapes);
                     }
+                }
+                // ...and the envelopes set to FIRST NOTE or LAST NOTE.
+                for (int k = 0; k < mod::numEnvelopes; ++k)
+                {
+                    const auto& envelope = modulation.envelopes[(size_t) k];
+                    if (envelope.trigger == mod::EnvelopeTrigger::voice || modulation.envelopeShapes == nullptr
+                        || ! modulation.uses ((mod::Source) ((int) mod::Source::env1 + k)))
+                        continue;
+                    for (int i = 0, at = 0; at < length; ++i, at += controlInterval)
+                        globalEnvelopeValues[(size_t) k][(size_t) i] = globalEnvelopes[(size_t) k].next (modulation.envelopeShapes[k], envelope,
+                                                                                                             juce::jmin (controlInterval, length - at) * secondsPerSample,
+                                                                                                             modulation.bpm);
                 }
             }
             for (auto& voice : voices)
@@ -890,6 +923,8 @@ namespace synth
     {
         for (int k = 0; k < mod::numLfos; ++k)
             voice.lfos[(size_t) k].start (settings.modulation.lfos[(size_t) k], random);
+        for (auto& envelope : voice.envelopes)
+            envelope.start();
         voice.randomValue = random.nextFloat();
         voice.pressure = 0.0f;
         voice.lagFresh = true;
@@ -903,13 +938,26 @@ namespace synth
         // Each source's value for this note now.
         std::array<float, mod::numSources> values {};
         const auto seconds = (double) n / sampleRate;
+        const auto at = (size_t) juce::jlimit (0, maxIntervals - 1, interval);
         for (int k = 0; k < mod::numLfos; ++k)
         {
             const auto& lfo = modulation.lfos[(size_t) k];
+            if (! modulation.uses ((mod::Source) ((int) mod::Source::lfo1 + k)))
+                continue;
             values[(size_t) mod::Source::lfo1 + (size_t) k] = lfo.trigger == mod::LfoTrigger::voice
-                ? voice.lfos[(size_t) k].next (lfo, lfo.cyclesPerSecond (modulation.bpm), seconds, random)
-                : globalLfoValues[(size_t) k][(size_t) juce::jlimit (0, maxIntervals - 1, interval)];
+                ? voice.lfos[(size_t) k].next (lfo, lfo.cyclesPerSecond (modulation.bpm), seconds, random, modulation.lfoShapes)
+                : globalLfoValues[(size_t) k][at];
         }
+        if (modulation.envelopeShapes != nullptr)
+            for (int k = 0; k < mod::numEnvelopes; ++k)
+            {
+                const auto& envelope = modulation.envelopes[(size_t) k];
+                if (! modulation.uses ((mod::Source) ((int) mod::Source::env1 + k)))
+                    continue;
+                values[(size_t) mod::Source::env1 + (size_t) k] = envelope.trigger == mod::EnvelopeTrigger::voice
+                    ? voice.envelopes[(size_t) k].next (modulation.envelopeShapes[k], envelope, seconds, modulation.bpm)
+                    : globalEnvelopeValues[(size_t) k][at];
+            }
         for (int k = 0; k < 3; ++k)
             values[(size_t) mod::Source::macro1 + (size_t) k] = modulation.macros[(size_t) k];
         values[(size_t) mod::Source::button1] = modulation.buttons[0] ? 1.0f : 0.0f;

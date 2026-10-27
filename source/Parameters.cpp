@@ -9,7 +9,7 @@ namespace
     using Range = juce::NormalisableRange<float>;
     using ToText = std::function<juce::String (float, int)>;
 
-    // Version hint: the PR7-K version that introduced a parameter (1 for 0.1.0, 2 for 0.2.0, 3 for 0.3.0, 4 for 0.4.0, 5 for 0.5.0, 6 for 0.6.0, 7 for 0.8.0, 8 for 0.9.0).
+    // Version hint: the PR7-K version that introduced a parameter (1 for 0.1.0, 2 for 0.2.0, 3 for 0.3.0, 4 for 0.4.0, 5 for 0.5.0, 6 for 0.6.0, 7 for 0.8.0, 8 for 0.9.0, 9 for 0.10.0).
     constexpr int firstVersion = 1;
     constexpr int stage2 = 2;
     constexpr int stage3 = 3;
@@ -18,6 +18,7 @@ namespace
     constexpr int stage3d = 6;   // 0.6.0
     constexpr int stage3e = 7;   // 0.8.0 (0.7.0 added no parameters)
     constexpr int stage4a = 8;   // 0.9.0
+    constexpr int stage4b = 9;   // 0.10.0
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -91,6 +92,8 @@ namespace
     // FFT LP / HP: a harmonic number (Off at the ends).
     const ToText asHarmonicLp = [] (float value, int) { return value >= 511.5f ? juce::String ("Off") : "H" + juce::String (juce::roundToInt (value)); };
     const ToText asHarmonicHp = [] (float value, int) { return value <= 1.01f ? juce::String ("Off") : "H" + juce::String (juce::roundToInt (value)); };
+    const ToText asTimes = [] (float value, int) { return "x" + juce::String (value, value < 1.0f ? 2 : 1); };
+    const ToText asSteps = [] (float value, int) { return value < 0.5f ? juce::String ("Smooth") : juce::String (juce::roundToInt (value)); };
     // The SHAPER's DRIVE, as the gain into its curve.
     const ToText asShaperDrive = [] (float value, int) { return "+" + juce::String (value * synth::shaper::maxDriveDb, 1) + " dB"; };
     const ToText asEqGain = [] (float value, int)
@@ -340,6 +343,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         add (layout, lfo (k, "Delay"), name + "Delay", timeRange (10000.0f), lfoDefaults.delayMs, asMs, stage4a);
         add (layout, lfo (k, "FadeIn"), name + "Fade In", timeRange (10000.0f), lfoDefaults.fadeInMs, asMs, stage4a);
         addSwitch (layout, lfo (k, "OneShot"), name + "One Shot", lfoDefaults.oneShot, stage4a);
+    }
+    const synth::mod::EnvelopeSettings envelopeDefaults;
+    for (int k = 0; k < numEnvelopes; ++k)
+    {
+        const auto name = "Mod Env " + juce::String (k + 1) + " ";
+        addChoice (layout, env (k, "Mode"), name + "Mode", synth::mod::envelopeModeNames, (int) envelopeDefaults.mode, stage4b);
+        addChoice (layout, env (k, "Trigger"), name + "Trigger", synth::mod::envelopeTriggerNames, (int) envelopeDefaults.trigger, stage4b);
+        addSwitch (layout, env (k, "Sync"), name + "Sync", envelopeDefaults.sync, stage4b);
+        add (layout, env (k, "Speed"), name + "Speed", logRange (0.1, 10.0), envelopeDefaults.speed, asTimes, stage4b);
+        add (layout, env (k, "Steps"), name + "Steps", { 0.0f, 32.0f, 1.0f }, (float) envelopeDefaults.steps, asSteps, stage4b);
+        addSwitch (layout, env (k, "Flip"), name + "Flip", envelopeDefaults.flip, stage4b);
+        add (layout, env (k, "Offset"), name + "Offset", { 0.0f, 1.0f }, envelopeDefaults.offset, asPercent, stage4b);
     }
     for (int k = 0; k < 3; ++k)
         add (layout, macros[k], "Macro " + juce::String (k + 1), { 0.0f, 1.0f }, 0.0f, asPercent, stage4a);

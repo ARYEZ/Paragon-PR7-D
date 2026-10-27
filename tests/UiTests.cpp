@@ -472,11 +472,11 @@ TEST_CASE ("The MOD page: LFOs, macros and the matrix; adding and editing a rout
     checkLayout (*w.view, "mod");
 
     // Each LFO tab points the controls at its LFO; SYNC swaps RATE for LENGTH.
-    page.getLfoPanel().selectLfo (2);
+    page.getModulatorPanel().selectLfo (2);
     CHECK (controlFor (*w.view, ParamIDs::lfo (2, "Rate"))->isVisible());
     auto* sync = w.processor.getParameters().getParameter (ParamIDs::lfo (2, "Sync"));
     sync->setValueNotifyingHost (sync->convertTo0to1 ((float) synth::mod::LfoSync::straight));
-    page.getLfoPanel().selectLfo (2);
+    page.getModulatorPanel().selectLfo (2);
     CHECK (controlFor (*w.view, ParamIDs::lfo (2, "Division"))->isVisible());
     CHECK_FALSE (controlFor (*w.view, ParamIDs::lfo (2, "Rate"))->isVisible());
     for (const auto* id : ParamIDs::macros)

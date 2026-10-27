@@ -14,6 +14,7 @@ add_executable(ParagonX1Tests
     FreeformTests.cpp
     ShaperTests.cpp
     MatrixTests.cpp
+    EnvelopeModTests.cpp
     ProcessorTests.cpp
     RigTests.cpp
     UiTests.cpp
