@@ -6,6 +6,7 @@
 #include "SynthSettings.h"
 
 #include <array>
+#include <vector>
 
 // PR7-K's synth engine (stage 1): MIDI in, stereo out. Our own design,
 // laid out like Avenger's: up to 8 oscillators per note, each through the
@@ -136,7 +137,10 @@ namespace synth
 
         double sampleRate = 48000.0;
         // Pool: up to maxVoices notes, plus room for stolen ones finishing their fade.
-        std::array<Voice, maxVoices + 16> voices;
+        // On the heap (about 1 MB with every copy's state): an Engine made on the
+        // stack, as the tests do, would overflow Windows' 1 MB thread stack.
+        // Sized once and never resized, so pointers into it (monoVoice) stay good.
+        std::vector<Voice> voices = std::vector<Voice> (maxVoices + 16);
         Voice* monoVoice = nullptr;
         std::uint64_t noteCounter = 0;
         float lastPitch = -1.0f;        // the last note started, for glide (-1: none yet)

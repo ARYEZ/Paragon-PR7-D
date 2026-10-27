@@ -1020,3 +1020,10 @@ TEST_CASE ("CPU: a 7-copy supersaw chord, and the worst case of unison and chord
     CHECK (percent (1, 0) < 25.0);    // a supersaw chord: 56 copies
     CHECK (percent (4, 2) < 60.0);    // 4 oscillators x 3 notes x 7 copies x 8 keys: 672 copies (about 17% here; generous for slow CI machines)
 }
+
+TEST_CASE ("An engine is small enough to make on the stack (Windows gives a thread 1 MB)", "[synth]")
+{
+    // The voice pool (about 1 MB) lives on the heap; three or four engines on
+    // the stack at once, as some tests make, once overflowed Windows' stack.
+    CHECK (sizeof (synth::Engine) < 64 * 1024);
+}
