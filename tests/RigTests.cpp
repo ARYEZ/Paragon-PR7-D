@@ -367,7 +367,7 @@ TEST_CASE ("< and > step through the presets in order", "[rigs]")
     REQUIRE (r.processor.saveCurrentRigAs ("Second"));   // filed after bank A's factory presets, at A24
     REQUIRE (r.processor.saveCurrentRigAs ("Third"));    // A25
     CHECK (r.entryNamed ("Second").rig.getSlotName() == "A24");
-    r.processor.loadRig (r.entryNamed ("Spectral Shimmer"));   // A22
+    r.processor.loadRig (r.entryNamed ("Drawn Growl"));   // A23
     r.processor.stepRig (1);
     CHECK (r.processor.getCurrentRig().name == "Second");
     r.processor.stepRig (1);

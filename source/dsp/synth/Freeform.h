@@ -73,7 +73,11 @@ namespace synth
                 const auto position = (float) i * (float) points / (float) cycle;
                 const auto a = (int) position;
                 const auto t = position - (float) a;
-                wave[(size_t) i] = values[(size_t) a] + (values[(size_t) ((a + 1) % points)] - values[(size_t) a]) * t;
+                // The last point carries on its slope rather than bending back to
+                // the first: what's drawn ends at the cycle's end, so a jump back
+                // to the start sits exactly there, where EDGE joins it.
+                const auto next = a + 1 < points ? values[(size_t) a + 1] : 2.0f * values[(size_t) a] - values[(size_t) a - 1];
+                wave[(size_t) i] = values[(size_t) a] + (next - values[(size_t) a]) * t;
             }
 
             // SMOOTH: three passes of a moving average (close to a gaussian), up
