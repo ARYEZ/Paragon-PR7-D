@@ -137,9 +137,9 @@ TEST_CASE ("The oscillator tabs point one set of controls at the chosen oscillat
 
     // Every setting of the tab is re-pointed, not just some. (ON is the tab's
     // own LED; TABLE is the wavetable chooser, which follows the tab too: its
-    // own test is below.)
+    // own test is below. The SHAPER switches are on the shapers' pages, one per oscillator.)
     for (const auto* what : ParamIDs::oscSettings)
-        if (juce::String (what) != "On" && juce::String (what) != "Table")
+        if (juce::String (what) != "On" && juce::String (what) != "Table" && ! juce::String (what).startsWith ("Shp"))
             CHECK (controlFor (*w.view, ParamIDs::osc (2, what)) != nullptr);
 }
 

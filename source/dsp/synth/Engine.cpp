@@ -1070,15 +1070,16 @@ namespace synth
                 r = chRight.eq (chRight.eq (r, bells[0], 0), bells[1], 1);
             }
 
-            l = chLeft.shape (l, model, g) * m;
-            r = chRight.shape (r, model, g) * m;
+            l = chLeft.distort (l, model, g) * m;
+            r = chRight.distort (r, model, g) * m;
             if (asymmetric)
             {
                 l = chLeft.blockDc (l, dcPole);
                 r = chRight.blockDc (r, dcPole);
             }
-            left[i] = l * wet + inLeft * dry;
-            right[i] = r * wet + inRight * dry;
+            // MIX: the dry sound delayed as the distorted one is (by the oversampling), so they add up in step.
+            left[i] = l * wet + chLeft.delayedDry (inLeft) * dry;
+            right[i] = r * wet + chRight.delayedDry (inRight) * dry;
         }
     }
 

@@ -2,6 +2,30 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.8.0
+
+Stage 3, part 5: **the SHAPER**, a distortion on each note, modelled on Avenger's shaper section (our own design and code). This finishes stage 3.
+
+- **Where it is:** the FILTER panel now has tabs: **FILTER**, **SHP 1**, **SHP 2**, **SHP 3**, **SHP 4**. Each tab's light is on while that filter or shaper is.
+- **What each shaper has**, as the manual describes it:
+  - **MODEL** and **DRIVE** (up to +36 dB into the distortion; the level is kept about the same, so more drive means more grit, not just louder). **DRIVE VEL**: softer notes are driven less.
+  - **Two EQ bands before the distortion** (GAIN, FREQ, Q each; at 0 dB a band is off): boost a band and that part distorts first.
+  - **EQ SPLIT**: band 1 on the left channel only and band 2 on the right only, so the two sides distort differently and the sound gets much wider.
+  - **PLACE**: before the filter (the filter then tames the buzz) or after it. Up to 4 shapers, run in number order on each side of the filter.
+  - **OSCILLATORS 1 to 8**: which oscillators go through it. All of them are ticked to start with, so switching a shaper on is heard at once; untick the ones you want clean.
+- **Ours, not Avenger's:**
+  - **The 10 models** (the manual doesn't list Avenger's): SOFT, SMOOTH and CUBIC round off gently; HARD clips flat; TUBE and DIODE lean to one side (warmer, with even harmonics); SINE FOLD and TRI FOLD fold the wave back on itself (metallic); RECTIFY flips the bottom half up (an octave up); HALF RECT cuts it off.
+  - **MIX** (below 100%: the clean and distorted sound together) and **OUTPUT**. The manual lists neither.
+- **Each note is distorted on its own** (as on Avenger, "on an oscillator level"), so chords stay clean of the harsh tones you get distorting several notes at once. Oscillators on different routes each get their own filter and shapers, so a clean oscillator stays clean beside a distorted one (tested: playing both is exactly each alone, added).
+- **Clean at the top:** distortion makes harmonics far above the note, and those past the top of what the sample rate can hold fold back down as harsh, out-of-tune tones. Each shaper runs at twice the sample rate, with the anti-aliasing the filter's DRIVE uses on top. Measured on a hard-driven 1.76 kHz tone: folded noise about -55 to -65 dB, against -26 to -32 dB for a plain distortion.
+  - Two costs: half a millisecond of delay through a shaper (its MIX's clean sound is delayed to match), and a very gentle top roll-off from the anti-aliasing (-0.5 dB at 10 kHz, -1.6 dB at 18 kHz).
+  - The FOLD models, pushed hard on high notes, still make more harmonics than this can hold. Use them lower down, or with less DRIVE, for the cleanest result.
+- **CPU:** a shaper costs nothing while it's off. On the test chord (8 notes, 2 supersaws of 7 copies, through the filter): 4.5% of a core with none, 9.3% with one, 15% with two.
+- **Your old sounds are untouched:** with no shaper on, the synth's output is identical, sample for sample, to 0.7.0 (checked on a test sound with three oscillators, a driven filter and chords).
+- **Changing MODEL while a note plays** switches the curve at once, so it can click, like switching any waveform.
+- **Two new factory presets:** Tube Bass (A24) and Wide Fold Lead (A25, EQ SPLIT). Our own, not tuned by ear.
+- In the tests: every model's maths, harmonics (SOFT odd only, TUBE and DIODE adding even ones, RECTIFY an octave up), level kept as DRIVE rises, aliasing against a plain distortion for every model, the oversampling's flatness and delay, the EQ bands against their picture, SPLIT, routing, separate paths, PLACE, DRIVE VEL, MIX, OUTPUT, saving, the page's layout and CPU. Not checked here: how it sounds (I can't listen).
+
 ## 0.7.0
 
 Stage 3, part 4b: **FREEFORM** (draw a wave by hand) and **the resampler** (choosing how a long sample is cut into wavetable frames), both modelled on Avenger's (our own design and code).

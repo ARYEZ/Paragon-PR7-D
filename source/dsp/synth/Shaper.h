@@ -14,12 +14,17 @@
 // doesn't list Avenger's distortion models: these are our own. MIX and
 // OUTPUT are ours too (the manual has neither).
 //
-// Every model is anti-aliased by the first-order antiderivative method (as
-// the FILTER's DRIVE): the shaper is fed the average of its curve between
-// one sample and the next rather than the curve at each sample, which takes
-// away most of the harsh folded-back tones a plain distortion adds, without
-// oversampling. The folders, pushed hard, make so many harmonics that some
-// still fold back (measured in the tests).
+// Against aliasing (the harsh, out-of-tune tones a distortion's harmonics
+// make when they pass half the sample rate and fold back down), each shaper
+// runs at twice the sample rate (a 47-tap half-band filter each way, flat to
+// 18 kHz, -80 dB on anything that would fold below 18 kHz), and each model
+// takes the first-order antiderivative method on top (as the FILTER's DRIVE):
+// the curve's average between one sample and the next rather than its value
+// at each. Measured: a hard-driven 1.76 kHz tone's folded noise goes from
+// about -30 dB (a plain distortion) to about -60 dB. The cost: 23 samples of
+// delay (half a millisecond) through a shaper; MIX's dry sound is delayed to
+// match. The FOLD models, pushed hard on high notes, still make more
+// harmonics than this can hold (measured in the tests).
 namespace synth
 {
     inline constexpr int numShapers = 4;
@@ -165,6 +170,17 @@ namespace synth
             }
         };
 
+        // The 2x oversampling's half-band filter: its odd taps either side of
+        // the centre (a 47-tap Kaiser-windowed sinc, beta 7.9; every other tap
+        // of a half-band filter is zero, so 12 multiplies each way).
+        inline constexpr int halfBandTaps = 12;
+        inline constexpr float halfBandCentre = 0.4999953710f;
+        inline constexpr std::array<float, halfBandTaps> halfBand {
+            3.1609289040e-01f, -9.9619882028e-02f, 5.3367431087e-02f, -3.2058368641e-02f, 1.9668359286e-02f, -1.1829020736e-02f,
+            6.7890652212e-03f, -3.6264820730e-03f, 1.7470107469e-03f, -7.2097213840e-04f, 2.2782318545e-04f, -3.5539827520e-05f };
+        // Samples of delay through the oversampling: 12 going up, 11 coming down.
+        inline constexpr int latency = 2 * halfBandTaps - 1;
+
         // What one shaper works out once per block: its EQ bands.
         struct Coefficients
         {
@@ -182,6 +198,50 @@ namespace synth
                 previous = previousF = 0.0;
                 dcIn = dcOut = 0.0f;
                 started = false;
+                upHistory.fill (0.0f);
+                downA.fill (0.0f);
+                downB.fill (0.0f);
+                dryHistory.fill (0.0f);
+                position = 0;
+            }
+
+            // The curve at twice the sample rate: up (one sample between each
+            // two), shaped, and back down. `latency` samples late.
+            float distort (float input, ShaperModel model, float gain) noexcept
+            {
+                // Up: the sample from `halfBandTaps` ago, and the one halfway after it.
+                const auto at = (size_t) position;
+                upHistory[at] = upHistory[at + window] = input;
+                const auto* x = upHistory.data() + at + 1;   // x[0] the oldest of the last 24, x[23] the newest
+                float between = 0.0f;
+                for (int i = 0; i < halfBandTaps; ++i)
+                    between += halfBand[(size_t) i] * (x[halfBandTaps + i] + x[halfBandTaps - 1 - i]);
+                const auto a = x[halfBandTaps - 1];
+                const auto b = 2.0f * between;
+
+                // Shaped at the higher rate...
+                const auto shapedA = shape (a, model, gain), shapedB = shape (b, model, gain);
+
+                // ...and down: the half-band again, keeping every other sample.
+                downA[at] = downA[at + window] = shapedA;
+                downB[at] = downB[at + window] = shapedB;
+                const auto* sa = downA.data() + at + 1;
+                const auto* sb = downB.data() + at + 1;
+                auto out = halfBandCentre * sa[halfBandTaps];
+                for (int i = 0; i < halfBandTaps; ++i)
+                    out += halfBand[(size_t) i] * (sb[halfBandTaps + i] + sb[halfBandTaps - 1 - i]);
+
+                position = position + 1 == window ? 0 : position + 1;
+                return out;
+            }
+
+            // The sound coming in, `latency` samples late (MIX's dry sound, in step with what's distorted).
+            float delayedDry (float input) noexcept
+            {
+                const auto out = dryHistory[(size_t) dryPosition];
+                dryHistory[(size_t) dryPosition] = input;
+                dryPosition = dryPosition + 1 == latency ? 0 : dryPosition + 1;
+                return out;
             }
 
             float eq (float x, const Bell& bell, int band) noexcept
@@ -233,6 +293,13 @@ namespace synth
             }
 
         private:
+            // Ring buffers written twice (at i and i + window), so the last 24 are always in one run.
+            static constexpr int window = 2 * halfBandTaps;
+            std::array<float, 2 * window> upHistory {}, downA {}, downB {};
+            int position = 0;
+            std::array<float, latency> dryHistory {};
+            int dryPosition = 0;
+
             struct State { float ic1 = 0.0f, ic2 = 0.0f; };
             std::array<State, 2> states {};
             double previous = 0.0, previousF = 0.0;
