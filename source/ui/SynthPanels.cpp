@@ -392,6 +392,12 @@ bool OscillatorPanel::isWavetable() const
     return waveParameter != nullptr && juce::roundToInt (waveParameter->load()) == (int) synth::OscWave::wavetable;
 }
 
+bool OscillatorPanel::isFreeform() const
+{
+    const auto* waveParameter = state.getRawParameterValue (ParamIDs::osc (selected, "Wave"));
+    return waveParameter != nullptr && juce::roundToInt (waveParameter->load()) == (int) synth::OscWave::freeform;
+}
+
 bool OscillatorPanel::isShown (const char* what) const
 {
     const juce::String name (what);
@@ -401,13 +407,14 @@ bool OscillatorPanel::isShown (const char* what) const
     if (name.startsWith ("Wt"))
         return showingWavetable;
     if (name == "Width")
-        return ! showingWavetable;
+        return ! showingWavetable && ! isFreeform();   // WIDTH shapes PULSE (and the basic waves' FFT copies), not a drawing
     return true;
 }
 
 void OscillatorPanel::updateVisibility()
 {
     showingWavetable = isWavetable();
+    showingFreeform = isFreeform();
     for (size_t i = 0; i < controls.size(); ++i)
         controls[i]->setVisible (isShown (settingNames[i]));
     tableChooser.setVisible (page != Page::voices && showingWavetable);
@@ -418,7 +425,7 @@ void OscillatorPanel::updateVisibility()
 void OscillatorPanel::timerCallback()
 {
     // The WAVE menu (or automation, a preset, undo) can switch WAVETABLE on or off.
-    if (isWavetable() != showingWavetable)
+    if (isWavetable() != showingWavetable || isFreeform() != showingFreeform)
         updateVisibility();
     if (showingWavetable)
         tableChooser.refresh();

@@ -70,6 +70,7 @@ private:
     void timerCallback() override;
     // WAVETABLE's controls show when the selected oscillator plays one; WIDTH when it doesn't.
     bool isWavetable() const;
+    bool isFreeform() const;
     bool isShown (const char* what) const;
     void updateVisibility();
 
@@ -88,7 +89,7 @@ private:
     juce::AudioProcessorValueTreeState& state;
     std::vector<std::unique_ptr<Tab>> tabs;
     WavetableChooser tableChooser;
-    bool showingWavetable = false;
+    bool showingWavetable = false, showingFreeform = false;
     juce::TextButton wavePageButton { "WAVE" }, shapePageButton { "SHAPE" }, fmPageButton { "FM" }, fftPageButton { "FFT" },
                      drawPageButton { "DRAW" }, voicesPageButton { "VOICES" };
     Page page = Page::wave;

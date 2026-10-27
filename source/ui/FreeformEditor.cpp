@@ -187,7 +187,7 @@ FreeformControls::FreeformControls (ParagonX1AudioProcessor& p) : processor (p)
         box->setColour (juce::ComboBox::arrowColourId, ParagonColours::textDim);
     }
     start.addItemList (synth::FreeformDrawing::startingShapes, 1);
-    start.setTextWhenNothingSelected ("Start from");
+    start.setTextWhenNothingSelected ("New");
     start.setTooltip ("Start the drawing again from a flat line or a basic wave (the controls stay)");
     start.onChange = [this]
     {
