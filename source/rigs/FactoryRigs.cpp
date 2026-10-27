@@ -7,7 +7,7 @@
 // PR7-K's first factory presets: a few starting points that show what each
 // stage can do (0.1.0: oscillators, sub, noise, the filter and its envelope,
 // mono and glide; 0.2.0: unison, vibrato and the chorder; 0.3.0: wavetables;
-// 0.4.0: SHAPE; 0.5.0: SYNC, FM and AM). Our own sounds, set up from common synth
+// 0.4.0: SHAPE; 0.5.0: SYNC, FM and AM; 0.6.0: the FFT editor). Our own sounds, set up from common synth
 // recipes, not copies of anyone's presets, and not yet tuned by ear: the
 // full factory set comes in a later stage (presets), once the engine has
 // unison, wavetables, modulation and effects to build them with.
@@ -252,6 +252,28 @@ std::vector<Rig> makeFactoryRigs()
         .osc (0, "Volume", 0.8f)
         .ampEnvelope (5.0f, 800.0f, 0.6f, 500.0f);
     add (ring);
+
+    // 0.6.0: the FFT editor (curves drawn here in code).
+    Builder hollow ("Hollow Reed", 21, { "Lead", "FFT" },
+                    "A saw with every even harmonic drawn out (the FFT editor), which leaves a hollow, clarinet-like reed; the 3rd and 5th lifted a little.");
+    for (int band = 1; band < synth::SpectrumEdit::bands; band += 2)
+        hollow.rig.spectra[0].gainsDb[(size_t) band] = synth::SpectrumEdit::minDb;   // harmonics 2, 4, 6...
+    hollow.rig.spectra[0].gainsDb[2] = 3.0f;
+    hollow.rig.spectra[0].gainsDb[4] = 2.0f;
+    hollow.osc (0, "VibAmount", 10.0f).osc (0, "VibRate", 5.0f).osc (0, "VibFade", 600.0f).osc (0, "Volume", 0.7f)
+          .osc (0, "FftLp", 40.0f)
+          .ampEnvelope (30.0f, 300.0f, 0.9f, 250.0f)
+          .mono (50.0f);
+    add (hollow);
+
+    Builder shimmer ("Spectral Shimmer", 22, { "Pad", "FFT" },
+                     "Five saw copies whose harmonics pulse slowly against each other (VSPEED / VSTRENGTH), with a bump drawn round the 6th to 12th harmonics and HP thinning the bottom: a pad that never sits still.");
+    for (int band = 5; band < 12; ++band)
+        shimmer.rig.spectra[0].gainsDb[(size_t) band] = 6.0f;
+    shimmer.osc (0, "FftVStrength", 0.7f).osc (0, "FftVSpeed", 0.4f).osc (0, "FftHp", 2.0f).osc (0, "FftLp", 60.0f).osc (0, "FftSlope", 0.6f)
+           .osc (0, "UniVoices", 5.0f).osc (0, "UniMix", 0.8f).osc (0, "UniDetune", 0.3f).osc (0, "UniSpread", 1.0f).osc (0, "Volume", 0.45f)
+           .ampEnvelope (900.0f, 1000.0f, 0.85f, 2000.0f).set (ParamIDs::ampReleaseCurve, -0.5f);
+    add (shimmer);
 
     return rigs;
 }

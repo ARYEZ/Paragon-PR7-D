@@ -191,17 +191,19 @@ TEST_CASE ("AM at full is ring modulation: the sum and difference, not the note"
 
 TEST_CASE ("PHASE LOCK: every note the same; unlocked, each note's modulator starts anywhere", "[modulation]")
 {
-    const auto note = [] (bool locked)
+    // Two notes from engines making different random choices (seeds 1 and 2).
+    const auto note = [] (bool locked, int seed)
     {
-        return play (45, 0.2, [locked] (Player& p)
+        return play (45, 0.2, [locked, seed] (Player& p)
         {
+            p.engine.seedRandom (seed);
             p.osc().fmAmount = 0.4f;
             p.osc().modPhaseLock = locked;
             p.osc().modRate = rateFor (synth::ModGrid::harmonic, 2);
         });
     };
-    CHECK (note (true) == note (true));
-    CHECK (note (false) != note (false));
+    CHECK (note (true, 1) == note (true, 2));
+    CHECK (note (false, 1) != note (false, 2));
 }
 
 TEST_CASE ("SYNC, FM and AM stay clean: far less folds back than done the plain way", "[modulation][aliasing]")

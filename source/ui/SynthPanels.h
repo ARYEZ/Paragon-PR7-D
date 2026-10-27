@@ -2,6 +2,7 @@
 
 #include "PluginProcessor.h"
 #include "ui/SynthControls.h"
+#include "ui/SpectrumEditor.h"
 #include "ui/SynthDisplays.h"
 
 // The SYNTH page's panels, laid out like Avenger's main page: the
@@ -47,8 +48,9 @@ public:
     // WAVE: the oscillator's sound (wave, pitch, start, noise, sub, level).
     // SHAPE: bending its wave (stage 3b).
     // FM: SYNC, FM and AM (stage 3c).
+    // FFT: its harmonics, drawn (stage 3d).
     // VOICES: its unison copies, vibrato and chorder (stage 2).
-    enum class Page { wave, voices, shape, fm };
+    enum class Page { wave, voices, shape, fm, fft };
     void showPage (Page);
     Page getPage() const noexcept { return page; }
 
@@ -59,6 +61,7 @@ public:
     void filesDropped (const juce::StringArray& files, int x, int y) override;
 
     WavetableChooser& getWavetableChooser() noexcept { return tableChooser; }
+    SpectrumEditor& getSpectrumEditor() noexcept { return spectrumEditor; }
 
 private:
     void timerCallback() override;
@@ -83,11 +86,15 @@ private:
     std::vector<std::unique_ptr<Tab>> tabs;
     WavetableChooser tableChooser;
     bool showingWavetable = false;
-    juce::TextButton wavePageButton { "WAVE" }, shapePageButton { "SHAPE" }, fmPageButton { "FM" }, voicesPageButton { "VOICES" };
+    juce::TextButton wavePageButton { "WAVE" }, shapePageButton { "SHAPE" }, fmPageButton { "FM" }, fftPageButton { "FFT" },
+                     voicesPageButton { "VOICES" };
     Page page = Page::wave;
     WaveDisplay wave;
     VoicesDisplay voicesDisplay;
     ShapeDisplay shapeDisplay;
+    SpectrumEditor spectrumEditor;
+    juce::TextButton freeViewButton { "FREE" }, harmonicViewButton { "HARMONIC" }, binViewButton { "BIN" },
+                     randomButton { "RANDOM" }, resetButton { "RESET" };
     std::vector<std::unique_ptr<ParamControl>> controls;   // in oscSettings' order where they appear
     std::vector<const char*> settingNames;                 // ...which setting each is
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> sectionTitles;   // PITCH, START, NOISE, SUB, LEVEL

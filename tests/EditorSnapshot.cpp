@@ -13,7 +13,8 @@
 //   PARAGON_SNAPSHOT_PAGE=presets    the preset browser (with two example user presets), or =settings
 //   PARAGON_SNAPSHOT_PRESET=name     that factory preset loaded
 //   PARAGON_SNAPSHOT_OSC=n           oscillator tab n (1 to 8) selected
-//   PARAGON_SNAPSHOT_OSCPAGE=voices  the oscillator's VOICES page (unison, vibrato, chorder); =shape its SHAPE page; =fm its FM page
+//   PARAGON_SNAPSHOT_OSCPAGE=voices  the oscillator's VOICES page (unison, vibrato, chorder); =shape its SHAPE page; =fm its FM page; =fft its FFT page
+//   PARAGON_SNAPSHOT_FFT=band:dB,...  a curve drawn for oscillator 1; PARAGON_SNAPSHOT_FFT_VIEW=harmonic|bins
 //   PARAGON_SNAPSHOT_PARAMS=id=value,...   parameters set (real units)
 //   PARAGON_SNAPSHOT_NOTES=1         a chord held on the keyboard (so the PLAY panel counts notes, and keys light)
 TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
@@ -75,6 +76,18 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         view->getOscillatorPanel().showPage (OscillatorPanel::Page::shape);
     if (env ("PARAGON_SNAPSHOT_OSCPAGE") == "fm")
         view->getOscillatorPanel().showPage (OscillatorPanel::Page::fm);
+    if (env ("PARAGON_SNAPSHOT_OSCPAGE") == "fft")
+        view->getOscillatorPanel().showPage (OscillatorPanel::Page::fft);
+    if (const auto curve = env ("PARAGON_SNAPSHOT_FFT"); curve.isNotEmpty())
+    {
+        // A curve for oscillator 1 ("band:dB band:dB ...", as presets keep it), and its view (FFT_VIEW=harmonic|bins).
+        processor.setSpectrum (0, synth::SpectrumEdit::decode (curve.replaceCharacter (',', ' ')));
+        processor.finishTableBuilds();
+    }
+    if (env ("PARAGON_SNAPSHOT_FFT_VIEW") == "harmonic")
+        view->getOscillatorPanel().getSpectrumEditor().setView (SpectrumEditor::View::harmonic);
+    if (env ("PARAGON_SNAPSHOT_FFT_VIEW") == "bins")
+        view->getOscillatorPanel().getSpectrumEditor().setView (SpectrumEditor::View::bins);
     if (page == "presets")
         view->showPage (MainView::Page::presets);
     else if (page == "settings")

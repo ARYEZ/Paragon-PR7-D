@@ -3,9 +3,12 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_utils/juce_audio_utils.h>
 
+#include <optional>
+
 #include "LevelMeterSource.h"
 #include "Parameters.h"
 #include "dsp/synth/Engine.h"
+#include "dsp/synth/Spectrum.h"
 #include "dsp/synth/Wavetable.h"
 #include "rigs/RigLibrary.h"
 #include "rigs/UndoHistory.h"
@@ -135,6 +138,21 @@ public:
     // Chooses a factory table instead (forgetting a loaded one), and WAVETABLE.
     void chooseFactoryWavetable (int osc, int index);
 
+    //==========================================================================
+    // The FFT editor (message thread)
+
+    const synth::SpectrumEdit& getSpectrum (int osc) const { return spectra[(size_t) juce::jlimit (0, ParamIDs::numOscillators - 1, osc)]; }
+    // A new curve for oscillator `osc`: its wave is rebuilt in the background.
+    void setSpectrum (int osc, const synth::SpectrumEdit&);
+    // A drawing stroke finished: worth an undo step.
+    void spectrumEditFinished() { requestCheckpoint(); }
+    // The edited copy oscillator `osc` plays (null: not edited, or not built yet).
+    std::shared_ptr<const synth::Wavetable> getEditedTable (int osc) const { return spectralTables[(size_t) juce::jlimit (0, ParamIDs::numOscillators - 1, osc)]; }
+    // Oscillator `osc`'s wave before the editor's curve (for the editor's picture).
+    synth::WavetableSource getPlainSource (int osc);
+    // Waits for the background builds and puts them in place. For tests.
+    void finishTableBuilds();
+
     // The DAW's tempo, as last seen by the audio thread (120 if it hasn't said).
     double getHostBpm() const noexcept { return hostBpm.load(); }
 
@@ -167,7 +185,8 @@ private:
 
         bool operator== (const Snapshot& other) const
         {
-            return rig.parameters == other.rig.parameters && rig.wavetables == other.rig.wavetables && current == other.current;
+            return rig.parameters == other.rig.parameters && rig.wavetables == other.rig.wavetables && rig.spectra == other.rig.spectra
+                && current == other.current;
         }
     };
     Snapshot takeSnapshot() const;
@@ -195,6 +214,31 @@ private:
     std::array<std::atomic<const synth::Wavetable*>, ParamIDs::numOscillators> tablesForAudio {};
     std::array<int, ParamIDs::numOscillators> playingFactoryTable {};   // which factory table each plays (-1: none, or a loaded one)
     std::vector<std::pair<std::shared_ptr<const synth::Wavetable>, double>> retiredTables;
+
+    // FFT: each oscillator's curve, and the edited copies of its wave built
+    // from it (in the background; then handed to the audio thread as the
+    // wavetables are). A key says what a copy was built from.
+    struct SpectralKey
+    {
+        synth::SpectrumEdit edit;
+        float sweep = 0.0f, vStrength = 0.0f, pulseWidth = 0.5f;
+        bool flip = false;
+        int wave = 0;
+        const void* samples = nullptr;   // a wavetable's frames (null: a basic wave)
+        bool operator== (const SpectralKey& o) const noexcept
+        {
+            return edit == o.edit && juce::exactlyEqual (sweep, o.sweep) && juce::exactlyEqual (vStrength, o.vStrength)
+                && juce::exactlyEqual (pulseWidth, o.pulseWidth) && flip == o.flip && wave == o.wave && samples == o.samples;
+        }
+    };
+    class SpectralBuilder;
+    std::unique_ptr<SpectralBuilder> spectralBuilder;
+    std::array<synth::SpectrumEdit, ParamIDs::numOscillators> spectra;
+    std::array<std::optional<SpectralKey>, ParamIDs::numOscillators> spectralKeys;   // what's built or being built (none: unedited)
+    std::array<std::shared_ptr<const synth::Wavetable>, ParamIDs::numOscillators> spectralTables, spectralPulseTables;
+    std::array<std::atomic<const synth::Wavetable*>, ParamIDs::numOscillators> spectralForAudio {}, spectralPulseForAudio {};
+    void updateSpectra();
+    void installSpectralResults();
 
     synth::Engine engine;
     juce::MidiKeyboardState keyboardState;

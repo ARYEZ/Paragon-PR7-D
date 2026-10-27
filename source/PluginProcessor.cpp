@@ -18,9 +18,106 @@ namespace
     const juce::Identifier wavetablesKey { "Wavetables" };
     const juce::Identifier wavetableKey { "Wavetable" };
     constexpr double retiredTableMs = 2000.0;   // how long a replaced table is kept, in case a block is still playing it
+    const juce::Identifier spectraKey { "Spectra" };
+    const juce::Identifier spectrumKey { "Spectrum" };
     constexpr int parameterVersion = 1;
 }
 
+//==============================================================================
+// FFT: builds edited copies of the oscillators' waves on a thread of its own
+// (a wavetable's take tens of milliseconds; the window shouldn't wait).
+// Only the latest request for each oscillator is built.
+class ParagonX1AudioProcessor::SpectralBuilder final : private juce::Thread
+{
+public:
+    struct Job
+    {
+        int osc = 0;
+        SpectralKey key;
+        synth::WavetableSource source;
+        bool normalise = true;
+    };
+    struct Result
+    {
+        int osc = 0;
+        SpectralKey key;
+        std::shared_ptr<const synth::Wavetable> table, pulse;
+    };
+
+    SpectralBuilder() : juce::Thread ("PR7-K table builder") { startThread (juce::Thread::Priority::low); }
+    ~SpectralBuilder() override { stopThread (4000); }
+
+    void submit (Job job)
+    {
+        {
+            const std::scoped_lock lock (mutex);
+            auto& slot = jobs[(size_t) job.osc];
+            if (! slot.has_value())
+                ++pending;   // a waiting request for the same oscillator is just replaced
+            slot = std::move (job);
+        }
+        notify();
+    }
+
+    std::vector<Result> collect()
+    {
+        const std::scoped_lock lock (mutex);
+        return std::exchange (results, {});
+    }
+
+    bool isIdle()
+    {
+        const std::scoped_lock lock (mutex);
+        return pending == 0;
+    }
+
+private:
+    void run() override
+    {
+        while (! threadShouldExit())
+        {
+            std::optional<Job> job;
+            {
+                const std::scoped_lock lock (mutex);
+                for (auto& slot : jobs)
+                    if (slot.has_value())
+                    {
+                        job = std::move (slot);
+                        slot.reset();
+                        break;
+                    }
+            }
+            if (! job.has_value())
+            {
+                wait (200);
+                continue;
+            }
+            Result result { job->osc, job->key, nullptr, nullptr };
+            const auto& key = job->key;
+            const auto strength = juce::jlimit (0.0f, 1.0f, key.vStrength);
+            // VSTRENGTH: this copy with each band pushed one way, the other copy the other way.
+            result.table = synth::Wavetable::build (job->source, [&key, strength] (int h)
+            {
+                return synth::spectrum::gainFor (key.edit, h, key.sweep, key.flip) * (1.0f + strength * synth::spectrum::pulsePattern (h));
+            }, job->normalise);
+            if (strength > 0.0f)
+                result.pulse = synth::Wavetable::build (job->source, [&key, strength] (int h)
+                {
+                    return synth::spectrum::gainFor (key.edit, h, key.sweep, key.flip) * (1.0f - strength * synth::spectrum::pulsePattern (h));
+                }, job->normalise);
+            const std::scoped_lock lock (mutex);
+            results.push_back (std::move (result));
+            --pending;
+        }
+    }
+
+    std::mutex mutex;
+    std::array<std::optional<Job>, ParamIDs::numOscillators> jobs;
+    std::vector<Result> results;
+    int pending = 0;
+};
+
+//==============================================================================
 ParagonX1AudioProcessor::ParagonX1AudioProcessor()
     : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
       parameters (*this, nullptr, "ParagonX1", createParameterLayout())
@@ -35,6 +132,10 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
     playingFactoryTable.fill (-1);
     for (auto& table : tablesForAudio)
         table = nullptr;
+    for (auto* list : { &spectralForAudio, &spectralPulseForAudio })
+        for (auto& table : *list)
+            table = nullptr;
+    spectralBuilder = std::make_unique<SpectralBuilder>();
 
     rigLibrary = std::make_unique<RigLibrary>();
     // A new PR7-K is the Init preset (every parameter at its default), so the
@@ -61,6 +162,7 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
 
 ParagonX1AudioProcessor::~ParagonX1AudioProcessor()
 {
+    spectralBuilder.reset();
     for (auto* parameter : AudioProcessor::getParameters())
         if (auto* withId = dynamic_cast<juce::AudioProcessorParameterWithID*> (parameter))
         {
@@ -134,6 +236,15 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
         o.voiceLimit = juce::jlimit (1, synth::maxVoices, juce::roundToInt (get (oscSetting ("Voices"))));
 
         o.table = tablesForAudio[i].load();
+        o.spectral = spectralForAudio[i].load();
+        o.spectralPulse = spectralPulseForAudio[i].load();
+        o.fftSweep = get (oscSetting ("FftSweep"));
+        o.fftFlip = get (oscSetting ("FftFlip")) > 0.5f;
+        o.fftVSpeedHz = get (oscSetting ("FftVSpeed"));
+        o.fftVStrength = get (oscSetting ("FftVStrength"));
+        o.fftLp = get (oscSetting ("FftLp"));
+        o.fftHp = get (oscSetting ("FftHp"));
+        o.fftSlope = get (oscSetting ("FftSlope"));
         o.tableIndex = get (oscSetting ("WtIndex"));
         o.tableSteppy = choice (get (oscSetting ("WtMode")), synth::wavetableModeNames.size()) == 1;
         o.tableFrames = juce::jlimit (2, synth::maxWavetableFrames, juce::roundToInt (get (oscSetting ("WtFrames"))));
@@ -333,7 +444,101 @@ void ParagonX1AudioProcessor::updateWavetables()
         }
         playingFactoryTable[(size_t) i] = factory;
     }
+    updateSpectra();
     std::erase_if (retiredTables, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
+}
+
+void ParagonX1AudioProcessor::updateSpectra()
+{
+    // Put finished builds in place first, then ask for any that are out of date.
+    installSpectralResults();
+    const auto now = juce::Time::getMillisecondCounterHiRes();
+    for (int i = 0; i < ParamIDs::numOscillators; ++i)
+    {
+        const auto value = [this, i] (const char* what) { return param (ParamIDs::osc (i, what).toRawUTF8()); };
+        SpectralKey key;
+        key.edit = spectra[(size_t) i];
+        key.sweep = value ("FftSweep");
+        key.flip = value ("FftFlip") > 0.5f;
+        key.vStrength = value ("FftVStrength");
+        key.wave = juce::roundToInt (value ("Wave"));
+        const auto edited = ! key.edit.isFlat() || key.vStrength > 0.0f;
+        const auto isTable = key.wave == (int) synth::OscWave::wavetable;
+        if (key.wave == (int) synth::OscWave::pulse)
+            key.pulseWidth = juce::jlimit (0.01f, 0.99f, value ("Width"));
+        const auto& table = playingTables[(size_t) i];
+        if (isTable)
+            key.samples = table != nullptr ? table->getSource().samples.get() : nullptr;
+
+        if (! edited || (isTable && table == nullptr))
+        {
+            // Unedited: back to the plain wave.
+            spectralKeys[(size_t) i].reset();
+            for (auto* list : { &spectralTables, &spectralPulseTables })
+                if ((*list)[(size_t) i] != nullptr)
+                    retiredTables.emplace_back (std::exchange ((*list)[(size_t) i], nullptr), now);
+            spectralForAudio[(size_t) i] = nullptr;
+            spectralPulseForAudio[(size_t) i] = nullptr;
+            continue;
+        }
+        if (spectralKeys[(size_t) i].has_value() && *spectralKeys[(size_t) i] == key)
+            continue;   // built, or being built
+        spectralKeys[(size_t) i] = key;
+        SpectralBuilder::Job job;
+        job.osc = i;
+        job.key = key;
+        job.source = isTable ? table->getSource() : synth::spectrum::basicWave ((synth::OscWave) key.wave, key.pulseWidth);
+        job.normalise = isTable;   // basic waves keep their own level, as their plain tables do
+        spectralBuilder->submit (std::move (job));
+    }
+}
+
+void ParagonX1AudioProcessor::installSpectralResults()
+{
+    const auto now = juce::Time::getMillisecondCounterHiRes();
+    for (auto& result : spectralBuilder->collect())
+    {
+        const auto i = (size_t) result.osc;
+        if (! spectralKeys[i].has_value() || ! (*spectralKeys[i] == result.key))
+            continue;   // out of date already
+        for (auto* list : { &spectralTables, &spectralPulseTables })
+            if ((*list)[i] != nullptr)
+                retiredTables.emplace_back ((*list)[i], now);
+        spectralTables[i] = result.table;
+        spectralPulseTables[i] = result.pulse;
+        spectralForAudio[i] = result.table.get();
+        spectralPulseForAudio[i] = result.pulse.get();
+    }
+}
+
+void ParagonX1AudioProcessor::finishTableBuilds()
+{
+    updateWavetables();
+    while (! spectralBuilder->isIdle())
+        juce::Thread::sleep (2);
+    updateWavetables();
+}
+
+void ParagonX1AudioProcessor::setSpectrum (int osc, const synth::SpectrumEdit& edit)
+{
+    osc = juce::jlimit (0, ParamIDs::numOscillators - 1, osc);
+    if (spectra[(size_t) osc] == edit)
+        return;
+    spectra[(size_t) osc] = edit;
+    markModified();
+    updateSpectra();
+}
+
+synth::WavetableSource ParagonX1AudioProcessor::getPlainSource (int osc)
+{
+    osc = juce::jlimit (0, ParamIDs::numOscillators - 1, osc);
+    const auto wave = (synth::OscWave) juce::roundToInt (param (ParamIDs::osc (osc, "Wave").toRawUTF8()));
+    if (wave == synth::OscWave::wavetable)
+    {
+        const auto table = getWavetable (osc);
+        return table != nullptr ? table->getSource() : synth::WavetableSource {};
+    }
+    return synth::spectrum::basicWave (wave, param (ParamIDs::osc (osc, "Width").toRawUTF8()));
 }
 
 std::shared_ptr<const synth::Wavetable> ParagonX1AudioProcessor::tableFor (const synth::WavetableSource& source)
@@ -464,8 +669,12 @@ Rig ParagonX1AudioProcessor::captureRig() const
             if (! ParamIDs::notInRigs.contains (ranged->paramID))
                 rig.parameters[ranged->paramID] = ranged->convertFrom0to1 (ranged->getValue());
     for (int i = 0; i < ParamIDs::numOscillators; ++i)
+    {
         if (const auto& table = loadedTables[(size_t) i])
             rig.wavetables[i] = table->getSource();
+        if (! spectra[(size_t) i].isFlat())
+            rig.spectra[i] = spectra[(size_t) i];
+    }
     return rig;
 }
 
@@ -491,6 +700,8 @@ void ParagonX1AudioProcessor::applyRig (const Rig& rig)
     {
         const auto found = rig.wavetables.find (i);
         loadedTables[(size_t) i] = found != rig.wavetables.end() ? tableFor (found->second) : nullptr;
+        const auto spectrum = rig.spectra.find (i);
+        spectra[(size_t) i] = spectrum != rig.spectra.end() ? spectrum->second : synth::SpectrumEdit {};
     }
     updateWavetables();
 
@@ -645,6 +856,12 @@ void ParagonX1AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
         }
     state.appendChild (tables, nullptr);
 
+    juce::ValueTree curves (spectraKey);
+    for (int i = 0; i < ParamIDs::numOscillators; ++i)
+        if (! spectra[(size_t) i].isFlat())
+            curves.appendChild (juce::ValueTree (spectrumKey, { { "osc", i + 1 }, { "gains", spectra[(size_t) i].encode() } }), nullptr);
+    state.appendChild (curves, nullptr);
+
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
@@ -669,7 +886,19 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
         }
         state.removeChild (saved, nullptr);
     }
+    std::array<synth::SpectrumEdit, ParamIDs::numOscillators> curves {};
+    if (auto saved = state.getChildWithName (spectraKey); saved.isValid())
+    {
+        for (const auto& curve : saved)
+        {
+            const auto osc = (int) curve["osc"] - 1;
+            if (osc >= 0 && osc < ParamIDs::numOscillators)
+                curves[(size_t) osc] = synth::SpectrumEdit::decode (curve["gains"].toString());
+        }
+        state.removeChild (saved, nullptr);
+    }
     parameters.replaceState (state);
+    spectra = curves;
     loadedTables = tables;
     updateWavetables();
 

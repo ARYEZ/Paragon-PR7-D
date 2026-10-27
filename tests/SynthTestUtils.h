@@ -21,6 +21,7 @@ namespace
         Player()
         {
             engine.prepare (sampleRate);
+            engine.seedRandom (1);   // the same random choices every run, on every computer
             settings.oscillators[0].randomPhase = false;   // the same start every time, for repeatable tests
         }
 

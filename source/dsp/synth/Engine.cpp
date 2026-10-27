@@ -39,7 +39,35 @@ namespace synth
             int below = 0, above = 0;
             float mixFrom = 0.0f, mixTo = 0.0f;
             bool oneFrame = true;
+
+            // FFT: VSTRENGTH's other copy, and how far towards it (start and end of the interval).
+            const Wavetable* partner = nullptr;
+            float partnerFrom = 0.0f, partnerTo = 0.0f;
+            // FFT LP and HP: where their cutoffs sit among the table's levels
+            // (fractional, 0 = 512 harmonics, 3 an octave fewer...; below 0: off),
+            // and how many levels SLOPE spreads them over.
+            float lpPosition = -1.0f, hpPosition = -1.0f, slopeWidth = 1.0f;
+            bool needsGeneralPath() const noexcept { return partner != nullptr || lpPosition >= 0.0f || hpPosition >= 0.0f; }
         };
+
+        // A cutoff among the levels: blend level `lo` (more harmonics) into
+        // `hi` (fewer) by `t`. Never richer than `minimum` (the level that
+        // keeps the note clean).
+        struct LevelBlend
+        {
+            int lo = 0, hi = 0;
+            float t = 0.0f;
+        };
+        LevelBlend blendFor (float position, float width, int minimum) noexcept
+        {
+            const auto span = juce::jmax (1, juce::roundToInt (width));
+            auto lo = (int) std::floor (position - 0.5f * (float) (span - 1));
+            auto hi = lo + span;
+            const auto t = juce::jlimit (0.0f, 1.0f, (position - (float) lo) / (float) span);
+            lo = juce::jlimit (minimum, tables::numLevels - 1, lo);
+            hi = juce::jlimit (minimum, tables::numLevels - 1, hi);
+            return { lo, hi, t };
+        }
 
         // A wavetable's two frames at `level`, blended, for `n` samples: calls
         // `write (i, value)` for each.
@@ -92,44 +120,58 @@ namespace synth
         void renderBent (const WaveSource& source, WaveBend bending, const Modulation& mod, int level, int modLevel, int n, float& phase,
                          float increment, float& crushPrevious, float& modPhase, float& lastX, Out&& out) noexcept
         {
-            const float* table = nullptr;
-            Wavetable::Level below {}, above {};
-            if (source.wave == OscWave::wavetable)
-            {
-                below = source.table->get (source.below, level);
-                above = source.table->get (source.above, level);
-            }
-            else
-                table = tables::get (source.wave == OscWave::saw || source.wave == OscWave::pulse ? tables::Wave::saw
-                                   : source.wave == OscWave::triangle ? tables::Wave::triangle : tables::Wave::sine, level);
+            const auto basic = source.wave == OscWave::saw || source.wave == OscWave::pulse ? tables::Wave::saw
+                             : source.wave == OscWave::triangle ? tables::Wave::triangle : tables::Wave::sine;
+            const auto lp = source.lpPosition >= 0.0f ? blendFor (source.lpPosition, source.slopeWidth, level) : LevelBlend { level, level, 0.0f };
+            const auto hp = source.hpPosition >= 0.0f ? blendFor (source.hpPosition, source.slopeWidth, level) : LevelBlend {};
             bending.syncEdge = mod.sync && ! mod.syncWindowed;
             const auto step = (source.mixTo - source.mixFrom) / (float) n;
+            const auto partnerStep = (source.partnerTo - source.partnerFrom) / (float) n;
             const auto syncStep = (mod.syncTo - mod.syncFrom) / (float) n;
             const auto modIncrement = increment * mod.ratio;
             for (int i = 0; i < n; ++i)
             {
                 const auto mix = source.mixFrom + step * (float) (i + 1);
-                const auto read = [&] (float x) -> float
+                const auto partnerMix = source.partnerFrom + partnerStep * (float) (i + 1);
+
+                // The plain wave at one level.
+                const auto readAt = [&] (int at, float x) -> float
                 {
-                    switch (source.wave)
+                    if (source.wave == OscWave::wavetable)
                     {
-                        case OscWave::pulse:
+                        const auto frames = [&] (const Wavetable& t)
                         {
-                            auto other = x + source.pulseWidth;   // 0 to 2
-                            other -= (float) (other >= 1.0f);
-                            return tables::read (table, x) - tables::read (table, other);
-                        }
-                        case OscWave::wavetable:
-                        {
-                            const auto a = Wavetable::read (below, x);
-                            return source.oneFrame ? a : a + (Wavetable::read (above, x) - a) * mix;
-                        }
-                        case OscWave::saw:
-                        case OscWave::triangle:
-                        case OscWave::sine:
-                            break;
+                            const auto a = Wavetable::read (t.get (source.below, at), x);
+                            return source.oneFrame ? a : a + (Wavetable::read (t.get (source.above, at), x) - a) * mix;
+                        };
+                        auto v = frames (*source.table);
+                        if (source.partner != nullptr)
+                            v += (frames (*source.partner) - v) * partnerMix;
+                        return v;
+                    }
+                    const auto* table = tables::get (basic, at);
+                    if (source.wave == OscWave::pulse)
+                    {
+                        auto other = x + source.pulseWidth;   // 0 to 2
+                        other -= (float) (other >= 1.0f);
+                        return tables::read (table, x) - tables::read (table, other);
                     }
                     return tables::read (table, x);
+                };
+                // ...through FFT's LP (the levels blended at its cutoff) and HP (what's below its cutoff taken away).
+                const auto read = [&] (float x) -> float
+                {
+                    auto v = readAt (lp.lo, x);
+                    if (lp.hi != lp.lo && lp.t > 0.0f)
+                        v += (readAt (lp.hi, x) - v) * lp.t;
+                    if (source.hpPosition >= 0.0f)
+                    {
+                        auto below = readAt (hp.lo, x);
+                        if (hp.hi != hp.lo && hp.t > 0.0f)
+                            below += (readAt (hp.hi, x) - below) * hp.t;
+                        v -= below;
+                    }
+                    return v;
                 };
 
                 // SYNC: a copy restarted each cycle, running `ratio` times faster.
@@ -651,6 +693,7 @@ namespace synth
                 osc.vibratoPhase = 0.0f;
                 osc.vibratoHeld = random.nextFloat() * 2.0f - 1.0f;
                 osc.tableIndex = -1.0f;
+                osc.pulsePhase = random.nextFloat();
                 osc.crushPrevious = 0.0f;
                 for (auto& c : osc.copies)
                     c.crushPrevious = 0.0f;
@@ -1055,25 +1098,50 @@ namespace synth
             source.wave = s.wave;
             source.pulseWidth = juce::jlimit (0.01f, 0.99f, s.pulseWidth);
             auto audible = s.gain > 0.0f;
-            if (s.wave == OscWave::wavetable)
+
+            // What it reads: FFT's edited copy if there is one (for a
+            // wavetable, with the same frames), else its wavetable or wave.
+            const auto* table = s.spectral != nullptr ? s.spectral : s.wave == OscWave::wavetable ? s.table : nullptr;
+            if (s.wave == OscWave::wavetable || s.spectral != nullptr)
             {
-                // INDEX: from where it was at the end of the last interval to where
-                // it is now, between the same two frames (if it crossed a frame,
-                // from the new pair's start: a step too small to hear).
-                audible = audible && s.table != nullptr;
-                if (s.table != nullptr)
+                source.wave = OscWave::wavetable;
+                audible = audible && table != nullptr;
+            }
+            if (table != nullptr)
+            {
+                source.table = table;
+                if (s.wave == OscWave::wavetable)
                 {
+                    // INDEX: from where it was at the end of the last interval to where
+                    // it is now, between the same two frames (if it crossed a frame,
+                    // from the new pair's start: a step too small to hear).
                     const auto from = osc.tableIndex < 0.0f ? s.tableIndex : osc.tableIndex;
                     osc.tableIndex = s.tableIndex;
-                    const auto now = s.table->locate (s.tableIndex, s.tableFrames, s.tableSteppy);
-                    const auto before = s.table->locate (from, s.tableFrames, s.tableSteppy);
-                    source.table = s.table;
+                    const auto now = table->locate (s.tableIndex, s.tableFrames, s.tableSteppy);
+                    const auto before = table->locate (from, s.tableFrames, s.tableSteppy);
                     source.below = now.below;
                     source.above = now.above;
                     source.mixTo = now.between;
                     source.mixFrom = before.below == now.below && before.above == now.above ? before.between : now.between;
                     source.oneFrame = now.below == now.above;
                 }
+                // FFT VSPEED: swinging between the two edited copies.
+                if (s.spectralPulse != nullptr && s.spectralPulse->getNumFrames() == table->getNumFrames())
+                {
+                    const auto swing = [] (float p) { return 0.5f + 0.5f * std::sin (juce::MathConstants<float>::twoPi * p); };
+                    source.partner = s.spectralPulse;
+                    source.partnerFrom = swing (osc.pulsePhase);
+                    osc.pulsePhase = wrap (osc.pulsePhase + s.fftVSpeedHz * (float) n / (float) sampleRate);
+                    source.partnerTo = swing (osc.pulsePhase);
+                }
+            }
+            // FFT LP and HP: their cutoffs among the levels (3 an octave), live.
+            if (s.hasFftFilter())
+            {
+                const auto position = [] (float harmonics) { return 3.0f * std::log2 ((float) tables::maxHarmonics / juce::jlimit (1.0f, 512.0f, harmonics)); };
+                source.lpPosition = s.fftLp < 511.5f ? position (s.fftLp) : -1.0f;
+                source.hpPosition = s.fftHp > 1.01f ? position (s.fftHp) : -1.0f;
+                source.slopeWidth = 1.0f + 5.0f * juce::jlimit (0.0f, 1.0f, s.fftSlope);
             }
 
             // SHAPE: bent waves read a level with fewer harmonics, as many as the
@@ -1132,7 +1200,8 @@ namespace synth
             const auto modLevel = tables::levelFor (hz * mod.ratio * 2.0f, sampleRate);
 
             auto* mono = scratch.data();
-            if (audible && (bending.active || mod.active))
+            const auto general = bending.active || mod.active || source.needsGeneralPath();
+            if (audible && general)
                 renderBent (source, bending.forIncrement (increment), mod, tables::levelFor (hz * bending.speed * mod.speed, sampleRate), modLevel,
                             n, osc.phase, increment, osc.crushPrevious, osc.modPhase, osc.lastX,
                             [mono, gain = s.gain] (int i, float v) { mono[i] = v * gain; });
@@ -1230,7 +1299,7 @@ namespace synth
                             balance (s.pan + notePan + position * s.unisonSpread, left, right);
                             const auto copyLevel = (u == 0 ? 1.0f : s.unisonMix) * noteVolume * s.gain * sign;
                             const auto copyIncrement = juce::jlimit (0.0f, 0.5f, copyHz / (float) sampleRate);
-                            if (bending.active || mod.active)
+                            if (general)
                             {
                                 const auto gainLeft = left * copyLevel, gainRight = right * copyLevel;
                                 renderBent (source, bending.forIncrement (copyIncrement), mod, tables::levelFor (copyHz * bending.speed * mod.speed, sampleRate),

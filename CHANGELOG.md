@@ -2,7 +2,29 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.6.0
+
+Stage 3, part 4a: **the FFT editor**, modelled on Avenger's (our own design and code). **This release also brings 0.5.0's SYNC, FM and AM** (the FM page: see 0.5.0's notes in the changelog), which didn't publish on its own: one older test, which hears random choices, failed on Windows. The tests now make the same random choices every time, on every computer.
+
+- **The FFT page** (each oscillator: WAVE, SHAPE, FM, **FFT**, VOICES): draw how loud each of the wave's first 256 harmonics is, from +24 dB down to gone. Drag to draw; hold **SHIFT** for a straight line from where you started. The wave's own harmonics are drawn faintly behind, and what comes out over them.
+  - Three views, as Avenger's: **FREE** (each octave the same width), **HARMONIC** (the first 24 harmonics as wide bars, each named by the interval it makes with the note: root, octave, fifth, third, b7..., and one bar for all the rest; our layout) and **BIN** (all 256 side by side).
+  - **RANDOM** (every harmonic a random level, leaning towards cuts so it stays usable) and **RESET**.
+  - **SWEEP** moves your drawing up or down the harmonics (up to 4 octaves): phasing and morphing sounds. **FLIP** turns it upside down (cuts become boosts).
+  - **LP** and **HP** take away the harmonics above (or below) a given one: a filter that follows the note exactly, and **SLOPE** makes it a gentle shelf instead of a steep cut.
+  - **VSPEED** and **VSTRENGTH** make the harmonics pulse, each swelling and fading at its own depth, some against the others.
+  - Works on every wave, wavetables included (INDEX still moves through the edited frames). The wave picture shows the edited wave, marked (FFT).
+- **How it stays light:**
+  - Your drawing, SWEEP and FLIP are baked into a rebuilt copy of the wave, in the background (about a millisecond for a basic wave, a few dozen for a wavetable), so playing an edited wave costs what playing a wavetable does: the test chord, 3.3% of a core against 3.1% plain.
+  - LP, HP and SLOPE are live instead, so they can move as fast as you like (and take an envelope once stage 4's modulation is in). The test chord costs about 15% with LP on.
+  - VSPEED's pulsing swings between two rebuilt copies: about 24% with LP, HP and pulsing all on.
+  - One thing to know: while you drag SWEEP, the rebuilt wave follows a few times a second rather than instantly (a wavetable's rebuild takes longest). LP and HP have no such lag.
+- **Your curves are saved** with the preset and the project, and undo covers them.
+- **Two new factory presets:** Hollow Reed (A21: every even harmonic drawn out) and Spectral Shimmer (A22: pulsing harmonics). Our own, not tuned by ear.
+- In the tests: the curve, SWEEP and FLIP exact; a cut harmonic gone and the rest where they were; a flat curve the same as the plain wave (every harmonic within 0.05 dB); LP and HP cutting at the right harmonics, blending between, SLOPE's shelf, and no aliasing; the pulsing swinging as set; the plugin building in the background and keeping curves through presets, projects and undo; the page's layout; CPU. Not checked here: how it sounds (I can't listen).
+
 ## 0.5.0
+
+(Not published on its own: its Windows build failed one older test. Everything here is in 0.6.0.)
 
 Stage 3, part 3: **SYNC, FM and AM**, modelled on Avenger's (our own design and code). Each oscillator has a new **FM** page, between **SHAPE** and **VOICES**.
 

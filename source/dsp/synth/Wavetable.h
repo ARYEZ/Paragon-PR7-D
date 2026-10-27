@@ -4,6 +4,7 @@
 
 #include "WaveTables.h"
 
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -53,6 +54,17 @@ namespace synth
         // and the whole table scaled so its loudest frame peaks at 1 (its
         // frames keep their levels against each other).
         static std::shared_ptr<const Wavetable> build (const WavetableSource&);
+
+        // The same, each harmonic h (from 1) scaled by `gain (h)`: the FFT
+        // editor's edits. The scale stays the unedited source's, so boosting
+        // harmonics makes it louder and cutting them quieter, as an EQ would.
+        // `normalise` false keeps the source's own level (the basic waves,
+        // whose unedited tables aren't scaled either).
+        static std::shared_ptr<const Wavetable> build (const WavetableSource&, const std::function<float (int harmonic)>& gain,
+                                                       bool normalise = true);
+
+        // The amplitudes of harmonics 1 to `count` of one cycle (element 0 unused).
+        static std::vector<float> harmonicLevels (const float* cycle, int size, int count);
 
         int getNumFrames() const noexcept { return numFrames; }
         const WavetableSource& getSource() const noexcept { return source; }

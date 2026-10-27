@@ -9,12 +9,13 @@ namespace
     using Range = juce::NormalisableRange<float>;
     using ToText = std::function<juce::String (float, int)>;
 
-    // Version hint: the PR7-K version that introduced a parameter (1 for 0.1.0, 2 for 0.2.0, 3 for 0.3.0, 4 for 0.4.0, 5 for 0.5.0).
+    // Version hint: the PR7-K version that introduced a parameter (1 for 0.1.0, 2 for 0.2.0, 3 for 0.3.0, 4 for 0.4.0, 5 for 0.5.0, 6 for 0.6.0).
     constexpr int firstVersion = 1;
     constexpr int stage2 = 2;
     constexpr int stage3 = 3;
     constexpr int stage3b = 4;   // 0.4.0
     constexpr int stage3c = 5;   // 0.5.0
+    constexpr int stage3d = 6;   // 0.6.0
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -84,6 +85,14 @@ namespace
             return juce::String ("Off");
         const auto semitones = 60.0f * value;
         return semitones < 12.0f ? "+" + juce::String (semitones, 1) + " st" : "+" + juce::String (semitones / 12.0f, 2) + " oct";
+    };
+    // FFT LP / HP: a harmonic number (Off at the ends).
+    const ToText asHarmonicLp = [] (float value, int) { return value >= 511.5f ? juce::String ("Off") : "H" + juce::String (juce::roundToInt (value)); };
+    const ToText asHarmonicHp = [] (float value, int) { return value <= 1.01f ? juce::String ("Off") : "H" + juce::String (juce::roundToInt (value)); };
+    const ToText asSweep = [] (float value, int)
+    {
+        const auto octaves = value * 4.0f;
+        return std::abs (octaves) < 0.01f ? juce::String ("0") : (octaves > 0.0f ? "+" : "") + juce::String (octaves, 2) + " oct";
     };
     const ToText asCrush = [] (float value, int) { return value < 0.005f ? juce::String ("Off") : juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
     // WAVETABLE FRAMES: at the top, every frame the table has (however many that is).
@@ -251,6 +260,15 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         add (layout, osc (i, "ModRate"), name + "Mod Rate", { 0.0f, 1.0f }, defaults.modRate, asPercent, stage3c);
         addChoice (layout, osc (i, "ModGrid"), name + "Mod Grid", synth::modGridNames, (int) defaults.modGrid, stage3c);
         addSwitch (layout, osc (i, "ModLock"), name + "Mod Phase Lock", defaults.modPhaseLock, stage3c);
+
+        // Stage 3d: the FFT editor's controls (its drawn curve is kept with the preset, not as parameters).
+        add (layout, osc (i, "FftSweep"), name + "FFT Sweep", { -1.0f, 1.0f }, defaults.fftSweep, asSweep, stage3d);
+        addSwitch (layout, osc (i, "FftFlip"), name + "FFT Flip", defaults.fftFlip, stage3d);
+        add (layout, osc (i, "FftLp"), name + "FFT LP", logRange (1.0, 512.0), defaults.fftLp, asHarmonicLp, stage3d);
+        add (layout, osc (i, "FftHp"), name + "FFT HP", logRange (1.0, 512.0), defaults.fftHp, asHarmonicHp, stage3d);
+        add (layout, osc (i, "FftSlope"), name + "FFT Slope", { 0.0f, 1.0f }, defaults.fftSlope, asPercent, stage3d);
+        add (layout, osc (i, "FftVSpeed"), name + "FFT VSpeed", logRange (0.05, 20.0), defaults.fftVSpeedHz, asHz, stage3d);
+        add (layout, osc (i, "FftVStrength"), name + "FFT VStrength", { 0.0f, 1.0f }, defaults.fftVStrength, asPercent, stage3d);
     }
 
     // The FILTER: off in a new sound (Avenger's starts without one), ready at a 24 dB low-pass at 2 kHz.

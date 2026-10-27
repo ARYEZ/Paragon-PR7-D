@@ -346,3 +346,48 @@ TEST_CASE ("The oscillator's FM page: SYNC, FM and AM beside the wave, laid out 
     fm->setValue (0.3, juce::sendNotificationSync);
     CHECK (w.processor.getSynthSettings().oscillators[4].hasFm());
 }
+
+TEST_CASE ("The oscillator's FFT page: the editor, its views and knobs, laid out cleanly", "[ui][fft]")
+{
+    Window w;
+    auto& oscillators = w.view->getOscillatorPanel();
+    oscillators.selectOscillator (2);
+    CHECK_FALSE (oscillators.getSpectrumEditor().isVisible());
+    oscillators.showPage (OscillatorPanel::Page::fft);
+    REQUIRE (oscillators.getSpectrumEditor().isVisible());
+    for (const auto* what : { "FftSweep", "FftFlip", "FftLp", "FftHp", "FftSlope", "FftVSpeed", "FftVStrength", "Wave", "Gain" })
+    {
+        INFO (what);
+        CHECK (controlFor (*w.view, ParamIDs::osc (2, what))->isVisible());
+    }
+    CHECK_FALSE (controlFor (*w.view, ParamIDs::osc (2, "Transpose"))->isVisible());
+    checkLayout (*w.view, "fft");
+
+    std::vector<juce::Component*> shown;
+    for (auto* child : oscillators.getChildren())
+        if (child->isVisible() && dynamic_cast<juce::Button*> (child) == nullptr)
+            shown.push_back (child);
+    for (size_t i = 0; i < shown.size(); ++i)
+        for (size_t j = i + 1; j < shown.size(); ++j)
+        {
+            INFO (shown[i]->getBounds().toString() << " and " << shown[j]->getBounds().toString());
+            CHECK_FALSE (shown[i]->getBounds().intersects (shown[j]->getBounds()));
+        }
+
+    // Each view's bands sit left to right and are found again where they're drawn.
+    auto& editor = oscillators.getSpectrumEditor();
+    for (const auto view : { SpectrumEditor::View::free, SpectrumEditor::View::harmonic, SpectrumEditor::View::bins })
+    {
+        editor.setView (view);
+        const auto last = view == SpectrumEditor::View::harmonic ? SpectrumEditor::harmonicColumns : synth::SpectrumEdit::bands - 1;
+        for (const auto band : { 0, 1, 7, 23, last })
+        {
+            INFO ((int) view << " band " << band);
+            CHECK (editor.bandAt (editor.xForBand (band)) == band);
+        }
+        CHECK (editor.xForBand (0) < editor.xForBand (last));
+    }
+    CHECK_THAT (editor.dbAt (editor.yForDb (-12.0f)), WithinAbs (-12.0, 0.01));
+    CHECK (SpectrumEditor::intervalName (3) == "5th");
+    CHECK (SpectrumEditor::intervalName (7) == "b7");
+}

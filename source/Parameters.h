@@ -26,7 +26,8 @@ namespace ParamIDs
     // Stage 2 (0.2.0) appended its unison, vibrato and chorder settings ("Ch1On"... for the chorder's 4 notes),
     // stage 3 (0.3.0) the WAVETABLE's: which factory table, INDEX, its mode and FRAMES,
     // 0.4.0 SHAPE's: SKEW, PINCH, FORMANT and its mode, CRUSH and its mode,
-    // 0.5.0 SYNC (with its envelope), FM, AM and their modulator's RATE, GRID and PHASE LOCK.
+    // 0.5.0 SYNC (with its envelope), FM, AM and their modulator's RATE, GRID and PHASE LOCK,
+    // 0.6.0 the FFT editor's SWEEP, FLIP, LP, HP, SLOPE, VSPEED and VSTRENGTH (its curve is kept with the preset).
     inline constexpr const char* oscSettings[] = {
         "On", "Wave", "Volume", "Pan", "Transpose", "Fine", "Random", "PhaseRand", "Phase", "Gain", "Width", "FadeIn", "Invert",
         "Noise", "NoiseColour", "NoiseWidth", "Sub", "SubWave", "SubOct", "SubInvert", "Filter", "Voices",
@@ -37,7 +38,8 @@ namespace ParamIDs
         "Table", "WtIndex", "WtMode", "WtFrames",
         "Skew", "Pinch", "Formant", "FormantMode", "Crush", "CrushMode",
         "SyncAmount", "SyncMode", "SyncEnv", "SyncEnvTime", "SyncEnvCurve", "FmAmount", "FmSource", "AmAmount", "AmShape",
-        "ModRate", "ModGrid", "ModLock" };
+        "ModRate", "ModGrid", "ModLock",
+        "FftSweep", "FftFlip", "FftLp", "FftHp", "FftSlope", "FftVSpeed", "FftVStrength" };
 
     // Where a setting is in oscSettings, worked out by the compiler (a typo won't compile).
     consteval int oscSetting (std::string_view what)

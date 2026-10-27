@@ -2,6 +2,7 @@
 
 #include <juce_core/juce_core.h>
 
+#include "dsp/synth/Spectrum.h"
 #include "dsp/synth/Wavetable.h"
 
 #include <map>
@@ -35,6 +36,9 @@ struct Rig
     // preset so it plays the same on another computer. (A factory table needs
     // nothing here: its oscillator's TABLE parameter names it.)
     std::map<int, synth::WavetableSource> wavetables;
+
+    // The FFT editor's curves, by oscillator (only the ones drawn on).
+    std::map<int, synth::SpectrumEdit> spectra;
 
     // Free text shown with the rig: what it's for.
     juce::String notes;

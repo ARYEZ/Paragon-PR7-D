@@ -48,7 +48,9 @@ void OscillatorPanel::Tab::paintButton (juce::Graphics& g, bool highlighted, boo
     g.drawRoundedRectangle (area, 4.0f, 1.0f);
     g.setColour (isSelected || highlighted ? ParagonColours::text : ParagonColours::textDim);
     g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
-    g.drawText (getName(), area.withTrimmedLeft (22.0f), juce::Justification::centred, false);
+    // "OSC 3", or just "3" where the tab is too narrow for the name.
+    const auto label = area.getWidth() >= 68.0f ? getName() : juce::String (index + 1);
+    g.drawText (label, area.withTrimmedLeft (22.0f), juce::Justification::centred, false);
 }
 
 WavetableChooser::WavetableChooser (ParagonX1AudioProcessor& processorToUse) : processor (processorToUse)
@@ -134,7 +136,7 @@ void WavetableChooser::resized()
 //==============================================================================
 OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
     : SynthPanel ("OSCILLATORS"), processor (processorToUse), state (processorToUse.getParameters()),
-      tableChooser (processorToUse), wave (state), voicesDisplay (state), shapeDisplay (state)
+      tableChooser (processorToUse), wave (state), voicesDisplay (state), shapeDisplay (state), spectrumEditor (processorToUse)
 {
     for (int i = 0; i < ParamIDs::numOscillators; ++i)
     {
@@ -144,14 +146,15 @@ OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
         tabs.push_back (std::move (tab));
     }
     wave.tableFor = [this] (int osc) { return processor.getWavetable (osc); };
+    wave.editedFor = [this] (int osc) { return processor.getEditedTable (osc); };
     shapeDisplay.tableFor = wave.tableFor;
     addAndMakeVisible (wave);
     addChildComponent (voicesDisplay);
     addChildComponent (shapeDisplay);
     addChildComponent (tableChooser);
 
-    // WAVE / SHAPE / FM / VOICES: which of the oscillator's pages shows.
-    for (auto* button : { &wavePageButton, &shapePageButton, &fmPageButton, &voicesPageButton })
+    // WAVE / SHAPE / FM / FFT / VOICES: which of the oscillator's pages shows.
+    for (auto* button : { &wavePageButton, &shapePageButton, &fmPageButton, &fftPageButton, &voicesPageButton })
     {
         button->setClickingTogglesState (true);
         button->setRadioGroupId (702);
@@ -169,6 +172,46 @@ OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
     shapePageButton.onClick = [this] { showPage (Page::shape); };
     fmPageButton.setTooltip ("The oscillator's SYNC, FM and AM");
     fmPageButton.onClick = [this] { showPage (Page::fm); };
+    fftPageButton.setTooltip ("Draw the oscillator's harmonics (the FFT editor)");
+    fftPageButton.onClick = [this] { showPage (Page::fft); };
+
+    // The FFT page's own buttons: the editor's view, RANDOM and RESET.
+    addChildComponent (spectrumEditor);
+    for (auto* button : { &freeViewButton, &harmonicViewButton, &binViewButton })
+    {
+        button->setClickingTogglesState (true);
+        button->setRadioGroupId (703);
+    }
+    for (auto* button : { &freeViewButton, &harmonicViewButton, &binViewButton, &randomButton, &resetButton })
+    {
+        button->setColour (juce::TextButton::buttonColourId, juce::Colour (0xff0d0a0e));
+        button->setColour (juce::TextButton::buttonOnColourId, ParagonColours::accentDim.withAlpha (0.6f));
+        button->setColour (juce::TextButton::textColourOffId, ParagonColours::textDim);
+        button->setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
+        addChildComponent (*button);
+    }
+    freeViewButton.setToggleState (true, juce::dontSendNotification);
+    freeViewButton.setTooltip ("All 256 harmonics, each octave the same width");
+    harmonicViewButton.setTooltip ("The first 24 harmonics, named by the interval each makes with the note, and the rest");
+    binViewButton.setTooltip ("All 256 harmonics side by side");
+    freeViewButton.onClick = [this] { spectrumEditor.setView (SpectrumEditor::View::free); };
+    harmonicViewButton.onClick = [this] { spectrumEditor.setView (SpectrumEditor::View::harmonic); };
+    binViewButton.onClick = [this] { spectrumEditor.setView (SpectrumEditor::View::bins); };
+    randomButton.setTooltip ("Every harmonic a random level");
+    resetButton.setTooltip ("Back to the wave as it is (the knobs stay)");
+    randomButton.onClick = [this]
+    {
+        auto edit = processor.getSpectrum (selected);
+        juce::Random random;
+        edit.randomise (random);
+        processor.setSpectrum (selected, edit);
+        processor.spectrumEditFinished();
+    };
+    resetButton.onClick = [this]
+    {
+        processor.setSpectrum (selected, {});
+        processor.spectrumEditFinished();
+    };
     voicesPageButton.onClick = [this] { showPage (Page::voices); };
 
     // Each control, labelled as on the panel, with a tooltip saying what it does.
@@ -220,6 +263,15 @@ OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
         { "ModGrid", { "GRID", "Which rates RATE allows: FREE any (1/16 to 16 times the note); the others step through octaves and an interval, which sound cleaner." } },
         { "ModLock", { "LOCK", "The modulator starts in step with the wave on every note (lit), so each note sounds the same, or anywhere." } },
 
+        // The FFT page (stage 3d).
+        { "FftSweep", { "SWEEP", "Moves what you've drawn up (right) or down (left) through the harmonics, up to 4 octaves: phasing and morphing sounds." } },
+        { "FftFlip", { "FLIP", "Turns what you've drawn upside down: cuts become boosts and boosts cuts." } },
+        { "FftLp", { "LP", "Takes away the harmonics above this one (a filter that follows the note exactly). Off at the right." } },
+        { "FftHp", { "HP", "Takes away the harmonics below this one. Off at the left." } },
+        { "FftSlope", { "SLOPE", "How sharply LP and HP cut: steep at 0%, a gentle shelf over two octaves at 100%." } },
+        { "FftVSpeed", { "VSPEED", "How fast the harmonics pulse, with VSTRENGTH." } },
+        { "FftVStrength", { "VSTR", "How much the harmonics pulse: each one swells and fades at VSPEED, some against the others, for a sound that keeps moving." } },
+
         // The VOICES page (stage 2).
         { "UniVoices", { "VOICES", "How many copies of each note, the note itself included (2 to 7)." } },
         { "UniMix", { "MIX", "The extra copies' level. At 0 unison is off and costs nothing; at 100% the copies are as loud as the note." } },
@@ -270,8 +322,8 @@ bool OscillatorPanel::isWavetable() const
 bool OscillatorPanel::isShown (const char* what) const
 {
     const juce::String name (what);
-    const auto leftColumn = name == "Wave" || name == "Width" || name == "Gain";   // under the wave picture, on SHAPE and FM too
-    if (pageOf (what) != page && ! (leftColumn && (page == Page::shape || page == Page::fm)))
+    const auto leftColumn = name == "Wave" || name == "Width" || name == "Gain";   // under the wave picture, on every page but VOICES
+    if (pageOf (what) != page && ! (leftColumn && page != Page::voices))
         return false;
     if (name.startsWith ("Wt"))
         return showingWavetable;
@@ -325,14 +377,19 @@ OscillatorPanel::Page OscillatorPanel::pageOf (const char* what) const
         return Page::shape;
     if (name.startsWith ("Sync") || name.startsWith ("Fm") || name.startsWith ("Am") || name.startsWith ("Mod"))
         return Page::fm;
+    if (name.startsWith ("Fft"))
+        return Page::fft;
     return Page::wave;
 }
 
 void OscillatorPanel::showPage (Page newPage)
 {
     page = newPage;
-    (page == Page::voices ? voicesPageButton : page == Page::shape ? shapePageButton : page == Page::fm ? fmPageButton : wavePageButton)
-        .setToggleState (true, juce::dontSendNotification);
+    (page == Page::voices ? voicesPageButton : page == Page::shape ? shapePageButton : page == Page::fm ? fmPageButton
+     : page == Page::fft ? fftPageButton : wavePageButton).setToggleState (true, juce::dontSendNotification);
+    spectrumEditor.setVisible (page == Page::fft);
+    for (auto* button : { &freeViewButton, &harmonicViewButton, &binViewButton, &randomButton, &resetButton })
+        button->setVisible (page == Page::fft);
     wave.setVisible (page != Page::voices);
     voicesDisplay.setVisible (page == Page::voices);
     shapeDisplay.setVisible (page == Page::shape || page == Page::fm);
@@ -357,6 +414,7 @@ void OscillatorPanel::selectOscillator (int index)
     wave.setOscillator (selected);
     voicesDisplay.setOscillator (selected);
     shapeDisplay.setOscillator (selected);
+    spectrumEditor.setOscillator (selected);
     tableChooser.setOscillator (selected);
     updateVisibility();
 }
@@ -373,6 +431,8 @@ void OscillatorPanel::resized()
     // The tabs run along the title strip, right of the title; WAVE and VOICES at its end.
     auto tabStrip = getTitleArea().withTrimmedLeft (110).reduced (0, 5).withTrimmedTop (2);
     voicesPageButton.setBounds (tabStrip.removeFromRight (66));
+    tabStrip.removeFromRight (4);
+    fftPageButton.setBounds (tabStrip.removeFromRight (42));
     tabStrip.removeFromRight (4);
     fmPageButton.setBounds (tabStrip.removeFromRight (40));
     tabStrip.removeFromRight (4);
@@ -450,6 +510,27 @@ void OscillatorPanel::resized()
                                                        { "CRUSH", { "Crush", "CrushMode" } } });
         area.removeFromTop (12);
         shapeDisplay.setBounds (area);
+        return;
+    }
+    if (page == Page::fft)
+    {
+        // Right: the view and RANDOM / RESET, the editor, and its knobs under it.
+        auto strip = area.removeFromTop (24);
+        for (auto* button : { &freeViewButton, &harmonicViewButton, &binViewButton })
+        {
+            button->setBounds (strip.removeFromLeft (button == &harmonicViewButton ? 84 : 52));
+            strip.removeFromLeft (4);
+        }
+        resetButton.setBounds (strip.removeFromRight (60));
+        strip.removeFromRight (4);
+        randomButton.setBounds (strip.removeFromRight (68));
+        area.removeFromTop (6);
+        auto knobs = area.removeFromBottom (rowHeight);
+        placeRow (knobs, 7, { { "SWEEP", { "FftSweep", "FftFlip" } },
+                              { "FILTER", { "FftLp", "FftHp", "FftSlope" } },
+                              { "PULSE", { "FftVSpeed", "FftVStrength" } } });
+        area.removeFromBottom (6);
+        spectrumEditor.setBounds (area);
         return;
     }
     if (page == Page::fm)

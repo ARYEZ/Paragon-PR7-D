@@ -157,9 +157,12 @@ std::vector<float> WaveDisplay::snapshot() const
         values.push_back (value (id (what)));
     for (const auto* what : shapeSettings)
         values.push_back (value (id (what)));
-    // Which table (a file can be loaded without any parameter changing).
+    // Which table (a file can be loaded, or the FFT editor used, without any parameter changing).
     if (juce::roundToInt (value (id ("Wave"))) == (int) synth::OscWave::wavetable && tableFor)
         if (const auto table = tableFor (oscillator))
+            values.push_back ((float) (reinterpret_cast<std::uintptr_t> (table.get()) % 16777213u));
+    if (editedFor)
+        if (const auto table = editedFor (oscillator))
             values.push_back ((float) (reinterpret_cast<std::uintptr_t> (table.get()) % 16777213u));
     return values;
 }
@@ -178,7 +181,7 @@ void WaveDisplay::paint (juce::Graphics& g)
 
     const auto on = value (id ("On")) > 0.5f;
     const auto wave = (synth::OscWave) juce::roundToInt (value (id ("Wave")));
-    if (wave == synth::OscWave::wavetable)
+    if (wave == synth::OscWave::wavetable || (editedFor && editedFor (oscillator) != nullptr))
     {
         paintWavetable (g, bounds.reduced (10.0f, 8.0f), on);
         if (! on)
@@ -290,7 +293,9 @@ void WaveDisplay::paint (juce::Graphics& g)
 
 void WaveDisplay::paintWavetable (juce::Graphics& g, juce::Rectangle<float> area, bool on) const
 {
-    const auto table = tableFor ? tableFor (oscillator) : nullptr;
+    // The FFT-edited copy, if there is one, else the wavetable.
+    const auto edited = editedFor ? editedFor (oscillator) : nullptr;
+    const auto table = edited != nullptr ? edited : tableFor ? tableFor (oscillator) : nullptr;
     if (table == nullptr || table->getNumFrames() == 0)
         return;
 
@@ -323,10 +328,10 @@ void WaveDisplay::paintWavetable (juce::Graphics& g, juce::Rectangle<float> area
     };
 
     // The frames INDEX moves through (up to 40 of them drawn), faint, back to front.
-    const auto shown = juce::jmin (used, 40);
+    const auto shown = juce::jmin (used, 40, table->getNumFrames());
     for (int k = shown - 1; k >= 0; --k)
     {
-        const auto depth = (float) k / (float) (shown - 1);
+        const auto depth = shown > 1 ? (float) k / (float) (shown - 1) : 0.0f;
         const auto frame = table->get (table->locate (depth, used, true).below, level);
         const auto path = curve ([frame] (float phase) { return synth::Wavetable::read (frame, phase); }, plane (depth));
         g.setColour (ParagonColours::accent.withAlpha ((on ? 0.10f : 0.05f) + (on ? 0.14f : 0.05f) * (1.0f - depth)));
@@ -354,7 +359,7 @@ void WaveDisplay::paintWavetable (juce::Graphics& g, juce::Rectangle<float> area
     const auto frameNumber = juce::roundToInt ((float) position.below + between * (float) (position.above - position.below)) + 1;
     g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
     g.setColour (ParagonColours::text.withAlpha (on ? 0.85f : 0.4f));
-    g.drawText (table->getName().toUpperCase(), area.withHeight (header), juce::Justification::topLeft, true);
+    g.drawText (table->getName().toUpperCase() + (edited != nullptr ? "  (FFT)" : ""), area.withHeight (header), juce::Justification::topLeft, true);
     g.setColour (ParagonColours::textDim.withAlpha (on ? 0.9f : 0.4f));
     g.drawText ("FRAME " + juce::String (frameNumber) + " / " + juce::String (table->getNumFrames()), area.withHeight (header).withTrimmedRight (on ? 0.0f : 34.0f),
                 juce::Justification::topRight, false);

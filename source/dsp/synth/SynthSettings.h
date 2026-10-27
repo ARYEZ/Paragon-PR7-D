@@ -168,6 +168,21 @@ namespace synth
         ModGrid modGrid = ModGrid::harmonic;
         bool modPhaseLock = true;       // the modulator starts with the wave (locked) or anywhere
 
+        // FFT (stage 3d; see Spectrum.h). The edited copy of this oscillator's
+        // wave, built by the processor (null: not edited), and VSTRENGTH's
+        // other copy (null: no pulsing), which it swings to at VSPEED.
+        const Wavetable* spectral = nullptr;
+        const Wavetable* spectralPulse = nullptr;
+        float fftSweep = 0.0f;          // -1 to 1 (baked into `spectral`)
+        bool fftFlip = false;           // (baked)
+        float fftVSpeedHz = 1.0f;       // 0.05 to 20
+        float fftVStrength = 0.0f;      // 0 to 1 (baked into `spectralPulse`)
+        // LP and HP: live, by harmonic number (512: LP off; 1: HP off); SLOPE 0 steep to 1 gentle.
+        float fftLp = 512.0f;
+        float fftHp = 1.0f;
+        float fftSlope = 0.0f;
+        bool hasFftFilter() const noexcept { return fftLp < 511.5f || fftHp > 1.01f; }
+
         bool hasSync() const noexcept { return syncAmount > 0.0f || ! juce::exactlyEqual (syncEnvAmount, 0.0f); }
         bool hasFm() const noexcept { return fmAmount > 0.0f; }
         bool hasAm() const noexcept { return amAmount > 0.0f; }

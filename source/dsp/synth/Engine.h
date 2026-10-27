@@ -36,6 +36,11 @@ namespace synth
         Engine();
 
         void prepare (double sampleRate);
+
+        // Its random choices (start phases, RANDOM pitch, unison copies'
+        // vibrato speeds...) from a fixed start, so a test hears the same
+        // every run. The plugin leaves them seeded from the clock.
+        void seedRandom (juce::int64 seed) noexcept { random.setSeed (seed); }
         void reset() noexcept;   // silence at once, every note gone
 
         // Writes `numSamples` of sound into `left` and `right`, playing the MIDI
@@ -94,6 +99,7 @@ namespace synth
             float crushPrevious = 0.0f;                      // CRUSH BIT's last input (the key's own copy)
             float modPhase = 0.0f, lastX = 0.0f;             // ...and its modulator and last read, as Copy's
             int syncAge = 0;                                 // samples since the note started, for SYNC's envelope
+            float pulsePhase = 0.0f;                         // FFT VSPEED's swing between the two edited copies
             std::array<Copy, maxCopies> copies;
         };
 

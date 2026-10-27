@@ -45,8 +45,8 @@ public:
     void setOscillator (int index);
     void paint (juce::Graphics&) override;
 
-    // Where to find the table an oscillator plays (set by the panel).
-    std::function<std::shared_ptr<const synth::Wavetable> (int oscillator)> tableFor;
+    // Where to find the table an oscillator plays, and its FFT-edited copy (set by the panel).
+    std::function<std::shared_ptr<const synth::Wavetable> (int oscillator)> tableFor, editedFor;
 
 private:
     std::vector<float> snapshot() const override;

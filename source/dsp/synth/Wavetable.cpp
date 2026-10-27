@@ -94,6 +94,21 @@ namespace synth
 
     std::shared_ptr<const Wavetable> Wavetable::build (const WavetableSource& from)
     {
+        return build (from, nullptr);
+    }
+
+    std::vector<float> Wavetable::harmonicLevels (const float* cycle, int size, int count)
+    {
+        count = juce::jmin (count, size / 2 - 1);
+        const auto harmonics = harmonicsOf (cycle, size, count);
+        std::vector<float> levels ((size_t) count + 1);
+        for (int h = 1; h <= count; ++h)
+            levels[(size_t) h] = std::abs (harmonics[(size_t) h]);
+        return levels;
+    }
+
+    std::shared_ptr<const Wavetable> Wavetable::build (const WavetableSource& from, const std::function<float (int harmonic)>& gain, bool normalise)
+    {
         if (! from.isValid() || from.frameSize < minFrameSize || from.frameSize > maxFrameSize)
             return nullptr;
 
@@ -132,7 +147,7 @@ namespace synth
             for (int i = 0; i < from.frameSize; ++i)
                 peak = juce::jmax (peak, std::abs (x[i] - (float) mean));
         }
-        const auto scale = peak > 1.0e-6f ? 1.0f / peak : 1.0f;
+        const auto scale = normalise && peak > 1.0e-6f ? 1.0f / peak : 1.0f;
 
         // Each frame's harmonics (the DC, harmonic 0, is left out), then each
         // level from as many of them as it holds.
@@ -140,8 +155,8 @@ namespace synth
         for (int frame = 0; frame < table->numFrames; ++frame)
         {
             auto harmonics = harmonicsOf (frameStart (frame), from.frameSize, count);
-            for (auto& h : harmonics)
-                h *= scale;
+            for (size_t h = 1; h < harmonics.size(); ++h)
+                harmonics[h] *= scale * (gain != nullptr ? gain ((int) h) : 1.0f);
             for (int level = 0; level < tables::numLevels; ++level)
             {
                 const auto size = table->levelSizes[(size_t) level];

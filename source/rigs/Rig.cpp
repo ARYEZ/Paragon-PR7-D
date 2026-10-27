@@ -14,6 +14,7 @@ namespace
     const juce::Identifier rigTag { "ParagonRig" };
     const juce::Identifier parameterTag { "Param" };
     const juce::Identifier wavetableTag { "Wavetable" };
+    const juce::Identifier spectrumTag { "Spectrum" };
 }
 
 juce::String Rig::bankName (int bankIndex)
@@ -55,6 +56,14 @@ std::unique_ptr<juce::XmlElement> Rig::toXml() const
         element->setAttribute ("frameSize", table.frameSize);
         element->addTextElement (synth::wavetableFiles::encode (table));
     }
+    for (const auto& [oscillator, edit] : spectra)
+    {
+        if (edit.isFlat())
+            continue;
+        auto* element = xml->createNewChildElement (spectrumTag);
+        element->setAttribute ("osc", oscillator + 1);
+        element->setAttribute ("gains", edit.encode());
+    }
     return xml;
 }
 
@@ -88,6 +97,13 @@ std::optional<Rig> Rig::fromXml (const juce::XmlElement& xml)
                                                     element->getAllSubText());
         if (oscillator >= 0 && oscillator < 8 && table.isValid())
             rig.wavetables[oscillator] = std::move (table);
+    }
+    for (const auto* element : xml.getChildWithTagNameIterator (spectrumTag))
+    {
+        const auto oscillator = element->getIntAttribute ("osc") - 1;
+        const auto edit = synth::SpectrumEdit::decode (element->getStringAttribute ("gains"));
+        if (oscillator >= 0 && oscillator < 8 && ! edit.isFlat())
+            rig.spectra[oscillator] = edit;
     }
 
     return rig;
