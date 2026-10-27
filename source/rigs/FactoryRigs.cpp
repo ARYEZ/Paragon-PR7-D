@@ -275,5 +275,28 @@ std::vector<Rig> makeFactoryRigs()
            .ampEnvelope (900.0f, 1000.0f, 0.85f, 2000.0f).set (ParamIDs::ampReleaseCurve, -0.5f);
     add (shimmer);
 
+    // FREEFORM (stage 3d, part 2): a drawn cycle.
+    Builder drawn ("Drawn Growl", 23, { "Bass", "Freeform" },
+                   "A hand-drawn cycle: a ramp, then a jagged staircase that SMOOTH B rounds off, its ends joined (EDGE). Gritty in the low mids, through a low-pass that opens on each note.");
+    {
+        synth::FreeformDrawing d;
+        for (int i = 0; i < synth::FreeformDrawing::points; ++i)
+        {
+            const auto t = (float) i / (float) synth::FreeformDrawing::points;
+            d.values[(size_t) i] = t < 0.5f ? -0.9f + 3.6f * t                                   // the ramp up
+                                            : 0.6f - 0.3f * (float) (int) ((t - 0.5f) * 10.0f);   // five steps down
+        }
+        d.smoothA = 0.05f;
+        d.smoothB = 0.2f;
+        d.split = 0.5f;
+        d.edge = 0.3f;
+        drawn.rig.drawings[0] = d;
+    }
+    drawn.osc (0, "Wave", (float) synth::OscWave::freeform).osc (0, "PhaseRand", 0.0f).osc (0, "Sub", 0.4f).osc (0, "Volume", 0.8f)
+         .filter (FilterType::lp24, 400.0f, 0.3f, 0.5f).filterEnvelope (0.0f, 350.0f, 0.2f, 150.0f)
+         .ampEnvelope (1.0f, 300.0f, 0.9f, 120.0f)
+         .mono (30.0f);
+    add (drawn);
+
     return rigs;
 }

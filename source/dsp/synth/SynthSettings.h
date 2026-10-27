@@ -15,9 +15,9 @@ namespace synth
 
     class Wavetable;
 
-    // Saved by index (osc*Wave): only ever append. WAVETABLE came in stage 3 (0.3.0).
-    enum class OscWave { saw, pulse, triangle, sine, wavetable };
-    inline const juce::StringArray oscWaveNames { "Saw", "Pulse", "Triangle", "Sine", "Wavetable" };
+    // Saved by index (osc*Wave): only ever append. WAVETABLE came in stage 3 (0.3.0), FREEFORM in 0.7.0.
+    enum class OscWave { saw, pulse, triangle, sine, wavetable, freeform };
+    inline const juce::StringArray oscWaveNames { "Saw", "Pulse", "Triangle", "Sine", "Wavetable", "Freeform" };
 
     // Saved by index (osc*WtMode): only ever append. How INDEX moves between
     // frames: SMOOTH blends the two nearest, STEPPY jumps from one to the next.
@@ -132,7 +132,8 @@ namespace synth
         std::array<ChordVoice, numChordVoices> chord { { { false, 12.0f }, { false, 7.0f }, { false, -12.0f }, { false, 4.0f } } };
 
         // WAVETABLE (stage 3): the table (the factory's, or one loaded from a
-        // file; owned by the processor, which keeps it alive while it plays),
+        // file; or FREEFORM's drawing, a one-frame table; owned by the
+        // processor, which keeps it alive while it plays),
         // where in it (INDEX, 0 to 1), how it moves, and how many of its frames
         // INDEX steps through (FRAMES, 2 to 256, spread evenly).
         const Wavetable* table = nullptr;

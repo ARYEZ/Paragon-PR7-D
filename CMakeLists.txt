@@ -70,6 +70,7 @@ target_sources(ParagonX1
         source/ui/SynthControls.cpp
         source/ui/SynthDisplays.cpp
         source/ui/SynthPanels.cpp
+        source/ui/FreeformEditor.cpp
         source/ui/SpectrumEditor.cpp
         source/ui/MainView.cpp
         source/ui/ParagonLookAndFeel.cpp

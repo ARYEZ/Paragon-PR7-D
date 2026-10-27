@@ -15,6 +15,7 @@ namespace
     const juce::Identifier parameterTag { "Param" };
     const juce::Identifier wavetableTag { "Wavetable" };
     const juce::Identifier spectrumTag { "Spectrum" };
+    const juce::Identifier freeformTag { "Freeform" };
 }
 
 juce::String Rig::bankName (int bankIndex)
@@ -64,6 +65,14 @@ std::unique_ptr<juce::XmlElement> Rig::toXml() const
         element->setAttribute ("osc", oscillator + 1);
         element->setAttribute ("gains", edit.encode());
     }
+    for (const auto& [oscillator, drawing] : drawings)
+    {
+        if (drawing == synth::FreeformDrawing {})
+            continue;
+        auto* element = xml->createNewChildElement (freeformTag);
+        element->setAttribute ("osc", oscillator + 1);
+        element->setAttribute ("drawing", drawing.encode());
+    }
     return xml;
 }
 
@@ -104,6 +113,12 @@ std::optional<Rig> Rig::fromXml (const juce::XmlElement& xml)
         const auto edit = synth::SpectrumEdit::decode (element->getStringAttribute ("gains"));
         if (oscillator >= 0 && oscillator < 8 && ! edit.isFlat())
             rig.spectra[oscillator] = edit;
+    }
+    for (const auto* element : xml.getChildWithTagNameIterator (freeformTag))
+    {
+        const auto oscillator = element->getIntAttribute ("osc") - 1;
+        if (oscillator >= 0 && oscillator < 8)
+            rig.drawings[oscillator] = synth::FreeformDrawing::decode (element->getStringAttribute ("drawing"));
     }
 
     return rig;

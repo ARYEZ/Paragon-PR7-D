@@ -263,6 +263,7 @@ namespace synth
                     break;
                 }
                 case OscWave::wavetable:
+                case OscWave::freeform:   // (played as a one-frame wavetable: source.wave is wavetable by now)
                 {
                     float positions[16];
                     for (int done = 0; done < n; done += 16)
@@ -1100,9 +1101,11 @@ namespace synth
             auto audible = s.gain > 0.0f;
 
             // What it reads: FFT's edited copy if there is one (for a
-            // wavetable, with the same frames), else its wavetable or wave.
-            const auto* table = s.spectral != nullptr ? s.spectral : s.wave == OscWave::wavetable ? s.table : nullptr;
-            if (s.wave == OscWave::wavetable || s.spectral != nullptr)
+            // wavetable, with the same frames), else its wavetable, its
+            // FREEFORM drawing (a one-frame table) or its wave.
+            const auto drawn = s.wave == OscWave::wavetable || s.wave == OscWave::freeform;
+            const auto* table = s.spectral != nullptr ? s.spectral : drawn ? s.table : nullptr;
+            if (drawn || s.spectral != nullptr)
             {
                 source.wave = OscWave::wavetable;
                 audible = audible && table != nullptr;

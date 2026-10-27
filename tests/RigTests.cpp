@@ -271,7 +271,7 @@ TEST_CASE ("Rigs are sorted by bank and number, and < > wrap round", "[rigs]")
     CHECK (library.step (&entries.front(), -1) == &entries.back());
     CHECK (library.step (nullptr, 1) == &entries.front());
 
-    CHECK (library.nextFreeNumber (0) == 23);   // the factory presets fill A01 to A22
+    CHECK (library.nextFreeNumber (0) == 24);   // the factory presets fill A01 to A23
 }
 
 TEST_CASE ("Saving and loading a preset restores the sound but not the global settings", "[rigs]")
@@ -364,9 +364,9 @@ TEST_CASE ("< and > step through the presets in order", "[rigs]")
 {
     RigRig r;
     r.processor.loadRig (r.entryNamed ("Init"));
-    REQUIRE (r.processor.saveCurrentRigAs ("Second"));   // filed after bank A's factory presets, at A23
-    REQUIRE (r.processor.saveCurrentRigAs ("Third"));    // A24
-    CHECK (r.entryNamed ("Second").rig.getSlotName() == "A23");
+    REQUIRE (r.processor.saveCurrentRigAs ("Second"));   // filed after bank A's factory presets, at A24
+    REQUIRE (r.processor.saveCurrentRigAs ("Third"));    // A25
+    CHECK (r.entryNamed ("Second").rig.getSlotName() == "A24");
     r.processor.loadRig (r.entryNamed ("Spectral Shimmer"));   // A22
     r.processor.stepRig (1);
     CHECK (r.processor.getCurrentRig().name == "Second");

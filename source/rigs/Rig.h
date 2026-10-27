@@ -2,6 +2,7 @@
 
 #include <juce_core/juce_core.h>
 
+#include "dsp/synth/Freeform.h"
 #include "dsp/synth/Spectrum.h"
 #include "dsp/synth/Wavetable.h"
 
@@ -39,6 +40,9 @@ struct Rig
 
     // The FFT editor's curves, by oscillator (only the ones drawn on).
     std::map<int, synth::SpectrumEdit> spectra;
+
+    // FREEFORM drawings, by oscillator (only the ones drawn on).
+    std::map<int, synth::FreeformDrawing> drawings;
 
     // Free text shown with the rig: what it's for.
     juce::String notes;

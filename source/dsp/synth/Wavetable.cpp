@@ -404,43 +404,103 @@ namespace synth
             return 0;
         }
 
-        WavetableSource load (const juce::File& file)
+        WavetableSource cut (const juce::String& name, const std::vector<float>& audio, double sampleRate, int markedFrameSize, const CutOptions& options)
+        {
+            const auto length = (int) audio.size();
+            if (length < Wavetable::minFrameSize)
+                return {};
+            const auto from = juce::jlimit (0, length - 1, (int) (options.start * length));
+            const auto to = juce::jlimit (from + 1, length, (int) std::ceil (options.end * length));
+            const auto span = to - from;
+
+            // The frame length: chosen, from a root note, as the file says, one cycle, or 2048.
+            auto frameSize = options.frameSize;
+            if (frameSize == 0 && options.rootNote >= 0)
+                frameSize = cycleLength (options.rootNote, sampleRate);
+            if (frameSize == 0)
+                frameSize = markedFrameSize;
+            if (frameSize == 0)
+                frameSize = span <= Wavetable::maxFrameSize ? span : 2048;
+            frameSize = juce::jlimit (Wavetable::minFrameSize, Wavetable::maxFrameSize, frameSize);
+            if (span < frameSize)
+                return {};
+
+            // Where each frame starts.
+            std::vector<int> starts;
+            if (options.spread > 0)
+            {
+                // Spread evenly, first at the start, last ending at the end (Avenger's "sub divide").
+                const auto count = juce::jlimit (1, Wavetable::maxFrames, options.spread);
+                for (int k = 0; k < count; ++k)
+                    starts.push_back (from + (count == 1 ? 0 : juce::roundToInt ((double) k * (span - frameSize) / (count - 1))));
+            }
+            else
+            {
+                const auto step = juce::jmax (1, options.step);
+                for (auto at = from; at + frameSize <= to; at += frameSize * step)
+                    starts.push_back (at);
+                if ((int) starts.size() > Wavetable::maxFrames)
+                {
+                    // Too many: 256 spread evenly through them.
+                    std::vector<int> kept;
+                    for (int k = 0; k < Wavetable::maxFrames; ++k)
+                        kept.push_back (starts[(size_t) juce::roundToInt ((double) k * ((int) starts.size() - 1) / (Wavetable::maxFrames - 1))]);
+                    starts = std::move (kept);
+                }
+            }
+            auto samples = std::make_shared<std::vector<float>> (starts.size() * (size_t) frameSize);
+            for (size_t k = 0; k < starts.size(); ++k)
+                std::copy_n (audio.data() + starts[k], frameSize, samples->data() + k * (size_t) frameSize);
+            return { name, frameSize, samples };
+        }
+
+        namespace
+        {
+            // A file mixed to mono (up to 2^23 samples, about three minutes at 48 kHz).
+            bool readMono (const juce::File& file, std::vector<float>& mono, double& sampleRate)
+            {
+                juce::AudioFormatManager formats;
+                formats.registerBasicFormats();
+                const std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
+                if (reader == nullptr || reader->lengthInSamples < Wavetable::minFrameSize)
+                    return false;
+                const auto length = (int) std::min<juce::int64> (reader->lengthInSamples, juce::int64 { 1 } << 23);
+                const auto channels = (int) juce::jlimit (1u, 2u, reader->numChannels);
+                juce::AudioBuffer<float> audio (channels, length);
+                if (! reader->read (&audio, 0, length, 0, true, channels > 1))
+                    return false;
+                mono.assign ((size_t) length, 0.0f);
+                for (int c = 0; c < channels; ++c)
+                    for (int i = 0; i < length; ++i)
+                        mono[(size_t) i] += audio.getSample (c, i) / (float) channels;
+                sampleRate = reader->sampleRate;
+                return true;
+            }
+
+            int markedFrameSize (const juce::File& file)
+            {
+                juce::MemoryBlock bytes;
+                return file.hasFileExtension ("wav") && file.loadFileAsData (bytes) ? frameSizeFromChunk (bytes) : 0;
+            }
+        }
+
+        FileInfo inspect (const juce::File& file)
         {
             juce::AudioFormatManager formats;
             formats.registerBasicFormats();
             const std::unique_ptr<juce::AudioFormatReader> reader (formats.createReaderFor (file));
-            if (reader == nullptr || reader->lengthInSamples < Wavetable::minFrameSize)
+            if (reader == nullptr)
                 return {};
+            return { reader->lengthInSamples, reader->sampleRate, markedFrameSize (file) };
+        }
 
-            // Up to 2^23 samples (about three minutes at 48 kHz) is plenty to cut 256 frames from.
-            const auto length = (int) std::min<juce::int64> (reader->lengthInSamples, juce::int64 { 1 } << 23);
-            const auto channels = (int) juce::jlimit (1u, 2u, reader->numChannels);
-            juce::AudioBuffer<float> audio (channels, length);
-            if (! reader->read (&audio, 0, length, 0, true, channels > 1))
+        WavetableSource load (const juce::File& file, const CutOptions& options)
+        {
+            std::vector<float> mono;
+            double sampleRate = 48000.0;
+            if (! readMono (file, mono, sampleRate))
                 return {};
-            std::vector<float> mono ((size_t) length);
-            for (int c = 0; c < channels; ++c)
-                for (int i = 0; i < length; ++i)
-                    mono[(size_t) i] += audio.getSample (c, i) / (float) channels;
-
-            juce::MemoryBlock bytes;
-            int frameSize = 0;
-            if (file.hasFileExtension ("wav") && file.loadFileAsData (bytes))
-                frameSize = frameSizeFromChunk (bytes);
-            if (frameSize == 0)
-                frameSize = length <= Wavetable::maxFrameSize ? length : 2048;
-
-            auto numFrames = length / frameSize;
-            if (numFrames < 1)
-                return {};
-            const auto kept = juce::jmin (numFrames, Wavetable::maxFrames);
-            auto samples = std::make_shared<std::vector<float>> ((size_t) kept * (size_t) frameSize);
-            for (int k = 0; k < kept; ++k)
-            {
-                const auto from = kept == numFrames ? k : juce::roundToInt ((double) k * (numFrames - 1) / (kept - 1));
-                std::copy_n (mono.data() + (size_t) from * (size_t) frameSize, frameSize, samples->data() + (size_t) k * (size_t) frameSize);
-            }
-            return { file.getFileNameWithoutExtension(), frameSize, samples };
+            return cut (file.getFileNameWithoutExtension(), mono, sampleRate, markedFrameSize (file), options);
         }
 
         juce::String encode (const WavetableSource& table)

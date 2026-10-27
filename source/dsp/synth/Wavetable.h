@@ -145,6 +145,29 @@ namespace synth
     // Reading WAV (or AIFF, FLAC...) files into tables.
     namespace wavetableFiles
     {
+        // How to cut a file into frames (the resampler's options, as
+        // Avenger's): the frame length, which frames, and the stretch of the
+        // file to take them from. The defaults load as before: the length the
+        // file says (its "clm " chunk), else one cycle for a short file, else
+        // 2048s, one after another.
+        struct CutOptions
+        {
+            int frameSize = 0;         // samples (0: as above)
+            int rootNote = -1;         // or a MIDI note the file is in (a frame is one cycle of it): 24 = C1
+            int step = 1;              // one after another (1), or every 2nd, 3rd, 4th...
+            int spread = 0;            // or this many frames spread evenly through it, overlapping if need be (0: off)
+            double start = 0.0, end = 1.0;   // the part of the file to use, 0 to 1
+        };
+
+        // How many samples a cycle of `note` is at `sampleRate` (a root note's frame length).
+        inline int cycleLength (int note, double sampleRate)
+        {
+            return juce::roundToInt (sampleRate / (440.0 * std::exp2 ((note - 69) / 12.0)));
+        }
+
+        // The frames for `options` from mono audio at `sampleRate`.
+        WavetableSource cut (const juce::String& name, const std::vector<float>& audio, double sampleRate, int markedFrameSize, const CutOptions& options);
+
         // The frames in a file, mixed to mono. How it's cut into frames:
         //   - a frame size written in the file (the "clm " chunk other
         //     wavetable synths write), or
@@ -152,7 +175,11 @@ namespace synth
         //   - otherwise frames of 2048 samples, the size most wavetable packs use.
         // Over 256 frames: 256 spread evenly through it. Empty if the file
         // can't be read.
-        WavetableSource load (const juce::File&);
+        WavetableSource load (const juce::File&, const CutOptions& options = {});
+
+        // A file's length and sample rate (to offer the options), or 0 samples if it can't be read.
+        struct FileInfo { juce::int64 samples = 0; double sampleRate = 0.0; int markedFrameSize = 0; };
+        FileInfo inspect (const juce::File&);
 
         // The frame size a "clm " chunk gives, or 0 (the bytes of a WAV file).
         int frameSizeFromChunk (const juce::MemoryBlock& wavFile);

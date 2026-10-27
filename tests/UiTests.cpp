@@ -391,3 +391,35 @@ TEST_CASE ("The oscillator's FFT page: the editor, its views and knobs, laid out
     CHECK (SpectrumEditor::intervalName (3) == "5th");
     CHECK (SpectrumEditor::intervalName (7) == "b7");
 }
+
+TEST_CASE ("The oscillator's DRAW page: drawing switches the oscillator to FREEFORM and changes what plays", "[ui][freeform]")
+{
+    Window w;
+    auto& oscillators = w.view->getOscillatorPanel();
+    oscillators.selectOscillator (1);
+    CHECK_FALSE (oscillators.getFreeformEditor().isVisible());
+    oscillators.showPage (OscillatorPanel::Page::draw);
+    auto& editor = oscillators.getFreeformEditor();
+    REQUIRE (editor.isVisible());
+    CHECK (controlFor (*w.view, ParamIDs::osc (1, "Wave"))->isVisible());
+    CHECK_FALSE (controlFor (*w.view, ParamIDs::osc (1, "Transpose"))->isVisible());
+    checkLayout (*w.view, "draw");
+
+    // A stroke across the top-left quarter: those points go up, the rest stay flat.
+    const auto area = editor.getPlotArea();
+    const auto at = [&] (float x, float y) { return juce::Point<float> (area.getX() + area.getWidth() * x, area.getY() + area.getHeight() * y); };
+    const auto event = [&] (juce::Point<float> p, int clicks = 1)
+    {
+        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), p, juce::ModifierKeys::leftButtonModifier, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                 &editor, &editor, juce::Time::getCurrentTime(), p, juce::Time::getCurrentTime(), clicks, false);
+    };
+    editor.mouseDown (event (at (0.02f, 0.25f)));
+    editor.mouseDrag (event (at (0.23f, 0.25f)));
+    editor.mouseUp (event (at (0.23f, 0.25f)));
+    CHECK (juce::roundToInt (value (w.processor, ParamIDs::osc (1, "Wave"))) == (int) synth::OscWave::freeform);
+    const auto& drawing = w.processor.getDrawing (1);
+    CHECK_THAT (drawing.values[64], WithinAbs (0.5, 0.02));
+    CHECK_THAT (drawing.values[300], WithinAbs (0.0, 1.0e-6));
+    CHECK (editor.pointAt (editor.getPlotArea().getRight() + 50.0f) == synth::FreeformDrawing::points - 1);
+    CHECK_THAT (editor.valueAt (area.getCentreY()), WithinAbs (0.0, 0.01));
+}

@@ -158,7 +158,7 @@ std::vector<float> WaveDisplay::snapshot() const
     for (const auto* what : shapeSettings)
         values.push_back (value (id (what)));
     // Which table (a file can be loaded, or the FFT editor used, without any parameter changing).
-    if (juce::roundToInt (value (id ("Wave"))) == (int) synth::OscWave::wavetable && tableFor)
+    if (juce::roundToInt (value (id ("Wave"))) >= (int) synth::OscWave::wavetable && tableFor)
         if (const auto table = tableFor (oscillator))
             values.push_back ((float) (reinterpret_cast<std::uintptr_t> (table.get()) % 16777213u));
     if (editedFor)
@@ -181,7 +181,7 @@ void WaveDisplay::paint (juce::Graphics& g)
 
     const auto on = value (id ("On")) > 0.5f;
     const auto wave = (synth::OscWave) juce::roundToInt (value (id ("Wave")));
-    if (wave == synth::OscWave::wavetable || (editedFor && editedFor (oscillator) != nullptr))
+    if (wave == synth::OscWave::wavetable || wave == synth::OscWave::freeform || (editedFor && editedFor (oscillator) != nullptr))
     {
         paintWavetable (g, bounds.reduced (10.0f, 8.0f), on);
         if (! on)
@@ -213,7 +213,8 @@ void WaveDisplay::paint (juce::Graphics& g)
             case synth::OscWave::pulse:    return read (synth::tables::Wave::saw, phase) - read (synth::tables::Wave::saw, phase + width);
             case synth::OscWave::triangle: return read (synth::tables::Wave::triangle, phase);
             case synth::OscWave::sine:     return read (synth::tables::Wave::sine, phase);
-            case synth::OscWave::wavetable: return 0.0f;
+            case synth::OscWave::wavetable:
+            case synth::OscWave::freeform:  return 0.0f;   // drawn as tables (paintWavetable)
         }
         return 0.0f;
     };
@@ -408,7 +409,7 @@ void ShapeDisplay::paint (juce::Graphics& g)
     const auto basic = [level] (synth::tables::Wave w, float x) { return synth::tables::read (synth::tables::get (w, level), x - std::floor (x)); };
     std::shared_ptr<const synth::Wavetable> table;
     synth::Wavetable::Position position;
-    if (wave == synth::OscWave::wavetable && tableFor)
+    if ((wave == synth::OscWave::wavetable || wave == synth::OscWave::freeform) && tableFor)
         if ((table = tableFor (oscillator)) != nullptr)
             position = table->locate (value (id ("WtIndex")), juce::roundToInt (value (id ("WtFrames"))), juce::roundToInt (value (id ("WtMode"))) == 1);
     const auto plain = [&] (float x) -> float
@@ -420,6 +421,7 @@ void ShapeDisplay::paint (juce::Graphics& g)
             case synth::OscWave::triangle: return basic (synth::tables::Wave::triangle, x);
             case synth::OscWave::sine:     return basic (synth::tables::Wave::sine, x);
             case synth::OscWave::wavetable:
+            case synth::OscWave::freeform:
                 if (table == nullptr)
                     return 0.0f;
                 {

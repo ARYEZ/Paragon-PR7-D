@@ -109,6 +109,72 @@ void WavetableChooser::refresh()
         box.setSelectedId (juce::roundToInt (table->load()) + 1, juce::dontSendNotification);
 }
 
+namespace
+{
+    // The resampler (stage 3d, part 2): a file longer than one cycle asks how
+    // to cut it into frames before it loads. Short files load straight away.
+    void loadWavetableAsking (ParagonX1AudioProcessor& processor, int osc, const juce::File& file, std::function<void()> done)
+    {
+        const auto failed = [file]
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Can't load that file",
+                                                    file.getFileName() + " couldn't be read as audio, or is too short for the frames asked for.");
+        };
+        const auto info = synth::wavetableFiles::inspect (file);
+        if (info.samples <= synth::Wavetable::maxFrameSize)
+        {
+            if (! processor.loadWavetableFile (osc, file))
+                failed();
+            done();
+            return;
+        }
+
+        auto window = std::make_shared<juce::AlertWindow> ("Load " + file.getFileName(),
+                                                           "How to cut it into frames (" + juce::String (info.samples / info.sampleRate, 1) + " s long):",
+                                                           juce::MessageBoxIconType::NoIcon);
+        juce::StringArray lengths { info.markedFrameSize > 0 ? "As the file says (" + juce::String (info.markedFrameSize) + ")" : "2048 (most wavetable packs)",
+                                    "256", "512", "1024", "2048", "4096" };
+        window->addComboBox ("length", lengths, "Frame length (samples)");
+        juce::StringArray notes { "None (use the frame length)" };
+        for (int note = 12; note < 96; ++note)
+            notes.add (juce::MidiMessage::getMidiNoteName (note, true, true, 3) + " (" + juce::String (synth::wavetableFiles::cycleLength (note, info.sampleRate)) + ")");
+        window->addComboBox ("root", notes, "Or the note it's played at (a frame is one cycle of it)");
+        window->addComboBox ("frames", { "One after another", "Every 2nd", "Every 3rd", "Every 4th",
+                                         "16 spread through it", "32 spread through it", "64 spread through it", "128 spread through it", "256 spread through it" },
+                             "Which frames");
+        window->addTextEditor ("start", "0", "Start (% of the file)");
+        window->addTextEditor ("end", "100", "End (% of the file)");
+        window->addButton ("LOAD", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        window->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        window->enterModalState (true, juce::ModalCallbackFunction::create ([window, &processor, osc, file, info, failed, done] (int result)
+        {
+            if (result == 1)
+            {
+                synth::wavetableFiles::CutOptions options;
+                const auto length = window->getComboBoxComponent ("length")->getSelectedItemIndex();
+                options.frameSize = length <= 0 ? (info.markedFrameSize > 0 ? 0 : 2048) : (int) std::pow (2.0, 7 + length);
+                if (const auto root = window->getComboBoxComponent ("root")->getSelectedItemIndex(); root > 0)
+                {
+                    options.rootNote = 11 + root;
+                    options.frameSize = 0;
+                }
+                const auto frames = window->getComboBoxComponent ("frames")->getSelectedItemIndex();
+                if (frames < 4)
+                    options.step = frames + 1;
+                else
+                    options.spread = 16 << (frames - 4);
+                options.start = juce::jlimit (0.0, 1.0, window->getTextEditorContents ("start").getDoubleValue() / 100.0);
+                options.end = juce::jlimit (0.0, 1.0, window->getTextEditorContents ("end").getDoubleValue() / 100.0);
+                if (options.end <= options.start)
+                    options.end = 1.0;
+                if (! processor.loadWavetableFile (osc, file, options))
+                    failed();
+            }
+            done();
+        }), false);
+    }
+}
+
 void WavetableChooser::browse()
 {
     chooser = std::make_unique<juce::FileChooser> ("Load a wavetable (WAV, AIFF or FLAC)", juce::File(), "*.wav;*.aif;*.aiff;*.flac");
@@ -117,10 +183,12 @@ void WavetableChooser::browse()
                           [this, target] (const juce::FileChooser& fc)
                           {
                               const auto file = fc.getResult();
-                              if (file.existsAsFile() && ! processor.loadWavetableFile (target, file))
-                                  juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Can't load that file",
-                                                                          file.getFileName() + " couldn't be read as audio.");
-                              refresh();
+                              if (file.existsAsFile())
+                                  loadWavetableAsking (processor, target, file, [safe = juce::Component::SafePointer<WavetableChooser> (this)]
+                                  {
+                                      if (safe != nullptr)
+                                          safe->refresh();
+                                  });
                           });
 }
 
@@ -136,7 +204,8 @@ void WavetableChooser::resized()
 //==============================================================================
 OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
     : SynthPanel ("OSCILLATORS"), processor (processorToUse), state (processorToUse.getParameters()),
-      tableChooser (processorToUse), wave (state), voicesDisplay (state), shapeDisplay (state), spectrumEditor (processorToUse)
+      tableChooser (processorToUse), wave (state), voicesDisplay (state), shapeDisplay (state), spectrumEditor (processorToUse),
+      freeformEditor (processorToUse), freeformControls (processorToUse)
 {
     for (int i = 0; i < ParamIDs::numOscillators; ++i)
     {
@@ -154,7 +223,7 @@ OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
     addChildComponent (tableChooser);
 
     // WAVE / SHAPE / FM / FFT / VOICES: which of the oscillator's pages shows.
-    for (auto* button : { &wavePageButton, &shapePageButton, &fmPageButton, &fftPageButton, &voicesPageButton })
+    for (auto* button : { &wavePageButton, &shapePageButton, &fmPageButton, &fftPageButton, &drawPageButton, &voicesPageButton })
     {
         button->setClickingTogglesState (true);
         button->setRadioGroupId (702);
@@ -174,6 +243,10 @@ OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
     fmPageButton.onClick = [this] { showPage (Page::fm); };
     fftPageButton.setTooltip ("Draw the oscillator's harmonics (the FFT editor)");
     fftPageButton.onClick = [this] { showPage (Page::fft); };
+    drawPageButton.setTooltip ("Draw one cycle of the oscillator's wave by hand (FREEFORM)");
+    drawPageButton.onClick = [this] { showPage (Page::draw); };
+    addChildComponent (freeformEditor);
+    addChildComponent (freeformControls);
 
     // The FFT page's own buttons: the editor's view, RANDOM and RESET.
     addChildComponent (spectrumEditor);
@@ -216,7 +289,7 @@ OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
 
     // Each control, labelled as on the panel, with a tooltip saying what it does.
     const std::pair<const char*, std::pair<const char*, const char*>> items[] = {
-        { "Wave", { "WAVE", "The oscillator's wave. PULSE's width is set by WIDTH. WAVETABLE plays a row of waves (chosen under TABLE) that INDEX moves through." } },
+        { "Wave", { "WAVE", "The oscillator's wave. PULSE's width is set by WIDTH. WAVETABLE plays a row of waves (chosen under TABLE) that INDEX moves through. FREEFORM plays a cycle you draw (the DRAW page)." } },
         { "Volume", { "VOLUME", "The whole oscillator: wave, noise and sub together." } },
         { "Pan", { "PAN", "Where the oscillator sits, left to right." } },
         { "Gain", { "GAIN", "The wave alone: turn it down to hear just the noise or sub." } },
@@ -360,12 +433,14 @@ void OscillatorPanel::filesDropped (const juce::StringArray& files, int, int)
 {
     if (files.isEmpty())
         return;
-    const juce::File file (files[0]);
-    if (! processor.loadWavetableFile (selected, file))
-        juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Can't load that file",
-                                                file.getFileName() + " couldn't be read as audio.");
-    updateVisibility();
-    tableChooser.refresh();
+    loadWavetableAsking (processor, selected, juce::File (files[0]), [safe = juce::Component::SafePointer<OscillatorPanel> (this)]
+    {
+        if (safe != nullptr)
+        {
+            safe->updateVisibility();
+            safe->tableChooser.refresh();
+        }
+    });
 }
 
 OscillatorPanel::Page OscillatorPanel::pageOf (const char* what) const
@@ -386,8 +461,10 @@ void OscillatorPanel::showPage (Page newPage)
 {
     page = newPage;
     (page == Page::voices ? voicesPageButton : page == Page::shape ? shapePageButton : page == Page::fm ? fmPageButton
-     : page == Page::fft ? fftPageButton : wavePageButton).setToggleState (true, juce::dontSendNotification);
+     : page == Page::fft ? fftPageButton : page == Page::draw ? drawPageButton : wavePageButton).setToggleState (true, juce::dontSendNotification);
     spectrumEditor.setVisible (page == Page::fft);
+    freeformEditor.setVisible (page == Page::draw);
+    freeformControls.setVisible (page == Page::draw);
     for (auto* button : { &freeViewButton, &harmonicViewButton, &binViewButton, &randomButton, &resetButton })
         button->setVisible (page == Page::fft);
     wave.setVisible (page != Page::voices);
@@ -415,6 +492,8 @@ void OscillatorPanel::selectOscillator (int index)
     voicesDisplay.setOscillator (selected);
     shapeDisplay.setOscillator (selected);
     spectrumEditor.setOscillator (selected);
+    freeformEditor.setOscillator (selected);
+    freeformControls.setOscillator (selected);
     tableChooser.setOscillator (selected);
     updateVisibility();
 }
@@ -431,6 +510,8 @@ void OscillatorPanel::resized()
     // The tabs run along the title strip, right of the title; WAVE and VOICES at its end.
     auto tabStrip = getTitleArea().withTrimmedLeft (110).reduced (0, 5).withTrimmedTop (2);
     voicesPageButton.setBounds (tabStrip.removeFromRight (66));
+    tabStrip.removeFromRight (4);
+    drawPageButton.setBounds (tabStrip.removeFromRight (50));
     tabStrip.removeFromRight (4);
     fftPageButton.setBounds (tabStrip.removeFromRight (42));
     tabStrip.removeFromRight (4);
@@ -531,6 +612,14 @@ void OscillatorPanel::resized()
                               { "PULSE", { "FftVSpeed", "FftVStrength" } } });
         area.removeFromBottom (6);
         spectrumEditor.setBounds (area);
+        return;
+    }
+    if (page == Page::draw)
+    {
+        // Right: the drawing, and its controls under it.
+        freeformControls.setBounds (area.removeFromBottom (rowHeight));
+        area.removeFromBottom (6);
+        freeformEditor.setBounds (area);
         return;
     }
     if (page == Page::fm)

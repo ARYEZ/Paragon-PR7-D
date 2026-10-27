@@ -2,6 +2,27 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.7.0
+
+Stage 3, part 4b: **FREEFORM** (draw a wave by hand) and **the resampler** (choosing how a long sample is cut into wavetable frames), both modelled on Avenger's (our own design and code).
+
+- **FREEFORM**, a new WAVE choice, and **the DRAW page** (each oscillator: WAVE, SHAPE, FM, FFT, **DRAW**, VOICES): drag to draw one cycle of the wave; hold **SHIFT** for a straight line. Drawing switches the oscillator to FREEFORM so you hear it straight away. The thin line is what you drew, the bright one what plays.
+  - **START**: begin again from a flat line (Avenger's start), or a sine, saw, square or triangle to change.
+  - **SMOOTH A** and **SMOOTH B** round off sharp corners (sharp corners are what sound bright and buzzy): A before **SPLIT**, B after it (SPLIT at 100%: A everywhere).
+  - **EDGE** joins the end of the cycle back to its start, so there's no jump (a click on every cycle, heard as buzz). Its modes: **ADAPT** moves both ends to meet in the middle, **ZERO** fades them to silence, **SYMMETRY** blends the wave with its mirror image.
+  - **NORMALIZE** makes it as loud as it can go without clipping (off: as loud as drawn).
+  - **WAV** exports the cycle as it plays (2048 samples), to load anywhere as a wavetable.
+  - It plays as cleanly as the basic waves (no aliasing, high up included), and everything else works on it: unison, SHAPE, SYNC / FM / AM, and the FFT editor.
+  - Saved with the preset and the project; undo takes back each stroke.
+  - **What's ours, not Avenger's:** the smoothing and edge maths are our own guesses at what the manual describes; the controls are as the manual lists them.
+- **The resampler:** loading a WAV, AIFF or FLAC that's longer than one cycle (from TABLE's menu or by dropping it on the oscillator) now asks how to cut it:
+  - **Frame length:** as the file says (if another wavetable synth marked it), or 256 to 4096 samples, or **the note it's played at** (each frame is one cycle of that note: load a sustained C2 and set C2, and every frame is exactly one cycle, so it plays in tune with no buzz).
+  - **Which frames:** one after another, every 2nd / 3rd / 4th, or 16 to 256 spread evenly through the file.
+  - **Start** and **End**: just a part of the file.
+  - Files of one cycle or less load straight away, as before.
+- **A new factory preset:** Drawn Growl (A23), a bass from a hand-drawn cycle. Our own, not tuned by ear.
+- In the tests: a drawn sine plays one harmonic and a drawn saw a saw's; SMOOTH takes the high harmonics away, and SPLIT gives each half its own; each EDGE mode closes the jump; saving; no aliasing at C7; the plugin playing the drawing and keeping it through presets, projects and undo; the FFT editor on a drawing; the resampler cutting by note, every nth, spread and part; drawing on the page with the mouse. Not checked here: how it sounds (I can't listen), and the resampler's question window itself (it opens on its own, so the screenshots can't show it).
+
 ## 0.6.0
 
 Stage 3, part 4a: **the FFT editor**, modelled on Avenger's (our own design and code). **This release also brings 0.5.0's SYNC, FM and AM** (the FM page: see 0.5.0's notes in the changelog), which didn't publish on its own: one older test, which hears random choices, failed on Windows. The tests now make the same random choices every time, on every computer.

@@ -20,6 +20,8 @@ namespace
     constexpr double retiredTableMs = 2000.0;   // how long a replaced table is kept, in case a block is still playing it
     const juce::Identifier spectraKey { "Spectra" };
     const juce::Identifier spectrumKey { "Spectrum" };
+    const juce::Identifier drawingsKey { "Drawings" };
+    const juce::Identifier drawingKey { "Drawing" };
     constexpr int parameterVersion = 1;
 }
 
@@ -136,6 +138,8 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
         for (auto& table : *list)
             table = nullptr;
     spectralBuilder = std::make_unique<SpectralBuilder>();
+    for (int i = 0; i < ParamIDs::numOscillators; ++i)
+        buildFreeform (i);
 
     rigLibrary = std::make_unique<RigLibrary>();
     // A new PR7-K is the Init preset (every parameter at its default), so the
@@ -420,9 +424,10 @@ void ParagonX1AudioProcessor::updateWavetables()
     const auto now = juce::Time::getMillisecondCounterHiRes();
     for (int i = 0; i < ParamIDs::numOscillators; ++i)
     {
-        auto wanted = loadedTables[(size_t) i];
+        const auto isFreeform = juce::roundToInt (param (ParamIDs::osc (i, "Wave").toRawUTF8())) == (int) synth::OscWave::freeform;
+        auto wanted = isFreeform ? freeformTables[(size_t) i] : loadedTables[(size_t) i];
         auto factory = -1;
-        if (wanted == nullptr)
+        if (wanted == nullptr && ! isFreeform)
         {
             // The factory table TABLE names: built the first time an oscillator
             // plays it as a WAVETABLE, and kept while it's chosen.
@@ -463,7 +468,7 @@ void ParagonX1AudioProcessor::updateSpectra()
         key.vStrength = value ("FftVStrength");
         key.wave = juce::roundToInt (value ("Wave"));
         const auto edited = ! key.edit.isFlat() || key.vStrength > 0.0f;
-        const auto isTable = key.wave == (int) synth::OscWave::wavetable;
+        const auto isTable = key.wave == (int) synth::OscWave::wavetable || key.wave == (int) synth::OscWave::freeform;
         if (key.wave == (int) synth::OscWave::pulse)
             key.pulseWidth = juce::jlimit (0.01f, 0.99f, value ("Width"));
         const auto& table = playingTables[(size_t) i];
@@ -488,7 +493,8 @@ void ParagonX1AudioProcessor::updateSpectra()
         job.osc = i;
         job.key = key;
         job.source = isTable ? table->getSource() : synth::spectrum::basicWave ((synth::OscWave) key.wave, key.pulseWidth);
-        job.normalise = isTable;   // basic waves keep their own level, as their plain tables do
+        // Basic waves keep their own level, as their plain tables do; a drawing as its NORMALIZE says.
+        job.normalise = key.wave == (int) synth::OscWave::wavetable || (key.wave == (int) synth::OscWave::freeform && drawings[(size_t) i].normalise);
         spectralBuilder->submit (std::move (job));
     }
 }
@@ -519,6 +525,24 @@ void ParagonX1AudioProcessor::finishTableBuilds()
     updateWavetables();
 }
 
+void ParagonX1AudioProcessor::buildFreeform (int osc)
+{
+    // A one-frame table from the drawing (about a millisecond: built here, not in the background).
+    const auto& drawing = drawings[(size_t) osc];
+    freeformTables[(size_t) osc] = synth::Wavetable::build (drawing.source(), nullptr, drawing.normalise);
+}
+
+void ParagonX1AudioProcessor::setDrawing (int osc, const synth::FreeformDrawing& drawing)
+{
+    osc = juce::jlimit (0, ParamIDs::numOscillators - 1, osc);
+    if (drawings[(size_t) osc] == drawing)
+        return;
+    drawings[(size_t) osc] = drawing;
+    buildFreeform (osc);
+    markModified();
+    updateWavetables();
+}
+
 void ParagonX1AudioProcessor::setSpectrum (int osc, const synth::SpectrumEdit& edit)
 {
     osc = juce::jlimit (0, ParamIDs::numOscillators - 1, osc);
@@ -533,7 +557,7 @@ synth::WavetableSource ParagonX1AudioProcessor::getPlainSource (int osc)
 {
     osc = juce::jlimit (0, ParamIDs::numOscillators - 1, osc);
     const auto wave = (synth::OscWave) juce::roundToInt (param (ParamIDs::osc (osc, "Wave").toRawUTF8()));
-    if (wave == synth::OscWave::wavetable)
+    if (wave == synth::OscWave::wavetable || wave == synth::OscWave::freeform)
     {
         const auto table = getWavetable (osc);
         return table != nullptr ? table->getSource() : synth::WavetableSource {};
@@ -556,14 +580,16 @@ std::shared_ptr<const synth::Wavetable> ParagonX1AudioProcessor::tableFor (const
 std::shared_ptr<const synth::Wavetable> ParagonX1AudioProcessor::getWavetable (int osc)
 {
     osc = juce::jlimit (0, ParamIDs::numOscillators - 1, osc);
+    if (juce::roundToInt (param (ParamIDs::osc (osc, "Wave").toRawUTF8())) == (int) synth::OscWave::freeform)
+        return freeformTables[(size_t) osc];
     if (loadedTables[(size_t) osc] != nullptr)
         return loadedTables[(size_t) osc];
     return synth::factoryTables::get (juce::roundToInt (param (ParamIDs::osc (osc, "Table").toRawUTF8())));
 }
 
-bool ParagonX1AudioProcessor::loadWavetableFile (int osc, const juce::File& file)
+bool ParagonX1AudioProcessor::loadWavetableFile (int osc, const juce::File& file, const synth::wavetableFiles::CutOptions& options)
 {
-    auto table = synth::Wavetable::build (synth::wavetableFiles::load (file));
+    auto table = synth::Wavetable::build (synth::wavetableFiles::load (file, options));
     if (table == nullptr)
         return false;
     osc = juce::jlimit (0, ParamIDs::numOscillators - 1, osc);
@@ -674,6 +700,8 @@ Rig ParagonX1AudioProcessor::captureRig() const
             rig.wavetables[i] = table->getSource();
         if (! spectra[(size_t) i].isFlat())
             rig.spectra[i] = spectra[(size_t) i];
+        if (! (drawings[(size_t) i] == synth::FreeformDrawing {}))
+            rig.drawings[i] = drawings[(size_t) i];
     }
     return rig;
 }
@@ -702,6 +730,13 @@ void ParagonX1AudioProcessor::applyRig (const Rig& rig)
         loadedTables[(size_t) i] = found != rig.wavetables.end() ? tableFor (found->second) : nullptr;
         const auto spectrum = rig.spectra.find (i);
         spectra[(size_t) i] = spectrum != rig.spectra.end() ? spectrum->second : synth::SpectrumEdit {};
+        const auto drawing = rig.drawings.find (i);
+        const auto newDrawing = drawing != rig.drawings.end() ? drawing->second : synth::FreeformDrawing {};
+        if (! (drawings[(size_t) i] == newDrawing) || freeformTables[(size_t) i] == nullptr)
+        {
+            drawings[(size_t) i] = newDrawing;
+            buildFreeform (i);
+        }
     }
     updateWavetables();
 
@@ -862,6 +897,12 @@ void ParagonX1AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
             curves.appendChild (juce::ValueTree (spectrumKey, { { "osc", i + 1 }, { "gains", spectra[(size_t) i].encode() } }), nullptr);
     state.appendChild (curves, nullptr);
 
+    juce::ValueTree drawn (drawingsKey);
+    for (int i = 0; i < ParamIDs::numOscillators; ++i)
+        if (! (drawings[(size_t) i] == synth::FreeformDrawing {}))
+            drawn.appendChild (juce::ValueTree (drawingKey, { { "osc", i + 1 }, { "drawing", drawings[(size_t) i].encode() } }), nullptr);
+    state.appendChild (drawn, nullptr);
+
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
@@ -897,8 +938,22 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
         }
         state.removeChild (saved, nullptr);
     }
+    std::array<synth::FreeformDrawing, ParamIDs::numOscillators> newDrawings {};
+    if (auto saved = state.getChildWithName (drawingsKey); saved.isValid())
+    {
+        for (const auto& drawing : saved)
+        {
+            const auto osc = (int) drawing["osc"] - 1;
+            if (osc >= 0 && osc < ParamIDs::numOscillators)
+                newDrawings[(size_t) osc] = synth::FreeformDrawing::decode (drawing["drawing"].toString());
+        }
+        state.removeChild (saved, nullptr);
+    }
     parameters.replaceState (state);
     spectra = curves;
+    drawings = newDrawings;
+    for (int i = 0; i < ParamIDs::numOscillators; ++i)
+        buildFreeform (i);
     loadedTables = tables;
     updateWavetables();
 

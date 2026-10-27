@@ -2,6 +2,7 @@
 
 #include "PluginProcessor.h"
 #include "ui/SynthControls.h"
+#include "ui/FreeformEditor.h"
 #include "ui/SpectrumEditor.h"
 #include "ui/SynthDisplays.h"
 
@@ -49,8 +50,9 @@ public:
     // SHAPE: bending its wave (stage 3b).
     // FM: SYNC, FM and AM (stage 3c).
     // FFT: its harmonics, drawn (stage 3d).
+    // DRAW: FREEFORM's cycle, drawn (stage 3d, part 2).
     // VOICES: its unison copies, vibrato and chorder (stage 2).
-    enum class Page { wave, voices, shape, fm, fft };
+    enum class Page { wave, voices, shape, fm, fft, draw };
     void showPage (Page);
     Page getPage() const noexcept { return page; }
 
@@ -62,6 +64,7 @@ public:
 
     WavetableChooser& getWavetableChooser() noexcept { return tableChooser; }
     SpectrumEditor& getSpectrumEditor() noexcept { return spectrumEditor; }
+    FreeformEditor& getFreeformEditor() noexcept { return freeformEditor; }
 
 private:
     void timerCallback() override;
@@ -87,7 +90,7 @@ private:
     WavetableChooser tableChooser;
     bool showingWavetable = false;
     juce::TextButton wavePageButton { "WAVE" }, shapePageButton { "SHAPE" }, fmPageButton { "FM" }, fftPageButton { "FFT" },
-                     voicesPageButton { "VOICES" };
+                     drawPageButton { "DRAW" }, voicesPageButton { "VOICES" };
     Page page = Page::wave;
     WaveDisplay wave;
     VoicesDisplay voicesDisplay;
@@ -95,6 +98,8 @@ private:
     SpectrumEditor spectrumEditor;
     juce::TextButton freeViewButton { "FREE" }, harmonicViewButton { "HARMONIC" }, binViewButton { "BIN" },
                      randomButton { "RANDOM" }, resetButton { "RESET" };
+    FreeformEditor freeformEditor;
+    FreeformControls freeformControls;
     std::vector<std::unique_ptr<ParamControl>> controls;   // in oscSettings' order where they appear
     std::vector<const char*> settingNames;                 // ...which setting each is
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> sectionTitles;   // PITCH, START, NOISE, SUB, LEVEL

@@ -8,6 +8,7 @@
 #include "LevelMeterSource.h"
 #include "Parameters.h"
 #include "dsp/synth/Engine.h"
+#include "dsp/synth/Freeform.h"
 #include "dsp/synth/Spectrum.h"
 #include "dsp/synth/Wavetable.h"
 #include "rigs/RigLibrary.h"
@@ -133,8 +134,9 @@ public:
     bool hasLoadedWavetable (int osc) const { return loadedTables[(size_t) osc] != nullptr; }
 
     // Loads a WAV (or AIFF, FLAC...) file into oscillator `osc` and switches
-    // its WAVE to WAVETABLE. False if the file couldn't be read as audio.
-    bool loadWavetableFile (int osc, const juce::File&);
+    // its WAVE to WAVETABLE, cut into frames as `options` say (the default:
+    // as the file says, or as it's laid out). False if the file couldn't be read as audio.
+    bool loadWavetableFile (int osc, const juce::File&, const synth::wavetableFiles::CutOptions& options = {});
     // Chooses a factory table instead (forgetting a loaded one), and WAVETABLE.
     void chooseFactoryWavetable (int osc, int index);
 
@@ -152,6 +154,12 @@ public:
     synth::WavetableSource getPlainSource (int osc);
     // Waits for the background builds and puts them in place. For tests.
     void finishTableBuilds();
+
+    //==========================================================================
+    // FREEFORM (message thread): each oscillator's drawing, played when its WAVE is FREEFORM.
+    const synth::FreeformDrawing& getDrawing (int osc) const { return drawings[(size_t) juce::jlimit (0, ParamIDs::numOscillators - 1, osc)]; }
+    void setDrawing (int osc, const synth::FreeformDrawing&);
+    void drawingEditFinished() { requestCheckpoint(); }
 
     // The DAW's tempo, as last seen by the audio thread (120 if it hasn't said).
     double getHostBpm() const noexcept { return hostBpm.load(); }
@@ -186,7 +194,7 @@ private:
         bool operator== (const Snapshot& other) const
         {
             return rig.parameters == other.rig.parameters && rig.wavetables == other.rig.wavetables && rig.spectra == other.rig.spectra
-                && current == other.current;
+                && rig.drawings == other.rig.drawings && current == other.current;
         }
     };
     Snapshot takeSnapshot() const;
@@ -234,6 +242,10 @@ private:
     class SpectralBuilder;
     std::unique_ptr<SpectralBuilder> spectralBuilder;
     std::array<synth::SpectrumEdit, ParamIDs::numOscillators> spectra;
+    // FREEFORM: the drawings, and the tables built from them.
+    std::array<synth::FreeformDrawing, ParamIDs::numOscillators> drawings;
+    std::array<std::shared_ptr<const synth::Wavetable>, ParamIDs::numOscillators> freeformTables;
+    void buildFreeform (int osc);
     std::array<std::optional<SpectralKey>, ParamIDs::numOscillators> spectralKeys;   // what's built or being built (none: unedited)
     std::array<std::shared_ptr<const synth::Wavetable>, ParamIDs::numOscillators> spectralTables, spectralPulseTables;
     std::array<std::atomic<const synth::Wavetable*>, ParamIDs::numOscillators> spectralForAudio {}, spectralPulseForAudio {};
