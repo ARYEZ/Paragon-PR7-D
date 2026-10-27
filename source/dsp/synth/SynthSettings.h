@@ -269,6 +269,7 @@ namespace synth
         PitchSettings pitch;
         StepSeqSettings stepSeq;
         std::array<ArpSettings, arp::numArps> arps {};
+        bool arpsTogether = false;   // 0.16.0: the first key starts every arp's clock, so arps joining later are in step
 
         Settings() { oscillators[0].on = true; }
     };

@@ -360,6 +360,9 @@ namespace synth
         arps = {};
         numArpEvents = 0;
         sampleClock = blockStartClock = 0;
+        liveCycles.fill (-1);
+        keysDown.fill (false);
+        numKeysDown = 0;
         for (auto& lfo : globalLfos)
             lfo = {};
         for (auto& envelope : globalEnvelopes)
@@ -511,6 +514,13 @@ namespace synth
         // The ARPEGGIATOR: the arps that take this key hold it; the keys themselves
         // play only the oscillators not routed to an arp (if any).
         updateArpMasks (settings);
+        if (numKeysDown == 0)
+            sharedStartClock = sampleClock;   // ARPS TOGETHER: every arp's clock from here
+        if (! keysDown[(size_t) note])
+        {
+            keysDown[(size_t) note] = true;
+            ++numKeysDown;
+        }
         arpKeyDown (note, velocity, settings);
         auto keyOscillators = false;
         for (size_t i = 0; i < settings.oscillators.size(); ++i)
@@ -526,6 +536,11 @@ namespace synth
     void Engine::noteOff (int note, const Settings& settings) noexcept
     {
         followMode (settings);
+        if (keysDown[(size_t) note])
+        {
+            keysDown[(size_t) note] = false;
+            --numKeysDown;
+        }
         arpKeyUp (note);
         if (settings.play.mode != PlayMode::poly)
         {
@@ -688,6 +703,8 @@ namespace synth
         for (auto& st : arps)
             st = {};
         numArpEvents = 0;
+        keysDown.fill (false);
+        numKeysDown = 0;
     }
 
     void Engine::sustainPedal (bool down) noexcept
@@ -1340,9 +1357,15 @@ namespace synth
             st.noteCounter = 0;
             if (arpFollowsSong (a, settings))
                 st.lastStep = arpStepAt (a, sampleClock, settings);
+            else if (settings.arpsTogether && numKeysDown > 1)
+            {
+                // ARPS TOGETHER: on the clock the first key started; in at its next step.
+                st.startClock = sharedStartClock;
+                st.lastStep = arpStepAt (a, sampleClock, settings);
+            }
             else
             {
-                st.startClock = sampleClock;
+                st.startClock = settings.arpsTogether ? sharedStartClock : sampleClock;
                 st.lastStep = -1;
             }
         }
@@ -1499,86 +1522,58 @@ namespace synth
         auto& st = arps[(size_t) a];
         static const auto fallback = arp::Patterns::makeDefault();
         const auto& patterns = s.patterns != nullptr ? *s.patterns : fallback;
-        const auto length = juce::jlimit (2, arp::maxSteps, s.length);
 
-        // Which pattern: CHAIN plays those with blocks in turn; otherwise the one chosen.
-        auto pattern = juce::jlimit (0, arp::numPatterns - 1, s.pattern);
-        if (s.chain)
+        // AUTODICE: a pattern rolled afresh from the randomizer at the start of each cycle (not with CHAIN).
+        const arp::Pattern* live = nullptr;
+        if (s.randomizer != nullptr && s.randomizer->autoDice && ! s.chain)
         {
-            std::array<int, arp::numPatterns> active {};
-            auto count = 0;
-            for (int p = 0; p < arp::numPatterns; ++p)
-                if (! patterns.patterns[(size_t) p].isEmpty())
-                    active[(size_t) count++] = p;
-            if (count > 0)
-                pattern = active[(size_t) ((step / length) % count)];
+            const auto length = juce::jlimit (2, arp::maxSteps, s.length);
+            const auto cycle = step / length;
+            if (liveCycles[(size_t) a] != cycle)
+            {
+                const auto& chosen = patterns.patterns[(size_t) juce::jlimit (0, arp::numPatterns - 1, s.pattern)];
+                livePatterns[(size_t) a] = arp::roll (*s.randomizer, length, chosen, (juce::int64) s.randomizer->seed * 7919 + cycle + 1);
+                liveCycles[(size_t) a] = cycle;
+            }
+            live = &livePatterns[(size_t) a];
         }
-        const auto& block = patterns.patterns[(size_t) pattern].blocks[(size_t) (step % length)];
-        if (! block.on)
-            return;   // (a gliding note's safety end, just after its block, lets it go)
 
-        std::array<int, arp::maxHeld * 4> notes {};
-        const auto count = arp::sequence (s.mode, st.held.data(), st.numHeld, s.octaves, notes.data(), (int) notes.size());
-        if (count == 0)
+        arp::KeysState keys { st.held.data(), st.numHeld, &st.noteCounter, st.firstVelocity, st.lastVelocity };
+        std::array<arp::Played, arp::maxPlayed> played {};
+        const auto samplesPerStep = s.beatsPerStep() * 60.0 / juce::jmax (1.0, settings.modulation.bpm) * sampleRate;
+        const auto count = arp::playBlock (s, arp::blockFor (s, patterns, step, live), samplesPerStep, keys, random, played.data(), (int) played.size());
+        for (int i = 0; i < count; ++i)
+        {
+            const auto& p = played[(size_t) i];
+            const auto pair = nextPair++;
+            scheduleArp ({ at + (std::int64_t) std::llround (p.start), a, true, p.note, p.velocity, pair, p.slide });
+            scheduleArp ({ at + juce::jmax ((std::int64_t) std::llround (p.start) + 1, (std::int64_t) std::llround (p.end)), a, false, p.note, 0.0f, pair, false });
+        }
+    }
+
+    void Engine::arpNoteStarted (const Settings& settings) noexcept
+    {
+        const auto& modulation = settings.modulation;
+        for (int k = 0; k < mod::numLfos; ++k)
+            if (modulation.lfos[(size_t) k].trigger == mod::LfoTrigger::arpNotes)
+                globalLfos[(size_t) k].start (modulation.lfos[(size_t) k], random);
+        for (int k = 0; k < mod::numEnvelopes; ++k)
+            if (modulation.envelopes[(size_t) k].trigger == mod::EnvelopeTrigger::arpNotes)
+            {
+                globalEnvelopes[(size_t) k].start();
+                arpEnvelopeMask |= 1u << k;
+            }
+    }
+
+    void Engine::arpNoteEnded() noexcept
+    {
+        // ARP NOTES envelopes let go when no arp note is held.
+        if (std::any_of (voices.begin(), voices.end(), [] (const Voice& v) { return v.playing && v.held && v.source > 0 && ! v.killing; }))
             return;
-
-        // This block's notes: POLY all of them (strummed), RANDOM one at random, the others the next in turn.
-        std::array<int, arp::maxHeld * 4> playing {};
-        auto voicesNow = 1;
-        if (s.mode == arp::Mode::poly)
-        {
-            voicesNow = count;
-            std::copy (notes.begin(), notes.begin() + count, playing.begin());
-        }
-        else if (s.mode == arp::Mode::random)
-            playing[0] = notes[(size_t) random.nextInt (count)];
-        else
-            playing[0] = notes[(size_t) (st.noteCounter++ % count)];
-
-        // VELOCITY: the note's own, the first key's, the last key's or the lowest key's; times the block's.
-        const auto velocityOf = [&] (int note)
-        {
-            auto v = st.lastVelocity;
-            switch (s.velocityMode)
-            {
-                case arp::VelocityMode::firstNote: v = st.firstVelocity; break;
-                case arp::VelocityMode::lastNote: v = st.lastVelocity; break;
-                case arp::VelocityMode::lowestNote:
-                    v = std::min_element (st.held.begin(), st.held.begin() + st.numHeld,
-                                          [] (const arp::Held& x, const arp::Held& y) { return x.note < y.note; })->velocity;
-                    break;
-                case arp::VelocityMode::eachNote:
-                    for (int i = 0; i < st.numHeld; ++i)
-                        if ((st.held[(size_t) i].note - note) % 12 == 0)   // the key it came from (an octave up or not)
-                            v = st.held[(size_t) i].velocity;
-                    break;
-            }
-            return juce::jlimit (0.01f, 1.0f, v * juce::jlimit (0.0f, 1.0f, block.velocity));
-        };
-
-        const auto bpm = juce::jmax (1.0, settings.modulation.bpm);
-        const auto samplesPerStep = s.beatsPerStep() * 60.0 / bpm * sampleRate;
-        const auto blockLength = juce::jlimit (1, arp::maxSteps, block.length) * samplesPerStep;
-        const auto ratchets = juce::jlimit (1, arp::maxRatchet, block.ratchet);
-        const auto part = blockLength / ratchets;
-        const auto gate = juce::jlimit (0.05, 1.0, (double) s.gate);
-        const auto late = s.humanize > 0.0f ? (double) s.humanize * 0.25 * samplesPerStep * random.nextFloat() : 0.0;
-        const auto slides = block.slide && s.mode != arp::Mode::poly;
-        for (int r = 0; r < ratchets; ++r)
-            for (int i = 0; i < voicesNow; ++i)
-            {
-                const auto strum = voicesNow > 1 ? (double) s.strum * 0.5 * samplesPerStep * i / (voicesNow - 1) : 0.0;
-                const auto start = at + (std::int64_t) std::llround (late + strum + r * part);
-                const auto note = juce::jlimit (0, 127, playing[(size_t) i] + juce::jlimit (-36, 36, block.transpose));
-                const auto pair = nextPair++;
-                const auto glidesOn = slides && r == ratchets - 1;
-                scheduleArp ({ start, a, true, note, velocityOf (playing[(size_t) i]), pair, glidesOn });
-                // Its end: GATE of its share; a gliding note's just after its block (the next block's note, if
-                // it starts right there, takes the voice over and this end is cancelled).
-                const auto end = glidesOn ? at + (std::int64_t) std::llround (late + blockLength) + 1
-                                          : start + juce::jmax ((std::int64_t) 1, (std::int64_t) std::llround (part * gate));
-                scheduleArp ({ end, a, false, note, 0.0f, pair, false });
-            }
+        for (int k = 0; k < mod::numEnvelopes; ++k)
+            if ((arpEnvelopeMask >> k) & 1u)
+                globalEnvelopes[(size_t) k].release();
+        arpEnvelopeMask = 0;
     }
 
     void Engine::fireArpEvent (const ArpEvent& e, const Settings& settings) noexcept
@@ -1596,6 +1591,7 @@ namespace synth
                     voice.held = false;
                     releaseVoice (voice);
                 }
+            arpNoteEnded();
             if (st.slideAge == age)
             {
                 st.slideAge = 0;
@@ -1622,6 +1618,7 @@ namespace synth
         const auto keysLastPitch = lastPitch;
         makeRoom (settings);
         auto* voice = findFreeVoice();
+        arpNoteStarted (settings);
         startVoice (*voice, e.note, e.velocity, (float) e.note, settings, source, arpMasks[(size_t) e.arp]);
         applyOscillatorLimits (*voice, settings);
         lastPitch = keysLastPitch;

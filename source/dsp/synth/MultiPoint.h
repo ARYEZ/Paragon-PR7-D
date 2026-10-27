@@ -71,8 +71,9 @@ namespace synth::mod
     enum class EnvelopeMode { oneShot, sustain, sustainJump, loop, loopRelease, pingPong, pingPongRelease };
     inline const juce::StringArray envelopeModeNames { "One Shot", "Sustain", "Sus Jump", "Loop", "Loop+Rel", "Ping Pong", "PingPong+Rel" };
     // VOICE: each note its own; FIRST NOTE: one, started when a note starts with none held; LAST NOTE: one, restarted by every note.
-    enum class EnvelopeTrigger { voice, firstNote, lastNote };
-    inline const juce::StringArray envelopeTriggerNames { "Voice", "First Note", "Last Note" };
+    // ARP NOTES (0.16.0): one, restarted by every note an arpeggiator plays (the keys' own notes don't).
+    enum class EnvelopeTrigger { voice, firstNote, lastNote, arpNotes };
+    inline const juce::StringArray envelopeTriggerNames { "Voice", "First Note", "Last Note", "Arp Notes" };
 
     struct EnvelopeSettings
     {

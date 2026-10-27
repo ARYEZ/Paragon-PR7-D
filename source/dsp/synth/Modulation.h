@@ -128,8 +128,9 @@ namespace synth
         // VOICE: each note its own (Avenger's "all oscs"); GLOBAL: one, always
         // running; FIRST NOTE: one, restarted when a note starts with none held;
         // LAST NOTE: one, restarted by every note.
-        enum class LfoTrigger { voice, global, firstNote, lastNote };
-        inline const juce::StringArray lfoTriggerNames { "Voice", "Global", "First Note", "Last Note" };
+        // ARP NOTES (0.16.0): one, restarted by every note an arpeggiator plays.
+        enum class LfoTrigger { voice, global, firstNote, lastNote, arpNotes };
+        inline const juce::StringArray lfoTriggerNames { "Voice", "Global", "First Note", "Last Note", "Arp Notes" };
 
         struct LfoSettings
         {

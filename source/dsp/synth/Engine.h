@@ -315,6 +315,16 @@ namespace synth
         std::vector<std::uint64_t> pairAges = std::vector<std::uint64_t> (maxArpEvents);   // the voice each pair started (by its age)
         std::int64_t sampleClock = 0, blockStartClock = 0;
         std::uint8_t keyMask = 0xff;                            // the oscillators the keys play themselves
+        // AUTODICE (0.16.0): each arp's pattern rolled for this cycle (on the heap), and which cycle.
+        std::vector<arp::Pattern> livePatterns = std::vector<arp::Pattern> (arp::numArps);
+        std::array<std::int64_t, arp::numArps> liveCycles {};
+        // ARPS TOGETHER (0.16.0): the keys down, and when the first went down.
+        std::array<bool, 128> keysDown {};
+        int numKeysDown = 0;
+        std::int64_t sharedStartClock = 0;
+        void arpNoteStarted (const Settings&) noexcept;   // ARP NOTES envelopes and LFOs start
+        void arpNoteEnded() noexcept;                       // ...and let go when no arp note sounds
+        std::uint32_t arpEnvelopeMask = 0;                  // the envelopes the arp notes started (bit each)
         std::array<std::uint8_t, arp::numArps> arpMasks {};      // ...and each arp's
 
         void updateArpMasks (const Settings&) noexcept;
