@@ -439,7 +439,9 @@ TEST_CASE ("SHAPER in the plugin: its parameters reach the engine, and presets k
 
 TEST_CASE ("CPU: a supersaw chord through two shapers", "[shaper][performance]")
 {
-    const auto percent = [] (const char* what, int shapers)
+    // The fastest of three runs: a busy build machine only ever adds time, so
+    // the fastest is the closest to what the sound itself costs.
+    const auto once = [] (int shapers)
     {
         Player p;
         for (int i = 0; i < 2; ++i)
@@ -464,9 +466,13 @@ TEST_CASE ("CPU: a supersaw chord through two shapers", "[shaper][performance]")
         for (const auto note : { 48, 52, 55, 59, 62, 64, 67, 71 })
             p.on (note);
         const auto started = juce::Time::getMillisecondCounterHiRes();
-        p.render (5.0);
-        const auto cost = (juce::Time::getMillisecondCounterHiRes() - started) / 5000.0 * 100.0;
-        WARN (what << ": 2 saws x 7 copies x 8 keys through the filter, " << cost << "% of one core");
+        p.render (2.0);
+        return (juce::Time::getMillisecondCounterHiRes() - started) / 2000.0 * 100.0;
+    };
+    const auto percent = [&once] (const char* what, int shapers)
+    {
+        const auto cost = juce::jmin (once (shapers), once (shapers), once (shapers));
+        WARN (what << ": 2 saws x 7 copies x 8 keys through the filter, " << cost << "% of one core (the fastest of three)");
         return cost;
     };
     const auto plain = percent ("no shaper", 0);
