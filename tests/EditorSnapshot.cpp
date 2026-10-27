@@ -106,6 +106,25 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         view->getModPage().getModulatorPanel().selectEnvelope (envelope - 1);
     if (env ("PARAGON_SNAPSHOT_PITCH") == "1")
         view->getModPage().getModulatorPanel().selectPitch();
+    if (env ("PARAGON_SNAPSHOT_MIDI") == "1")
+    {
+        // A few MIDI links, a knob learning, and a route made by dropping LFO 1 on the cutoff.
+        MidiLinks links;
+        links.link (74, ParamIDs::fltCutoff);
+        links.link (71, ParamIDs::fltRes);
+        links.link (1, ParamIDs::osc (0, "WtIndex"));
+        links.link (7, ParamIDs::ampVolume);
+        processor.setMidiLinks (links);
+        processor.startMidiLearn (ParamIDs::fltDrive);
+        processor.controllerForTest (74, 0.6f);
+        view->addRoute ("lfo1", ParamIDs::fltCutoff);
+        view->getSourceStrip().refresh();
+        if (env ("PARAGON_SNAPSHOT_PAGE") == "settings")
+        {
+            view->showPage (MainView::Page::synth);
+            view->showPage (MainView::Page::settings);
+        }
+    }
     if (env ("PARAGON_SNAPSHOT_STEP") == "2")   // the STEP tab as the sound has it
         view->getModPage().getModulatorPanel().selectStepSeq();
     if (env ("PARAGON_SNAPSHOT_STEP") == "1")

@@ -155,6 +155,18 @@ namespace synth
             const auto* s1 = s0 + gridSize + 1;
             const auto* p0 = grid.pinchRows.data() + pRow * (gridSize + 1);
             const auto* p1 = p0 + gridSize + 1;
+            // Only one of them moved (the usual case): its two rows blended, nothing more.
+            if (juce::exactlyEqual (pinch, 0.0f) || juce::exactlyEqual (skew, 0.0f))
+            {
+                const auto* a = juce::exactlyEqual (pinch, 0.0f) ? s0 : p0;
+                const auto* b = juce::exactlyEqual (pinch, 0.0f) ? s1 : p1;
+                const auto blend = juce::exactlyEqual (pinch, 0.0f) ? sBlend : pBlend;
+                for (int i = 0; i <= gridSize; ++i)
+                    points[(size_t) i] = a[i] + (b[i] - a[i]) * blend;
+                points[0] = 0.0f;
+                points[(size_t) gridSize] = 1.0f;
+                return;
+            }
             for (int i = 0; i <= gridSize; ++i)
             {
                 const auto u = s0[i] + (s1[i] - s0[i]) * sBlend;                    // SKEW's passes...

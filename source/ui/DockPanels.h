@@ -17,7 +17,8 @@ namespace DockStyle
 //==============================================================================
 // SETTINGS: the synth's tuning, where presets are kept, and what the plugin is built from.
 class SettingsPage final : public juce::Component,
-                           private juce::ChangeListener
+                           private juce::ChangeListener,
+                           private juce::Timer
 {
 public:
     explicit SettingsPage (ParagonX1AudioProcessor&);
@@ -25,8 +26,30 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+    void visibilityChanged() override;
+
+    // MIDI LINKS (stage 4f): one row per link, each with a button to remove it. For tests: the rows shown.
+    int getNumLinkRows() const noexcept { return (int) linkRows.size(); }
+    juce::TextButton* getRemoveButton (int row) { return row < (int) linkRows.size() ? linkRows[(size_t) row]->remove.get() : nullptr; }
 
 private:
+    void timerCallback() override;
+    void rebuildLinks();
+
+    struct LinkRow final : public juce::Component
+    {
+        juce::Label text;
+        std::unique_ptr<juce::TextButton> remove;
+        void resized() override;
+    };
+    std::vector<std::unique_ptr<LinkRow>> linkRows;
+    juce::Viewport linkView;
+    juce::Component linkList;
+    juce::TextButton saveDefault { "SAVE AS DEFAULT" }, exportLinks { "EXPORT..." }, importLinks { "IMPORT..." }, clearLinks { "CLEAR ALL" };
+    std::unique_ptr<juce::FileChooser> chooser;
+    MidiLinks shownLinks;
+    juce::Rectangle<int> midiArea;
+
     ParagonX1AudioProcessor& processor;
     juce::Slider tune { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
     juce::AudioProcessorValueTreeState::SliderAttachment tuneAttachment;

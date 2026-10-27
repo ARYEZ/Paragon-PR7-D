@@ -95,9 +95,19 @@ void ParamControl::paintOverChildren (juce::Graphics& g)
     }
     if (const auto cc = h->linkedController (parameterId); cc >= 0)
     {
+        // Linked to a controller: "CC" over its number, in the space left of a knob (else top right).
         g.setColour (ParagonColours::textDim);
         g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
-        g.drawText ("CC" + juce::String (cc), getLocalBounds().removeFromTop (12).removeFromRight (30), juce::Justification::centredRight, false);
+        if (slider != nullptr && slider->isVisible())
+        {
+            const auto knob = slider->getLookAndFeel().getSliderLayout (*slider).sliderBounds.translated (slider->getX(), slider->getY());
+            const auto size = juce::jmin (knob.getWidth(), knob.getHeight());
+            const auto left = knob.getCentreX() - size / 2 - 2;
+            const juce::Rectangle<int> mark (getX() >= 0 ? 0 : 0, knob.getY(), juce::jmax (16, left), 22);
+            g.drawFittedText ("CC\n" + juce::String (cc), mark, juce::Justification::centredRight, 2, 1.0f);
+        }
+        else
+            g.drawText ("CC" + juce::String (cc), getLocalBounds().removeFromTop (12).removeFromRight (30), juce::Justification::centredRight, false);
     }
 
     // The modulation ring, outside the knob's own arc.

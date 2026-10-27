@@ -2,6 +2,43 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.14.0
+
+Stage 4, part 6 (stage 4 complete): **MIDI learn, controller to mod wheel, modulation on the knobs, drag and drop routing, and more for the matrix to move**, modelled on Avenger's (the manual's pages 106-108; our own design and code).
+
+- **The strip above the keyboard:** every modulation source as a chip: LFO 1-4, ENV 1-8, MACRO 1-3 and the two buttons, the wheel, bend, velocity, aftertouch, keytrack, breath, expression, sustain, random, the pitch envelope, the step sequencer.
+  - **Drag a chip onto a knob** to route that source to it (at +50%: change it in the MOD page's matrix).
+- **The modulation ring:** a knob the matrix moves shows a white ring outside its own, from where the knob is to where the routes can take it.
+  - **Right-click a knob:** its routes, each to remove, and MIDI learn.
+- **MIDI learn:**
+  - Right-click a knob, choose **MIDI learn**, and move a knob or fader on your controller: they're linked. Or drag the strip's **CC** chip (the last controller you moved) onto a knob.
+  - A linked knob shows its controller's number beside it. The controller turns it straight away (in the same block of audio), and it's recorded as automation.
+  - The links are kept with the project. **SETTINGS** lists them, each with a button to remove it, and has **SAVE AS DEFAULT** (every new PR7-K starts with them), **EXPORT**, **IMPORT** and **CLEAR ALL**.
+  - One controller per knob and one knob per controller: linking either again moves the link.
+- **Controller to mod wheel:** the **MW** switches on aftertouch, breath, expression and sustain make that controller drive the mod wheel too, so every sound made for the wheel follows your pedal or breath (whichever is higher, the wheel or the controller). They stay set when you change presets.
+- **More the matrix can move:**
+  - **SKEW** and **PINCH**. A note moved by the matrix works out its own curve every 16 samples, from curves worked out ahead at 65 settings of each. It's within a hair of the exact curve: the difference measured 66 to 72 dB down.
+  - The shapers' **EQ** bands (gain, frequency, Q of both): a modulated note works out its own EQ.
+  - The PITCH module's **RANGE** and **KEYTRACK**.
+  - TRAVEL's **STRENGTH** and **PHASE**.
+  - The step sequencer's **VOL MIX**.
+  - Sounds that don't use them are exactly as before.
+- **Not movable** (why, honestly):
+  - **FFT SWEEP, FLIP and VSTRENGTH:** each new setting rebuilds the oscillator's tables in the background, which takes milliseconds. Too slow to follow an LFO, and per note it would need a table for every note.
+  - **The LFOs', envelopes' and step sequencer's own speeds and shapes:** these are worked out before the routes, or once for every note. Moving them needs a deeper change, offered for later.
+- **CPU:** SKEW moved by an LFO on every note of a 14-saw chord adds about half a point here.
+- In the tests:
+  - every new destination routed against the same value simply set (the same sound);
+  - SKEW's curve accuracy;
+  - the expression pedal driving the wheel's route;
+  - MIDI learn (learning, turning, moving a link, the project, the default file, forgetting);
+  - dropping a source and a controller on knobs;
+  - the ring's range;
+  - removing a route;
+  - the strip's layout;
+  - SETTINGS' list;
+  - CPU.
+
 ## 0.13.0
 
 Stage 4, part 5: **TRAVEL**, each oscillator's own movement through its wavetable, modelled on Avenger's wavetable envelope, pattern editor and strength editor (the manual's pages 48-51; our own design and code). It's on the oscillator panel's new **TRAVEL** page, separate for each of the 8 oscillators. It moves an oscillator playing a WAVETABLE.

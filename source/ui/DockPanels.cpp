@@ -54,10 +54,91 @@ SettingsPage::SettingsPage (ParagonX1AudioProcessor& p)
     for (auto* component : std::initializer_list<juce::Component*> { &tune, &openFolder })
         addAndMakeVisible (component);
     processor.rigBroadcaster.addChangeListener (this);
+
+    // MIDI LINKS.
+    for (auto* button : { &saveDefault, &exportLinks, &importLinks, &clearLinks })
+    {
+        styleButton (*button, button == &saveDefault);
+        addAndMakeVisible (*button);
+    }
+    saveDefault.setTooltip ("A new PR7-K (in any project) starts with these links");
+    exportLinks.setTooltip ("Save these links to a file, to back them up or use on another computer");
+    importLinks.setTooltip ("Load links from a file saved with EXPORT");
+    clearLinks.setTooltip ("Forget every link (undo isn't kept for links: EXPORT first if you might want them back)");
+    saveDefault.onClick = [this] { processor.saveMidiLinksAsDefault(); };
+    clearLinks.onClick = [this] { processor.setMidiLinks ({}); rebuildLinks(); };
+    exportLinks.onClick = [this]
+    {
+        chooser = std::make_unique<juce::FileChooser> ("Export MIDI links", processor.getRigLibrary().getFolder().getChildFile ("MIDI Links.xml"), "*.xml");
+        chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::warnAboutOverwriting,
+                              [this] (const juce::FileChooser& c) { if (c.getResult() != juce::File()) processor.exportMidiLinks (c.getResult().withFileExtension ("xml")); });
+    };
+    importLinks.onClick = [this]
+    {
+        chooser = std::make_unique<juce::FileChooser> ("Import MIDI links", processor.getRigLibrary().getFolder(), "*.xml");
+        chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                              [this] (const juce::FileChooser& c) { if (c.getResult().existsAsFile()) { processor.importMidiLinks (c.getResult()); rebuildLinks(); } });
+    };
+    linkView.setViewedComponent (&linkList, false);
+    linkView.setScrollBarsShown (true, false);
+    addAndMakeVisible (linkView);
+    rebuildLinks();
+    startTimerHz (4);
+}
+
+void SettingsPage::LinkRow::resized()
+{
+    auto area = getLocalBounds();
+    remove->setBounds (area.removeFromRight (28).reduced (2));
+    text.setBounds (area);
+}
+
+void SettingsPage::visibilityChanged()
+{
+    if (isVisible() && ! (processor.getMidiLinks() == shownLinks))
+        rebuildLinks();
+}
+
+void SettingsPage::timerCallback()
+{
+    if (! (processor.getMidiLinks() == shownLinks))
+        rebuildLinks();
+}
+
+void SettingsPage::rebuildLinks()
+{
+    shownLinks = processor.getMidiLinks();
+    linkRows.clear();
+    for (const auto& link : shownLinks.links)
+    {
+        auto row = std::make_unique<LinkRow>();
+        const auto* parameter = processor.getParameters().getParameter (link.parameterId);
+        row->text.setText ("CC " + juce::String (link.controller) + "   " + juce::String::fromUTF8 ("\xe2\x86\x92") + "   "
+                           + (parameter != nullptr ? parameter->getName (60) : link.parameterId), juce::dontSendNotification);
+        row->text.setColour (juce::Label::textColourId, ParagonColours::text);
+        row->text.setFont (juce::FontOptions (13.0f));
+        row->remove = std::make_unique<juce::TextButton> ("X");
+        row->remove->setTooltip ("Remove this link");
+        const auto id = link.parameterId;
+        row->remove->onClick = [this, id]
+        {
+            auto links = processor.getMidiLinks();
+            links.forget (id);
+            processor.setMidiLinks (links);
+            juce::MessageManager::callAsync ([safe = juce::Component::SafePointer<SettingsPage> (this)] { if (safe != nullptr) safe->rebuildLinks(); });
+        };
+        row->addAndMakeVisible (row->text);
+        row->addAndMakeVisible (*row->remove);
+        linkList.addAndMakeVisible (*row);
+        linkRows.push_back (std::move (row));
+    }
+    resized();
+    repaint();
 }
 
 SettingsPage::~SettingsPage()
 {
+    stopTimer();
     processor.rigBroadcaster.removeChangeListener (this);
 }
 
@@ -79,6 +160,11 @@ void SettingsPage::paint (juce::Graphics& g)
                                "It stays as it is when you change presets.");
     section (rigsArea, "PRESETS", "Your presets are files in this folder, so you can back them up or share them:\n"
                                   + processor.getRigLibrary().getFolder().getFullPathName());
+    section (midiArea, "MIDI LINKS", shownLinks.isEmpty()
+                 ? juce::String ("None yet. Right-click a knob and choose MIDI learn, then move a knob or fader on your controller; "
+                                 "or drag the CC chip (right of the strip above the keyboard) onto a knob.")
+                 : juce::String ("Your controller's knobs and faders, and the knobs they turn. Kept with the project; "
+                                 "SAVE AS DEFAULT for every new PR7-K."));
     section (aboutArea, "ABOUT",
              juce::String ("Paragon PR7-K v") + JucePlugin_VersionString
                  + ". The PR7 family's synthesizer, inspired by VPS Avenger (our own design and code). "
@@ -93,7 +179,22 @@ void SettingsPage::resized()
     area.removeFromTop (12);
     tuneArea = top.removeFromLeft (top.getWidth() / 2 - 6);
     rigsArea = top.withTrimmedLeft (12);
-    aboutArea = area;
+    aboutArea = area.removeFromLeft (area.getWidth() / 2 - 6);
+    area.removeFromLeft (12);
+    midiArea = area;
+    auto midi = midiArea.reduced (24, 18).withTrimmedTop (84);
+    auto buttons = midi.removeFromBottom (30);
+    for (auto* button : { &saveDefault, &exportLinks, &importLinks, &clearLinks })
+    {
+        button->setBounds (buttons.removeFromLeft (button == &saveDefault ? 150 : 100));
+        buttons.removeFromLeft (8);
+    }
+    midi.removeFromBottom (8);
+    linkView.setBounds (midi);
+    linkView.setVisible (! linkRows.empty());   // (nothing to show: the text above says how to make one)
+    linkList.setSize (juce::jmax (10, midi.getWidth() - linkView.getScrollBarThickness()), (int) linkRows.size() * 26);
+    for (size_t i = 0; i < linkRows.size(); ++i)
+        linkRows[i]->setBounds (0, (int) i * 26, linkList.getWidth(), 24);
 
     auto tuneControls = tuneArea.reduced (24, 18).withTrimmedTop (90);
     tune.setBounds (tuneControls.removeFromTop (32).withWidth (juce::jmin (420, tuneControls.getWidth())));

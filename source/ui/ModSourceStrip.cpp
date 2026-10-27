@@ -157,7 +157,9 @@ void ModSourceStrip::resized()
             ++nextGroup;
         }
         const auto w = unit * widthOf (*chips[i]);
-        chips[i]->setBounds (juce::Rectangle<float> (x, (float) area.getY(), w, (float) area.getHeight()).toNearestInt());
+        // Each chip's edges rounded (not its width), so neighbours meet without overlapping.
+        const auto left = juce::roundToInt (x), right = juce::roundToInt (x + w);
+        chips[i]->setBounds (left, area.getY(), right - left, area.getHeight());
         if (auto& button = chips[i]->toWheel)
             button->setBounds (chips[i]->getLocalBounds().reduced (3, 4).removeFromRight (26));
         x += w;

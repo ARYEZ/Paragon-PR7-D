@@ -234,3 +234,156 @@ TEST_CASE ("MIDI LEARN: a knob learns the next controller moved; the controller 
     }
     folder.deleteRecursively();
 }
+
+namespace
+{
+    ParamControl* findControl (juce::Component& in, const juce::String& id)
+    {
+        for (auto* child : in.getChildren())
+        {
+            if (auto* c = dynamic_cast<ParamControl*> (child); c != nullptr && c->getParameterId() == id)
+                return c;
+            if (auto* found = findControl (*child, id))
+                return found;
+        }
+        return nullptr;
+    }
+}
+
+TEST_CASE ("Drag and drop: a source dropped on a knob routes it, a controller links it; the ring shows the routes", "[mod][midi][ui]")
+{
+    ParagonX1AudioProcessor processor;
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+    editor->setSize (1600, 900);
+    auto* view = dynamic_cast<MainView*> (editor->getChildComponent (0));
+    REQUIRE (view != nullptr);
+    auto* cutoff = findControl (*view, ParamIDs::fltCutoff);
+    REQUIRE (cutoff != nullptr);
+    CHECK (cutoff->getModulationRange().isEmpty());
+
+    // The strip's LFO 1 chip, dropped on the cutoff: a route at +50%.
+    auto& strip = view->getSourceStrip();
+    auto* lfo = strip.chipFor (ControlHost::sourceDrag ("lfo1"));
+    REQUIRE (lfo != nullptr);
+    const juce::DragAndDropTarget::SourceDetails dropLfo (lfo->description, lfo, {});
+    REQUIRE (cutoff->isInterestedInDragSource (dropLfo));
+    cutoff->itemDropped (dropLfo);
+    REQUIRE (processor.getModMatrix().routes.size() == 1);
+    const auto& route = processor.getModMatrix().routes[0];
+    CHECK (route.source == "lfo1");
+    CHECK (route.destination == ParamIDs::fltCutoff);
+    CHECK_THAT (route.amount, WithinAbs (0.5, 1.0e-6));
+
+    // The ring: from where the knob is, up by half the travel (to the end, at most).
+    auto* parameter = processor.getParameters().getParameter (ParamIDs::fltCutoff);
+    parameter->setValueNotifyingHost (0.3f);
+    CHECK_THAT (cutoff->getModulationRange().getStart(), WithinAbs (0.3, 1.0e-4));
+    CHECK_THAT (cutoff->getModulationRange().getEnd(), WithinAbs (0.8, 1.0e-4));
+    parameter->setValueNotifyingHost (0.7f);
+    CHECK_THAT (cutoff->getModulationRange().getEnd(), WithinAbs (1.0, 1.0e-4));
+
+    // Removing it (as the knob's menu does) takes the ring away; undo brings it back.
+    processor.flushUndoStep();
+    view->removeRoute (0);
+    CHECK (processor.getModMatrix().routes.empty());
+    CHECK (cutoff->getModulationRange().isEmpty());
+
+    // A choice (a menu) can't be modulated, so it doesn't take a source; a controller it does.
+    auto* filterType = findControl (*view, ParamIDs::fltType);
+    REQUIRE (filterType != nullptr);
+    CHECK_FALSE (filterType->isInterestedInDragSource (dropLfo));
+
+    // The controller chip (after CC 74 moves), dropped on RESONANCE: linked.
+    processor.controllerForTest (74, 0.5f);
+    strip.refresh();
+    auto* controller = strip.chipFor (ControlHost::controllerDrag (74));
+    REQUIRE (controller != nullptr);
+    auto* resonance = findControl (*view, ParamIDs::fltRes);
+    REQUIRE (resonance != nullptr);
+    const juce::DragAndDropTarget::SourceDetails dropCc (controller->description, controller, {});
+    REQUIRE (resonance->isInterestedInDragSource (dropCc));
+    resonance->itemDropped (dropCc);
+    CHECK (processor.getMidiLinks().controllerFor (ParamIDs::fltRes) == 74);
+
+    // MIDI learn from the knob's menu: on, then off again.
+    view->learn (ParamIDs::fltDrive);
+    CHECK (view->isLearning (ParamIDs::fltDrive));
+    view->learn (ParamIDs::fltDrive);
+    CHECK_FALSE (view->isLearning (ParamIDs::fltDrive));
+
+    // The strip: every chip inside it, none overlapping, above the keyboard.
+    std::vector<juce::Component*> chips;
+    for (auto* child : strip.getChildren())
+        chips.push_back (child);
+    CHECK (chips.size() == 29);   // 28 sources and the controller
+    for (size_t i = 0; i < chips.size(); ++i)
+    {
+        INFO (chips[i]->getBounds().toString());
+        CHECK (strip.getLocalBounds().contains (chips[i]->getBounds()));
+        CHECK (chips[i]->getWidth() >= 20);
+        for (size_t j = i + 1; j < chips.size(); ++j)
+            CHECK_FALSE (chips[i]->getBounds().intersects (chips[j]->getBounds()));
+    }
+}
+
+TEST_CASE ("The SETTINGS page lists the MIDI links, each with a button to remove it", "[midi][ui]")
+{
+    ParagonX1AudioProcessor processor;
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+    editor->setSize (1600, 900);
+    auto* view = dynamic_cast<MainView*> (editor->getChildComponent (0));
+    REQUIRE (view != nullptr);
+    MidiLinks links;
+    links.link (74, ParamIDs::fltCutoff);
+    links.link (71, ParamIDs::fltRes);
+    processor.setMidiLinks (links);
+    view->showPage (MainView::Page::settings);
+    auto& page = view->getSettingsPage();
+    REQUIRE (page.getNumLinkRows() == 2);
+    page.getRemoveButton (0)->onClick();   // CC 71, sorted first
+    CHECK (processor.getMidiLinks().controllerFor (ParamIDs::fltRes) == -1);
+    CHECK (processor.getMidiLinks().controllerFor (ParamIDs::fltCutoff) == 74);
+}
+
+TEST_CASE ("CPU: a supersaw chord with SKEW moved by an LFO on every note", "[routing][performance]")
+{
+    const auto once = [] (bool modulated)
+    {
+        Player p;
+        p.settings.amp.envelope.sustain = 1.0f;
+        for (int i = 0; i < 2; ++i)
+        {
+            auto& o = p.osc (i);
+            o.on = true;
+            o.unisonVoices = 7;
+            o.unisonMix = 0.8f;
+            o.skew = 0.4f;
+        }
+        const juce::NormalisableRange<float> range { -1.0f, 1.0f };
+        std::array<synth::mod::Route, 2> routes {};
+        for (int i = 0; i < 2; ++i)
+        {
+            routes[(size_t) i].source = synth::mod::Source::lfo1;
+            routes[(size_t) i].target = { synth::mod::Field::oscSkew, i };
+            routes[(size_t) i].range = &range;
+            routes[(size_t) i].base = range.convertTo0to1 (0.4f);
+            routes[(size_t) i].amount = 0.3f;
+        }
+        if (modulated)
+        {
+            p.settings.modulation.routes = routes.data();
+            p.settings.modulation.numRoutes = 2;
+            p.settings.modulation.usedSources = 1u << (int) synth::mod::Source::lfo1;
+            p.settings.modulation.lfos[0].rateHz = 3.0f;
+        }
+        for (const auto note : { 48, 52, 55, 59, 62, 64, 67, 71 })
+            p.on (note);
+        const auto started = juce::Time::getMillisecondCounterHiRes();
+        p.render (2.0);
+        return (juce::Time::getMillisecondCounterHiRes() - started) / 2000.0 * 100.0;
+    };
+    const auto fixed = juce::jmin (once (false), once (false), once (false));
+    const auto moving = juce::jmin (once (true), once (true), once (true));
+    WARN ("2 saws x 7 copies x 8 keys with SKEW: " << fixed << "% of one core; moved by an LFO per note: " << moving << "% (the fastest of three)");
+    CHECK (moving < fixed + 3.0);
+}

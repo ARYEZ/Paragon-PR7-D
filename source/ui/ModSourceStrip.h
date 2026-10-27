@@ -30,6 +30,7 @@ public:
     };
     // For tests: the chips, by what they carry when dragged.
     Chip* chipFor (const juce::String& description);
+    void refresh() { timerCallback(); }   // the controller chip, now (it follows on a timer)
 
 private:
     void timerCallback() override;
