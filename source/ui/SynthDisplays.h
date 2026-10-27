@@ -77,3 +77,25 @@ private:
     std::vector<float> snapshot() const override;
     std::array<juce::String, 8> ids;
 };
+
+// The selected oscillator's copies (stage 2): every unison copy of the key
+// and of each chord note, placed left to right by where it sits in the stereo
+// field and up or down by its pitch against the key; brighter the louder it
+// is. Under it, how many copies that is per note.
+class VoicesDisplay final : public ParameterDisplay
+{
+public:
+    explicit VoicesDisplay (juce::AudioProcessorValueTreeState&);
+    void setOscillator (int index);
+    void paint (juce::Graphics&) override;
+
+    struct Copy { float pan, semitones, level; bool isKey; };
+    // The copies as the engine plays them, from the oscillator's settings.
+    static std::vector<Copy> copiesFor (const synth::OscSettings&);
+
+private:
+    std::vector<float> snapshot() const override;
+    synth::OscSettings settings() const;
+    juce::String id (const char* what) const;
+    int oscillator = 0;
+};

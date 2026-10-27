@@ -19,7 +19,7 @@ PR7-K is built in stages, each one released:
 | Stage | What | Now |
 |---|---|---|
 | **1** | Core synth: 8 oscillators, filter, envelopes, amp, poly / mono, glide | **Works (0.1.0)** |
-| 2 | Unison ("supersaw") and the chorder | Planned |
+| **2** | Unison ("supersaw"), vibrato and the chorder | **Works (0.2.0)** |
 | 3 | Wavetables, FFT editing, sync, FM / AM, the shaper | Planned |
 | 4 | Modulation: mod matrix, LFOs, mod and pitch envelopes, step sequencer, macros | Planned |
 | 5 | Arpeggiator | Planned |
@@ -38,6 +38,10 @@ PR7-K is built in stages, each one released:
     down);
   - **VOLUME**, **PAN**, its own **VOICES** limit (1 makes just that oscillator mono), and **TO FILTER**.
   The picture shows one cycle of the selected oscillator, with its sub (grey) and noise.
+- **VOICES** (beside WAVE, right of the oscillator tabs): each oscillator's **UNISON** (2 to 7 detuned copies of each
+  note: VOICES, MIX, DETUNE, SPREAD, OCTAVES; at MIX 0 it's off and costs nothing), **VIBRATO** (global or independent
+  per copy; shape, rate, amount, fade-in) and **CHORDER** (up to 4 extra notes per key, each with its own copies). The
+  display shows every copy by stereo position and pitch.
 - **FILTER:** low-pass, high-pass, band-pass and band-stop at 6, 12, 18 and 24 dB per octave. **CUTOFF**, **RESONANCE**,
   **DRIVE** (saturation going in), **KEYTRACK**, **ENVELOPE** (its own envelope's amount, up or down), and how much
   softer notes close it (**VELOCITY**), lose resonance (**RES VEL**) or move it less (**ENV VEL**). The display shows
@@ -68,8 +72,9 @@ other way round:
   all its oscillators have been taken by newer notes;
 - slow things (the filter's movement, glide, the pitch wheel) are worked out every 16 samples, not every sample.
 
-In the tests, 8 notes of 4 saws each through a driven 24 dB filter use about 3.5% of one core on the build machine
-(yours will differ), and the tests fail if that ever goes above 25%.
+In the tests, on the build machine (yours will differ): 8 notes of 4 saws each through a driven 24 dB filter use about
+2.9% of one core; a 7-copy supersaw chord about 2.6%; and the worst case of 4 oscillators x 3 chord notes x 7 unison
+copies x 8 keys (672 copies at once) about 17%. The tests fail if these ever reach 25%, 25% and 60%.
 
 ## Download
 

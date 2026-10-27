@@ -2,6 +2,8 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <string_view>
+
 // Parameter IDs are saved in DAW projects and presets, so never rename one
 // once it has shipped. Add new parameters with a new ID instead.
 //
@@ -21,9 +23,23 @@ namespace ParamIDs
     // The 8 oscillator tabs: "osc1On", "osc1Wave"... `what` is one of oscSettings.
     inline constexpr int numOscillators = 8;
     inline juce::String osc (int index, const char* what) { return "osc" + juce::String (index + 1) + what; }
+    // Stage 2 (0.2.0) appended its unison, vibrato and chorder settings ("Ch1On"... for the chorder's 4 notes).
     inline constexpr const char* oscSettings[] = {
         "On", "Wave", "Volume", "Pan", "Transpose", "Fine", "Random", "PhaseRand", "Phase", "Gain", "Width", "FadeIn", "Invert",
-        "Noise", "NoiseColour", "NoiseWidth", "Sub", "SubWave", "SubOct", "SubInvert", "Filter", "Voices" };
+        "Noise", "NoiseColour", "NoiseWidth", "Sub", "SubWave", "SubOct", "SubInvert", "Filter", "Voices",
+        "UniVoices", "UniMix", "UniDetune", "UniSpread", "UniOctaves",
+        "VibMode", "VibWave", "VibRate", "VibAmount", "VibFade", "VibCurve",
+        "Ch1On", "Ch1Coarse", "Ch1Fine", "Ch1Pan", "Ch1Vol", "Ch2On", "Ch2Coarse", "Ch2Fine", "Ch2Pan", "Ch2Vol",
+        "Ch3On", "Ch3Coarse", "Ch3Fine", "Ch3Pan", "Ch3Vol", "Ch4On", "Ch4Coarse", "Ch4Fine", "Ch4Pan", "Ch4Vol" };
+
+    // Where a setting is in oscSettings, worked out by the compiler (a typo won't compile).
+    consteval int oscSetting (std::string_view what)
+    {
+        for (int i = 0; i < (int) std::size (oscSettings); ++i)
+            if (std::string_view (oscSettings[i]) == what)
+                return i;
+        throw "not an oscillator setting";
+    }
 
     // The FILTER and AMP. Numbered from 1: Avenger has four of each, and
     // more may come in a later stage (an oscillator's Filter switch, now on or

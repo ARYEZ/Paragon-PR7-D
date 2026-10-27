@@ -44,6 +44,14 @@ namespace synth
         // Notes sounding now (including releasing ones), for the display and tests.
         int getNumActiveVoices() const noexcept;
 
+        // Oscillators running now, every unison and chord copy counted (as Avenger's
+        // info screen counts them): what the CPU is spent on.
+        int getNumActiveOscillators (const Settings&) const noexcept;
+
+        // A unison copy's place among the copies, -1 to 1 (0: the note's own pitch,
+        // the middle): sets its detune and pan. For the voices display and tests.
+        static float unisonPosition (int copy, int voices) noexcept;
+
         // For tests: play a note now / let it go.
         void noteOn (int note, float velocity, const Settings&) noexcept;
         void noteOff (int note, const Settings&) noexcept;
@@ -54,14 +62,29 @@ namespace synth
         static constexpr float silence = 3.1623e-5f;
 
     private:
+        // One copy of an oscillator in a note: the note itself, a chord note,
+        // or one of their unison copies (stage 2).
+        struct Copy
+        {
+            float phase = 0.0f;
+            float vibratoPhase = 0.0f, vibratoRate = 1.0f;   // INDEPENDENT vibrato: its own phase, and speed (a factor)
+            float vibratoHeld = 0.0f;                        // ...and the RANDOM wave's value this cycle
+        };
+        // Copies are numbered note x maxUnison + unison copy: note 0 is the key
+        // itself, 1 to 4 the chord notes; unison copy 0 is the note's own pitch.
+        static constexpr int maxCopies = (1 + numChordVoices) * maxUnison;
+
         struct OscState
         {
             bool active = false;        // sounding in this voice (an oscillator can be taken by a newer note)
-            float phase = 0.0f, subPhase = 0.0f;
+            float phase = 0.0f, subPhase = 0.0f;   // the key's own copy (copies[0] isn't used), and the sub
             float randomOffset = 0.0f;  // semitones, chosen at the note's start (RANDOM)
             float fade = 1.0f, fadeStep = 0.0f;   // FADE IN, or the quick fade when a newer note takes it
             bool fadingOut = false;
             Noise noiseLeft, noiseRight;
+            float vibratoPhase = 0.0f, vibratoHeld = 0.0f;   // GLOBAL vibrato
+            int vibratoAge = 0;                              // samples since the note started, for the vibrato's FADE IN
+            std::array<Copy, maxCopies> copies;
         };
 
         struct Voice
@@ -91,6 +114,7 @@ namespace synth
         void render (float* left, float* right, int numSamples, const Settings&) noexcept;
         void renderVoice (Voice&, float* left, float* right, int numSamples, const Settings&) noexcept;
         void renderOscillators (Voice&, int numSamples, const Settings&, float bendSemitones) noexcept;
+        float vibratoValue (VibratoWave, float& phase, float& held, float advance) noexcept;   // -1 to 1, then moves on
 
         void startVoice (Voice&, int note, float velocity, float fromPitch, const Settings&) noexcept;
         void retrigger (Voice&, int note, float velocity, bool restartEnvelopes, bool glide, const Settings&) noexcept;

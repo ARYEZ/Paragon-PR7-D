@@ -5,9 +5,6 @@
 
 namespace
 {
-    // The knob cards' width.
-    constexpr int cardWidth = 70;
-
     void drawSectionTitle (juce::Graphics& g, juce::Rectangle<int> area, const juce::String& text)
     {
         g.setColour (ParagonColours::text.withAlpha (0.75f));
@@ -20,10 +17,10 @@ namespace
 }
 
 //==============================================================================
-OscillatorPanel::Tab::Tab (juce::AudioProcessorValueTreeState& state, int tabIndex)
+OscillatorPanel::Tab::Tab (juce::AudioProcessorValueTreeState& parameters, int tabIndex)
     : juce::Button ("OSC " + juce::String (tabIndex + 1)),
       index (tabIndex),
-      powerAttachment (state, ParamIDs::osc (tabIndex, "On"), power)
+      powerAttachment (parameters, ParamIDs::osc (tabIndex, "On"), power)
 {
     setRadioGroupId (701);
     setClickingTogglesState (true);
@@ -55,7 +52,7 @@ void OscillatorPanel::Tab::paintButton (juce::Graphics& g, bool highlighted, boo
 }
 
 OscillatorPanel::OscillatorPanel (juce::AudioProcessorValueTreeState& stateToUse)
-    : SynthPanel ("OSCILLATORS"), state (stateToUse), wave (stateToUse)
+    : SynthPanel ("OSCILLATORS"), state (stateToUse), wave (stateToUse), voicesDisplay (stateToUse)
 {
     for (int i = 0; i < ParamIDs::numOscillators; ++i)
     {
@@ -65,6 +62,24 @@ OscillatorPanel::OscillatorPanel (juce::AudioProcessorValueTreeState& stateToUse
         tabs.push_back (std::move (tab));
     }
     addAndMakeVisible (wave);
+    addChildComponent (voicesDisplay);
+
+    // WAVE / VOICES: which of the oscillator's two pages shows.
+    for (auto* button : { &wavePageButton, &voicesPageButton })
+    {
+        button->setClickingTogglesState (true);
+        button->setRadioGroupId (702);
+        button->setColour (juce::TextButton::buttonColourId, juce::Colour (0xff0d0a0e));
+        button->setColour (juce::TextButton::buttonOnColourId, ParagonColours::accentDim.withAlpha (0.6f));
+        button->setColour (juce::TextButton::textColourOffId, ParagonColours::textDim);
+        button->setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
+        addAndMakeVisible (*button);
+    }
+    wavePageButton.setTooltip ("The oscillator's wave, pitch, start, noise, sub and level");
+    voicesPageButton.setTooltip ("The oscillator's unison copies (supersaw), vibrato and chorder");
+    wavePageButton.setToggleState (true, juce::dontSendNotification);
+    wavePageButton.onClick = [this] { showPage (Page::wave); };
+    voicesPageButton.onClick = [this] { showPage (Page::voices); };
 
     // Each control, labelled as on the panel, with a tooltip saying what it does.
     const std::pair<const char*, std::pair<const char*, const char*>> items[] = {
@@ -89,6 +104,19 @@ OscillatorPanel::OscillatorPanel (juce::AudioProcessorValueTreeState& stateToUse
         { "SubWave", { "WAVE", "The sub's wave." } },
         { "SubOct", { "OCTAVE", "How far below the note the sub plays." } },
         { "SubInvert", { "INVERT", "The sub upside down, against the main wave." } },
+
+        // The VOICES page (stage 2).
+        { "UniVoices", { "VOICES", "How many copies of each note, the note itself included (2 to 7)." } },
+        { "UniMix", { "MIX", "The extra copies' level. At 0 unison is off and costs nothing; at 100% the copies are as loud as the note." } },
+        { "UniDetune", { "DETUNE", "How far apart the copies are tuned: a few cents thickens, more makes the classic supersaw. The value is how far the outer copies are from the note." } },
+        { "UniSpread", { "SPREAD", "How wide the copies spread across the stereo field." } },
+        { "UniOctaves", { "OCTAVES", "Stacks the extra copies up to this many octaves above the note, in turn: a bigger, brighter stack." } },
+        { "VibMode", { "MODE", "GLOBAL: every copy wobbles together. INDEPENDENT: each on its own, a little faster or slower, for a wider, livelier sound." } },
+        { "VibWave", { "SHAPE", "The vibrato's shape. RANDOM jumps to a new pitch each cycle." } },
+        { "VibRate", { "RATE", "How fast the pitch wobbles." } },
+        { "VibAmount", { "AMOUNT", "How far the pitch wobbles either side, in cents. 0 is off." } },
+        { "VibFade", { "FADE IN", "The vibrato grows in over this long after each note starts, as a singer's or a violinist's does." } },
+        { "VibCurve", { "CURVE", "The fade's shape: left grows fast at first, right starts slow." } },
     };
     for (const auto& [what, text] : items)
     {
@@ -96,7 +124,44 @@ OscillatorPanel::OscillatorPanel (juce::AudioProcessorValueTreeState& stateToUse
         settingNames.push_back (what);
         addAndMakeVisible (*controls.back());
     }
+
+    // The chorder's four notes: ON, COARSE, FINE, PAN, VOL each.
+    static const juce::StringArray chordNames { "Ch1On", "Ch1Coarse", "Ch1Fine", "Ch1Pan", "Ch1Vol", "Ch2On", "Ch2Coarse", "Ch2Fine", "Ch2Pan", "Ch2Vol",
+                                                "Ch3On", "Ch3Coarse", "Ch3Fine", "Ch3Pan", "Ch3Vol", "Ch4On", "Ch4Coarse", "Ch4Fine", "Ch4Pan", "Ch4Vol" };
+    const std::pair<const char*, const char*> chordLabels[] = {
+        { "ON", "Plays this extra note with every key." },
+        { "COARSE", "How far from the key, in semitones: +12 an octave up, +7 a fifth, -12 an octave down." },
+        { "FINE", "Fine tuning, in cents." },
+        { "PAN", "Where this note sits, left to right (added to the oscillator's PAN)." },
+        { "VOL", "This note's level." } };
+    for (int i = 0; i < chordNames.size(); ++i)
+    {
+        controls.push_back (std::make_unique<ParamControl> (state, ParamIDs::osc (0, chordNames[i].toRawUTF8()),
+                                                            chordLabels[i % 5].first, chordLabels[i % 5].second));
+        settingNames.push_back (chordNames.getReference (i).toRawUTF8());   // static: the text stays put
+        addAndMakeVisible (*controls.back());
+    }
     selectOscillator (0);
+    showPage (Page::wave);
+}
+
+bool OscillatorPanel::isOnVoicesPage (const char* what) const
+{
+    const juce::String name (what);
+    return name.startsWith ("Uni") || name.startsWith ("Vib") || name.startsWith ("Ch");
+}
+
+void OscillatorPanel::showPage (Page newPage)
+{
+    page = newPage;
+    (page == Page::voices ? voicesPageButton : wavePageButton).setToggleState (true, juce::dontSendNotification);
+    const auto voices = page == Page::voices;
+    wave.setVisible (! voices);
+    voicesDisplay.setVisible (voices);
+    for (size_t i = 0; i < controls.size(); ++i)
+        controls[i]->setVisible (isOnVoicesPage (settingNames[i]) == voices);
+    resized();
+    repaint();
 }
 
 ParamControl& OscillatorPanel::control (const char* what)
@@ -115,6 +180,7 @@ void OscillatorPanel::selectOscillator (int index)
     for (size_t i = 0; i < controls.size(); ++i)
         controls[i]->attach (ParamIDs::osc (selected, settingNames[i]));
     wave.setOscillator (selected);
+    voicesDisplay.setOscillator (selected);
 }
 
 void OscillatorPanel::paint (juce::Graphics& g)
@@ -126,27 +192,24 @@ void OscillatorPanel::paint (juce::Graphics& g)
 
 void OscillatorPanel::resized()
 {
-    // The tabs run along the title strip, right of the title.
+    // The tabs run along the title strip, right of the title; WAVE and VOICES at its end.
     auto tabStrip = getTitleArea().withTrimmedLeft (110).reduced (0, 5).withTrimmedTop (2);
+    voicesPageButton.setBounds (tabStrip.removeFromRight (66));
+    tabStrip.removeFromRight (4);
+    wavePageButton.setBounds (tabStrip.removeFromRight (56));
+    tabStrip.removeFromRight (12);
     const auto tabWidth = tabStrip.getWidth() / (int) tabs.size();
     for (auto& tab : tabs)
         tab->setBounds (tabStrip.removeFromLeft (tabWidth).reduced (2, 0));
 
     auto area = getContentArea().withTrimmedTop (6);
     const auto h = ParamControl::knobHeight;
-
-    // Left: the wave, with its WAVE menu, WIDTH and GAIN under it.
-    auto left = area.removeFromLeft (264);
-    wave.setBounds (left.removeFromTop (left.getHeight() - h - 10));
-    left.removeFromTop (10);
-    SynthPanel::layoutRow (left.removeFromTop (h), { &control ("Wave"), &control ("Width"), &control ("Gain") }, 84);
-
-    // Right: three rows of titled sections on one grid of columns.
-    area.removeFromLeft (16);
-    const auto column = area.getWidth() / 7;
     sectionTitles.clear();
-    const auto placeRow = [&] (juce::Rectangle<int> row, std::vector<std::pair<juce::String, std::vector<const char*>>> sections)
+
+    // A row of titled sections on a grid of `columns` across `row`.
+    const auto placeRow = [&] (juce::Rectangle<int> row, int columns, std::vector<std::pair<juce::String, std::vector<const char*>>> sections)
     {
+        const auto column = row.getWidth() / columns;
         auto titles = row.removeFromTop (18);
         auto x = row.getX();
         for (const auto& [text, items] : sections)
@@ -158,15 +221,45 @@ void OscillatorPanel::resized()
             x += width;
         }
     };
+
+    auto left = area.removeFromLeft (264);
+    area.removeFromLeft (16);
     const auto rowHeight = (area.getHeight() - 2 * 6) / 3;
-    placeRow (area.removeFromTop (rowHeight), { { "PITCH", { "Transpose", "Fine", "Random" } },
-                                                { "START", { "Phase", "PhaseRand", "FadeIn", "Invert" } } });
+
+    if (page == Page::voices)
+    {
+        // Left: the copies' display, then UNISON's knobs.
+        voicesDisplay.setBounds (left.removeFromTop (left.getHeight() - 2 * h - 16));
+        left.removeFromTop (10);
+        SynthPanel::layoutRow (left.removeFromTop (h), { &control ("UniVoices"), &control ("UniMix"), &control ("UniDetune") }, 84);
+        left.removeFromTop (6);
+        SynthPanel::layoutRow (left.removeFromTop (h), { &control ("UniSpread"), &control ("UniOctaves") }, 84);
+
+        // Right: VIBRATO, then the chorder's four notes, two to a row.
+        placeRow (area.removeFromTop (rowHeight), 7, { { "VIBRATO", { "VibMode", "VibWave", "VibRate", "VibAmount", "VibFade", "VibCurve" } } });
+        area.removeFromTop (6);
+        placeRow (area.removeFromTop (rowHeight), 10, { { "CHORD 1", { "Ch1On", "Ch1Coarse", "Ch1Fine", "Ch1Pan", "Ch1Vol" } },
+                                                        { "CHORD 2", { "Ch2On", "Ch2Coarse", "Ch2Fine", "Ch2Pan", "Ch2Vol" } } });
+        area.removeFromTop (6);
+        placeRow (area.removeFromTop (rowHeight), 10, { { "CHORD 3", { "Ch3On", "Ch3Coarse", "Ch3Fine", "Ch3Pan", "Ch3Vol" } },
+                                                        { "CHORD 4", { "Ch4On", "Ch4Coarse", "Ch4Fine", "Ch4Pan", "Ch4Vol" } } });
+        return;
+    }
+
+    // Left: the wave, with its WAVE menu, WIDTH and GAIN under it.
+    wave.setBounds (left.removeFromTop (left.getHeight() - h - 10));
+    left.removeFromTop (10);
+    SynthPanel::layoutRow (left.removeFromTop (h), { &control ("Wave"), &control ("Width"), &control ("Gain") }, 84);
+
+    // Right: three rows of titled sections on one grid of columns.
+    placeRow (area.removeFromTop (rowHeight), 7, { { "PITCH", { "Transpose", "Fine", "Random" } },
+                                                   { "START", { "Phase", "PhaseRand", "FadeIn", "Invert" } } });
     area.removeFromTop (6);
-    placeRow (area.removeFromTop (rowHeight), { { "NOISE", { "Noise", "NoiseColour", "NoiseWidth" } },
-                                                { "SUB", { "Sub", "SubWave", "SubOct", "SubInvert" } } });
+    placeRow (area.removeFromTop (rowHeight), 7, { { "NOISE", { "Noise", "NoiseColour", "NoiseWidth" } },
+                                                   { "SUB", { "Sub", "SubWave", "SubOct", "SubInvert" } } });
     area.removeFromTop (6);
-    placeRow (area.removeFromTop (rowHeight), { { "LEVEL", { "Volume", "Pan" } },
-                                                { "NOTES", { "Voices", "Filter" } } });
+    placeRow (area.removeFromTop (rowHeight), 7, { { "LEVEL", { "Volume", "Pan" } },
+                                                   { "NOTES", { "Voices", "Filter" } } });
 }
 
 //==============================================================================

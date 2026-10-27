@@ -3,9 +3,9 @@
 #include "Parameters.h"
 #include "dsp/synth/SynthSettings.h"
 
-// PR7-K's first factory presets (0.1.0): a few starting points that show
-// what stage 1 can do (oscillators, sub, noise, the filter and its
-// envelope, mono and glide). Our own sounds, set up from common synth
+// PR7-K's first factory presets: a few starting points that show what each
+// stage can do (0.1.0: oscillators, sub, noise, the filter and its envelope,
+// mono and glide; 0.2.0: unison, vibrato and the chorder). Our own sounds, set up from common synth
 // recipes, not copies of anyone's presets, and not yet tuned by ear: the
 // full factory set comes in a later stage (presets), once the engine has
 // unison, wavetables, modulation and effects to build them with.
@@ -132,6 +132,37 @@ std::vector<Rig> makeFactoryRigs()
          .set (ParamIDs::fltKey, 0.5f).set (ParamIDs::fltEnvVel, 0.6f)
          .ampEnvelope (40.0f, 500.0f, 0.85f, 250.0f);
     add (brass);
+
+    // Stage 2 (0.2.0): unison, vibrato and the chorder.
+    Builder supersaw ("Supersaw Lead", 9, { "Lead", "Unison" },
+                      "Seven detuned saws spread wide (the classic trance and EDM lead), a touch of vibrato that grows in, and a filter that opens a little with each note.");
+    supersaw.osc (0, "UniVoices", 7.0f).osc (0, "UniMix", 0.8f).osc (0, "UniDetune", 0.45f).osc (0, "UniSpread", 0.8f)
+            .osc (0, "VibAmount", 8.0f).osc (0, "VibRate", 5.5f).osc (0, "VibFade", 400.0f).osc (0, "Volume", 0.6f)
+            .filter (FilterType::lp24, 3500.0f, 0.15f, 0.2f).filterEnvelope (5.0f, 500.0f, 0.5f, 300.0f)
+            .set (ParamIDs::fltKey, 0.5f)
+            .ampEnvelope (5.0f, 300.0f, 0.9f, 350.0f).set (ParamIDs::ampReleaseCurve, -0.4f);
+    add (supersaw);
+
+    Builder strings ("Unison Strings", 10, { "Pad", "Unison" },
+                     "Five saws, each copy with its own slow vibrato (independent), so the section never sits still: a soft, wide string pad.");
+    strings.osc (0, "UniVoices", 5.0f).osc (0, "UniMix", 1.0f).osc (0, "UniDetune", 0.3f).osc (0, "UniSpread", 1.0f)
+           .osc (0, "VibMode", (float) synth::VibratoMode::independent).osc (0, "VibAmount", 12.0f).osc (0, "VibRate", 4.5f)
+           .osc (0, "VibFade", 800.0f).osc (0, "Volume", 0.5f)
+           .filter (FilterType::lp12, 2200.0f, 0.1f, 0.1f).filterEnvelope (600.0f, 1500.0f, 0.7f, 1200.0f)
+           .set (ParamIDs::fltKey, 0.4f)
+           .ampEnvelope (450.0f, 800.0f, 0.85f, 1400.0f).set (ParamIDs::ampReleaseCurve, -0.5f).set (ParamIDs::ampVel, 0.5f);
+    add (strings);
+
+    Builder stab ("Fifth Stab", 11, { "Stab", "Chord" },
+                  "Each key plays itself, a fifth above and an octave above (the chorder), three saw copies each: a big, short chord stab for one finger.");
+    stab.osc (0, "Ch1On", 1.0f).osc (0, "Ch1Coarse", 7.0f).osc (0, "Ch1Vol", 0.8f)
+        .osc (0, "Ch2On", 1.0f).osc (0, "Ch2Coarse", 12.0f).osc (0, "Ch2Vol", 0.7f)
+        .osc (0, "UniVoices", 3.0f).osc (0, "UniMix", 0.7f).osc (0, "UniDetune", 0.35f).osc (0, "UniSpread", 0.7f)
+        .osc (0, "Volume", 0.45f)
+        .filter (FilterType::lp24, 600.0f, 0.2f, 0.5f).filterEnvelope (0.0f, 280.0f, 0.1f, 200.0f)
+        .set (ParamIDs::fltKey, 0.5f).set (ParamIDs::fltEnvVel, 0.4f)
+        .ampEnvelope (1.0f, 400.0f, 0.0f, 250.0f).set (ParamIDs::ampDecayCurve, -0.4f);
+    add (stab);
 
     return rigs;
 }

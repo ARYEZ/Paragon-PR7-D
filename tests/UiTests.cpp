@@ -197,3 +197,31 @@ TEST_CASE ("The on-screen keyboard plays the synth", "[ui]")
     CHECK (buffer.getMagnitude (0, 256) == 0.0f);
     CHECK (w.processor.getActiveVoices() == 0);
 }
+
+TEST_CASE ("The oscillator's VOICES page: unison, vibrato and the chorder, laid out cleanly", "[ui]")
+{
+    Window w;
+    auto& oscillators = w.view->getOscillatorPanel();
+    oscillators.selectOscillator (1);
+    CHECK_FALSE (controlFor (*w.view, ParamIDs::osc (1, "UniMix"))->isVisible());   // on the WAVE page, hidden
+
+    oscillators.showPage (OscillatorPanel::Page::voices);
+    for (const auto* what : { "UniVoices", "UniMix", "UniDetune", "UniSpread", "UniOctaves", "VibMode", "VibRate", "VibAmount", "Ch1On", "Ch4Vol" })
+    {
+        INFO (what);
+        auto* control = controlFor (*w.view, ParamIDs::osc (1, what));
+        REQUIRE (control != nullptr);
+        CHECK (control->isVisible());
+    }
+    CHECK_FALSE (controlFor (*w.view, ParamIDs::osc (1, "Transpose"))->isVisible());
+    checkLayout (*w.view, "voices");
+
+    // Turning MIX on this page turns oscillator 2's unison up.
+    auto* mix = inside<juce::Slider> (*controlFor (*w.view, ParamIDs::osc (1, "UniMix")));
+    REQUIRE (mix != nullptr);
+    mix->setValue (0.7, juce::sendNotificationSync);
+    CHECK_THAT (value (w.processor, ParamIDs::osc (1, "UniMix")), WithinAbs (0.7, 1.0e-3));
+
+    oscillators.showPage (OscillatorPanel::Page::wave);
+    CHECK (controlFor (*w.view, ParamIDs::osc (1, "Transpose"))->isVisible());
+}

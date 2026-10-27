@@ -13,6 +13,7 @@
 //   PARAGON_SNAPSHOT_PAGE=presets    the preset browser (with two example user presets), or =settings
 //   PARAGON_SNAPSHOT_PRESET=name     that factory preset loaded
 //   PARAGON_SNAPSHOT_OSC=n           oscillator tab n (1 to 8) selected
+//   PARAGON_SNAPSHOT_OSCPAGE=voices  the oscillator's VOICES page (unison, vibrato, chorder)
 //   PARAGON_SNAPSHOT_PARAMS=id=value,...   parameters set (real units)
 //   PARAGON_SNAPSHOT_NOTES=1         a chord held on the keyboard (so the PLAY panel counts notes, and keys light)
 TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
@@ -68,6 +69,8 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
     REQUIRE (view != nullptr);
     if (const auto osc = env ("PARAGON_SNAPSHOT_OSC").getIntValue(); osc > 0)
         view->getOscillatorPanel().selectOscillator (osc - 1);
+    if (env ("PARAGON_SNAPSHOT_OSCPAGE") == "voices")
+        view->getOscillatorPanel().showPage (OscillatorPanel::Page::voices);
     if (page == "presets")
         view->showPage (MainView::Page::presets);
     else if (page == "settings")

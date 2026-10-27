@@ -1,6 +1,7 @@
 #include "SynthDisplays.h"
 
 #include "Parameters.h"
+#include "dsp/synth/Engine.h"
 #include "dsp/synth/WaveTables.h"
 #include "ui/ParagonLookAndFeel.h"
 
@@ -338,4 +339,123 @@ void EnvelopeDisplay::paint (juce::Graphics& g)
         g.drawVerticalLine (juce::roundToInt (releaseStart), y, y + 3.0f);
 
     DisplayStyle::drawCurve (g, path, area, area.getBottom());
+}
+
+//==============================================================================
+VoicesDisplay::VoicesDisplay (juce::AudioProcessorValueTreeState& s) : ParameterDisplay (s) {}
+
+juce::String VoicesDisplay::id (const char* what) const { return ParamIDs::osc (oscillator, what); }
+
+void VoicesDisplay::setOscillator (int index)
+{
+    oscillator = index;
+    repaint();
+}
+
+synth::OscSettings VoicesDisplay::settings() const
+{
+    synth::OscSettings o;
+    o.on = value (id ("On")) > 0.5f;
+    o.pan = value (id ("Pan"));
+    o.unisonVoices = juce::roundToInt (value (id ("UniVoices")));
+    o.unisonMix = value (id ("UniMix"));
+    o.unisonDetune = value (id ("UniDetune"));
+    o.unisonSpread = value (id ("UniSpread"));
+    o.unisonOctaves = juce::roundToInt (value (id ("UniOctaves")));
+    for (int k = 0; k < synth::numChordVoices; ++k)
+    {
+        const auto prefix = "Ch" + juce::String (k + 1);
+        auto& chord = o.chord[(size_t) k];
+        chord.on = value (id ((prefix + "On").toRawUTF8())) > 0.5f;
+        chord.coarse = value (id ((prefix + "Coarse").toRawUTF8()));
+        chord.fineCents = value (id ((prefix + "Fine").toRawUTF8()));
+        chord.pan = value (id ((prefix + "Pan").toRawUTF8()));
+        chord.volume = value (id ((prefix + "Vol").toRawUTF8()));
+    }
+    return o;
+}
+
+std::vector<float> VoicesDisplay::snapshot() const
+{
+    std::vector<float> values { (float) oscillator };
+    for (const auto* what : ParamIDs::oscSettings)
+        values.push_back (value (id (what)));
+    return values;
+}
+
+std::vector<VoicesDisplay::Copy> VoicesDisplay::copiesFor (const synth::OscSettings& s)
+{
+    std::vector<Copy> copies;
+    const auto unison = s.hasUnison() ? s.unisonVoices : 1;
+    const auto detuneCents = s.unisonDetune * s.unisonDetune * synth::maxDetuneCents;
+    for (int note = 0; note <= synth::numChordVoices; ++note)
+    {
+        const auto* chord = note > 0 ? &s.chord[(size_t) note - 1] : nullptr;
+        if (chord != nullptr && ! chord->on)
+            continue;
+        const auto notePitch = chord != nullptr ? chord->coarse + chord->fineCents * 0.01f : 0.0f;
+        for (int u = 0; u < unison; ++u)
+        {
+            const auto position = synth::Engine::unisonPosition (u, unison);
+            const auto octave = u > 0 && s.unisonOctaves > 0 ? (float) ((u - 1) % (s.unisonOctaves + 1)) * 12.0f : 0.0f;
+            copies.push_back ({ juce::jlimit (-1.0f, 1.0f, s.pan + (chord != nullptr ? chord->pan : 0.0f) + position * s.unisonSpread),
+                                notePitch + octave + position * detuneCents * 0.01f,
+                                (u == 0 ? 1.0f : s.unisonMix) * (chord != nullptr ? chord->volume : 1.0f),
+                                note == 0 && u == 0 });
+        }
+    }
+    return copies;
+}
+
+void VoicesDisplay::paint (juce::Graphics& g)
+{
+    const auto bounds = getLocalBounds().toFloat();
+    DisplayStyle::drawScreen (g, bounds);
+    auto area = bounds.reduced (12.0f, 10.0f);
+    const auto footer = area.removeFromBottom (14.0f);
+
+    const auto s = settings();
+    const auto copies = copiesFor (s);
+
+    // Pitch range: the copies', at least a semitone either side of the key.
+    auto low = -1.0f, high = 1.0f;
+    for (const auto& c : copies)
+    {
+        low = juce::jmin (low, c.semitones - 0.5f);
+        high = juce::jmax (high, c.semitones + 0.5f);
+    }
+    const auto xFor = [&area] (float pan) { return area.getX() + (pan + 1.0f) * 0.5f * area.getWidth(); };
+    const auto yFor = [&area, low, high] (float semitones) { return area.getBottom() - (semitones - low) / (high - low) * area.getHeight(); };
+
+    // Grid: the middle (centre of the stereo field) and the key's pitch.
+    g.setColour (ParagonColours::panelEdge.withAlpha (0.6f));
+    g.drawVerticalLine (juce::roundToInt (xFor (0.0f)), area.getY(), area.getBottom());
+    g.drawHorizontalLine (juce::roundToInt (yFor (0.0f)), area.getX(), area.getRight());
+    g.setFont (juce::FontOptions (9.5f));
+    g.setColour (ParagonColours::textDim.withAlpha (0.7f));
+    g.drawText ("L", area.withWidth (12.0f), juce::Justification::bottomLeft, false);
+    g.drawText ("R", area.withTrimmedLeft (area.getWidth() - 12.0f), juce::Justification::bottomRight, false);
+
+    // Each copy: a short glowing bar, brighter the louder.
+    const auto gradient = ParagonLookAndFeel::menuHighlight (area);
+    for (const auto& c : copies)
+    {
+        const auto x = xFor (c.pan), y = yFor (c.semitones);
+        const auto alpha = s.on ? juce::jlimit (0.15f, 1.0f, c.level) : 0.15f;
+        const auto colour = gradient.getColourAtPosition ((double) juce::jlimit (0.0f, 1.0f, (x - area.getX()) / area.getWidth()));
+        const auto bar = juce::Rectangle<float> (c.isKey ? 4.0f : 3.0f, 14.0f).withCentre ({ x, y });
+        g.setColour (colour.withAlpha (alpha * 0.3f));
+        g.fillRoundedRectangle (bar.expanded (3.0f), 3.0f);
+        g.setColour (colour.withAlpha (alpha));
+        g.fillRoundedRectangle (bar, 1.5f);
+    }
+
+    // How many: copies per note, and notes per key.
+    const auto notes = 1 + (int) std::count_if (s.chord.begin(), s.chord.end(), [] (const synth::ChordVoice& c) { return c.on; });
+    const auto perNote = s.hasUnison() ? s.unisonVoices : 1;
+    g.setColour (ParagonColours::textDim);
+    g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+    g.drawText (juce::String (perNote) + (perNote == 1 ? " COPY" : " COPIES") + " x " + juce::String (notes) + (notes == 1 ? " NOTE" : " NOTES")
+                    + " = " + juce::String (perNote * notes) + " PER KEY",
+                footer, juce::Justification::centred, false);
 }

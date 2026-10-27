@@ -467,7 +467,23 @@ namespace synth
                 const auto fadeSamples = s.fadeInMs * 0.001f * (float) sampleRate;
                 osc.fade = fadeSamples >= 1.0f ? 0.0f : 1.0f;
                 osc.fadeStep = fadeSamples >= 1.0f ? 1.0f / fadeSamples : 0.0f;
+
+                // The copies: a chord note's own pitch starts as the key does; every
+                // unison copy at a random point, which keeps them from lining up and
+                // sounding hollow (what makes a "supersaw" wide rather than phasey).
+                for (int copy = 1; copy < maxCopies; ++copy)
+                {
+                    auto& c = osc.copies[(size_t) copy];
+                    c.phase = (copy % maxUnison == 0 && ! s.randomPhase) ? wrap (s.phase) : random.nextFloat();
+                    c.vibratoPhase = random.nextFloat();
+                    c.vibratoRate = 0.85f + 0.3f * random.nextFloat();   // INDEPENDENT: each a little faster or slower (our choice)
+                    c.vibratoHeld = random.nextFloat() * 2.0f - 1.0f;
+                }
+                osc.vibratoPhase = 0.0f;
+                osc.vibratoHeld = random.nextFloat() * 2.0f - 1.0f;
             }
+            if (! wasActive || restartEnvelopes)
+                osc.vibratoAge = 0;   // the vibrato fades in again with each new note
         }
     }
 
@@ -671,9 +687,114 @@ namespace synth
             free (voice);
     }
 
+    float Engine::unisonPosition (int copy, int voices) noexcept
+    {
+        // The note's own pitch in the middle; the others alternately above and
+        // below, further out in turn: for 7, +1/3 -1/3 +2/3 -2/3 +1 -1.
+        if (copy <= 0 || voices < 2)
+            return 0.0f;
+        const auto extras = voices - 1;
+        const auto half = (extras + 1) / 2;
+        const auto step = (copy + 1) / 2;
+        return (copy % 2 == 1 ? 1.0f : -1.0f) * (float) step / (float) half;
+    }
+
+    int Engine::getNumActiveOscillators (const Settings& settings) const noexcept
+    {
+        int count = 0;
+        for (const auto& voice : voices)
+            if (voice.playing)
+                for (size_t i = 0; i < voice.oscillators.size(); ++i)
+                    if (voice.oscillators[i].active)
+                    {
+                        const auto& s = settings.oscillators[i];
+                        const auto notes = 1 + (int) std::count_if (s.chord.begin(), s.chord.end(), [] (const ChordVoice& c) { return c.on; });
+                        count += notes * (s.hasUnison() ? s.unisonVoices : 1);
+                    }
+        return count;
+    }
+
+    float Engine::vibratoValue (VibratoWave wave, float& phase, float& held, float advance) noexcept
+    {
+        float value = 0.0f;
+        switch (wave)
+        {
+            case VibratoWave::sine:     value = std::sin (juce::MathConstants<float>::twoPi * phase); break;
+            case VibratoWave::triangle: value = 1.0f - 4.0f * std::abs (phase - 0.5f); break;
+            case VibratoWave::square:   value = phase < 0.5f ? 1.0f : -1.0f; break;
+            case VibratoWave::saw:      value = 2.0f * phase - 1.0f; break;
+            case VibratoWave::random:   value = held; break;
+        }
+        phase += advance;
+        if (phase >= 1.0f)
+        {
+            phase -= std::floor (phase);
+            held = random.nextFloat() * 2.0f - 1.0f;   // RANDOM: a new value each cycle
+        }
+        return value;
+    }
+
+    namespace
+    {
+        // Adds one copy of a wave to `left` and `right`, each sample scaled by
+        // `gains` (FADE IN, VOLUME, GAIN) and the copy's own pan.
+        //
+        // In two passes, so the compiler can work on several samples at once:
+        // first every sample's place in the table (worked out from the start,
+        // not each from the last, so no sample waits for the one before), then
+        // the reading and mixing.
+        void addCopy (OscWave wave, float* left, float* right, const float* gains, int n, float& phase, float increment,
+                      int level, float pulseWidth, float gainLeft, float gainRight) noexcept
+        {
+            constexpr int maxN = Engine::controlInterval;
+            float positions[maxN], others[maxN];
+            const auto size = (float) tables::size;
+            for (int i = 0; i < n; ++i)
+            {
+                auto p = phase + increment * (float) i;
+                p -= (float) (int) p;   // 0 to 1 (p is never negative)
+                positions[i] = p * size;
+                auto q = p + pulseWidth;
+                q -= (float) (int) q;
+                others[i] = q * size;
+            }
+            phase += increment * (float) n;
+            phase -= (float) (int) phase;
+
+            const auto read = [] (const float* table, float position)
+            {
+                const auto index = (int) position;
+                const auto fraction = position - (float) index;
+                const auto* at = table + (index & (tables::size - 1));
+                return at[0] + (at[1] - at[0]) * fraction;
+            };
+
+            if (wave == OscWave::pulse)
+            {
+                const auto* saw = tables::get (tables::Wave::saw, level);
+                for (int i = 0; i < n; ++i)
+                {
+                    const auto v = (read (saw, positions[i]) - read (saw, others[i])) * gains[i];
+                    left[i] += v * gainLeft;
+                    right[i] += v * gainRight;
+                }
+                return;
+            }
+            const auto* table = tables::get (wave == OscWave::saw ? tables::Wave::saw
+                                           : wave == OscWave::triangle ? tables::Wave::triangle : tables::Wave::sine, level);
+            for (int i = 0; i < n; ++i)
+            {
+                const auto v = read (table, positions[i]) * gains[i];
+                left[i] += v * gainLeft;
+                right[i] += v * gainRight;
+            }
+        }
+    }
+
     void Engine::renderOscillators (Voice& voice, int n, const Settings& settings, float bendSemitones) noexcept
     {
         const auto filterOn = settings.filter.on;
+        std::array<float, controlInterval> gains {};
         for (size_t index = 0; index < voice.oscillators.size(); ++index)
         {
             auto& osc = voice.oscillators[index];
@@ -687,16 +808,35 @@ namespace synth
                 continue;
             }
 
+            // VIBRATO: its depth now (fading in after the note starts), and the
+            // global wobble for this interval.
+            auto vibratoDepth = 0.0f;
+            if (s.vibratoCents > 0.0f)
+            {
+                const auto fadeSamples = s.vibratoFadeMs * 0.001f * (float) sampleRate;
+                const auto progress = fadeSamples < 1.0f ? 1.0f : juce::jmin (1.0f, (float) osc.vibratoAge / fadeSamples);
+                vibratoDepth = s.vibratoCents * 0.01f * synth::bend (progress, s.vibratoCurve);
+                osc.vibratoAge += n;
+            }
+            const auto vibratoAdvance = s.vibratoRateHz * (float) n / (float) sampleRate;
+            const auto globalVibrato = vibratoDepth > 0.0f && s.vibratoMode == VibratoMode::global
+                                     ? vibratoValue (s.vibratoWave, osc.vibratoPhase, osc.vibratoHeld, vibratoAdvance) * vibratoDepth : 0.0f;
+
             // Its pitch for this interval, and the tables to read for it.
-            const auto pitch = voice.pitch + bendSemitones + s.transpose + s.fineCents * 0.01f + osc.randomOffset
-                             + settings.play.tuneCents * 0.01f;
-            const auto hz = pitchToHz (pitch);
+            const auto basePitch = voice.pitch + bendSemitones + s.transpose + s.fineCents * 0.01f + osc.randomOffset
+                                 + settings.play.tuneCents * 0.01f;
+            const auto independent = vibratoDepth > 0.0f && s.vibratoMode == VibratoMode::independent;
+            const auto ownVibrato = independent ? vibratoValue (s.vibratoWave, osc.copies[0].vibratoPhase, osc.copies[0].vibratoHeld,
+                                                                vibratoAdvance * osc.copies[0].vibratoRate) * vibratoDepth
+                                                : globalVibrato;
+            const auto hz = pitchToHz (basePitch + ownVibrato);
             const auto increment = juce::jlimit (0.0f, 0.5f, hz / (float) sampleRate);
             const auto level = tables::levelFor (hz, sampleRate);
+            const auto pulseWidth = juce::jlimit (0.01f, 0.99f, s.pulseWidth);
 
             auto* mono = scratch.data();
             if (s.gain > 0.0f)
-                renderWave (s.wave, mono, n, osc.phase, increment, level, juce::jlimit (0.01f, 0.99f, s.pulseWidth), s.gain);
+                renderWave (s.wave, mono, n, osc.phase, increment, level, pulseWidth, s.gain);
             else
             {
                 std::fill (mono, mono + n, 0.0f);
@@ -710,9 +850,23 @@ namespace synth
                 addSub (s.subWave, mono, n, osc.subPhase, juce::jlimit (0.0f, 0.5f, subHz / (float) sampleRate),
                         tables::levelFor (subHz, sampleRate), s.sub * (s.subInvert ? -1.0f : 1.0f));
             }
+            const auto sign = s.invert ? -1.0f : 1.0f;
             if (s.invert)
                 for (int i = 0; i < n; ++i)
                     mono[i] = -mono[i];
+
+            // FADE IN (or fading out after a newer note took this oscillator) and
+            // VOLUME, once for every copy.
+            for (int i = 0; i < n; ++i)
+            {
+                gains[(size_t) i] = osc.fade * s.volume;
+                if (! juce::exactlyEqual (osc.fadeStep, 0.0f))
+                {
+                    osc.fade = juce::jlimit (0.0f, 1.0f, osc.fade + osc.fadeStep);
+                    if (osc.fade >= 1.0f && osc.fadeStep > 0.0f)
+                        osc.fadeStep = 0.0f;
+                }
+            }
 
             float panLeft, panRight;
             balance (s.pan, panLeft, panRight);
@@ -723,14 +877,6 @@ namespace synth
             const auto colour = s.noiseColour;
             for (int i = 0; i < n; ++i)
             {
-                // FADE IN, or fading out after a newer note took this oscillator.
-                const auto fadeGain = osc.fade * s.volume;
-                if (! juce::exactlyEqual (osc.fadeStep, 0.0f))
-                {
-                    osc.fade = juce::jlimit (0.0f, 1.0f, osc.fade + osc.fadeStep);
-                    if (osc.fade >= 1.0f && osc.fadeStep > 0.0f)
-                        osc.fadeStep = 0.0f;
-                }
                 auto l = mono[i], r = mono[i];
                 if (noise > 0.0f)
                 {
@@ -744,8 +890,40 @@ namespace synth
                     l += noiseLeft * noise;
                     r += noiseRight * noise;
                 }
-                outLeft[i] += l * fadeGain * panLeft;
-                outRight[i] += r * fadeGain * panRight;
+                outLeft[i] += l * gains[(size_t) i] * panLeft;
+                outRight[i] += r * gains[(size_t) i] * panRight;
+            }
+
+            // The other copies: the key's unison copies, then each chord note and
+            // its unison copies. The wave only (the sub and noise stay with the key),
+            // each with its own pitch, pan and level. None at all unless asked for.
+            const auto unison = s.hasUnison() ? s.unisonVoices : 1;
+            const auto detuneCents = s.unisonDetune * s.unisonDetune * maxDetuneCents;   // squared: fine control at the low end
+            if (s.gain > 0.0f && (unison > 1 || std::any_of (s.chord.begin(), s.chord.end(), [] (const ChordVoice& c) { return c.on; })))
+            {
+                for (int note = 0; note <= numChordVoices; ++note)
+                {
+                    const auto* chord = note > 0 ? &s.chord[(size_t) note - 1] : nullptr;
+                    if (chord != nullptr && ! chord->on)
+                        continue;
+                    const auto notePitch = chord != nullptr ? chord->coarse + chord->fineCents * 0.01f : 0.0f;
+                    const auto noteVolume = chord != nullptr ? chord->volume : 1.0f;
+                    const auto notePan = chord != nullptr ? chord->pan : 0.0f;
+                    for (int u = note == 0 ? 1 : 0; u < unison; ++u)
+                    {
+                        auto& c = osc.copies[(size_t) (note * maxUnison + u)];
+                        const auto position = unisonPosition (u, unison);
+                        const auto octave = u > 0 && s.unisonOctaves > 0 ? (float) ((u - 1) % (s.unisonOctaves + 1)) * 12.0f : 0.0f;
+                        const auto copyVibrato = independent ? vibratoValue (s.vibratoWave, c.vibratoPhase, c.vibratoHeld, vibratoAdvance * c.vibratoRate) * vibratoDepth
+                                                             : globalVibrato;
+                        const auto copyHz = pitchToHz (basePitch + notePitch + octave + position * detuneCents * 0.01f + copyVibrato);
+                        float left, right;
+                        balance (s.pan + notePan + position * s.unisonSpread, left, right);
+                        const auto copyLevel = (u == 0 ? 1.0f : s.unisonMix) * noteVolume * s.gain * sign;
+                        addCopy (s.wave, outLeft, outRight, gains.data(), n, c.phase, juce::jlimit (0.0f, 0.5f, copyHz / (float) sampleRate),
+                                 tables::levelFor (copyHz, sampleRate), pulseWidth, left * copyLevel, right * copyLevel);
+                    }
+                }
             }
 
             if (osc.fadingOut && osc.fade <= 0.0f)

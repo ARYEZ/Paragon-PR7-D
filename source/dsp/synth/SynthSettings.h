@@ -28,6 +28,29 @@ namespace synth
     enum class NoiseWidth { stereo, half, mono };
     inline const juce::StringArray noiseWidthNames { "Stereo", "Half", "Mono" };
 
+    // Saved by index (osc*VibMode): only ever append. GLOBAL: every copy of the
+    // oscillator wobbles together; INDEPENDENT: each on its own (wider).
+    enum class VibratoMode { global, independent };
+    inline const juce::StringArray vibratoModeNames { "Global", "Indep." };   // INDEPENDENT, short to fit its menu
+
+    // Saved by index (osc*VibWave): only ever append.
+    enum class VibratoWave { sine, triangle, square, saw, random };
+    inline const juce::StringArray vibratoWaveNames { "Sine", "Triangle", "Square", "Saw", "Random" };
+
+    inline constexpr int maxUnison = 7;         // copies of each note, as Avenger's V-Saw
+    inline constexpr int numChordVoices = 4;    // the chorder's extra notes
+    inline constexpr float maxDetuneCents = 100.0f;   // UNISON DETUNE at 100%: the outer copies a semitone either side (our choice)
+
+    // One of the chorder's extra notes.
+    struct ChordVoice
+    {
+        bool on = false;
+        float coarse = 0.0f;        // semitones, -24 to 24
+        float fineCents = 0.0f;     // -100 to 100
+        float pan = 0.0f;           // -1 to 1, added to the oscillator's
+        float volume = 1.0f;        // 0 to 2
+    };
+
     // Saved by index (playMode): only ever append.
     enum class PlayMode { poly, mono, monoLow, monoHigh };
     inline const juce::StringArray playModeNames { "Poly", "Mono", "Mono Low", "Mono High" };
@@ -60,6 +83,26 @@ namespace synth
         bool subInvert = false;
         bool toFilter = true;       // through the FILTER (off: straight to the AMP)
         int voiceLimit = maxVoices; // this oscillator's own notes-at-once limit
+
+        // UNISON (stage 2, as Avenger's V-Saw): copies of each note, detuned and spread.
+        int unisonVoices = maxUnison;   // 2 to 7 copies in all, the note itself included...
+        float unisonMix = 0.0f;         // ...the extra copies' level, 0 (off: they cost nothing) to 1 (as loud as the note)
+        float unisonDetune = 0.3f;      // 0 to 1: how far apart they're tuned (1: the outer ones maxDetuneCents away)
+        float unisonSpread = 0.5f;      // 0 to 1: how wide across the stereo field
+        int unisonOctaves = 0;          // 0 to 3: the extra copies stacked this many octaves up, in turn
+
+        // VIBRATO on every copy of the oscillator.
+        VibratoMode vibratoMode = VibratoMode::global;
+        VibratoWave vibratoWave = VibratoWave::sine;
+        float vibratoRateHz = 5.0f;
+        float vibratoCents = 0.0f;      // depth either side, 0 (off) to 100
+        float vibratoFadeMs = 0.0f;     // time to reach full depth after the note starts
+        float vibratoCurve = 0.0f;      // -1 to 1: the fade's shape
+
+        // CHORDER: up to 4 extra notes for each key, each with its own unison copies.
+        std::array<ChordVoice, numChordVoices> chord { { { false, 12.0f }, { false, 7.0f }, { false, -12.0f }, { false, 4.0f } } };
+
+        bool hasUnison() const noexcept { return unisonMix > 0.0f && unisonVoices > 1; }
     };
 
     struct FilterSettings

@@ -804,3 +804,219 @@ TEST_CASE ("CPU: a heavy patch runs many times faster than real time; silence co
     WARN ("no notes: " << idlePercent << "%");
     CHECK (idlePercent < 0.5);
 }
+
+//==============================================================================
+// Stage 2: UNISON, the CHORDER and VIBRATO.
+namespace
+{
+    // An A4 sine on oscillator 1, its unison set as given (no spread or detune unless asked).
+    Player unisonSine (int voices, float mix, float detune = 0.0f, float spread = 0.0f)
+    {
+        Player p;
+        p.osc().wave = synth::OscWave::sine;
+        p.osc().unisonVoices = voices;
+        p.osc().unisonMix = mix;
+        p.osc().unisonDetune = detune;
+        p.osc().unisonSpread = spread;
+        return p;
+    }
+
+    double cents (double fromHz, double toHz) { return 1200.0 * std::log2 (toHz / fromHz); }
+
+    // The pitch over time: the frequency in each `windowMs` stretch, from zero crossings.
+    std::vector<double> pitchTrack (const std::vector<float>& x, double windowMs)
+    {
+        std::vector<double> track;
+        const auto window = (size_t) (windowMs * 0.001 * sampleRate);
+        for (size_t from = 0; from + window <= x.size(); from += window)
+            track.push_back (frequencyOf (x, from, from + window));
+        return track;
+    }
+}
+
+TEST_CASE ("UNISON at MIX 0 is off: the sound is exactly as without it", "[synth][unison]")
+{
+    Player plain, off;
+    off.osc().unisonVoices = 7;
+    off.osc().unisonMix = 0.0f;
+    off.osc().unisonDetune = 1.0f;
+    off.osc().unisonSpread = 1.0f;
+    plain.on (57);
+    off.on (57);
+    const auto a = plain.render (0.5), b = off.render (0.5);
+    for (size_t i = 0; i < a[0].size(); ++i)
+        REQUIRE (a[0][i] == b[0][i]);
+    CHECK (off.engine.getNumActiveOscillators (off.settings) == 1);
+}
+
+TEST_CASE ("UNISON: copies at the pitches DETUNE says, at MIX's level", "[synth][unison]")
+{
+    // 3 copies, DETUNE 100%: the note, and copies a semitone (100 cents) either side, at half level.
+    auto p = unisonSine (3, 0.5f, 1.0f);
+    p.on (69);
+    const auto out = p.render (1.0);
+    CHECK_THAT (levelAt (out[0], 440.0, 0, 48000), WithinAbs (1.0, 0.03));
+    CHECK_THAT (levelAt (out[0], noteHz (70), 0, 48000), WithinAbs (0.5, 0.03));
+    CHECK_THAT (levelAt (out[0], noteHz (68), 0, 48000), WithinAbs (0.5, 0.03));
+    CHECK (p.engine.getNumActiveOscillators (p.settings) == 3);
+
+    // DETUNE is squared: at 50%, the outer copies are 25 cents away.
+    auto half = unisonSine (2, 1.0f, 0.5f);
+    half.on (69);
+    const auto twoCopies = half.render (1.0);
+    CHECK_THAT (levelAt (twoCopies[0], 440.0 * std::pow (2.0, 25.0 / 1200.0), 0, 48000), WithinAbs (1.0, 0.05));
+
+    // 7 copies sit evenly either side: +-1/3, +-2/3 and +-1 of the detune.
+    CHECK (synth::Engine::unisonPosition (0, 7) == 0.0f);
+    CHECK_THAT (synth::Engine::unisonPosition (1, 7), WithinAbs (1.0 / 3.0, 1.0e-6));
+    CHECK_THAT (synth::Engine::unisonPosition (2, 7), WithinAbs (-1.0 / 3.0, 1.0e-6));
+    CHECK_THAT (synth::Engine::unisonPosition (6, 7), WithinAbs (-1.0, 1.0e-6));
+    CHECK_THAT (synth::Engine::unisonPosition (1, 2), WithinAbs (1.0, 1.0e-6));
+}
+
+TEST_CASE ("UNISON SPREAD places the copies across the stereo field", "[synth][unison]")
+{
+    auto p = unisonSine (3, 1.0f, 1.0f, 1.0f);   // the sharp copy fully right, the flat one fully left
+    p.on (69);
+    const auto out = p.render (1.0);
+    CHECK (levelAt (out[0], noteHz (70), 0, 48000) < 0.02);   // the sharp copy isn't on the left
+    CHECK (levelAt (out[1], noteHz (68), 0, 48000) < 0.02);   // the flat one isn't on the right
+    CHECK (levelAt (out[1], noteHz (70), 0, 48000) > 0.95);
+    CHECK (levelAt (out[0], noteHz (68), 0, 48000) > 0.95);
+
+    auto mono = unisonSine (3, 1.0f, 1.0f, 0.0f);
+    mono.on (69);
+    const auto centred = mono.render (0.5);
+    for (size_t i = 0; i < centred[0].size(); ++i)
+        REQUIRE (centred[0][i] == centred[1][i]);
+}
+
+TEST_CASE ("UNISON OCTAVES stacks the extra copies up an octave", "[synth][unison]")
+{
+    auto p = unisonSine (3, 0.5f);
+    p.osc().unisonOctaves = 1;   // copy 1 at the note, copy 2 an octave up
+    p.on (69);
+    const auto out = p.render (1.0);
+    CHECK_THAT (levelAt (out[0], 880.0, 0, 48000), WithinAbs (0.5, 0.03));
+    CHECK (levelAt (out[0], 1760.0, 0, 48000) < 0.01);
+}
+
+TEST_CASE ("CHORDER: each extra note at its interval, level and pan, with its own unison copies", "[synth][chorder]")
+{
+    Player p;
+    p.osc().wave = synth::OscWave::sine;
+    p.osc().chord[0] = { true, 7.0f, 0.0f, 1.0f, 0.5f };   // a fifth up, fully right, half level
+    p.osc().chord[1] = { true, -12.0f, 0.0f, 0.0f, 1.0f }; // an octave down
+    p.on (69);
+    auto out = p.render (1.0);
+    CHECK_THAT (levelAt (out[1], noteHz (76), 0, 48000), WithinAbs (0.5, 0.02));
+    CHECK (levelAt (out[0], noteHz (76), 0, 48000) < 0.01);
+    CHECK_THAT (levelAt (out[0], 220.0, 0, 48000), WithinAbs (1.0, 0.02));
+    CHECK (p.engine.getNumActiveOscillators (p.settings) == 3);
+
+    // With unison, each chord note gets its copies too: (key + 2 chord notes) x 3 copies.
+    p.osc().unisonVoices = 3;
+    p.osc().unisonMix = 1.0f;
+    p.osc().unisonDetune = 1.0f;
+    p.off (69);
+    p.render (0.5);
+    p.on (69);
+    out = p.render (1.0);
+    CHECK (p.engine.getNumActiveOscillators (p.settings) == 9);
+    CHECK_THAT (levelAt (out[1], noteHz (77), 0, 48000), WithinAbs (0.5, 0.03));   // the fifth's sharp copy
+    CHECK_THAT (levelAt (out[0], noteHz (56), 0, 48000), WithinAbs (1.0, 0.03));   // the octave down's flat copy
+}
+
+TEST_CASE ("VIBRATO: the pitch wobbles by AMOUNT at RATE, and FADE IN grows it", "[synth][vibrato]")
+{
+    Player p;
+    p.osc().wave = synth::OscWave::sine;
+    p.osc().vibratoCents = 50.0f;
+    p.osc().vibratoRateHz = 4.0f;
+    p.on (69);
+    const auto track = pitchTrack (p.render (2.0)[0], 10.0);
+    const auto [low, high] = std::minmax_element (track.begin() + 10, track.end());
+    CHECK_THAT (cents (440.0, *high), WithinAbs (50.0, 4.0));
+    CHECK_THAT (cents (440.0, *low), WithinAbs (-50.0, 4.0));
+    // 4 wobbles a second: 8 crossings of the note's own pitch in the last 2 seconds' worth, counted over 1.5 s here.
+    int crossings = 0;
+    for (size_t i = 51; i < track.size(); ++i)
+        crossings += (track[i - 1] < 440.0) != (track[i] < 440.0) ? 1 : 0;
+    CHECK (crossings >= 11);
+    CHECK (crossings <= 13);
+
+    Player fading;
+    fading.osc().wave = synth::OscWave::sine;
+    fading.osc().vibratoCents = 50.0f;
+    fading.osc().vibratoRateHz = 4.0f;
+    fading.osc().vibratoFadeMs = 1000.0f;
+    fading.on (69);
+    const auto grows = pitchTrack (fading.render (2.0)[0], 10.0);
+    auto earlyMost = 0.0, lateMost = 0.0;
+    for (size_t i = 1; i < 30; ++i)
+        earlyMost = std::max (earlyMost, std::abs (cents (440.0, grows[i])));
+    for (size_t i = 120; i < grows.size(); ++i)
+        lateMost = std::max (lateMost, std::abs (cents (440.0, grows[i])));
+    CHECK (earlyMost < 15.0);
+    CHECK (lateMost > 40.0);
+}
+
+TEST_CASE ("VIBRATO INDEPENDENT: each copy wobbles on its own; GLOBAL: together", "[synth][vibrato]")
+{
+    // The note on the left only, its one unison copy in the middle: the right
+    // side is the copy alone, and left minus right the note alone.
+    const auto difference = [] (synth::VibratoMode mode)
+    {
+        auto p = unisonSine (2, 1.0f, 0.0f, 1.0f);
+        p.osc().pan = -1.0f;
+        p.osc().vibratoCents = 40.0f;
+        p.osc().vibratoRateHz = 5.0f;
+        p.osc().vibratoMode = mode;
+        p.on (69);
+        const auto out = p.render (2.0);
+        std::vector<float> note (out[0].size());
+        for (size_t i = 0; i < note.size(); ++i)
+            note[i] = out[0][i] - out[1][i];
+        const auto noteTrack = pitchTrack (note, 10.0), copyTrack = pitchTrack (out[1], 10.0);
+        auto most = 0.0;
+        for (size_t i = 5; i < noteTrack.size(); ++i)
+            most = std::max (most, std::abs (cents (noteTrack[i], copyTrack[i])));
+        return most;
+    };
+    CHECK (difference (synth::VibratoMode::global) < 2.0);
+    CHECK (difference (synth::VibratoMode::independent) > 20.0);
+}
+
+TEST_CASE ("CPU: a 7-copy supersaw chord, and the worst case of unison and chorder together", "[synth][performance][unison]")
+{
+    const auto percent = [] (int oscillators, int chordNotes)
+    {
+        Player p;
+        for (int i = 0; i < oscillators; ++i)
+        {
+            auto& o = p.osc (i);
+            o.on = true;
+            o.unisonVoices = 7;
+            o.unisonMix = 0.8f;
+            o.unisonDetune = 0.4f;
+            o.unisonSpread = 0.8f;
+            o.vibratoCents = 5.0f;
+            o.vibratoMode = synth::VibratoMode::independent;
+            for (int k = 0; k < chordNotes; ++k)
+                o.chord[(size_t) k].on = true;
+        }
+        p.settings.filter.on = true;
+        p.settings.filter.type = synth::FilterType::lp24;
+        p.settings.filter.cutoffHz = 3000.0f;
+        for (const auto note : { 48, 52, 55, 59, 62, 64, 67, 71 })
+            p.on (note);
+        const auto copies = p.engine.getNumActiveOscillators (p.settings);
+        const auto started = juce::Time::getMillisecondCounterHiRes();
+        p.render (5.0);
+        const auto cost = (juce::Time::getMillisecondCounterHiRes() - started) / 5000.0 * 100.0;
+        WARN (oscillators << " oscillator(s), " << chordNotes << " chord notes, 8 keys: " << copies << " copies, " << cost << "% of one core");
+        return cost;
+    };
+    CHECK (percent (1, 0) < 25.0);    // a supersaw chord: 56 copies
+    CHECK (percent (4, 2) < 60.0);    // 4 oscillators x 3 notes x 7 copies x 8 keys: 672 copies (about 17% here; generous for slow CI machines)
+}

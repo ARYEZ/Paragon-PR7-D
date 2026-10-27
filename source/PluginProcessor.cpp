@@ -98,31 +98,56 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
     {
         const auto& v = oscParameters[i].values;   // in oscSettings' order
         const auto get = [&v] (int index) { return v[(size_t) index]->load(); };
+        using ParamIDs::oscSetting;
         auto& o = s.oscillators[i];
-        o.on = get (0) > 0.5f;
-        o.wave = (synth::OscWave) choice (get (1), synth::oscWaveNames.size());
-        o.volume = get (2);
-        o.pan = get (3);
-        o.transpose = get (4);
-        o.fineCents = get (5);
-        o.randomPitch = get (6);
-        o.randomPhase = get (7) > 0.5f;
-        o.phase = get (8);
-        o.gain = get (9);
-        o.pulseWidth = get (10);
-        o.fadeInMs = get (11);
-        o.invert = get (12) > 0.5f;
-        o.noise = get (13);
-        o.noiseColour = get (14);
-        o.noiseWidth = (synth::NoiseWidth) choice (get (15), synth::noiseWidthNames.size());
-        o.sub = get (16);
-        o.subWave = (synth::SubWave) choice (get (17), synth::subWaveNames.size());
-        o.subOctave = choice (get (18), synth::subOctaveNames.size());
-        o.subInvert = get (19) > 0.5f;
-        o.toFilter = get (20) > 0.5f;
-        o.voiceLimit = juce::jlimit (1, synth::maxVoices, juce::roundToInt (get (21)));
+        o.on = get (oscSetting ("On")) > 0.5f;
+        o.wave = (synth::OscWave) choice (get (oscSetting ("Wave")), synth::oscWaveNames.size());
+        o.volume = get (oscSetting ("Volume"));
+        o.pan = get (oscSetting ("Pan"));
+        o.transpose = get (oscSetting ("Transpose"));
+        o.fineCents = get (oscSetting ("Fine"));
+        o.randomPitch = get (oscSetting ("Random"));
+        o.randomPhase = get (oscSetting ("PhaseRand")) > 0.5f;
+        o.phase = get (oscSetting ("Phase"));
+        o.gain = get (oscSetting ("Gain"));
+        o.pulseWidth = get (oscSetting ("Width"));
+        o.fadeInMs = get (oscSetting ("FadeIn"));
+        o.invert = get (oscSetting ("Invert")) > 0.5f;
+        o.noise = get (oscSetting ("Noise"));
+        o.noiseColour = get (oscSetting ("NoiseColour"));
+        o.noiseWidth = (synth::NoiseWidth) choice (get (oscSetting ("NoiseWidth")), synth::noiseWidthNames.size());
+        o.sub = get (oscSetting ("Sub"));
+        o.subWave = (synth::SubWave) choice (get (oscSetting ("SubWave")), synth::subWaveNames.size());
+        o.subOctave = choice (get (oscSetting ("SubOct")), synth::subOctaveNames.size());
+        o.subInvert = get (oscSetting ("SubInvert")) > 0.5f;
+        o.toFilter = get (oscSetting ("Filter")) > 0.5f;
+        o.voiceLimit = juce::jlimit (1, synth::maxVoices, juce::roundToInt (get (oscSetting ("Voices"))));
+
+        o.unisonVoices = juce::jlimit (2, synth::maxUnison, juce::roundToInt (get (oscSetting ("UniVoices"))));
+        o.unisonMix = get (oscSetting ("UniMix"));
+        o.unisonDetune = get (oscSetting ("UniDetune"));
+        o.unisonSpread = get (oscSetting ("UniSpread"));
+        o.unisonOctaves = juce::jlimit (0, 3, juce::roundToInt (get (oscSetting ("UniOctaves"))));
+        o.vibratoMode = (synth::VibratoMode) choice (get (oscSetting ("VibMode")), synth::vibratoModeNames.size());
+        o.vibratoWave = (synth::VibratoWave) choice (get (oscSetting ("VibWave")), synth::vibratoWaveNames.size());
+        o.vibratoRateHz = get (oscSetting ("VibRate"));
+        o.vibratoCents = get (oscSetting ("VibAmount"));
+        o.vibratoFadeMs = get (oscSetting ("VibFade"));
+        o.vibratoCurve = get (oscSetting ("VibCurve"));
+        constexpr int firstChord = oscSetting ("Ch1On");
+        for (int k = 0; k < synth::numChordVoices; ++k)
+        {
+            auto& chord = o.chord[(size_t) k];
+            const auto at = firstChord + k * 5;   // On, Coarse, Fine, Pan, Vol
+            chord.on = get (at) > 0.5f;
+            chord.coarse = get (at + 1);
+            chord.fineCents = get (at + 2);
+            chord.pan = get (at + 3);
+            chord.volume = get (at + 4);
+        }
     }
-    static_assert (std::size (ParamIDs::oscSettings) == 22);
+    static_assert (ParamIDs::oscSetting ("Ch4Vol") == ParamIDs::oscSetting ("Ch1On") + 19);
+
 
     const auto envelope = [this] (const char* a, const char* h, const char* d, const char* su, const char* r,
                                   const char* ac, const char* dc, const char* rc)

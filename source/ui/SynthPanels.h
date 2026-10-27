@@ -19,6 +19,12 @@ public:
     void selectOscillator (int index);
     int getSelected() const noexcept { return selected; }
 
+    // WAVE: the oscillator's sound (wave, pitch, start, noise, sub, level).
+    // VOICES: its unison copies, vibrato and chorder (stage 2).
+    enum class Page { wave, voices };
+    void showPage (Page);
+    Page getPage() const noexcept { return page; }
+
     void paint (juce::Graphics&) override;
     void resized() override;
 
@@ -36,13 +42,17 @@ private:
 
     juce::AudioProcessorValueTreeState& state;
     std::vector<std::unique_ptr<Tab>> tabs;
+    juce::TextButton wavePageButton { "WAVE" }, voicesPageButton { "VOICES" };
+    Page page = Page::wave;
     WaveDisplay wave;
+    VoicesDisplay voicesDisplay;
     std::vector<std::unique_ptr<ParamControl>> controls;   // in oscSettings' order where they appear
     std::vector<const char*> settingNames;                 // ...which setting each is
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> sectionTitles;   // PITCH, START, NOISE, SUB, LEVEL
     int selected = 0;
 
     ParamControl& control (const char* what);
+    bool isOnVoicesPage (const char* what) const;   // which page a setting's control is on
 };
 
 // FILTER: ON and TYPE beside the title, its response, and its knobs.

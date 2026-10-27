@@ -72,12 +72,30 @@ namespace synth::tables
         }
     }
 
+    namespace
+    {
+        // Each level's harmonic count, worked out once.
+        struct Counts
+        {
+            Counts()
+            {
+                for (int level = 0; level < numLevels; ++level)
+                    harmonics[(size_t) level] = level == numLevels - 1
+                        ? 1 : juce::jmax (1, (int) std::floor ((double) maxHarmonics * std::exp2 (-(double) level / 3.0) + 1.0e-9));
+            }
+            std::array<int, numLevels> harmonics {};
+        };
+
+        const Counts& counts()
+        {
+            static const Counts instance;
+            return instance;
+        }
+    }
+
     int harmonicsAt (int level) noexcept
     {
-        level = juce::jlimit (0, numLevels - 1, level);
-        if (level == numLevels - 1)
-            return 1;
-        return juce::jmax (1, (int) std::floor ((double) maxHarmonics * std::exp2 (-(double) level / 3.0) + 1.0e-9));
+        return counts().harmonics[(size_t) juce::jlimit (0, numLevels - 1, level)];
     }
 
     double harmonicLimitHz (double sampleRate) noexcept
@@ -90,11 +108,20 @@ namespace synth::tables
         if (frequencyHz <= 0.0)
             return 0;
         const auto allowed = harmonicLimitHz (sampleRate) / frequencyHz;   // how many harmonics fit
-        // The first level (most harmonics) within the limit.
-        int level = 0;
-        while (level < numLevels - 1 && (double) harmonicsAt (level) > allowed)
-            ++level;
-        return level;
+        // The first level (most harmonics) within the limit: a short search
+        // through the counts (they fall as the level rises), run for every
+        // oscillator copy every 16 samples, so kept cheap.
+        const auto& harmonics = counts().harmonics;
+        int low = 0, high = numLevels - 1;
+        while (low < high)
+        {
+            const auto middle = (low + high) / 2;
+            if ((double) harmonics[(size_t) middle] > allowed)
+                low = middle + 1;
+            else
+                high = middle;
+        }
+        return low;
     }
 
     const float* get (Wave wave, int level) noexcept

@@ -7,8 +7,9 @@ namespace
     using Range = juce::NormalisableRange<float>;
     using ToText = std::function<juce::String (float, int)>;
 
-    // Version hint: the PR7-K version that introduced a parameter (1 for 0.1.0).
+    // Version hint: the PR7-K version that introduced a parameter (1 for 0.1.0, 2 for 0.2.0).
     constexpr int firstVersion = 1;
+    constexpr int stage2 = 2;
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -63,6 +64,18 @@ namespace
         return juce::String (juce::roundToInt (value * 100.0f)) + "%";
     };
     const ToText asCount = [] (float value, int) { return juce::String (juce::roundToInt (value)); };
+    const ToText asHz = [] (float hz, int) { return juce::String (hz, hz < 10.0f ? 2 : 1) + " Hz"; };
+    const ToText asCentsDepth = [] (float cents, int) { return cents < 0.05f ? juce::String ("Off") : juce::String (cents, cents < 10.0f ? 1 : 0) + " ct"; };
+    // UNISON DETUNE: how far the outer copies are from the note (squared, as the engine does).
+    const ToText asDetune = [] (float detune, int)
+    {
+        return juce::String (detune * detune * synth::maxDetuneCents, 1) + " ct";
+    };
+    const ToText asOctaves = [] (float value, int)
+    {
+        const auto octaves = juce::roundToInt (value);
+        return octaves == 0 ? juce::String ("Off") : "+" + juce::String (octaves) + " Oct";
+    };
 
     // A range whose knob travel is logarithmic: each octave takes the same distance.
     Range logRange (double min, double max)
@@ -82,22 +95,23 @@ namespace
     }
 
     void add (juce::AudioProcessorValueTreeState::ParameterLayout& layout, const juce::String& id, const juce::String& name,
-              Range range, float defaultValue, const ToText& toText)
+              Range range, float defaultValue, const ToText& toText, int version = firstVersion)
     {
         layout.add (std::make_unique<juce::AudioParameterFloat> (
-            juce::ParameterID { id, firstVersion }, name, range, defaultValue,
+            juce::ParameterID { id, version }, name, range, defaultValue,
             juce::AudioParameterFloatAttributes().withStringFromValueFunction (toText)));
     }
 
-    void addSwitch (juce::AudioProcessorValueTreeState::ParameterLayout& layout, const juce::String& id, const juce::String& name, bool defaultValue)
+    void addSwitch (juce::AudioProcessorValueTreeState::ParameterLayout& layout, const juce::String& id, const juce::String& name, bool defaultValue,
+                    int version = firstVersion)
     {
-        layout.add (std::make_unique<juce::AudioParameterBool> (juce::ParameterID { id, firstVersion }, name, defaultValue));
+        layout.add (std::make_unique<juce::AudioParameterBool> (juce::ParameterID { id, version }, name, defaultValue));
     }
 
     void addChoice (juce::AudioProcessorValueTreeState::ParameterLayout& layout, const juce::String& id, const juce::String& name,
-                    const juce::StringArray& choices, int defaultIndex)
+                    const juce::StringArray& choices, int defaultIndex, int version = firstVersion)
     {
-        layout.add (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { id, firstVersion }, name, choices, defaultIndex));
+        layout.add (std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { id, version }, name, choices, defaultIndex));
     }
 
     // An envelope's eight: ATTACK HOLD DECAY SUSTAIN RELEASE and the three curves.
@@ -154,6 +168,30 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         addSwitch (layout, osc (i, "SubInvert"), name + "Sub Invert", defaults.subInvert);
         addSwitch (layout, osc (i, "Filter"), name + "To Filter", defaults.toFilter);
         add (layout, osc (i, "Voices"), name + "Voices", { 1.0f, (float) synth::maxVoices, 1.0f }, (float) defaults.voiceLimit, asCount);
+
+        // Stage 2: UNISON, VIBRATO and the CHORDER.
+        add (layout, osc (i, "UniVoices"), name + "Unison Voices", { 2.0f, (float) synth::maxUnison, 1.0f }, (float) defaults.unisonVoices, asCount, stage2);
+        add (layout, osc (i, "UniMix"), name + "Unison Mix", { 0.0f, 1.0f }, defaults.unisonMix, asPercent, stage2);
+        add (layout, osc (i, "UniDetune"), name + "Unison Detune", { 0.0f, 1.0f }, defaults.unisonDetune, asDetune, stage2);
+        add (layout, osc (i, "UniSpread"), name + "Unison Spread", { 0.0f, 1.0f }, defaults.unisonSpread, asPercent, stage2);
+        add (layout, osc (i, "UniOctaves"), name + "Unison Octaves", { 0.0f, 3.0f, 1.0f }, (float) defaults.unisonOctaves, asOctaves, stage2);
+        addChoice (layout, osc (i, "VibMode"), name + "Vibrato Mode", synth::vibratoModeNames, (int) defaults.vibratoMode, stage2);
+        addChoice (layout, osc (i, "VibWave"), name + "Vibrato Wave", synth::vibratoWaveNames, (int) defaults.vibratoWave, stage2);
+        add (layout, osc (i, "VibRate"), name + "Vibrato Rate", logRange (0.1, 20.0), defaults.vibratoRateHz, asHz, stage2);
+        add (layout, osc (i, "VibAmount"), name + "Vibrato Amount", { 0.0f, 100.0f, 0.1f }, defaults.vibratoCents, asCentsDepth, stage2);
+        add (layout, osc (i, "VibFade"), name + "Vibrato Fade In", timeRange (10000.0f), defaults.vibratoFadeMs, asMs, stage2);
+        add (layout, osc (i, "VibCurve"), name + "Vibrato Fade Curve", { -1.0f, 1.0f }, defaults.vibratoCurve, asSignedPercent, stage2);
+        for (int k = 0; k < synth::numChordVoices; ++k)
+        {
+            const auto& chord = defaults.chord[(size_t) k];
+            const auto prefix = "Ch" + juce::String (k + 1);
+            const auto chordName = name + "Chord " + juce::String (k + 1) + " ";
+            addSwitch (layout, osc (i, (prefix + "On").toRawUTF8()), chordName + "On", chord.on, stage2);
+            add (layout, osc (i, (prefix + "Coarse").toRawUTF8()), chordName + "Coarse", { -24.0f, 24.0f, 1.0f }, chord.coarse, asSemitones, stage2);
+            add (layout, osc (i, (prefix + "Fine").toRawUTF8()), chordName + "Fine", { -100.0f, 100.0f, 1.0f }, chord.fineCents, asCents, stage2);
+            add (layout, osc (i, (prefix + "Pan").toRawUTF8()), chordName + "Pan", { -1.0f, 1.0f }, chord.pan, asPan, stage2);
+            add (layout, osc (i, (prefix + "Vol").toRawUTF8()), chordName + "Volume", { 0.0f, 2.0f }, chord.volume, asGain, stage2);
+        }
     }
 
     // The FILTER: off in a new sound (Avenger's starts without one), ready at a 24 dB low-pass at 2 kHz.
