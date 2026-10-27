@@ -57,7 +57,7 @@ namespace
         double sum = 0.0;
         for (auto i = from; i < to; ++i)
             sum += (double) x[i] * x[i];
-        return std::sqrt (sum / (double) juce::jmax<size_t> (1, to - from));
+        return std::sqrt (sum / (double) std::max<size_t> (1, to - from));
     }
 
     double db (double gain) { return 20.0 * std::log10 (juce::jmax (1.0e-12, gain)); }
@@ -66,7 +66,7 @@ namespace
     double levelAt (const std::vector<float>& x, double hz, size_t from, size_t length)
     {
         const auto cycles = std::floor ((double) length * hz / sampleRate);
-        length = juce::jmax<size_t> (1, (size_t) std::round (cycles * sampleRate / hz));
+        length = std::max<size_t> (1, (size_t) std::round (cycles * sampleRate / hz));
         const auto coefficient = 2.0 * std::cos (juce::MathConstants<double>::twoPi * hz / sampleRate);
         double s1 = 0.0, s2 = 0.0;
         for (auto i = from; i < from + length; ++i)

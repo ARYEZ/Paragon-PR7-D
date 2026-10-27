@@ -279,8 +279,8 @@ namespace synth
     void Engine::monoNoteOn (int note, float velocity, const Settings& settings) noexcept
     {
         // Remember the key (moving it to the end if it's somehow already held).
-        auto* end = heldNotes.begin() + numHeld;
-        if (auto* found = std::find (heldNotes.begin(), end, note); found != end)
+        auto* end = heldNotes.data() + numHeld;
+        if (auto* found = std::find (heldNotes.data(), end, note); found != end)
         {
             std::move (found + 1, end, found);
             --numHeld;
@@ -318,8 +318,8 @@ namespace synth
 
     void Engine::monoNoteOff (int note, const Settings& settings) noexcept
     {
-        auto* end = heldNotes.begin() + numHeld;
-        if (auto* found = std::find (heldNotes.begin(), end, note); found != end)
+        auto* end = heldNotes.data() + numHeld;
+        if (auto* found = std::find (heldNotes.data(), end, note); found != end)
         {
             std::move (found + 1, end, found);
             --numHeld;
@@ -350,8 +350,8 @@ namespace synth
     {
         if (numHeld == 0)
             return -1;
-        const auto* first = heldNotes.begin();
-        const auto* end = heldNotes.begin() + numHeld;
+        const auto* first = heldNotes.data();
+        const auto* end = heldNotes.data() + numHeld;
         switch (settings.play.mode)
         {
             case PlayMode::monoLow:  return *std::min_element (first, end);

@@ -39,17 +39,17 @@ void OscillatorPanel::Tab::resized()
 void OscillatorPanel::Tab::paintButton (juce::Graphics& g, bool highlighted, bool)
 {
     const auto area = getLocalBounds().toFloat().reduced (1.0f);
-    const auto selected = getToggleState();
-    g.setColour (selected ? juce::Colour (0xff1c1418) : juce::Colour (0xff0d0a0e));
+    const auto isSelected = getToggleState();
+    g.setColour (isSelected ? juce::Colour (0xff1c1418) : juce::Colour (0xff0d0a0e));
     g.fillRoundedRectangle (area, 4.0f);
-    if (selected)
+    if (isSelected)
     {
         g.setGradientFill (ParagonLookAndFeel::menuHighlight (area));
         g.fillRect (area.withTop (area.getBottom() - 2.0f));
     }
-    g.setColour (selected ? ParagonColours::accent.withAlpha (0.6f) : ParagonColours::panelEdge);
+    g.setColour (isSelected ? ParagonColours::accent.withAlpha (0.6f) : ParagonColours::panelEdge);
     g.drawRoundedRectangle (area, 4.0f, 1.0f);
-    g.setColour (selected || highlighted ? ParagonColours::text : ParagonColours::textDim);
+    g.setColour (isSelected || highlighted ? ParagonColours::text : ParagonColours::textDim);
     g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
     g.drawText (getName(), area.withTrimmedLeft (22.0f), juce::Justification::centred, false);
 }
