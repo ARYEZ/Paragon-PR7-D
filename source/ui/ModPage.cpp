@@ -214,8 +214,9 @@ MacroPanel::MacroPanel (ParagonX1AudioProcessor& p) : SynthPanel ("MACROS"), pro
         addAndMakeVisible (*buttons.back());
     }
     modWheel.setRange (0.0, 1.0);
+    modWheel.setColour (juce::Slider::thumbColourId, ParagonColours::accent);
     modWheel.setColour (juce::Slider::trackColourId, ParagonColours::accent);
-    modWheel.setColour (juce::Slider::backgroundColourId, juce::Colour (0xff151217));
+    modWheel.setColour (juce::Slider::backgroundColourId, juce::Colour (0xff221d24));
     modWheel.setTooltip ("An on-screen mod wheel (MIDI controller 1), for trying routes from MOD WHEEL without a keyboard. Your keyboard's own wheel works too.");
     modWheel.onValueChange = [this] { processor.setScreenModWheel ((float) modWheel.getValue()); };
     addAndMakeVisible (modWheel);
@@ -235,6 +236,17 @@ void MacroPanel::timerCallback()
     for (int k = 0; k < 3; ++k)
         if (! names[(size_t) k]->isBeingEdited() && names[(size_t) k]->getText() != matrix.macroName (k))
             names[(size_t) k]->setText (matrix.macroName (k), juce::dontSendNotification);
+}
+
+void MacroPanel::paint (juce::Graphics& g)
+{
+    SynthPanel::paint (g);
+    // The wheel's groove (the bar draws only its lit part).
+    const auto groove = modWheel.getBounds().toFloat().expanded (2.0f);
+    g.setColour (juce::Colour (0xff050406));
+    g.fillRoundedRectangle (groove, 4.0f);
+    g.setColour (ParagonColours::panelEdge.brighter (0.2f));
+    g.drawRoundedRectangle (groove, 4.0f, 1.0f);
 }
 
 void MacroPanel::resized()
@@ -317,8 +329,12 @@ MatrixPanel::Row::Row (MatrixPanel& o, int i) : owner (o), index (i)
         styleBar (*slider);
         slider->setTextBoxStyle (juce::Slider::TextBoxLeft, false, slider == &amount ? 54 : 58, 22);
         slider->onDragEnd = [this] { owner.processor.modMatrixEditFinished(); };
+        slider->updateText();   // in the formats just set
         addAndMakeVisible (*slider);
     }
+    amount.getProperties().set (ParagonLookAndFeel::bipolarBarProperty, true);
+    curve.getProperties().set (ParagonLookAndFeel::bipolarBarProperty, true);
+    destination.setColour (juce::TextButton::textColourOffId, ParagonColours::text);
     amount.onValueChange = [this] { owner.change (index, [this] (ModRouteData& r) { r.amount = (float) amount.getValue(); }, false); };
     lag.onValueChange = [this] { owner.change (index, [this] (ModRouteData& r) { r.lagMs = (float) lag.getValue(); }, false); };
     curve.onValueChange = [this] { owner.change (index, [this] (ModRouteData& r) { r.curve = (float) curve.getValue(); }, false); };

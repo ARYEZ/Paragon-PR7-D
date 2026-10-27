@@ -498,8 +498,7 @@ TEST_CASE ("The MOD page: LFOs, macros and the matrix; adding and editing a rout
     REQUIRE (row != nullptr);
     row->source.setSelectedId ((int) synth::mod::Source::modWheel + 1, juce::sendNotificationSync);
     row->amount.setValue (-0.25, juce::sendNotificationSync);
-    row->mode.triggerClick();
-    juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+    row->mode.onClick();   // what a click runs
     const auto& route = w.processor.getModMatrix().routes[0];
     CHECK (route.source == "modWheel");
     CHECK_THAT (route.amount, WithinAbs (-0.25, 1.0e-6));
@@ -508,7 +507,6 @@ TEST_CASE ("The MOD page: LFOs, macros and the matrix; adding and editing a rout
     checkLayout (*w.view, "mod with a route");
 
     // X deletes it.
-    row->remove.triggerClick();
-    juce::MessageManager::getInstance()->runDispatchLoopUntil (50);
+    row->remove.onClick();
     CHECK (w.processor.getModMatrix().routes.empty());
 }

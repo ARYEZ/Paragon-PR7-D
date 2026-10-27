@@ -51,6 +51,7 @@ class MacroPanel final : public SynthPanel,
 public:
     explicit MacroPanel (ParagonX1AudioProcessor&);
     void resized() override;
+    void paint (juce::Graphics&) override;
 
 private:
     void timerCallback() override;
@@ -58,7 +59,7 @@ private:
     ParagonX1AudioProcessor& processor;
     std::vector<std::unique_ptr<ParamControl>> knobs, buttons;
     std::vector<std::unique_ptr<juce::Label>> names;   // double-click to rename
-    juce::Slider modWheel { juce::Slider::LinearVertical, juce::Slider::NoTextBox };
+    juce::Slider modWheel { juce::Slider::LinearBarVertical, juce::Slider::NoTextBox };
     juce::Label modWheelLabel;
 };
 

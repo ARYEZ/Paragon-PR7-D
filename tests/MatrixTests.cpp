@@ -304,9 +304,10 @@ TEST_CASE ("MOD per note: velocity on the filter makes softer notes darker", "[m
         p.route (Source::velocity, Field::filterCutoff, cutoffRange, 300.0f, 0.6f);
         p.on (45, velocity);
         const auto out = p.render (0.4)[0];
-        return levelAt (out, 110.0 * 15.0, 9600, 9600) / levelAt (out, 110.0, 9600, 9600);   // the 15th harmonic against the note
+        return levelAt (out, 110.0 * 30.0, 9600, 9600) / levelAt (out, 110.0, 9600, 9600);   // the 30th harmonic (3.3 kHz) against the note
     };
-    CHECK (db (brightness (1.0f)) > db (brightness (0.3f)) + 20.0);
+    // Full velocity: the cutoff at the top (20 kHz). At 0.3: about 1.7 kHz, an octave under that harmonic.
+    CHECK (db (brightness (1.0f)) > db (brightness (0.3f)) + 15.0);
 }
 
 TEST_CASE ("MOD in the plugin: routes play, and presets, projects and undo keep the matrix", "[mod][processor]")
@@ -423,3 +424,4 @@ TEST_CASE ("CPU: a supersaw chord with six routes per note", "[mod][performance]
     const auto modulated = percent (true);
     CHECK (modulated < plain + 5.0);
 }
+

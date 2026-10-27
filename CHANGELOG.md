@@ -2,6 +2,45 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.9.0
+
+Stage 4, part 1: **modulation**: the MOD MATRIX, 4 LFOs, macros and your keyboard's controllers, modelled on Avenger's (our own design and code). Everything else in stage 4 (modulation envelopes, the pitch envelope, the step sequencer, the wavetable travel envelope, MIDI learn) plugs into this matrix.
+
+- **The MOD page** (the new **MOD** tab beside SYNTH):
+  - **LFO 1 to 4**, each with a picture of its wave:
+    - **WAVE**: sine, triangle, saw up, saw down, square, S&H (a random level each cycle), smooth random.
+    - **SYNC**: FREE (RATE in Hz) or locked to your song's tempo in note LENGTHS from 8 bars to 1/64, straight, **triplet** or **dotted**.
+    - **TRIGGER**: **VOICE** (every note its own LFO, starting with the note), **GLOBAL** (one for all, always running, in step with the song's beats when it plays), **FIRST NOTE** (restarted when you play with no other key down), **LAST NOTE** (restarted by every note).
+    - **PHASE**, **OFFSET** (moves the wave up or down and fits it in: at +100% it only ever pushes up), **DELAY**, **FADE IN**, **ONE SHOT** (once through, then it holds: an envelope).
+  - **MACROS**: three knobs (double-click a name to rename it, saved with the preset) and two buttons. They're DAW parameters, so you can automate them or map hardware knobs to them.
+  - An on-screen **MOD WHEEL**, for trying mod wheel routes without a keyboard.
+  - **The MOD MATRIX**: up to 64 routes. Each: **ON**, a **SOURCE**, a **DESTINATION**, an **AMOUNT** (-100% to +100% of the knob's travel), **+/%**, **LAG** and **CURVE**.
+    - Sources: the LFOs, macros and buttons, **mod wheel, pitch bend, velocity, aftertouch** (channel and per note), **keytrack, breath, expression, sustain pedal** and **random** (a new value for each note).
+    - **+** adds the amount to the knob; **%** moves it by a share of the travel it has left, so it always reaches the end exactly at 100% (as the manual describes).
+    - **LAG** slows the source down, smoothing jumps (a stepped LFO, a pressed button).
+    - **CURVE** bends the source: below 0 it does most of its work early, above 0 late. (Avenger draws a curve per route; ours is a knob.)
+    - Several routes to the same knob add up.
+- **Every note is modulated on its own:** a velocity or a VOICE LFO moves each note's knobs separately, worked out every third of a millisecond.
+- **Destinations:** every knob the synth follows live while a note plays (the oscillators' level, pan, pitch, shape, wavetable index, noise, sub, SYNC/FM/AM, unison, vibrato and the FFT editor's LP/HP; the filter; the shapers' DRIVE, MIX and OUTPUT; the AMP's volume and pan).
+  - Not yet: SKEW and PINCH (their curve is built ahead of time), the FFT editor's SWEEP, FLIP and VSTRENGTH, and the shapers' EQ bands (both worked out ahead too), menus and switches. Those need changes inside the engine; I'll offer them later.
+- **Saved with the preset** (and the project), and undo covers the matrix. Routes are stored by name, so presets keep working as later versions add sources and destinations.
+- **CPU:** six routes on every note of the test chord cost about as much as none (4.7% against 5.1% of a core: within measuring noise). A sound with no routes runs exactly as before.
+- **Three new factory presets:**
+  - **Wobble Bass** (A26): a synced LFO on the filter.
+  - **Mod Wheel Pad** (A27): the wheel opens the filter and adds vibrato.
+  - **Velocity Keys** (A28): velocity on the filter and a shaper, and a TONE macro.
+  - Our own, not tuned by ear.
+- In the tests:
+  - the LFOs measured as pitch: a 2 Hz square moving a note exactly 100 cents at the right times, synced and dotted rates, PHASE, OFFSET, DELAY, FADE IN, ONE SHOT;
+  - the trigger modes measured as level;
+  - every source;
+  - + and %, CURVE, LAG, routes adding up;
+  - velocity brightening the filter;
+  - the plugin keeping the matrix through presets, projects and undo;
+  - the page's layout and editing a route;
+  - CPU.
+- Not checked here: how it sounds (I can't listen).
+
 ## 0.8.0
 
 Stage 3, part 5: **the SHAPER**, a distortion on each note, modelled on Avenger's shaper section (our own design and code). This finishes stage 3.

@@ -354,17 +354,17 @@ std::vector<Rig> makeFactoryRigs()
     route (wobble, "lfo1", ParamIDs::fltCutoff, 0.45f);
     add (wobble);
 
-    Builder pad ("Mod Wheel Pad", 27, { "Pad", "Modulation" },
+    Builder wheelPad ("Mod Wheel Pad", 27, { "Pad", "Modulation" },
                  "A wide supersaw pad. The MOD WHEEL opens the filter and brings in vibrato; a slow global LFO keeps the unison drifting.");
-    pad.osc (0, "UniVoices", 7.0f).osc (0, "UniMix", 0.8f).osc (0, "UniDetune", 0.25f).osc (0, "UniSpread", 1.0f).osc (0, "Volume", 0.5f)
+    wheelPad.osc (0, "UniVoices", 7.0f).osc (0, "UniMix", 0.8f).osc (0, "UniDetune", 0.25f).osc (0, "UniSpread", 1.0f).osc (0, "Volume", 0.5f)
        .osc (0, "VibRate", 5.0f)
        .filter (FilterType::lp12, 900.0f, 0.15f, 0.0f)
        .set (ParamIDs::lfo (1, "Rate"), 0.15f).set (ParamIDs::lfo (1, "Trigger"), (float) synth::mod::LfoTrigger::global)
        .ampEnvelope (600.0f, 1000.0f, 0.9f, 1500.0f);
-    route (pad, "modWheel", ParamIDs::fltCutoff, 0.35f);
-    route (pad, "modWheel", ParamIDs::osc (0, "VibAmount"), 0.25f);
-    route (pad, "lfo2", ParamIDs::osc (0, "UniDetune"), 0.15f);
-    add (pad);
+    route (wheelPad, "modWheel", ParamIDs::fltCutoff, 0.35f);
+    route (wheelPad, "modWheel", ParamIDs::osc (0, "VibAmount"), 0.25f);
+    route (wheelPad, "lfo2", ParamIDs::osc (0, "UniDetune"), 0.15f);
+    add (wheelPad);
 
     Builder keys ("Velocity Keys", 28, { "Keys", "Modulation" },
                   "Play harder for brighter and grittier: velocity opens the filter and drives SHAPER 1. MACRO 1 (TONE) darkens or brightens everything.");

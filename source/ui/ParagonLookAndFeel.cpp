@@ -554,6 +554,18 @@ void ParagonLookAndFeel::drawLinearSlider (juce::Graphics& g, int x, int y, int 
         return;
     }
 
+    if (style == juce::Slider::LinearBar && slider.getProperties()[bipolarBarProperty])
+    {
+        // Lit from the middle (0) to the value, either way.
+        const auto area = juce::Rectangle<float> ((float) x, (float) y, (float) width, (float) height);
+        const auto middle = area.getX() + area.getWidth() * (float) slider.valueToProportionOfLength (0.0);
+        g.setColour (slider.findColour (juce::Slider::trackColourId));
+        g.fillRect (juce::Rectangle<float>::leftTopRightBottom (juce::jmin (middle, sliderPos), area.getY(), juce::jmax (middle, sliderPos), area.getBottom()));
+        g.setColour (ParagonColours::panelEdge.brighter (0.3f));
+        g.drawVerticalLine (juce::roundToInt (middle), area.getY(), area.getBottom());
+        return;
+    }
+
     if (style != juce::Slider::TwoValueHorizontal)
     {
         LookAndFeel_V4::drawLinearSlider (g, x, y, width, height, sliderPos, minSliderPos, maxSliderPos, style, slider);
