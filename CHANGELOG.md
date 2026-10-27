@@ -2,6 +2,54 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.13.0
+
+Stage 4, part 5: **TRAVEL**, each oscillator's own movement through its wavetable, modelled on Avenger's wavetable envelope, pattern editor and strength editor (the manual's pages 48-51; our own design and code). It's on the oscillator panel's new **TRAVEL** page, separate for each of the 8 oscillators. It moves an oscillator playing a WAVETABLE.
+
+- **The envelope (ENV):** a path through the table, drawn over one cycle: bottom is the first frame, top the last.
+  - Double-click to add points, drag lines to curve them; its ends don't have to meet.
+  - A new one is a straight ramp from the first frame to the last.
+- **The pattern (SEQ):** up to 16 steps, each a SPEED period long, or two. Each plays the envelope its own way:
+  - **x** (normal): the whole envelope, 1/2 to 16 times in the step;
+  - **t** (trigger): its first part, restarted that many times;
+  - **PP** (ping pong half): up its first half and back;
+  - **R** (reverse) and **U** (flip, upside down);
+  - **S** (silence): the oscillator goes quiet for the step (a millisecond's fade, so it doesn't click);
+  - **H**, **M**, **L**: straight to the last, middle or first frame.
+  - Drag a step up or down for more or fewer iterations, right-click it for its mode and length, double-click to make it one or two periods long.
+- **The strengths (MOD):** under each step, a curve for how far that step moves (start, an optional middle point, end, bent).
+  - Drag its left, middle or right; shift-drag bends it; double-click adds or removes the middle point.
+- **The controls:**
+  - **EDITORS** (Env, Env+Seq, Env+Seq+Mod).
+  - **TRIGGER** (Voice, First Note, Last Note).
+  - **MODE** (the envelope's: Loop, Ping Pong, One Shot) and **PATTERN** (the pattern's, the same three).
+  - **STEPS**, **PHASE** (where it starts), **FLIP**.
+  - **STRENGTH** (-100% to +100%), **VELOCITY** and its **VEL CURVE** (softer notes travel less far), **SMOOTH** (slows its moves, up to half a second).
+  - **SPEED:** a note length at your song's tempo (1/4 to start) or **FREE** in cycles a second.
+- **How it moves INDEX:** the frame played is INDEX + STRENGTH x the envelope (H, M and L set it outright). The INDEX knob, and the matrix routes on it, still work on top.
+- **Our choices** (the manual doesn't give these):
+  - an envelope cycle (or a step) is one SPEED period;
+  - a step's iterations divide its own length;
+  - PING PONG on the pattern runs it backwards, steps and all;
+  - SMOOTH is up to 500 ms.
+  - Avenger's fourth trigger, "global first", is the same as FIRST NOTE here: PR7-K's oscillators don't have key zones (yet).
+- Saved with the preset and the project; unlike Avenger's editors, undo covers all three; its knobs can be automated.
+- **A new factory preset:** **Talking Bass** (A33). The Vowels table moved by an eight-step pattern in sixteenths: sweeps, quick retriggers, a reverse, a jump to the last vowel, a silent step. Our own, not tuned by ear.
+- **CPU:** TRAVEL is worked out every 16 samples per note: 16 travelling wavetable oscillators add about 0.3% of a core here.
+- In the tests, measured on a two-frame table (a sine and its octave, so the octave's share is where in the table the note is):
+  - the envelope's ramp and drawn shapes;
+  - STRENGTH with INDEX, FLIP, PHASE, the three modes, FREE speed;
+  - every step mode, iterations (2 and 1/2), SILENCE, a two-period step;
+  - MOD's strength curve;
+  - VELOCITY;
+  - SMOOTH;
+  - VOICE, FIRST NOTE and LAST NOTE with two notes;
+  - the plugin moving a factory table from a fresh start;
+  - presets, projects and undo;
+  - the page's layout and its drags and clicks;
+  - CPU.
+- Not checked here: how it sounds (I can't listen).
+
 ## 0.12.0
 
 Stage 4, part 4: **the STEP SEQUENCER** (the trance gate), modelled on Avenger's (our own design and code). It's on the MOD page, under the new **STEP** tab.

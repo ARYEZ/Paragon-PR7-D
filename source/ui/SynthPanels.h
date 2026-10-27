@@ -3,6 +3,8 @@
 #include "PluginProcessor.h"
 #include "ui/SynthControls.h"
 #include "ui/FreeformEditor.h"
+#include "ui/MultiPointEditor.h"
+#include "ui/TravelPatternEditor.h"
 #include "ui/SpectrumEditor.h"
 #include "ui/SynthDisplays.h"
 
@@ -52,7 +54,8 @@ public:
     // FFT: its harmonics, drawn (stage 3d).
     // DRAW: FREEFORM's cycle, drawn (stage 3d, part 2).
     // VOICES: its unison copies, vibrato and chorder (stage 2).
-    enum class Page { wave, voices, shape, fm, fft, draw };
+    // TRAVEL: its own movement through its wavetable (stage 4e).
+    enum class Page { wave, voices, shape, fm, fft, draw, travel };
     void showPage (Page);
     Page getPage() const noexcept { return page; }
 
@@ -65,12 +68,15 @@ public:
     WavetableChooser& getWavetableChooser() noexcept { return tableChooser; }
     SpectrumEditor& getSpectrumEditor() noexcept { return spectrumEditor; }
     FreeformEditor& getFreeformEditor() noexcept { return freeformEditor; }
+    MultiPointEditor& getTravelEnvelope() noexcept { return travelEnvelope; }
+    TravelPatternEditor& getTravelPattern() noexcept { return travelPattern; }
 
 private:
     void timerCallback() override;
     // WAVETABLE's controls show when the selected oscillator plays one; WIDTH when it doesn't.
     bool isWavetable() const;
     bool isFreeform() const;
+    bool isTravelFree() const;   // TRAVEL's SYNC on FREE: RATE shows, not LENGTH
     bool isShown (const char* what) const;
     void updateVisibility();
 
@@ -89,9 +95,9 @@ private:
     juce::AudioProcessorValueTreeState& state;
     std::vector<std::unique_ptr<Tab>> tabs;
     WavetableChooser tableChooser;
-    bool showingWavetable = false, showingFreeform = false;
+    bool showingWavetable = false, showingFreeform = false, showingTravelFree = false;
     juce::TextButton wavePageButton { "WAVE" }, shapePageButton { "SHAPE" }, fmPageButton { "FM" }, fftPageButton { "FFT" },
-                     drawPageButton { "DRAW" }, voicesPageButton { "VOICES" };
+                     drawPageButton { "DRAW" }, travelPageButton { "TRAVEL" }, voicesPageButton { "VOICES" };
     Page page = Page::wave;
     WaveDisplay wave;
     VoicesDisplay voicesDisplay;
@@ -101,6 +107,8 @@ private:
                      randomButton { "RANDOM" }, resetButton { "RESET" };
     FreeformEditor freeformEditor;
     FreeformControls freeformControls;
+    MultiPointEditor travelEnvelope;
+    TravelPatternEditor travelPattern;
     std::vector<std::unique_ptr<ParamControl>> controls;   // in oscSettings' order where they appear
     std::vector<const char*> settingNames;                 // ...which setting each is
     std::vector<std::pair<juce::Rectangle<int>, juce::String>> sectionTitles;   // PITCH, START, NOISE, SUB, LEVEL

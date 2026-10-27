@@ -43,7 +43,10 @@ namespace ParamIDs
         "ModRate", "ModGrid", "ModLock",
         "FftSweep", "FftFlip", "FftLp", "FftHp", "FftSlope", "FftVSpeed", "FftVStrength",
         "Shp1", "Shp2", "Shp3", "Shp4",
-        "PitchEnv" };
+        "PitchEnv",
+        // Stage 4e: TRAVEL (its envelope, steps and strengths are kept with the preset, in the mod matrix).
+        "TrOn", "TrEditors", "TrTrigger", "TrMode", "TrPatternMode", "TrSteps", "TrStrength", "TrVelocity", "TrVelCurve",
+        "TrSmooth", "TrPhase", "TrFlip", "TrRate", "TrSync", "TrDivision" };
 
     // Where a setting is in oscSettings, worked out by the compiler (a typo won't compile).
     consteval int oscSetting (std::string_view what)

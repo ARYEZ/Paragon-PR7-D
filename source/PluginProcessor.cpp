@@ -263,6 +263,22 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
         for (int k = 0; k < synth::numShapers; ++k)
             o.toShaper[(size_t) k] = get (oscSetting ("Shp1") + k) > 0.5f;
         o.pitchEnvelope = get (oscSetting ("PitchEnv")) > 0.5f;
+        auto& tr = o.travel;   // TRAVEL (its envelope and steps are added per block)
+        tr.on = get (oscSetting ("TrOn")) > 0.5f;
+        tr.editors = (synth::travel::Editors) choice (get (oscSetting ("TrEditors")), synth::travel::editorNames.size());
+        tr.trigger = (synth::travel::Trigger) choice (get (oscSetting ("TrTrigger")), synth::travel::triggerNames.size());
+        tr.mode = (synth::travel::Mode) choice (get (oscSetting ("TrMode")), synth::travel::modeNames.size());
+        tr.patternMode = (synth::travel::Mode) choice (get (oscSetting ("TrPatternMode")), synth::travel::modeNames.size());
+        tr.steps = juce::roundToInt (get (oscSetting ("TrSteps")));
+        tr.strength = get (oscSetting ("TrStrength"));
+        tr.strengthVelocity = get (oscSetting ("TrVelocity"));
+        tr.velocityCurve = get (oscSetting ("TrVelCurve"));
+        tr.smooth = get (oscSetting ("TrSmooth"));
+        tr.phase = get (oscSetting ("TrPhase"));
+        tr.flip = get (oscSetting ("TrFlip")) > 0.5f;
+        tr.rateHz = get (oscSetting ("TrRate"));
+        tr.sync = (synth::mod::LfoSync) choice (get (oscSetting ("TrSync")), synth::mod::lfoSyncNames.size());
+        tr.division = choice (get (oscSetting ("TrDivision")), synth::mod::lfoDivisionNames.size());
 
         o.table = tablesForAudio[i].load();
         o.spectral = spectralForAudio[i].load();
@@ -514,6 +530,11 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
         {
             settings.pitch.shape = &compiled->pitchEnvelope;
             settings.stepSeq.pattern = &compiled->stepPattern;
+            for (size_t i = 0; i < settings.oscillators.size(); ++i)
+            {
+                settings.oscillators[i].travel.shape = &compiled->travelShapes[i];
+                settings.oscillators[i].travel.pattern = &compiled->travelPatterns[i];
+            }
             int count = 0;
             for (const auto& c : compiled->routes)
             {
@@ -623,6 +644,11 @@ void ParagonX1AudioProcessor::compileMatrix()
         compiled->lfoShapes[(size_t) k] = matrix.lfoShapes[(size_t) k].toShape();
     compiled->pitchEnvelope = matrix.pitchEnvelope.toShape();
     compiled->stepPattern = matrix.stepPattern;
+    for (size_t i = 0; i < matrix.travel.size(); ++i)
+    {
+        compiled->travelShapes[i] = matrix.travel[i].envelope.toShape();
+        compiled->travelPatterns[i] = matrix.travel[i].pattern;
+    }
     std::stable_sort (compiled->routes.begin(), compiled->routes.end(), [] (const CompiledRoute& a, const CompiledRoute& b)
     {
         return std::pair ((int) a.target.field, a.target.index) < std::pair ((int) b.target.field, b.target.index);

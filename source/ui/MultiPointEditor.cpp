@@ -30,6 +30,8 @@ ModShapeData MultiPointEditor::getShape() const
     const auto& matrix = processor.getModMatrix();
     if (kind == Kind::pitchEnvelope)
         return matrix.pitchEnvelope;
+    if (kind == Kind::travel)
+        return matrix.travel[(size_t) juce::jlimit (0, synth::numOscillators - 1, index)].envelope;
     return kind == Kind::envelope ? matrix.envelopes[(size_t) juce::jlimit (0, synth::mod::numEnvelopes - 1, index)]
                                   : matrix.lfoShapes[(size_t) juce::jlimit (0, synth::mod::numLfoShapes - 1, index)];
 }
@@ -39,6 +41,8 @@ void MultiPointEditor::setShape (const ModShapeData& shape, bool finished)
     auto matrix = processor.getModMatrix();
     if (kind == Kind::pitchEnvelope)
         matrix.pitchEnvelope = shape;
+    else if (kind == Kind::travel)
+        matrix.travel[(size_t) index].envelope = shape;
     else
         (kind == Kind::envelope ? matrix.envelopes[(size_t) index] : matrix.lfoShapes[(size_t) index]) = shape;
     processor.setModMatrix (matrix);
@@ -62,7 +66,7 @@ juce::Rectangle<float> MultiPointEditor::getPlotArea() const { return getLocalBo
 
 float MultiPointEditor::viewLength() const
 {
-    if (kind == Kind::lfoShape)
+    if (isCycle())
         return 1.0f;
     if (lockedLength > 0.0f)
         return lockedLength;
@@ -94,7 +98,7 @@ void MultiPointEditor::paint (juce::Graphics& g)
     const auto bounds = getLocalBounds().toFloat();
     DisplayStyle::drawScreen (g, bounds);
     const auto area = getPlotArea();
-    const auto envelope = kind != Kind::lfoShape;   // an envelope's time axis and flags (the PITCH envelope's too)
+    const auto envelope = ! isCycle();   // an envelope's time axis and flags (the PITCH envelope's too)
     const auto sync = kind == Kind::envelope && processor.getParameters().getRawParameterValue (ParamIDs::env (index, "Sync"))->load() > 0.5f;
 
     // Grid: time marks for an envelope, quarters of the cycle for an LFO shape.
@@ -195,8 +199,8 @@ void MultiPointEditor::mouseDown (const juce::MouseEvent& e)
         if (near < 0)
             return;
         juce::PopupMenu menu;
-        const auto envelope = kind != Kind::lfoShape;
-        const auto canDelete = (int) shown.points.size() > 2 && ! (kind == Kind::lfoShape && (near == 0 || near == (int) shown.points.size() - 1)) && near != 0;
+        const auto envelope = ! isCycle();
+        const auto canDelete = (int) shown.points.size() > 2 && ! (isCycle() && (near == 0 || near == (int) shown.points.size() - 1)) && near != 0;
         menu.addItem (1, "Delete this point", canDelete);
         if (envelope)
         {
@@ -262,15 +266,15 @@ void MultiPointEditor::mouseDrag (const juce::MouseEvent& e)
         const auto last = (int) shape.points.size() - 1;
         float x = xAt (e.position.x);
         const auto before = dragging > 0 ? shape.points[(size_t) dragging - 1].x : 0.0f;
-        const auto after = dragging < last ? shape.points[(size_t) dragging + 1].x : (kind == Kind::lfoShape ? 1.0f : maxEnvelopeLength);
+        const auto after = dragging < last ? shape.points[(size_t) dragging + 1].x : (isCycle() ? 1.0f : maxEnvelopeLength);
         x = juce::jlimit (before, after, x);
         if (dragging == 0)
             x = 0.0f;                                   // the start stays at the start
-        if (kind == Kind::lfoShape && dragging == last)
+        if (isCycle() && dragging == last)
             x = 1.0f;                                   // and a cycle ends at its end
         p.x = x;
         p.y = yAt (e.position.y);
-        if (kind == Kind::lfoShape && (dragging == 0 || dragging == last))
+        if (kind == Kind::lfoShape && (dragging == 0 || dragging == last))   // (TRAVEL's needn't: it can end anywhere)
             shape.points[dragging == 0 ? (size_t) last : 0].y = p.y;   // the cycle's ends meet, so it doesn't click
         setShape (shape, false);
     }
@@ -303,7 +307,7 @@ void MultiPointEditor::mouseDoubleClick (const juce::MouseEvent& e)
     if (near >= 0)
     {
         // Delete it (keeping at least two, the first, and an LFO shape's last).
-        if ((int) shape.points.size() <= 2 || near == 0 || (kind == Kind::lfoShape && near == (int) shape.points.size() - 1))
+        if ((int) shape.points.size() <= 2 || near == 0 || (isCycle() && near == (int) shape.points.size() - 1))
             return;
         shape.points.erase (shape.points.begin() + near);
         for (auto* flag : { &shape.sustain, &shape.loopStart, &shape.loopEnd })
@@ -316,7 +320,7 @@ void MultiPointEditor::mouseDoubleClick (const juce::MouseEvent& e)
     if ((int) shape.points.size() >= synth::mod::maxShapePoints)
         return;
     // Add one where clicked (after the last point too, for an envelope).
-    const auto x = juce::jmin (xAt (e.position.x), kind == Kind::lfoShape ? 1.0f : maxEnvelopeLength);
+    const auto x = juce::jmin (xAt (e.position.x), isCycle() ? 1.0f : maxEnvelopeLength);
     const auto y = yAt (e.position.y);
     auto at = (int) shape.points.size();
     for (int i = 0; i < (int) shape.points.size(); ++i)
@@ -325,7 +329,7 @@ void MultiPointEditor::mouseDoubleClick (const juce::MouseEvent& e)
             at = i;
             break;
         }
-    if (at == 0 || (kind == Kind::lfoShape && at == (int) shape.points.size()))
+    if (at == 0 || (isCycle() && at == (int) shape.points.size()))
         return;
     shape.points.insert (shape.points.begin() + at, { x, y, 0.0f });
     for (auto* flag : { &shape.sustain, &shape.loopStart, &shape.loopEnd })

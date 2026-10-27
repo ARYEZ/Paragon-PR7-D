@@ -21,6 +21,7 @@ namespace
     constexpr int stage4b = 9;   // 0.10.0
     constexpr int stage4c = 10;  // 0.11.0
     constexpr int stage4d = 11;  // 0.12.0
+    constexpr int stage4e = 12;  // 0.13.0
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -297,6 +298,24 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         for (int k = 0; k < numShapers; ++k)
             addSwitch (layout, osc (i, ParamIDs::oscSettings[ParamIDs::oscSetting ("Shp1") + k]),
                        name + "To Shaper " + juce::String (k + 1), defaults.toShaper[(size_t) k], stage3e);
+        // TRAVEL (stage 4e): its own movement through its wavetable.
+        const auto& tr = defaults.travel;
+        addSwitch (layout, osc (i, "TrOn"), name + "Travel On", tr.on, stage4e);
+        addChoice (layout, osc (i, "TrEditors"), name + "Travel Editors", synth::travel::editorNames, (int) tr.editors, stage4e);
+        addChoice (layout, osc (i, "TrTrigger"), name + "Travel Trigger", synth::travel::triggerNames, (int) tr.trigger, stage4e);
+        addChoice (layout, osc (i, "TrMode"), name + "Travel Mode", synth::travel::modeNames, (int) tr.mode, stage4e);
+        addChoice (layout, osc (i, "TrPatternMode"), name + "Travel Pattern Mode", synth::travel::modeNames, (int) tr.patternMode, stage4e);
+        add (layout, osc (i, "TrSteps"), name + "Travel Steps", { 1.0f, (float) synth::travel::maxSteps, 1.0f }, (float) tr.steps, asCount, stage4e);
+        add (layout, osc (i, "TrStrength"), name + "Travel Strength", { -1.0f, 1.0f }, tr.strength, asSignedPercent, stage4e);
+        add (layout, osc (i, "TrVelocity"), name + "Travel Strength Velocity", { 0.0f, 1.0f }, tr.strengthVelocity, asPercent, stage4e);
+        add (layout, osc (i, "TrVelCurve"), name + "Travel Velocity Curve", { -1.0f, 1.0f }, tr.velocityCurve, asSignedPercent, stage4e);
+        add (layout, osc (i, "TrSmooth"), name + "Travel Smooth", { 0.0f, 1.0f }, tr.smooth, asPercent, stage4e);
+        add (layout, osc (i, "TrPhase"), name + "Travel Phase", { 0.0f, 1.0f }, tr.phase, asPercent, stage4e);
+        addSwitch (layout, osc (i, "TrFlip"), name + "Travel Flip", tr.flip, stage4e);
+        add (layout, osc (i, "TrRate"), name + "Travel Speed", logRange (0.02, 40.0), tr.rateHz, asHz, stage4e);
+        addChoice (layout, osc (i, "TrSync"), name + "Travel Sync", synth::mod::lfoSyncNames, (int) tr.sync, stage4e);
+        addChoice (layout, osc (i, "TrDivision"), name + "Travel Sync Length", synth::mod::lfoDivisionNames, tr.division, stage4e);
+
         // Whether it follows the PITCH envelope (stage 4c).
         addSwitch (layout, osc (i, "PitchEnv"), name + "Pitch Envelope", defaults.pitchEnvelope, stage4c);
     }

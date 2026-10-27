@@ -310,6 +310,8 @@ private:
         std::array<synth::mod::Shape, synth::mod::numLfoShapes> lfoShapes {};
         synth::mod::Shape pitchEnvelope {};
         synth::seq::Pattern stepPattern {};
+        std::array<synth::mod::Shape, synth::numOscillators> travelShapes {};
+        std::array<synth::travel::Pattern, synth::numOscillators> travelPatterns {};
         std::uint32_t usedSources = 0;
     };
     std::shared_ptr<const CompiledMatrix> compiledMatrix;

@@ -205,7 +205,7 @@ void WavetableChooser::resized()
 OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
     : SynthPanel ("OSCILLATORS"), processor (processorToUse), state (processorToUse.getParameters()),
       tableChooser (processorToUse), wave (state), voicesDisplay (state), shapeDisplay (state), spectrumEditor (processorToUse),
-      freeformEditor (processorToUse), freeformControls (processorToUse)
+      freeformEditor (processorToUse), freeformControls (processorToUse), travelEnvelope (processorToUse), travelPattern (processorToUse)
 {
     for (int i = 0; i < ParamIDs::numOscillators; ++i)
     {
@@ -223,7 +223,7 @@ OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
     addChildComponent (tableChooser);
 
     // WAVE / SHAPE / FM / FFT / VOICES: which of the oscillator's pages shows.
-    for (auto* button : { &wavePageButton, &shapePageButton, &fmPageButton, &fftPageButton, &drawPageButton, &voicesPageButton })
+    for (auto* button : { &wavePageButton, &shapePageButton, &fmPageButton, &fftPageButton, &drawPageButton, &travelPageButton, &voicesPageButton })
     {
         button->setClickingTogglesState (true);
         button->setRadioGroupId (702);
@@ -245,6 +245,10 @@ OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
     fftPageButton.onClick = [this] { showPage (Page::fft); };
     drawPageButton.setTooltip ("Draw one cycle of the oscillator's wave by hand (FREEFORM)");
     drawPageButton.onClick = [this] { showPage (Page::draw); };
+    travelPageButton.setTooltip ("TRAVEL: the oscillator's own movement through its wavetable (an envelope, a pattern of steps, their strengths)");
+    travelPageButton.onClick = [this] { showPage (Page::travel); };
+    addChildComponent (travelEnvelope);
+    addChildComponent (travelPattern);
     addChildComponent (freeformEditor);
     addChildComponent (freeformControls);
 
@@ -345,6 +349,25 @@ OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
         { "FftVSpeed", { "VSPEED", "How fast the harmonics pulse, with VSTRENGTH." } },
         { "FftVStrength", { "VSTR", "How much the harmonics pulse: each one swells and fades at VSPEED, some against the others, for a sound that keeps moving." } },
 
+        // The TRAVEL page (stage 4e).
+        { "TrOn", { "ON", "TRAVEL on: the oscillator moves through its wavetable by itself, as drawn (only for WAVETABLE)." } },
+        { "TrEditors", { "EDITORS", "ENV: the envelope alone, a cycle each SPEED. ENV + SEQ: a pattern of steps, each playing the envelope its own way. "
+                                    "ENV + SEQ + MOD: each step with its own strength curve too." } },
+        { "TrTrigger", { "TRIGGER", "VOICE: every note its own, from its start. FIRST NOTE: one for all, started when you play with no other key down. "
+                                    "LAST NOTE: one for all, restarted by every note." } },
+        { "TrMode", { "MODE", "The envelope (ENV alone): LOOP round and round, PING PONG back and forth, ONE SHOT once, holding its end." } },
+        { "TrPatternMode", { "PATTERN", "The pattern (with SEQ): LOOP, PING PONG (backwards, steps and all) or ONE SHOT." } },
+        { "TrSteps", { "STEPS", "How many steps in the pattern: 1 to 16." } },
+        { "TrPhase", { "PHASE", "Where in the cycle (or the pattern) it starts: moves the rhythm." } },
+        { "TrFlip", { "FLIP", "The envelope upside down." } },
+        { "TrStrength", { "STRENGTH", "How far it moves INDEX: at 100% the envelope's bottom is INDEX and its top the last frame; below 0 it moves the other way." } },
+        { "TrVelocity", { "VELOCITY", "How much softer notes travel less far." } },
+        { "TrVelCurve", { "VEL CURVE", "VELOCITY's curve: left, even soft notes travel far; right, only hard ones do." } },
+        { "TrSmooth", { "SMOOTH", "Slows its moves (up to half a second), rounding jumps off." } },
+        { "TrRate", { "RATE", "With SYNC on FREE: cycles (or steps) a second." } },
+        { "TrSync", { "SYNC", "FREE runs at RATE; NOTE, TRIPLET and DOTTED follow the song's tempo at LENGTH." } },
+        { "TrDivision", { "LENGTH", "A cycle's (or step's) length in notes, at the song's tempo: 1/4 is a beat." } },
+
         // The VOICES page (stage 2).
         { "UniVoices", { "VOICES", "How many copies of each note, the note itself included (2 to 7)." } },
         { "UniMix", { "MIX", "The extra copies' level. At 0 unison is off and costs nothing; at 100% the copies are as loud as the note." } },
@@ -398,6 +421,12 @@ bool OscillatorPanel::isFreeform() const
     return waveParameter != nullptr && juce::roundToInt (waveParameter->load()) == (int) synth::OscWave::freeform;
 }
 
+bool OscillatorPanel::isTravelFree() const
+{
+    const auto* sync = state.getRawParameterValue (ParamIDs::osc (selected, "TrSync"));
+    return sync != nullptr && juce::roundToInt (sync->load()) == (int) synth::mod::LfoSync::free;
+}
+
 bool OscillatorPanel::isShown (const char* what) const
 {
     const juce::String name (what);
@@ -406,6 +435,10 @@ bool OscillatorPanel::isShown (const char* what) const
         return false;
     if (name.startsWith ("Wt"))
         return showingWavetable;
+    if (name == "TrRate")
+        return showingTravelFree;
+    if (name == "TrDivision")
+        return ! showingTravelFree;
     if (name == "Width")
         return ! showingWavetable && ! isFreeform();   // WIDTH shapes PULSE (and the basic waves' FFT copies), not a drawing
     return true;
@@ -415,6 +448,7 @@ void OscillatorPanel::updateVisibility()
 {
     showingWavetable = isWavetable();
     showingFreeform = isFreeform();
+    showingTravelFree = isTravelFree();
     for (size_t i = 0; i < controls.size(); ++i)
         controls[i]->setVisible (isShown (settingNames[i]));
     tableChooser.setVisible (page != Page::voices && showingWavetable);
@@ -425,7 +459,7 @@ void OscillatorPanel::updateVisibility()
 void OscillatorPanel::timerCallback()
 {
     // The WAVE menu (or automation, a preset, undo) can switch WAVETABLE on or off.
-    if (isWavetable() != showingWavetable || isFreeform() != showingFreeform)
+    if (isWavetable() != showingWavetable || isFreeform() != showingFreeform || isTravelFree() != showingTravelFree)
         updateVisibility();
     if (showingWavetable)
         tableChooser.refresh();
@@ -461,6 +495,8 @@ OscillatorPanel::Page OscillatorPanel::pageOf (const char* what) const
         return Page::fm;
     if (name.startsWith ("Fft"))
         return Page::fft;
+    if (name.startsWith ("Tr") && name != "Transpose")
+        return Page::travel;
     return Page::wave;
 }
 
@@ -468,7 +504,10 @@ void OscillatorPanel::showPage (Page newPage)
 {
     page = newPage;
     (page == Page::voices ? voicesPageButton : page == Page::shape ? shapePageButton : page == Page::fm ? fmPageButton
-     : page == Page::fft ? fftPageButton : page == Page::draw ? drawPageButton : wavePageButton).setToggleState (true, juce::dontSendNotification);
+     : page == Page::fft ? fftPageButton : page == Page::draw ? drawPageButton : page == Page::travel ? travelPageButton
+     : wavePageButton).setToggleState (true, juce::dontSendNotification);
+    travelEnvelope.setVisible (page == Page::travel);
+    travelPattern.setVisible (page == Page::travel);
     spectrumEditor.setVisible (page == Page::fft);
     freeformEditor.setVisible (page == Page::draw);
     freeformControls.setVisible (page == Page::draw);
@@ -501,6 +540,8 @@ void OscillatorPanel::selectOscillator (int index)
     spectrumEditor.setOscillator (selected);
     freeformEditor.setOscillator (selected);
     freeformControls.setOscillator (selected);
+    travelEnvelope.setTarget (MultiPointEditor::Kind::travel, selected);
+    travelPattern.setOscillator (selected);
     tableChooser.setOscillator (selected);
     updateVisibility();
 }
@@ -517,6 +558,8 @@ void OscillatorPanel::resized()
     // The tabs run along the title strip, right of the title; WAVE and VOICES at its end.
     auto tabStrip = getTitleArea().withTrimmedLeft (110).reduced (0, 5).withTrimmedTop (2);
     voicesPageButton.setBounds (tabStrip.removeFromRight (66));
+    tabStrip.removeFromRight (4);
+    travelPageButton.setBounds (tabStrip.removeFromRight (64));
     tabStrip.removeFromRight (4);
     drawPageButton.setBounds (tabStrip.removeFromRight (50));
     tabStrip.removeFromRight (4);
@@ -619,6 +662,27 @@ void OscillatorPanel::resized()
                               { "PULSE", { "FftVSpeed", "FftVStrength" } } });
         area.removeFromBottom (6);
         spectrumEditor.setBounds (area);
+        return;
+    }
+    if (page == Page::travel)
+    {
+        // Right: its switches and modes, the envelope beside the pattern, and STRENGTH and SPEED under them.
+        placeRow (area.removeFromTop (rowHeight), 8, { { "TRAVEL", { "TrOn", "TrEditors", "TrTrigger", "TrMode", "TrPatternMode", "TrSteps", "TrPhase", "TrFlip" } } });
+        {
+            // ON is only a light: EDITORS' long names take some of its width.
+            auto& on = control ("TrOn");
+            auto& editors = control ("TrEditors");
+            const auto spare = on.getWidth() - 40;
+            on.setSize (40, on.getHeight());
+            editors.setBounds (editors.getBounds().withLeft (editors.getX() - spare));
+        }
+        area.removeFromTop (6);
+        placeRow (area.removeFromBottom (rowHeight), 8, { { "STRENGTH", { "TrStrength", "TrVelocity", "TrVelCurve", "TrSmooth" } },
+                                                          { "SPEED", { "TrSync", showingTravelFree ? "TrRate" : "TrDivision" } } });
+        area.removeFromBottom (6);
+        travelEnvelope.setBounds (area.removeFromLeft (area.getWidth() * 2 / 5));
+        area.removeFromLeft (8);
+        travelPattern.setBounds (area);
         return;
     }
     if (page == Page::draw)

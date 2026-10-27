@@ -353,6 +353,7 @@ namespace synth
         modWheel = breath = expression = channelPressure = 0.0f;
         smoothedBend = 0.0f;
         seqClock = 0.0;
+        travelClock.fill (0.0);
         for (auto& lfo : globalLfos)
             lfo = {};
         for (auto& envelope : globalEnvelopes)
@@ -484,6 +485,13 @@ namespace synth
         const auto seqTrigger = settings.stepSeq.trigger;
         if (seqTrigger == seq::Trigger::lastNote || ((seqTrigger == seq::Trigger::firstNote || seqTrigger == seq::Trigger::song) && ! anyHeld))
             seqClock = 0.0;
+        // ...and each oscillator's TRAVEL set to FIRST NOTE or LAST NOTE.
+        for (size_t i = 0; i < travelClock.size(); ++i)
+        {
+            const auto trigger = settings.oscillators[i].travel.trigger;
+            if (trigger == travel::Trigger::lastNote || (trigger == travel::Trigger::firstNote && ! anyHeld))
+                travelClock[i] = 0.0;
+        }
         if (settings.play.mode == PlayMode::poly)
             polyNoteOn (note, velocity, settings);
         else
@@ -761,6 +769,9 @@ namespace synth
                 osc.vibratoPhase = 0.0f;
                 osc.vibratoHeld = random.nextFloat() * 2.0f - 1.0f;
                 osc.tableIndex = -1.0f;
+                osc.travelTime = 0.0;
+                osc.travelIndex = -1.0f;
+                osc.travelGain = 1.0f;
                 osc.pulsePhase = random.nextFloat();
                 osc.crushPrevious = 0.0f;
                 for (auto& c : osc.copies)
@@ -964,8 +975,13 @@ namespace synth
                 if (! voice.playing)
                     continue;
                 for (int done = 0, interval = 0; done < length && voice.playing; done += controlInterval, ++interval)
+                {
+                    intervalSeconds = done / sampleRate;
                     renderVoice (voice, left + start + done, right + start + done, juce::jmin (controlInterval, length - done), settings, interval);
+                }
             }
+            for (auto& clock : travelClock)
+                clock += length / sampleRate;
         }
         samplesIntoBlock += numSamples;
     }
@@ -1609,6 +1625,7 @@ namespace synth
             const auto increment = juce::jlimit (0.0f, 0.5f, hz / (float) sampleRate);
             const auto level = tables::levelFor (hz, sampleRate);
             WaveSource source;
+            auto travelTarget = 1.0f;   // TRAVEL's SILENCE steps: 0
             source.wave = s.wave;
             source.pulseWidth = juce::jlimit (0.01f, 0.99f, s.pulseWidth);
             auto audible = s.gain > 0.0f;
@@ -1628,12 +1645,30 @@ namespace synth
                 source.table = table;
                 if (s.wave == OscWave::wavetable)
                 {
+                    // TRAVEL: the oscillator's own movement through the table, from INDEX.
+                    auto wtIndex = s.tableIndex;
+                    if (s.travel.on)
+                    {
+                        const auto& t = s.travel;
+                        const auto seconds = t.trigger == travel::Trigger::voice ? osc.travelTime : travelClock[index] + intervalSeconds;
+                        const auto point = travel::at (t, seconds * t.periodsPerSecond (settings.modulation.bpm));
+                        const auto target = travel::indexFor (point, s.tableIndex, travel::strengthFor (t, voice.velocity));
+                        const auto tau = travel::smoothSeconds (t.smooth);
+                        if (osc.travelIndex < 0.0f || tau <= 0.0)
+                            osc.travelIndex = target;
+                        else
+                            osc.travelIndex += (target - osc.travelIndex) * (float) (1.0 - std::exp (-(double) n / (tau * sampleRate)));
+                        wtIndex = osc.travelIndex;
+                        travelTarget = point.silent ? 0.0f : 1.0f;
+                        osc.travelTime += (double) n / sampleRate;
+                    }
+
                     // INDEX: from where it was at the end of the last interval to where
                     // it is now, between the same two frames (if it crossed a frame,
                     // from the new pair's start: a step too small to hear).
-                    const auto from = osc.tableIndex < 0.0f ? s.tableIndex : osc.tableIndex;
-                    osc.tableIndex = s.tableIndex;
-                    const auto now = table->locate (s.tableIndex, s.tableFrames, s.tableSteppy);
+                    const auto from = osc.tableIndex < 0.0f ? wtIndex : osc.tableIndex;
+                    osc.tableIndex = wtIndex;
+                    const auto now = table->locate (wtIndex, s.tableFrames, s.tableSteppy);
                     const auto before = table->locate (from, s.tableFrames, s.tableSteppy);
                     source.below = now.below;
                     source.above = now.above;
@@ -1743,9 +1778,13 @@ namespace synth
 
             // FADE IN (or fading out after a newer note took this oscillator) and
             // VOLUME, once for every copy.
+            // TRAVEL's SILENCE: a fade to it (and back) over about a millisecond.
+            const auto travelFrom = osc.travelGain;
+            osc.travelGain = juce::jlimit (travelFrom - 0.33f, travelFrom + 0.33f, travelTarget);
+            const auto travelStep = (osc.travelGain - travelFrom) / (float) n;
             for (int i = 0; i < n; ++i)
             {
-                gains[(size_t) i] = osc.fade * s.volume;
+                gains[(size_t) i] = osc.fade * s.volume * (travelFrom + travelStep * (float) (i + 1));
                 if (! juce::exactlyEqual (osc.fadeStep, 0.0f))
                 {
                     osc.fade = juce::jlimit (0.0f, 1.0f, osc.fade + osc.fadeStep);

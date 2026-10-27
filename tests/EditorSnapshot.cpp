@@ -13,7 +13,7 @@
 //   PARAGON_SNAPSHOT_PAGE=presets    the preset browser (with two example user presets), or =settings
 //   PARAGON_SNAPSHOT_PRESET=name     that factory preset loaded
 //   PARAGON_SNAPSHOT_OSC=n           oscillator tab n (1 to 8) selected
-//   PARAGON_SNAPSHOT_OSCPAGE=voices  the oscillator's VOICES page (unison, vibrato, chorder); =shape its SHAPE page; =fm its FM page; =fft its FFT page; =draw its DRAW page
+//   PARAGON_SNAPSHOT_OSCPAGE=voices  the oscillator's VOICES page (unison, vibrato, chorder); =shape its SHAPE page; =fm its FM page; =fft its FFT page; =draw its DRAW page; =travel its TRAVEL page (PARAGON_SNAPSHOT_TRAVEL=1: oscillator 1 with a demo envelope and pattern)
 //   PARAGON_SNAPSHOT_FILTERPAGE=n     the FILTER panel's SHP n tab (shaper n's page)
 //   PARAGON_SNAPSHOT_FFT=band:dB,...  a curve drawn for oscillator 1; PARAGON_SNAPSHOT_FFT_VIEW=harmonic|bins
 //   PARAGON_SNAPSHOT_PARAMS=id=value,...   parameters set (real units)
@@ -71,6 +71,25 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
     REQUIRE (view != nullptr);
     if (const auto osc = env ("PARAGON_SNAPSHOT_OSC").getIntValue(); osc > 0)
         view->getOscillatorPanel().selectOscillator (osc - 1);
+    if (env ("PARAGON_SNAPSHOT_TRAVEL") == "1")
+    {
+        // Oscillator 1's TRAVEL with a drawn envelope, a pattern and strength curves.
+        auto matrix = processor.getModMatrix();
+        auto& t = matrix.travel[0];
+        t.envelope = { { { 0.0f, 0.0f, 0.0f }, { 0.3f, 1.0f, -0.4f }, { 0.7f, 0.35f, 0.3f }, { 1.0f, 0.8f, 0.0f } }, -1, -1, -1 };
+        using M = synth::travel::StepMode;
+        const synth::travel::Step steps[] = { { M::normal, 1.0f, 1 }, { M::normal, 2.0f, 1 }, { M::trigger, 4.0f, 1 }, { M::reverse, 1.0f, 1 },
+                                              { M::pingPongHalf, 2.0f, 2 }, { M::high, 1.0f, 1 }, { M::silence, 1.0f, 1 }, { M::low, 1.0f, 1 } };
+        for (int k = 0; k < 8; ++k)
+        {
+            t.pattern.steps[(size_t) k] = steps[k];
+            t.pattern.strength[(size_t) k] = { k % 2 == 0 ? 1.0f : 0.2f, 0.6f, k % 2 == 0 ? 0.3f : 1.0f, k == 4, k == 2 ? -0.6f : 0.0f };
+        }
+        processor.setModMatrix (matrix);
+        view->getOscillatorPanel().selectOscillator (0);
+    }
+    if (env ("PARAGON_SNAPSHOT_OSCPAGE") == "travel")
+        view->getOscillatorPanel().showPage (OscillatorPanel::Page::travel);
     if (env ("PARAGON_SNAPSHOT_OSCPAGE") == "voices")
         view->getOscillatorPanel().showPage (OscillatorPanel::Page::voices);
     if (env ("PARAGON_SNAPSHOT_OSCPAGE") == "shape")

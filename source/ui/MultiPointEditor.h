@@ -18,9 +18,11 @@ class MultiPointEditor final : public juce::Component,
 public:
     explicit MultiPointEditor (ParagonX1AudioProcessor&);
 
-    enum class Kind { envelope, lfoShape, pitchEnvelope };
+    enum class Kind { envelope, lfoShape, pitchEnvelope, travel };   // travel: an oscillator's TRAVEL envelope (stage 4e)
     void setTarget (Kind, int index);
     Kind getKind() const noexcept { return kind; }
+    // Across one cycle (x 0 to 1): a drawn LFO shape or a TRAVEL envelope.
+    bool isCycle() const noexcept { return kind == Kind::lfoShape || kind == Kind::travel; }
     int getIndex() const noexcept { return index; }
 
     void paint (juce::Graphics&) override;

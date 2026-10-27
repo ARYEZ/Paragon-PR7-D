@@ -450,5 +450,30 @@ std::vector<Rig> makeFactoryRigs()
     route (trance, "stepSeq", ParamIDs::fltCutoff, 0.15f);
     add (trance);
 
+    // TRAVEL (stage 4e).
+    Builder talking ("Talking Bass", 33, { "Bass", "Wavetable", "Travel" },
+                     "The Vowels table moved by TRAVEL in time with your song: an eight-step pattern in sixteenths "
+                     "(sweeps, quick retriggers, a reverse, a jump to the last vowel, a silent step), each with its own strength, so the bass talks. "
+                     "Mono, with a short glide.");
+    talking.osc (0, "Wave", wavetable).osc (0, "Table", table ("Vowels")).osc (0, "Volume", 0.7f).osc (0, "Sub", 0.5f)
+           .osc (0, "TrOn", 1.0f).osc (0, "TrEditors", (float) synth::travel::Editors::envSeqMod).osc (0, "TrSteps", 8.0f)
+           .osc (0, "TrDivision", 7.0f).osc (0, "TrSmooth", 0.12f)
+           .filter (FilterType::lp24, 2500.0f, 0.2f, 0.0f)
+           .ampEnvelope (2.0f, 300.0f, 1.0f, 120.0f)
+           .mono (30.0f);
+    {
+        auto& t = talking.rig.modulation.travel[0];
+        t.envelope = { { { 0.0f, 0.0f, 0.0f }, { 0.4f, 1.0f, -0.5f }, { 1.0f, 0.3f, 0.3f } }, -1, -1, -1 };
+        using M = synth::travel::StepMode;
+        const synth::travel::Step steps[] = { { M::normal, 1.0f, 1 }, { M::trigger, 2.0f, 1 }, { M::normal, 1.0f, 1 }, { M::reverse, 1.0f, 1 },
+                                              { M::normal, 2.0f, 1 }, { M::high, 1.0f, 1 }, { M::silence, 1.0f, 1 }, { M::pingPongHalf, 1.0f, 1 } };
+        for (int k = 0; k < 8; ++k)
+        {
+            t.pattern.steps[(size_t) k] = steps[k];
+            t.pattern.strength[(size_t) k] = { 1.0f, 1.0f, k % 2 == 0 ? 0.4f : 1.0f, false, -0.4f };
+        }
+    }
+    add (talking);
+
     return rigs;
 }

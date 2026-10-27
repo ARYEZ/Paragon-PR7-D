@@ -17,6 +17,7 @@ add_executable(ParagonX1Tests
     EnvelopeModTests.cpp
     PitchModuleTests.cpp
     StepSeqTests.cpp
+    TravelTests.cpp
     ProcessorTests.cpp
     RigTests.cpp
     UiTests.cpp

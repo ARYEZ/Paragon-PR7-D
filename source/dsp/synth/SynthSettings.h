@@ -5,6 +5,7 @@
 #include "Shaper.h"
 #include "Modulation.h"
 #include "StepSequencer.h"
+#include "WtTravel.h"
 
 #include <array>
 
@@ -147,6 +148,8 @@ namespace synth
         float tableIndex = 0.0f;
         bool tableSteppy = false;
         int tableFrames = maxWavetableFrames;
+        // TRAVEL (stage 4e): the oscillator's own movement through its wavetable.
+        TravelSettings travel;
 
         // SHAPE (stage 3b): bending the wave as it plays (see WaveBend.h). All
         // at 0: off, costing nothing.

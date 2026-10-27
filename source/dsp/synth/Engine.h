@@ -100,6 +100,8 @@ namespace synth
             float modPhase = 0.0f, lastX = 0.0f;             // ...and its modulator and last read, as Copy's
             int syncAge = 0;                                 // samples since the note started, for SYNC's envelope
             float pulsePhase = 0.0f;                         // FFT VSPEED's swing between the two edited copies
+            double travelTime = 0.0;                         // TRAVEL (stage 4e): seconds since the note started (VOICE)...
+            float travelIndex = -1.0f, travelGain = 1.0f;    // ...where SMOOTH has it (-1: not yet), and SILENCE's fade
             std::array<Copy, maxCopies> copies;
         };
 
@@ -266,6 +268,11 @@ namespace synth
         std::array<std::array<float, maxIntervals * controlInterval>, 2> seqValues {};
         std::array<float, controlInterval> seqLeft {}, seqRight {};
         float seqDepth (double age, const StepSeqSettings&) const noexcept;   // DELAY and FADE IN, 0 to 1
+
+        // TRAVEL (stage 4e): each oscillator's clock for FIRST NOTE and LAST NOTE (seconds),
+        // and how far into the render piece the interval being rendered starts.
+        std::array<double, numOscillators> travelClock {};
+        double intervalSeconds = 0.0;
         Settings voiceSettings;
     };
 }

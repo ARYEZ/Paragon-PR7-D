@@ -2,7 +2,7 @@
 
 #include <juce_core/juce_core.h>
 
-#include "dsp/synth/Modulation.h"
+#include "dsp/synth/SynthSettings.h"
 
 #include <vector>
 
@@ -108,6 +108,66 @@ struct ModShapeData
     }
 };
 
+// An oscillator's TRAVEL (stage 4e) as presets keep it: its envelope (x 0 to 1
+// across a cycle, y the place in the wavetable) and its pattern's steps and strengths.
+struct TravelData
+{
+    ModShapeData envelope = defaultEnvelope();
+    synth::travel::Pattern pattern {};
+
+    // A new one: a straight ramp from the first frame to the last.
+    static ModShapeData defaultEnvelope() { return { { { 0.0f, 0.0f, 0.0f }, { 1.0f, 1.0f, 0.0f } }, -1, -1, -1 }; }
+    bool operator== (const TravelData& o) const noexcept { return envelope == o.envelope && pattern == o.pattern; }
+    bool isDefault() const noexcept { return *this == TravelData {}; }
+
+    // The steps as text: "mode:iterations:length" each; the strengths "start:middle:end:hasMiddle:curve" each.
+    juce::String encodeSteps() const
+    {
+        juce::StringArray items;
+        for (const auto& s : pattern.steps)
+            items.add (juce::String ((int) s.mode) + ":" + juce::String (s.iterations, 1) + ":" + juce::String (s.length));
+        return items.joinIntoString (" ");
+    }
+    juce::String encodeStrength() const
+    {
+        juce::StringArray items;
+        for (const auto& s : pattern.strength)
+            items.add (juce::String (s.start, 3) + ":" + juce::String (s.middle, 3) + ":" + juce::String (s.end, 3) + ":"
+                       + (s.hasMiddle ? "1" : "0") + ":" + juce::String (s.curve, 3));
+        return items.joinIntoString (" ");
+    }
+    void decodeSteps (const juce::String& text)
+    {
+        const auto items = juce::StringArray::fromTokens (text, " ", {});
+        for (int i = 0; i < juce::jmin (items.size(), synth::travel::maxSteps); ++i)
+        {
+            const auto parts = juce::StringArray::fromTokens (items[i], ":", {});
+            if (parts.size() != 3)
+                continue;
+            auto& s = pattern.steps[(size_t) i];
+            s.mode = (synth::travel::StepMode) juce::jlimit (0, synth::travel::stepModeNames.size() - 1, parts[0].getIntValue());
+            s.iterations = synth::travel::clampIterations (parts[1].getFloatValue());
+            s.length = juce::jlimit (1, 2, parts[2].getIntValue());
+        }
+    }
+    void decodeStrength (const juce::String& text)
+    {
+        const auto items = juce::StringArray::fromTokens (text, " ", {});
+        for (int i = 0; i < juce::jmin (items.size(), synth::travel::maxSteps); ++i)
+        {
+            const auto parts = juce::StringArray::fromTokens (items[i], ":", {});
+            if (parts.size() != 5)
+                continue;
+            auto& s = pattern.strength[(size_t) i];
+            s.start = juce::jlimit (0.0f, 1.0f, parts[0].getFloatValue());
+            s.middle = juce::jlimit (0.0f, 1.0f, parts[1].getFloatValue());
+            s.end = juce::jlimit (0.0f, 1.0f, parts[2].getFloatValue());
+            s.hasMiddle = parts[3].getIntValue() != 0;
+            s.curve = juce::jlimit (-1.0f, 1.0f, parts[4].getFloatValue());
+        }
+    }
+};
+
 struct ModMatrix
 {
     std::vector<ModRouteData> routes;
@@ -119,6 +179,8 @@ struct ModMatrix
     ModShapeData pitchEnvelope = ModShapeData::defaultPitchEnvelope();
     // The STEP SEQUENCER's steps (stage 4d): new, every step on at full height, none linked.
     synth::seq::Pattern stepPattern {};
+    // Each oscillator's TRAVEL (stage 4e).
+    std::array<TravelData, synth::numOscillators> travel {};
 
     template <int N>
     static std::array<ModShapeData, (size_t) N> filled (const ModShapeData& d)
@@ -131,7 +193,7 @@ struct ModMatrix
     bool operator== (const ModMatrix& o) const noexcept
     {
         return routes == o.routes && macroNames == o.macroNames && envelopes == o.envelopes && lfoShapes == o.lfoShapes
-            && pitchEnvelope == o.pitchEnvelope && stepPattern == o.stepPattern;
+            && pitchEnvelope == o.pitchEnvelope && stepPattern == o.stepPattern && travel == o.travel;
     }
     bool isEmpty() const noexcept { return *this == ModMatrix {}; }
 
@@ -183,6 +245,17 @@ struct ModMatrix
             e->setAttribute ("left", encodeRow (stepPattern.rows[0]));
             e->setAttribute ("right", encodeRow (stepPattern.rows[1]));
         }
+        for (int i = 0; i < synth::numOscillators; ++i)
+        {
+            const auto& t = travel[(size_t) i];
+            if (t.isDefault())
+                continue;
+            auto* e = xml->createNewChildElement ("Travel");
+            e->setAttribute ("index", i + 1);
+            e->setAttribute ("points", t.envelope.encode());
+            e->setAttribute ("steps", t.encodeSteps());
+            e->setAttribute ("strength", t.encodeStrength());
+        }
         return xml;
     }
 
@@ -223,6 +296,16 @@ struct ModMatrix
         {
             m.stepPattern.rows[0] = decodeRow (e->getStringAttribute ("left"));
             m.stepPattern.rows[1] = decodeRow (e->getStringAttribute ("right"));
+        }
+        for (const auto* e : xml.getChildWithTagNameIterator ("Travel"))
+        {
+            const auto index = e->getIntAttribute ("index") - 1;
+            if (index < 0 || index >= synth::numOscillators)
+                continue;
+            auto& t = m.travel[(size_t) index];
+            t.envelope = ModShapeData::decode (e->getStringAttribute ("points"), -1, -1, -1, true);
+            t.decodeSteps (e->getStringAttribute ("steps"));
+            t.decodeStrength (e->getStringAttribute ("strength"));
         }
         return m;
     }
