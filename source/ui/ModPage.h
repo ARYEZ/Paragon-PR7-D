@@ -3,11 +3,12 @@
 #include "PluginProcessor.h"
 #include "ui/SynthControls.h"
 #include "ui/MultiPointEditor.h"
+#include "ui/StepSeqEditor.h"
 #include "ui/SynthDisplays.h"
 
 // The MOD page (stage 4a; envelopes and drawn shapes 4b):
 //
-//   MODULATORS: LFO 1-4 | ENV 1-8 | SHAPE 1-3, a picture or editor and its controls
+//   MODULATORS: LFO 1-4 | ENV 1-8 | SHAPE 1-3 | PITCH | STEP, a picture or editor and its controls
 //   MACROS: three knobs (renamed by double-clicking),  |  MATRIX: one row per route
 //   two buttons, an on-screen MOD WHEEL                |
 
@@ -25,7 +26,7 @@ private:
     int lfo = 0;
 };
 
-// MODULATORS: the LFOs, the modulation envelopes, the drawn LFO shapes and the PITCH module,
+// MODULATORS: the LFOs, the modulation envelopes, the drawn LFO shapes, the PITCH module and the STEP SEQUENCER,
 // a tab each (one set of controls, pointed at the tab chosen): a picture or
 // editor on the left, its controls on the right.
 class ModulatorPanel final : public SynthPanel,
@@ -33,14 +34,16 @@ class ModulatorPanel final : public SynthPanel,
 {
 public:
     explicit ModulatorPanel (ParagonX1AudioProcessor&);
-    enum class Kind { lfo, envelope, shape, pitch };
+    enum class Kind { lfo, envelope, shape, pitch, step };
     void selectLfo (int index) { select (Kind::lfo, index); }
     void selectEnvelope (int index) { select (Kind::envelope, index); }
     void selectShape (int index) { select (Kind::shape, index); }
     void selectPitch() { select (Kind::pitch, 0); }
+    void selectStepSeq() { select (Kind::step, 0); }
     Kind getKind() const noexcept { return kind; }
     int getSelected() const noexcept { return selected; }
     MultiPointEditor& getEditor() noexcept { return editor; }
+    StepSeqEditor& getStepEditor() noexcept { return stepEditor; }
     void resized() override;
     void paint (juce::Graphics&) override;
 
@@ -56,12 +59,17 @@ private:
     std::vector<Tab> tabs;
     LfoDisplay display;
     MultiPointEditor editor;
+    StepSeqEditor stepEditor;
     ParamControl wave, sync, rate, division, trigger, phase, offset, delay, fadeIn, oneShot;
     ParamControl envMode, envTrigger, envSync, envSpeed, envSteps, envFlip, envOffset;
     // The PITCH module (stage 4c), and which oscillators follow its envelope.
     ParamControl pitchOn, pitchMode, pitchSpeed, pitchRange, pitchSteps, pitchFlip, keytrack, bendLag, glideCurve, glideSplit;
     std::vector<std::unique_ptr<ParamControl>> pitchRoutes;
     juce::Label pitchRouteLabel;
+    // The STEP SEQUENCER (stage 4d).
+    ParamControl seqOn, seqTrigger, seqSpeed, seqTiming, seqMode, seqLength, seqGate, seqContour,
+                 seqDecay, seqVolMix, seqWidth, shuffle, seqDelay, seqFadeIn, seqLowKey, seqHighKey;
+    std::vector<ParamControl*> seqControls() noexcept;
     juce::ComboBox startFromBox;
     juce::Label startFromLabel, hint;
     Kind kind = Kind::lfo;

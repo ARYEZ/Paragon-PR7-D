@@ -103,6 +103,33 @@ namespace
     // START FROM: shapes to begin an envelope or a drawn LFO shape from.
     const juce::StringArray envelopeStarts { "Attack, decay, sustain, release", "Ramp up", "Ramp down", "Pluck", "Swell", "Gate (1 beat)", "Wobble (loop)" };
     const juce::StringArray lfoShapeStarts { "Triangle", "Ramp up", "Ramp down", "Square", "Steps (4)", "Bounce", "Spike" };
+    const juce::StringArray stepStarts { "Trance gate (every step)", "Off-beats", "On the beats", "3 + 3 + 2", "Accents", "Rise", "Fall",
+                                         "Long and short (linked)", "Ping-pong (STEREO)" };
+
+    synth::seq::Pattern stepStart (int choice)
+    {
+        synth::seq::Pattern pattern;
+        for (int row = 0; row < 2; ++row)
+            for (int k = 0; k < synth::seq::maxSteps; ++k)
+            {
+                auto& step = pattern.rows[(size_t) row][(size_t) k];
+                const auto beat = k % 4, eighth = k % 8;
+                switch (choice)
+                {
+                    case 1: step.on = (k & 1) != 0; break;
+                    case 2: step.on = beat == 0; break;
+                    case 3: step.on = eighth == 0 || eighth == 3 || eighth == 6; break;
+                    case 4: step.level = beat == 0 ? 1.0f : beat == 2 ? 0.65f : 0.4f; break;
+                    case 5: step.level = 0.1f + 0.9f * (float) (k % 16) / 15.0f; break;
+                    case 6: step.level = 1.0f - 0.9f * (float) (k % 16) / 15.0f; break;
+                    case 7: step.tied = beat == 0; step.on = beat != 3; break;
+                    case 8: step.on = (k & 1) == row; break;
+                    default: break;
+                }
+            }
+        return pattern;
+    }
+
     const juce::StringArray pitchStarts { "Drop (150 ms)", "Kick drop", "Rise", "Fall away", "Arpeggio steps", "Wobble (loop)", "Flat (none)" };
 
     ModShapeData pitchStart (int choice)
@@ -154,7 +181,7 @@ namespace
 }
 
 ModulatorPanel::ModulatorPanel (ParagonX1AudioProcessor& p)
-    : SynthPanel ({}), state (p.getParameters()), processor (p), display (p.getParameters()), editor (p),
+    : SynthPanel ({}), state (p.getParameters()), processor (p), display (p.getParameters()), editor (p), stepEditor (p),
       wave (state, ParamIDs::lfo (0, "Wave"), "WAVE", "The LFO's shape. S&H holds a random level for each cycle; SMOOTH RND glides between random levels; "
                                                      "CUSTOM 1 to 3 are the shapes drawn on the SHAPE tabs."),
       sync (state, ParamIDs::lfo (0, "Sync"), "SYNC", "FREE runs at RATE in Hz; NOTE, TRIPLET and DOTTED follow the song's tempo at LENGTH."),
@@ -191,7 +218,25 @@ ModulatorPanel::ModulatorPanel (ParagonX1AudioProcessor& p)
       bendLag (state, ParamIDs::bendLag, "BEND LAG", "Smooths the pitch wheel (and its automation), so steps in it glide."),
       glideCurve (state, ParamIDs::glideCurve, "GLIDE CURVE", "The glide's path: 0 straight; below 0 it gets most of the way at once and settles "
                                                              "(a siren's swoop); above 0 it starts slowly. GLIDE's time is on the PLAY panel."),
-      glideSplit (state, ParamIDs::glideSplit, "GLIDE SPLIT", "Notes below this one never glide, nor are glided from: a bass line under a gliding lead. Off: every note.")
+      glideSplit (state, ParamIDs::glideSplit, "GLIDE SPLIT", "Notes below this one never glide, nor are glided from: a bass line under a gliding lead. Off: every note."),
+      seqOn (state, ParamIDs::seqOn, "ON", "The trance gate: the steps cut the volume (by VOL MIX). The step sequencer is also a source in the matrix, STEP SEQ, on or off."),
+      seqTrigger (state, ParamIDs::seqTrigger, "TRIGGER", "SONG: in step with your song while it plays (from the first note when it's stopped). "
+                                                         "VOICE: every note its own, from its start. FIRST NOTE: one, started when you play with no other key down. "
+                                                         "LAST NOTE: one, restarted by every note."),
+      seqSpeed (state, ParamIDs::seqDivision, "SPEED", "How long a step is, in notes at the song's tempo (1/16: a sixteenth)."),
+      seqTiming (state, ParamIDs::seqTiming, "TIMING", "Straight, triplet (two thirds as long) or dotted (half as long again) steps."),
+      seqMode (state, ParamIDs::seqMode, "MODE", "MONO: one row of steps. STEREO: two, the top for the left channel and the bottom for the right."),
+      seqLength (state, ParamIDs::seqLength, "LENGTH", "How many steps before it starts over: 2 to 32."),
+      seqGate (state, ParamIDs::seqGate, "GATE", "How much of each step it's open (with linked steps, of the last one)."),
+      seqContour (state, ParamIDs::seqContour, "CONTOUR", "Softens the steps' edges, from hard (0%) to a fade of up to half a step, so nothing clicks."),
+      seqDecay (state, ParamIDs::seqDecay, "DECAY", "Each block falls away after it opens: the time it takes to fade out. OFF: it holds."),
+      seqVolMix (state, ParamIDs::seqVolMix, "VOL MIX", "How deep the gate cuts the volume: 100% to silence between steps, 0% not at all (the matrix source still runs)."),
+      seqWidth (state, ParamIDs::seqWidth, "WIDTH", "In STEREO: the two rows fully apart (100%) to the same, their mix (0%)."),
+      shuffle (state, ParamIDs::shuffle, "SHUFFLE", "Swing: every second step starts late, up to half a step (75% swing). Shared with the arpeggiator and drums when they come."),
+      seqDelay (state, ParamIDs::seqDelay, "DELAY", "How long after a note starts before the gate comes in."),
+      seqFadeIn (state, ParamIDs::seqFadeIn, "FADE IN", "How long it takes to come in fully, after DELAY."),
+      seqLowKey (state, ParamIDs::seqLowKey, "START NOTE", "The lowest note it plays on: notes outside START NOTE to END NOTE are left alone."),
+      seqHighKey (state, ParamIDs::seqHighKey, "END NOTE", "The highest note it plays on.")
 {
     const auto addTab = [this] (Kind k, int i, const juce::String& text, const juce::String& tip)
     {
@@ -211,6 +256,10 @@ ModulatorPanel::ModulatorPanel (ParagonX1AudioProcessor& p)
     for (int k = 0; k < synth::mod::numLfoShapes; ++k)
         addTab (Kind::shape, k, juce::String (k + 1), "Drawn LFO shape " + juce::String (k + 1) + " (an LFO's WAVE: CUSTOM " + juce::String (k + 1) + ")");
     addTab (Kind::pitch, 0, "PITCH", "The PITCH module: a pitch envelope, keytrack, bend lag and the glide's curve and split");
+    addTab (Kind::step, 0, "STEP", "The STEP SEQUENCER: a trance gate, and STEP SEQ in the matrix");
+    addChildComponent (stepEditor);
+    for (auto* control : seqControls())
+        addChildComponent (control);
     for (int i = 0; i < ParamIDs::numOscillators; ++i)
     {
         pitchRoutes.push_back (std::make_unique<ParamControl> (state, ParamIDs::osc (i, "PitchEnv"), juce::String (i + 1),
@@ -254,6 +303,12 @@ ModulatorPanel::ModulatorPanel (ParagonX1AudioProcessor& p)
     startTimerHz (8);
 }
 
+std::vector<ParamControl*> ModulatorPanel::seqControls() noexcept
+{
+    return { &seqOn, &seqTrigger, &seqSpeed, &seqTiming, &seqMode, &seqLength, &seqGate, &seqContour,
+             &seqDecay, &seqVolMix, &seqWidth, &shuffle, &seqDelay, &seqFadeIn, &seqLowKey, &seqHighKey };
+}
+
 bool ModulatorPanel::isSynced() const
 {
     return kind == Kind::lfo
@@ -288,7 +343,7 @@ void ModulatorPanel::select (Kind newKind, int index)
     }
     else if (kind == Kind::pitch)
         editor.setTarget (MultiPointEditor::Kind::pitchEnvelope, 0);
-    else
+    else if (kind == Kind::shape)
         editor.setTarget (MultiPointEditor::Kind::lfoShape, selected);
     const auto pitch = kind == Kind::pitch;
     for (auto* control : { &pitchOn, &pitchMode, &pitchSpeed, &pitchRange, &pitchSteps, &pitchFlip, &keytrack, &bendLag, &glideCurve, &glideSplit })
@@ -296,6 +351,10 @@ void ModulatorPanel::select (Kind newKind, int index)
     for (auto& route : pitchRoutes)
         route->setVisible (pitch);
     pitchRouteLabel.setVisible (pitch);
+    const auto step = kind == Kind::step;
+    for (auto* control : seqControls())
+        control->setVisible (step);
+    stepEditor.setVisible (step);
 
     showingSync = isSynced();
     display.setVisible (lfo);
@@ -305,13 +364,15 @@ void ModulatorPanel::select (Kind newKind, int index)
     division.setVisible (lfo && showingSync);
     for (auto* control : { &envMode, &envTrigger, &envSync, &envSpeed, &envSteps, &envFlip, &envOffset })
         control->setVisible (envelope);
-    editor.setVisible (! lfo);
+    editor.setVisible (! lfo && ! step);
     startFromBox.setVisible (! lfo);
     startFromLabel.setVisible (! lfo);
     hint.setVisible (! lfo && ! pitch);
     startFromBox.clear (juce::dontSendNotification);
-    startFromBox.addItemList (envelope ? envelopeStarts : pitch ? pitchStarts : lfoShapeStarts, 1);
-    hint.setText (envelope ? "ENV " + juce::String (selected + 1) + " is a source in the matrix. Double-click to add points, drag lines to curve them, "
+    startFromBox.addItemList (envelope ? envelopeStarts : pitch ? pitchStarts : step ? stepStarts : lfoShapeStarts, 1);
+    hint.setText (step ? juce::String ("STEP SEQ is a source in the matrix too. Click a step to set its height (drag across to draw), "
+                                       "right-click to delete it, click the arrow under it to link it to the next.")
+                  : envelope ? "ENV " + juce::String (selected + 1) + " is a source in the matrix. Double-click to add points, drag lines to curve them, "
                                  "right-click a point for SUSTAIN and LOOP."
                            : "Choose CUSTOM " + juce::String (selected + 1) + " as an LFO's WAVE to play this shape. Double-click to add points, "
                                  "drag lines to curve them. The ends meet, so it loops without a click.",
@@ -322,6 +383,11 @@ void ModulatorPanel::select (Kind newKind, int index)
 
 void ModulatorPanel::startFrom (int choice)
 {
+    if (kind == Kind::step)
+    {
+        stepEditor.setPattern (stepStart (choice), true);
+        return;
+    }
     editor.setShape (kind == Kind::envelope ? envelopeStart (choice) : kind == Kind::pitch ? pitchStart (choice) : lfoShapeStart (choice), true);
 }
 
@@ -339,7 +405,7 @@ void ModulatorPanel::paint (juce::Graphics& g)
     g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
     g.setColour (ParagonColours::text);
     for (const auto& [group, name] : { std::pair { Kind::lfo, "LFO" }, std::pair { Kind::envelope, "ENV" }, std::pair { Kind::shape, "SHAPE" },
-                                       std::pair { Kind::pitch, "" } })
+                                       std::pair { Kind::pitch, "" }, std::pair { Kind::step, "" } })
         for (const auto& tab : tabs)
             if (tab.kind == group && tab.index == 0)
             {
@@ -358,18 +424,19 @@ void ModulatorPanel::resized()
     {
         if (tab.kind != last)
         {
-            strip.removeFromLeft (64);
+            strip.removeFromLeft (tab.kind == Kind::step ? 0 : 64);
             last = tab.kind;
         }
-        tab.button->setBounds (strip.removeFromLeft (tab.kind == Kind::pitch ? 64 : 32));
+        tab.button->setBounds (strip.removeFromLeft (tab.kind == Kind::pitch || tab.kind == Kind::step ? 64 : 32));
         strip.removeFromLeft (4);
     }
 
     auto area = getContentArea().withTrimmedTop (6);
-    auto controls = area.removeFromRight (520);
+    auto controls = area.removeFromRight (kind == Kind::step ? 656 : 520);
     area.removeFromRight (12);
     display.setBounds (area);
     editor.setBounds (area);
+    stepEditor.setBounds (area);
 
     const auto h = ParamControl::knobHeight;
     controls.removeFromTop (4);
@@ -391,6 +458,19 @@ void ModulatorPanel::resized()
         startFromBox.setBounds (startArea.removeFromTop (30).reduced (4, 2));
         controls.removeFromTop (10);
         hint.setBounds (controls.reduced (6, 0));
+        return;
+    }
+    if (kind == Kind::step)
+    {
+        SynthPanel::layoutRow (controls.removeFromTop (h), { &seqOn, &seqTrigger, &seqSpeed, &seqTiming, &seqMode, &seqLength, &seqGate, &seqContour }, 0);
+        controls.removeFromTop (6);
+        SynthPanel::layoutRow (controls.removeFromTop (h), { &seqDecay, &seqVolMix, &seqWidth, &shuffle, &seqDelay, &seqFadeIn, &seqLowKey, &seqHighKey }, 0);
+        controls.removeFromTop (8);
+        auto row = controls.removeFromTop (28);
+        auto startArea = row.removeFromRight (260);
+        startFromLabel.setBounds (startArea.removeFromLeft (80));
+        startFromBox.setBounds (startArea.reduced (0, 1));
+        hint.setBounds (row.withHeight (juce::jmax (row.getHeight(), controls.getHeight() + row.getHeight())).reduced (4, 0));
         return;
     }
     if (kind == Kind::pitch)

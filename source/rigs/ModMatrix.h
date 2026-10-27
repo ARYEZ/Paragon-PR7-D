@@ -117,6 +117,8 @@ struct ModMatrix
     std::array<ModShapeData, synth::mod::numLfoShapes> lfoShapes = filled<synth::mod::numLfoShapes> (ModShapeData::defaultLfoShape());
     // The PITCH module's envelope (stage 4c).
     ModShapeData pitchEnvelope = ModShapeData::defaultPitchEnvelope();
+    // The STEP SEQUENCER's steps (stage 4d): new, every step on at full height, none linked.
+    synth::seq::Pattern stepPattern {};
 
     template <int N>
     static std::array<ModShapeData, (size_t) N> filled (const ModShapeData& d)
@@ -129,7 +131,7 @@ struct ModMatrix
     bool operator== (const ModMatrix& o) const noexcept
     {
         return routes == o.routes && macroNames == o.macroNames && envelopes == o.envelopes && lfoShapes == o.lfoShapes
-            && pitchEnvelope == o.pitchEnvelope;
+            && pitchEnvelope == o.pitchEnvelope && stepPattern == o.stepPattern;
     }
     bool isEmpty() const noexcept { return *this == ModMatrix {}; }
 
@@ -175,6 +177,12 @@ struct ModMatrix
                 addShape ("LfoShape", i, lfoShapes[(size_t) i]);
         if (! (pitchEnvelope == ModShapeData::defaultPitchEnvelope()))
             addShape ("PitchEnvelope", 0, pitchEnvelope);
+        if (! (stepPattern == synth::seq::Pattern {}))
+        {
+            auto* e = xml->createNewChildElement ("StepSeq");
+            e->setAttribute ("left", encodeRow (stepPattern.rows[0]));
+            e->setAttribute ("right", encodeRow (stepPattern.rows[1]));
+        }
         return xml;
     }
 
@@ -211,6 +219,34 @@ struct ModMatrix
         if (const auto* e = xml.getChildByName ("PitchEnvelope"))
             m.pitchEnvelope = ModShapeData::decode (e->getStringAttribute ("points"), e->getIntAttribute ("sustain", -1),
                                                     e->getIntAttribute ("loopStart", -1), e->getIntAttribute ("loopEnd", -1), false);
+        if (const auto* e = xml.getChildByName ("StepSeq"))
+        {
+            m.stepPattern.rows[0] = decodeRow (e->getStringAttribute ("left"));
+            m.stepPattern.rows[1] = decodeRow (e->getStringAttribute ("right"));
+        }
         return m;
+    }
+
+    // A row of steps as text: "height[flags] ...", flags "-" deleted, ">" linked to the next.
+    static juce::String encodeRow (const synth::seq::Row& row)
+    {
+        juce::StringArray items;
+        for (const auto& step : row)
+            items.add (juce::String (step.level, 3) + (step.on ? "" : "-") + (step.tied ? ">" : ""));
+        return items.joinIntoString (" ");
+    }
+    static synth::seq::Row decodeRow (const juce::String& text)
+    {
+        synth::seq::Row row {};
+        const auto items = juce::StringArray::fromTokens (text, " ", {});
+        for (int i = 0; i < juce::jmin (items.size(), synth::seq::maxSteps); ++i)
+        {
+            const auto& item = items[i];
+            auto& step = row[(size_t) i];
+            step.level = juce::jlimit (0.0f, 1.0f, item.getFloatValue());
+            step.on = ! item.containsChar ('-');
+            step.tied = item.containsChar ('>');
+        }
+        return row;
     }
 };

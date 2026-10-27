@@ -29,16 +29,18 @@ namespace synth
                             // 0.10.0: the modulation envelopes
                             env1, env2, env3, env4, env5, env6, env7, env8,
                             // 0.11.0: the PITCH module's envelope (-1 to 1)
-                            pitchEnvelope };
-        inline constexpr int numSources = 28;
+                            pitchEnvelope,
+                            // 0.12.0: the STEP SEQUENCER (0 to 1)
+                            stepSeq };
+        inline constexpr int numSources = 29;
         inline constexpr std::array<const char*, numSources> sourceIds {
             "none", "lfo1", "lfo2", "lfo3", "lfo4", "macro1", "macro2", "macro3", "button1", "button2",
             "modWheel", "pitchBend", "velocity", "aftertouch", "keytrack", "breath", "expression", "sustain", "random",
-            "env1", "env2", "env3", "env4", "env5", "env6", "env7", "env8", "pitchEnv" };
+            "env1", "env2", "env3", "env4", "env5", "env6", "env7", "env8", "pitchEnv", "stepSeq" };
         inline constexpr std::array<const char*, numSources> sourceNames {
             "--", "LFO 1", "LFO 2", "LFO 3", "LFO 4", "Macro 1", "Macro 2", "Macro 3", "Button 1", "Button 2",
             "Mod Wheel", "Pitch Bend", "Velocity", "Aftertouch", "Keytrack", "Breath", "Expression", "Sustain Pedal", "Random",
-            "Env 1", "Env 2", "Env 3", "Env 4", "Env 5", "Env 6", "Env 7", "Env 8", "Pitch Env" };
+            "Env 1", "Env 2", "Env 3", "Env 4", "Env 5", "Env 6", "Env 7", "Env 8", "Pitch Env", "Step Seq" };
         inline Source sourceFromId (const juce::String& id) noexcept
         {
             for (int i = 0; i < numSources; ++i)

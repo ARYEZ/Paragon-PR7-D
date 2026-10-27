@@ -426,5 +426,29 @@ std::vector<Rig> makeFactoryRigs()
     zap.rig.modulation.pitchEnvelope = { { SP { 0.0f, 1.0f, -0.7f }, SP { 0.06f, 0.5f, 0.0f } }, -1, -1, -1 };
     add (zap);
 
+    // The STEP SEQUENCER (stage 4d).
+    Builder trance ("Trance Gate", 32, { "Pad", "Step Seq" },
+                    "A wide supersaw chopped in sixteenths by the STEP SEQUENCER (in time with your song): accents on the beats, "
+                    "a long linked step closing each bar, the off-beats bouncing between left and right (STEREO). "
+                    "STEP SEQ also opens the filter on the loud steps. Hold a chord.");
+    trance.osc (0, "UniVoices", 7.0f).osc (0, "UniMix", 0.8f).osc (0, "UniDetune", 0.35f).osc (0, "UniSpread", 0.9f).osc (0, "Volume", 0.55f)
+          .filter (FilterType::lp24, 1800.0f, 0.2f, 0.0f)
+          .ampEnvelope (10.0f, 500.0f, 1.0f, 400.0f)
+          .set (ParamIDs::seqOn, 1.0f).set (ParamIDs::seqMode, (float) synth::seq::Mode::stereo).set (ParamIDs::seqWidth, 0.7f)
+          .set (ParamIDs::seqGate, 0.6f).set (ParamIDs::seqContour, 0.15f).set (ParamIDs::seqDecay, 350.0f);
+    for (int row = 0; row < 2; ++row)
+        for (int k = 0; k < synth::seq::maxSteps; ++k)
+        {
+            auto& step = trance.rig.modulation.stepPattern.rows[(size_t) row][(size_t) k];
+            const auto beat = k % 4;
+            step.level = beat == 0 ? 1.0f : beat == 2 ? 0.75f : 0.55f;
+            step.on = beat % 2 == 0 || (beat == 1) == (row == 0);   // off-beats: the left's on the first, the right's on the second
+            step.tied = k % 16 == 13 || k % 16 == 14;               // each bar ends on a long step (13 to 15 linked)
+            if (k % 16 >= 13)
+                step.on = true;
+        }
+    route (trance, "stepSeq", ParamIDs::fltCutoff, 0.15f);
+    add (trance);
+
     return rigs;
 }

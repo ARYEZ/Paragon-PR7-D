@@ -2,6 +2,53 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.12.0
+
+Stage 4, part 4: **the STEP SEQUENCER** (the trance gate), modelled on Avenger's (our own design and code). It's on the MOD page, under the new **STEP** tab.
+
+- **The steps:** up to 32 blocks.
+  - Click a step to set its height; drag across to draw several.
+  - Right-click a step to delete it (a rest).
+  - Click the arrow under a step to link it to the next: the gate stays open from one to the other, moving to each one's height.
+  - The line over the steps is the gate as it will play, so you can see GATE, CONTOUR, DECAY and SHUFFLE change it.
+  - **START FROM:** an every-step trance gate, off-beats, on the beats, 3 + 3 + 2, accents, a rise, a fall, long and short (linked), a stereo ping-pong.
+- **The controls:**
+  - **ON:** the trance gate on the volume. **VOL MIX** sets how deep it cuts (100%: silence between steps).
+  - **SPEED** (a step's length, 8 bars to 1/64) and **TIMING** (straight, triplet, dotted), at your song's tempo.
+  - **TRIGGER:**
+    - SONG (the default) stays in time with your song while it plays, and starts from your first note when it's stopped.
+    - VOICE gives every note its own gate, from its start.
+    - FIRST NOTE and LAST NOTE work as on the LFOs.
+  - **MODE:** MONO, or STEREO with two rows (the top lane for the left channel, the bottom for the right), and **WIDTH** from fully apart to the same.
+  - **LENGTH** (2 to 32 steps), **GATE** (how much of each step it's open), **CONTOUR** (soft edges, up to half a step), **DECAY** (each block fades out).
+  - **DELAY** and **FADE IN** (from each note's start), and the key zone (**START NOTE** to **END NOTE**: other notes are left alone).
+  - **SHUFFLE:** a swing. Every second step starts late, up to half a step (75% swing). It's the synth's shuffle: the arpeggiator and drums will share it when they come.
+- **A matrix source, STEP SEQ** (0 to 1): the steps can move any knob, with or without the gate on the volume.
+- **Our choices** (the manual doesn't give these numbers):
+  - the edge is a raised-cosine fade;
+  - CONTOUR 0 still has a 0.5 ms edge, so a hard gate doesn't click;
+  - DECAY is the time to fall 60 dB;
+  - SHUFFLE moves a step up to half a step;
+  - in STEREO the matrix hears the two rows' average.
+- Saved with the preset and the project; undo covers the steps; its knobs can be automated.
+- **A new factory preset:** **Trance Gate** (A32). A wide supersaw cut in sixteenths: accents on the beats, off-beats bouncing left and right, a long linked step closing each bar, the filter opening on the loud steps. Our own, not tuned by ear.
+- **CPU:** a step sequencer on each of 8 notes of a 14-saw chord adds well under 1% of a core here.
+- **A test fix:** the shaper CPU test now keeps the fastest of three timings. A busy build machine had failed 0.11.0's first build on it; the limit is unchanged.
+- In the tests:
+  - the gate open for GATE of each step and shut for the rest;
+  - heights, deleted and linked steps;
+  - VOL MIX, LENGTH, CONTOUR's edge, DECAY's fall;
+  - SHUFFLE's late steps, triplet and dotted steps;
+  - STEREO's rows and WIDTH;
+  - DELAY, FADE IN and the key zone;
+  - SONG following the song's beats, and VOICE, FIRST NOTE and LAST NOTE with two notes;
+  - STEP SEQ as a matrix source;
+  - the plugin gating from a fresh start and keeping the steps through presets, projects and undo;
+  - clicks in the editor;
+  - the tab's layout;
+  - CPU.
+- Not checked here: how it sounds (I can't listen).
+
 ## 0.11.0
 
 Stage 4, part 3: **the PITCH module**, modelled on Avenger's (our own design and code). It's on the MOD page, under the new **PITCH** tab.

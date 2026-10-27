@@ -146,6 +146,24 @@ namespace ParamIDs
     inline constexpr auto glideCurve    = "glideCurve";      // -1 to 1
     inline constexpr auto glideSplit    = "glideSplit";      // a note (0: off)
 
+    // The STEP SEQUENCER (stage 4d, 0.12.0). Its steps are kept with the preset (ModMatrix).
+    inline constexpr auto seqOn       = "seqOn";
+    inline constexpr auto seqTrigger  = "seqTrigger";    // choice: Song, Voice, First Note, Last Note
+    inline constexpr auto seqDivision = "seqDivision";   // SPEED: 8/1 to 1/64
+    inline constexpr auto seqTiming   = "seqTiming";     // choice: Straight, Triplet, Dotted
+    inline constexpr auto seqMode     = "seqMode";       // choice: Mono, Stereo
+    inline constexpr auto seqLength   = "seqLength";     // 2 to 32 steps
+    inline constexpr auto seqContour  = "seqContour";
+    inline constexpr auto seqGate     = "seqGate";
+    inline constexpr auto seqVolMix   = "seqVolMix";
+    inline constexpr auto seqWidth    = "seqWidth";
+    inline constexpr auto seqDecay    = "seqDecay";      // ms (0: off)
+    inline constexpr auto seqFadeIn   = "seqFadeIn";     // ms
+    inline constexpr auto seqDelay    = "seqDelay";      // ms
+    inline constexpr auto seqLowKey   = "seqLowKey";     // the key zone
+    inline constexpr auto seqHighKey  = "seqHighKey";
+    inline constexpr auto shuffle     = "shuffle";       // the synth's SHUFFLE (the arpeggiator and drums will share it)
+
     // How the keyboard plays it.
     inline constexpr auto playMode  = "playMode";     // choice: Poly, Mono, Mono Low, Mono High
     inline constexpr auto legato    = "legato";

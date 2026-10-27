@@ -20,6 +20,7 @@ namespace
     constexpr int stage4a = 8;   // 0.9.0
     constexpr int stage4b = 9;   // 0.10.0
     constexpr int stage4c = 10;  // 0.11.0
+    constexpr int stage4d = 11;  // 0.12.0
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -99,6 +100,9 @@ namespace
         const auto note = juce::roundToInt (value);
         return note <= 0 ? juce::String ("Off") : juce::MidiMessage::getMidiNoteName (note, true, true, 4);
     };
+    const ToText asNote = [] (float value, int) { return juce::MidiMessage::getMidiNoteName (juce::roundToInt (value), true, true, 4); };
+    const ToText asDecay = [] (float value, int) { return value < 0.5f ? juce::String ("Off") : value < 1000.0f ? juce::String (juce::roundToInt (value)) + " ms"
+                                                                                                                 : juce::String (value / 1000.0f, 2) + " s"; };
     const ToText asTimes = [] (float value, int) { return "x" + juce::String (value, value < 1.0f ? 2 : 1); };
     const ToText asSteps = [] (float value, int) { return value < 0.5f ? juce::String ("Smooth") : juce::String (juce::roundToInt (value)); };
     // The SHAPER's DRIVE, as the gain into its curve.
@@ -379,6 +383,25 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     add (layout, bendLag, "Pitch Bend Lag", lagRange, pitch.bendLagMs, asMs, stage4c);
     add (layout, glideCurve, "Glide Curve", { -1.0f, 1.0f }, pitch.glideCurve, asSignedPercent, stage4c);
     add (layout, glideSplit, "Glide Split", { 0.0f, 127.0f, 1.0f }, (float) pitch.glideSplit, asSplit, stage4c);
+
+    // The STEP SEQUENCER (stage 4d). Its steps are kept with the preset (ModMatrix).
+    const synth::StepSeqSettings stepSeq;
+    addSwitch (layout, seqOn, "Step Seq On", stepSeq.on, stage4d);
+    addChoice (layout, seqTrigger, "Step Seq Trigger", synth::seq::triggerNames, (int) stepSeq.trigger, stage4d);
+    addChoice (layout, seqDivision, "Step Seq Speed", synth::seq::divisionNames, stepSeq.division, stage4d);
+    addChoice (layout, seqTiming, "Step Seq Timing", synth::seq::timingNames, (int) stepSeq.timing, stage4d);
+    addChoice (layout, seqMode, "Step Seq Mode", synth::seq::modeNames, (int) stepSeq.mode, stage4d);
+    add (layout, seqLength, "Step Seq Length", { 2.0f, (float) synth::seq::maxSteps, 1.0f }, (float) stepSeq.length, asCount, stage4d);
+    add (layout, seqContour, "Step Seq Contour", { 0.0f, 1.0f }, stepSeq.contour, asPercent, stage4d);
+    add (layout, seqGate, "Step Seq Gate", { 0.01f, 1.0f }, stepSeq.gate, asPercent, stage4d);
+    add (layout, seqVolMix, "Step Seq Vol Mix", { 0.0f, 1.0f }, stepSeq.volMix, asPercent, stage4d);
+    add (layout, seqWidth, "Step Seq Stereo Width", { 0.0f, 1.0f }, stepSeq.width, asPercent, stage4d);
+    add (layout, seqDecay, "Step Seq Decay", timeRange (4000.0f), stepSeq.decayMs, asDecay, stage4d);
+    add (layout, seqFadeIn, "Step Seq Fade In", timeRange (10000.0f), stepSeq.fadeInMs, asMs, stage4d);
+    add (layout, seqDelay, "Step Seq Delay", timeRange (10000.0f), stepSeq.delayMs, asMs, stage4d);
+    add (layout, seqLowKey, "Step Seq Start Note", { 0.0f, 127.0f, 1.0f }, (float) stepSeq.lowKey, asNote, stage4d);
+    add (layout, seqHighKey, "Step Seq End Note", { 0.0f, 127.0f, 1.0f }, (float) stepSeq.highKey, asNote, stage4d);
+    add (layout, shuffle, "Shuffle", { 0.0f, 1.0f }, stepSeq.shuffle, asPercent, stage4d);
 
     for (int k = 0; k < 3; ++k)
         add (layout, macros[k], "Macro " + juce::String (k + 1), { 0.0f, 1.0f }, 0.0f, asPercent, stage4a);

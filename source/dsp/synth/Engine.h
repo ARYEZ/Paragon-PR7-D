@@ -151,6 +151,8 @@ namespace synth
             float glideFrom = 60.0f, glideProgress = 1.0f, glideStep = 0.0f; // GLIDE CURVE's path: from where, how far (0 to 1), per sample
             mod::EnvelopeState pitchEnvelope {};                             // the PITCH module's envelope (stage 4c)
             float pitchEnvelopeValue = 0.0f, pitchSemitones = 0.0f;          // ...-1 to 1, and as semitones on the oscillators
+            double seqPosition = 0.0, seqAge = 0.0;                          // the STEP SEQUENCER (stage 4d): steps since the note started (VOICE), and seconds
+            float seqValue = 0.0f;                                           // ...as the matrix source, this interval
             float panLeft = 1.0f, panRight = 1.0f;      // the AMP's PAN, KEYTRACK and SPREAD for this note
             float notePan = 0.0f;                       // ...as a position, -1 to 1 (modulation moves it from here)
 
@@ -253,6 +255,17 @@ namespace synth
         std::array<float, maxIntervals> bendValues {};
         bool glides (int note, const Settings& s) const noexcept { return s.pitch.glideSplit <= 0 || note >= s.pitch.glideSplit; }
         double samplesIntoBlock = 0.0;            // for the song position (synced GLOBAL LFOs)
+
+        // The STEP SEQUENCER (stage 4d): its pattern worked out for this block,
+        // whether anything needs it, its own clock (in steps) when it isn't
+        // following the song or a note, and its values (left, right) for each
+        // sample of the render under way, and for one note's interval.
+        seq::Prepared seqPrepared;
+        bool seqActive = false;
+        double seqClock = 0.0, seqStepsPerSample = 0.0;
+        std::array<std::array<float, maxIntervals * controlInterval>, 2> seqValues {};
+        std::array<float, controlInterval> seqLeft {}, seqRight {};
+        float seqDepth (double age, const StepSeqSettings&) const noexcept;   // DELAY and FADE IN, 0 to 1
         Settings voiceSettings;
     };
 }

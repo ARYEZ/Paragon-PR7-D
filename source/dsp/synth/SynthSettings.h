@@ -4,6 +4,7 @@
 #include "Filter.h"
 #include "Shaper.h"
 #include "Modulation.h"
+#include "StepSequencer.h"
 
 #include <array>
 
@@ -261,6 +262,7 @@ namespace synth
         PlaySettings play;
         mod::ModulationSettings modulation;
         PitchSettings pitch;
+        StepSeqSettings stepSeq;
 
         Settings() { oscillators[0].on = true; }
     };

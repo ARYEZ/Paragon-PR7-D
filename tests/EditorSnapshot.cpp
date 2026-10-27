@@ -87,6 +87,24 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         view->getModPage().getModulatorPanel().selectEnvelope (envelope - 1);
     if (env ("PARAGON_SNAPSHOT_PITCH") == "1")
         view->getModPage().getModulatorPanel().selectPitch();
+    if (env ("PARAGON_SNAPSHOT_STEP") == "2")   // the STEP tab as the sound has it
+        view->getModPage().getModulatorPanel().selectStepSeq();
+    if (env ("PARAGON_SNAPSHOT_STEP") == "1")
+    {
+        // A pattern with heights, a rest and linked steps (on both rows, for STEREO).
+        auto matrix = processor.getModMatrix();
+        for (auto& row : matrix.stepPattern.rows)
+            for (int k = 0; k < synth::seq::maxSteps; ++k)
+            {
+                auto& step = row[(size_t) k];
+                step.level = k % 4 == 0 ? 1.0f : k % 4 == 2 ? 0.7f : 0.45f;
+                step.on = k % 8 != 7;
+                step.tied = k % 8 == 4;
+            }
+        matrix.stepPattern.rows[1][0].on = false;
+        processor.setModMatrix (matrix);
+        view->getModPage().getModulatorPanel().selectStepSeq();
+    }
     if (const auto shape = env ("PARAGON_SNAPSHOT_SHAPE").getIntValue(); shape > 0)
         view->getModPage().getModulatorPanel().selectShape (shape - 1);
     if (const auto page = env ("PARAGON_SNAPSHOT_FILTERPAGE").getIntValue(); page > 0)

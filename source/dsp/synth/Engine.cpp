@@ -352,6 +352,7 @@ namespace synth
         lastPitch = -1.0f;
         modWheel = breath = expression = channelPressure = 0.0f;
         smoothedBend = 0.0f;
+        seqClock = 0.0;
         for (auto& lfo : globalLfos)
             lfo = {};
         for (auto& envelope : globalEnvelopes)
@@ -377,6 +378,16 @@ namespace synth
                 shaperCoefficients[(size_t) k].bells[(size_t) b] = sh.on ? shaper::Bell::make (sh.eqGainDb[(size_t) b], sh.eqFreqHz[(size_t) b],
                                                                                                 sh.eqQ[(size_t) b], sampleRate)
                                                                          : shaper::Bell {};
+        }
+
+        // The STEP SEQUENCER: its pattern worked out for this block, if anything needs it.
+        const auto& stepSeq = settings.stepSeq;
+        seqActive = stepSeq.on || (settings.modulation.numRoutes > 0 && settings.modulation.uses (mod::Source::stepSeq));
+        if (seqActive)
+        {
+            const auto secondsPerStep = stepSeq.beatsPerStep() * 60.0 / juce::jmax (1.0, settings.modulation.bpm);
+            seqPrepared.prepare (stepSeq, secondsPerStep);
+            seqStepsPerSample = 1.0 / (secondsPerStep * sampleRate);
         }
 
         std::fill (left, left + numSamples, 0.0f);
@@ -468,6 +479,11 @@ namespace synth
             if (trigger == mod::EnvelopeTrigger::lastNote || (trigger == mod::EnvelopeTrigger::firstNote && ! anyHeld))
                 globalEnvelopes[(size_t) k].start();
         }
+        // The STEP SEQUENCER's own clock: SONG (with the song stopped) and FIRST NOTE start
+        // with a note when none is held, LAST NOTE with every note.
+        const auto seqTrigger = settings.stepSeq.trigger;
+        if (seqTrigger == seq::Trigger::lastNote || ((seqTrigger == seq::Trigger::firstNote || seqTrigger == seq::Trigger::song) && ! anyHeld))
+            seqClock = 0.0;
         if (settings.play.mode == PlayMode::poly)
             polyNoteOn (note, velocity, settings);
         else
@@ -926,6 +942,23 @@ namespace synth
                                                                                                              modulation.bpm);
                 }
             }
+            // The STEP SEQUENCER (unless each note runs its own): its value at each sample.
+            if (seqActive && settings.stepSeq.trigger != seq::Trigger::voice)
+            {
+                const auto followSong = settings.stepSeq.trigger == seq::Trigger::song && modulation.ppq >= 0.0;
+                const auto beatsPerSample = modulation.bpm / 60.0 / sampleRate;
+                const auto beatsPerStep = settings.stepSeq.beatsPerStep();
+                for (int i = 0; i < length; ++i)
+                {
+                    const auto position = followSong ? (modulation.ppq + (samplesIntoBlock + start + i) * beatsPerSample) / beatsPerStep
+                                                     : seqClock + i * seqStepsPerSample;
+                    const auto [l, r] = seqPrepared.values (position);
+                    seqValues[0][(size_t) i] = l;
+                    seqValues[1][(size_t) i] = r;
+                }
+                if (! followSong)
+                    seqClock = std::fmod (seqClock + length * seqStepsPerSample, (double) seqPrepared.getLength() * 1024.0);
+            }
             for (auto& voice : voices)
             {
                 if (! voice.playing)
@@ -944,6 +977,8 @@ namespace synth
         for (auto& envelope : voice.envelopes)
             envelope.start();
         voice.pitchEnvelope.start();
+        voice.seqPosition = voice.seqAge = 0.0;
+        voice.seqValue = 0.0f;
         voice.randomValue = random.nextFloat();
         voice.pressure = 0.0f;
         voice.lagFresh = true;
@@ -991,6 +1026,7 @@ namespace synth
         values[(size_t) mod::Source::sustain] = pedalDown ? 1.0f : 0.0f;
         values[(size_t) mod::Source::random] = voice.randomValue;
         values[(size_t) mod::Source::pitchEnvelope] = voice.pitchEnvelopeValue;
+        values[(size_t) mod::Source::stepSeq] = voice.seqValue;
 
         // Each route, in turn. Routes to the same destination come together
         // (the processor sorts them), each pushing on from where the last left it.
@@ -1029,6 +1065,35 @@ namespace synth
             voice.pitchEnvelopeValue = 2.0f * voice.pitchEnvelope.next (*pitchModule.shape, pitchModule.envelope, (double) n / sampleRate,
                                                                         unmodulated.modulation.bpm) - 1.0f;
         voice.pitchSemitones = pitchModule.envelopeOn && pitchModule.shape != nullptr ? voice.pitchEnvelopeValue * pitchModule.rangeSemitones : 0.0f;
+
+        // The STEP SEQUENCER for this interval: its value at each sample (the whole
+        // synth's, or this note's own), and how far DELAY and FADE IN let it in.
+        const auto& stepSeq = unmodulated.stepSeq;
+        auto seqStart = 0.0f, seqEnd = 0.0f;
+        if (seqActive && stepSeq.plays (voice.note))
+        {
+            seqStart = seqDepth (voice.seqAge, stepSeq);
+            seqEnd = seqDepth (voice.seqAge + (double) n / sampleRate, stepSeq);
+            if (stepSeq.trigger == seq::Trigger::voice)
+                for (int i = 0; i < n; ++i)
+                {
+                    const auto [l, r] = seqPrepared.values (voice.seqPosition + i * seqStepsPerSample);
+                    seqLeft[(size_t) i] = l;
+                    seqRight[(size_t) i] = r;
+                }
+            else
+            {
+                const auto offset = (size_t) juce::jlimit (0, maxIntervals - 1, interval) * controlInterval;
+                std::copy_n (seqValues[0].begin() + (std::ptrdiff_t) offset, n, seqLeft.begin());
+                std::copy_n (seqValues[1].begin() + (std::ptrdiff_t) offset, n, seqRight.begin());
+            }
+            voice.seqValue = seqStart * 0.5f * (seqLeft[0] + seqRight[0]);
+            voice.seqPosition += n * seqStepsPerSample;
+        }
+        else
+            voice.seqValue = 0.0f;
+        voice.seqAge += (double) n / sampleRate;
+        const auto gating = seqActive && stepSeq.on && stepSeq.volMix > 0.0f && seqEnd + seqStart > 0.0f;
 
         // With modulation, this note plays its own copy of the settings.
         const auto modulated = unmodulated.modulation.numRoutes > 0;
@@ -1133,8 +1198,16 @@ namespace synth
                 if (voice.killGain <= 0.0f)
                     voice.killGain = 0.0f;
             }
-            left[i] += mixLeft[(size_t) i] * gain * voice.panLeft;
-            right[i] += mixRight[(size_t) i] * gain * voice.panRight;
+            auto gainLeft = gain, gainRight = gain;
+            if (gating)
+            {
+                // The trance gate: the volume down by VOL MIX where the step sequencer is low.
+                const auto depth = stepSeq.volMix * (seqStart + (seqEnd - seqStart) * (float) i / (float) n);
+                gainLeft *= 1.0f - depth * (1.0f - seqLeft[(size_t) i]);
+                gainRight *= 1.0f - depth * (1.0f - seqRight[(size_t) i]);
+            }
+            left[i] += mixLeft[(size_t) i] * gainLeft * voice.panLeft;
+            right[i] += mixRight[(size_t) i] * gainRight * voice.panRight;
         }
 
         // Over once it can't be heard.
@@ -1144,6 +1217,14 @@ namespace synth
             || (amp.isReleasing() && amp.getLevel() < silence)
             || amp.isSilentSustain())
             free (voice);
+    }
+
+    float Engine::seqDepth (double age, const StepSeqSettings& s) const noexcept
+    {
+        const auto delay = s.delayMs * 0.001;
+        if (age < delay)
+            return 0.0f;
+        return s.fadeInMs > 0.0f ? (float) juce::jmin (1.0, (age - delay) / (s.fadeInMs * 0.001)) : 1.0f;
     }
 
     void mod::apply (Settings& s, Target target, float value) noexcept

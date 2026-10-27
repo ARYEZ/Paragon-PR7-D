@@ -414,6 +414,25 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
     pm.glideCurve = param (ParamIDs::glideCurve);
     pm.glideSplit = juce::roundToInt (param (ParamIDs::glideSplit));
 
+    // The STEP SEQUENCER (its steps are added per block).
+    auto& sq = s.stepSeq;
+    sq.on = isOn (ParamIDs::seqOn);
+    sq.trigger = (synth::seq::Trigger) choice (param (ParamIDs::seqTrigger), synth::seq::triggerNames.size());
+    sq.division = choice (param (ParamIDs::seqDivision), synth::seq::divisionNames.size());
+    sq.timing = (synth::seq::Timing) choice (param (ParamIDs::seqTiming), synth::seq::timingNames.size());
+    sq.mode = (synth::seq::Mode) choice (param (ParamIDs::seqMode), synth::seq::modeNames.size());
+    sq.length = juce::roundToInt (param (ParamIDs::seqLength));
+    sq.contour = param (ParamIDs::seqContour);
+    sq.gate = param (ParamIDs::seqGate);
+    sq.volMix = param (ParamIDs::seqVolMix);
+    sq.width = param (ParamIDs::seqWidth);
+    sq.decayMs = param (ParamIDs::seqDecay);
+    sq.fadeInMs = param (ParamIDs::seqFadeIn);
+    sq.delayMs = param (ParamIDs::seqDelay);
+    sq.lowKey = juce::roundToInt (param (ParamIDs::seqLowKey));
+    sq.highKey = juce::roundToInt (param (ParamIDs::seqHighKey));
+    sq.shuffle = param (ParamIDs::shuffle);
+
     auto& a = s.amp;
     a.volume = param (ampVolume);
     a.velocity = param (ampVel);
@@ -494,6 +513,7 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
         if (const auto* compiled = matrixForAudio.load())
         {
             settings.pitch.shape = &compiled->pitchEnvelope;
+            settings.stepSeq.pattern = &compiled->stepPattern;
             int count = 0;
             for (const auto& c : compiled->routes)
             {
@@ -602,13 +622,14 @@ void ParagonX1AudioProcessor::compileMatrix()
     for (int k = 0; k < synth::mod::numLfoShapes; ++k)
         compiled->lfoShapes[(size_t) k] = matrix.lfoShapes[(size_t) k].toShape();
     compiled->pitchEnvelope = matrix.pitchEnvelope.toShape();
+    compiled->stepPattern = matrix.stepPattern;
     std::stable_sort (compiled->routes.begin(), compiled->routes.end(), [] (const CompiledRoute& a, const CompiledRoute& b)
     {
         return std::pair ((int) a.target.field, a.target.index) < std::pair ((int) b.target.field, b.target.index);
     });
     if (compiledMatrix != nullptr)
         retiredMatrices.emplace_back (compiledMatrix, juce::Time::getMillisecondCounterHiRes());
-    compiledMatrix = compiled;   // always (the PITCH envelope plays without routes)
+    compiledMatrix = compiled;   // always (the PITCH envelope and the STEP SEQUENCER play without routes)
     matrixForAudio = compiledMatrix.get();
 }
 
