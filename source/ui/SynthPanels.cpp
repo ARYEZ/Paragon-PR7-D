@@ -306,6 +306,7 @@ OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
         { "FadeIn", { "FADE IN", "A tiny fade at the start of each note (up to 5 ms), against clicks." } },
         { "Invert", { "INVERT", "The wave (and sub) upside down: against a second oscillator, it can cancel or hollow out the sound." } },
         { "Filter", { "TO FILTER", "Through the FILTER (lit) or straight to the AMP." } },
+        { "Arp", { "ARP", "Where this oscillator's notes come from: OFF, straight from the keys; ARP 1 to 8, from that arpeggiator (when it's on: the ARP page)." } },
         { "Voices", { "VOICES", "This oscillator's own limit on notes at once. 1 makes just this oscillator mono, e.g. a bass under chords." } },
         { "Noise", { "NOISE", "Noise mixed in with the wave." } },
         { "NoiseColour", { "COLOUR", "From white (bright hiss) through pink to brown (a deep rumble)." } },
@@ -715,12 +716,12 @@ void OscillatorPanel::resized()
                                                    { "SUB", { "Sub", "SubWave", "SubOct", "SubInvert" } } });
     area.removeFromTop (6);
     if (showingWavetable)
-        placeRow (area.removeFromTop (rowHeight), 7, { { "LEVEL", { "Volume", "Pan" } },
-                                                       { "NOTES", { "Voices", "Filter" } },
+        placeRow (area.removeFromTop (rowHeight), 8, { { "LEVEL", { "Volume", "Pan" } },
+                                                       { "NOTES", { "Voices", "Filter", "Arp" } },
                                                        { "WAVETABLE", { "WtIndex", "WtMode", "WtFrames" } } });
     else
         placeRow (area.removeFromTop (rowHeight), 7, { { "LEVEL", { "Volume", "Pan" } },
-                                                       { "NOTES", { "Voices", "Filter" } } });
+                                                       { "NOTES", { "Voices", "Filter", "Arp" } } });
 }
 
 //==============================================================================

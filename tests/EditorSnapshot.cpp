@@ -100,6 +100,33 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         view->getOscillatorPanel().showPage (OscillatorPanel::Page::fft);
     if (env ("PARAGON_SNAPSHOT_PAGE") == "mod")
         view->showPage (MainView::Page::modulation);
+    if (env ("PARAGON_SNAPSHOT_PAGE") == "arp")
+    {
+        // ARP 1 on, oscillators 1 and 2 routed to it, with a pattern that shows every kind of block.
+        view->showPage (MainView::Page::arp);
+        auto& page = view->getArpPage();
+        if (env ("PARAGON_SNAPSHOT_ARP") == "1")
+        {
+            page.route (0, true);
+            page.route (1, true);
+            if (auto* on = processor.getParameters().getParameter (ParamIDs::arp (0, "On")))
+                on->setValueNotifyingHost (1.0f);
+            synth::arp::Pattern p;
+            const int transposes[] = { 0, 12, 7, 0, 3, 12, 19, 0, -5, 0, 7, 12, 0, 5, 7, 24 };
+            for (int k = 0; k < 16; ++k)
+            {
+                auto& b = p.blocks[(size_t) k];
+                b.on = k != 6 && k != 13;
+                b.transpose = transposes[k];
+                b.velocity = k % 4 == 0 ? 1.0f : 0.6f + 0.05f * (float) (k % 3);
+                b.length = k == 8 ? 2 : 1;
+                b.slide = k == 3 || k == 11;
+                b.ratchet = k == 15 ? 3 : (k == 5 ? 2 : 1);
+            }
+            page.getEditor().setShown (p, true);
+        }
+        page.selectArp (0);
+    }
     if (const auto lfo = env ("PARAGON_SNAPSHOT_LFO").getIntValue(); lfo > 0)
         view->getModPage().getModulatorPanel().selectLfo (lfo - 1);
     if (const auto envelope = env ("PARAGON_SNAPSHOT_ENV").getIntValue(); envelope > 0)

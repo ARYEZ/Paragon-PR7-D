@@ -349,6 +349,17 @@ namespace Icons
                 break;
             }
 
+            case Type::arpeggio:
+            {
+                // Four notes climbing, as an arpeggio's blocks on a grid.
+                for (int i = 0; i < 4; ++i)
+                {
+                    const auto x = 0.04f + 0.24f * (float) i, y = 0.72f - 0.2f * (float) i;
+                    p.addRoundedRectangle (x, y, 0.19f, 0.16f, 0.03f);
+                }
+                break;
+            }
+
             case Type::flame:
                 // The mockup's "All Rigs" icon.
                 p.startNewSubPath (0.5f, 0.05f);

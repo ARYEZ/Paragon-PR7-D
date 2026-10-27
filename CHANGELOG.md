@@ -2,6 +2,52 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.15.0
+
+Stage 5, part 1: **the ARPEGGIATOR**, modelled on Avenger's (the manual's pages 74-80; our own design and code). A new **ARP** page (in the header, between MOD and PRESETS).
+
+- **Eight arps.** Each oscillator chooses where its notes come from:
+  - **OFF** (straight from the keys) or **ARP 1** to **8**. Set it on the oscillator's WAVE page (NOTES: ARP), or with the ARP page's **OSCILLATORS** buttons.
+  - So one arp can run a pluck while another runs a bass, and an oscillator left off plays the chord itself.
+- **Patterns A to D**, each up to 32 steps. Play the one chosen, or **CHAIN** them (those with blocks, one after another).
+- **The blocks**, on a grid (steps across, transposition up and down; octaves orange, the rest amber):
+  - click to put one, drag it up or down to transpose it (up to two octaves either way), drag its right edge to make it longer, right-click to delete it;
+  - under each: its **VELOCITY** (drag), **SLIDE** (click: it glides into the next block with PLAY's GLIDE time, no new note) and **RATCHET** (click for up to 8 repeats in its length, right-click for fewer);
+  - **-1 / +1** move every block a semitone; **START FROM** gives ready-made patterns (every step, eighths, octave bounce, up the scale, trance off-beats, slides, ratchets, long notes, clear).
+- **The controls:**
+  - **ON**, **MODE**, **SPEED** and **TIMING** (straight, triplet, dotted), **OCTAVES** (1 to 4), **GATE**, **LENGTH** (2 to 32 steps).
+  - **MODE:** UP, DOWN, UP/DOWN, DOWN/UP, AS PLAYED, RANDOM, or POLY (every held note on each block).
+  - **VELOCITY:** each note's own, the first key's, the last key's or the lowest key's, times each block's.
+  - The key zone (**START NOTE** to **END NOTE**: keys outside it don't play the arp's oscillators).
+  - **HUMANIZE** (each block late by up to a quarter step, at random), **STRUM** (POLY's notes one after another, over up to half a step).
+  - **TRIGGER:** SONG keeps in time with your song while it plays (starting from the first key when it's stopped); KEY starts from the first key, always.
+  - **SHUFFLE:** the synth's, shared with the step sequencer.
+  - The sustain pedal keeps the arp going after you let go.
+- **Timing:** the notes start and stop on their exact samples, wherever they fall in the DAW's audio blocks.
+- **Ours, where the manual says nothing:**
+  - The manual names UP, POLY and CHORDS: DOWN, UP/DOWN, DOWN/UP, AS PLAYED and RANDOM are the usual others.
+  - How far HUMANIZE and STRUM go.
+  - With the song playing, a first key waits for the next step (so the arp stays on the beat).
+- **Not yet (stage 5b):**
+  - CHORDS mode;
+  - FIXED NOTE chord detection and the scale-aware "+" mode;
+  - the note randomizer;
+  - MIDI export;
+  - envelopes and LFOs triggered by arp notes;
+  - starting every arp together.
+- Saved with the preset and the project; undo covers the patterns.
+- **A new factory preset:** **Arp Over Pad** (A34). Hold a chord: a pluck arpeggiates through ARP 1 while a pad plays the chord. Our own, not tuned by ear.
+- In the tests, from the sound (each note's pitch and level):
+  - UP and GATE; every mode and OCTAVES;
+  - rests, TRANSPOSE, long blocks, VELOCITY, RATCHET and SLIDE's glide;
+  - the chosen pattern and CHAIN;
+  - the velocity modes, SHUFFLE, HUMANIZE, STRUM;
+  - routing (an unrouted oscillator playing the key under the arp), the arp switched off, the key zone, the sustain pedal;
+  - SONG timing;
+  - the plugin playing from a fresh start;
+  - presets, projects and undo;
+  - the page's layout and editing.
+
 ## 0.14.0
 
 Stage 4, part 6 (stage 4 complete): **MIDI learn, controller to mod wheel, modulation on the knobs, drag and drop routing, and more for the matrix to move**, modelled on Avenger's (the manual's pages 106-108; our own design and code).

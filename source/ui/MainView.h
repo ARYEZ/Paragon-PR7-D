@@ -10,6 +10,7 @@
 #include "ui/ParagonLookAndFeel.h"
 #include "ui/RigBrowser.h"
 #include "ui/ModPage.h"
+#include "ui/ArpPage.h"
 #include "ui/ModSourceStrip.h"
 #include "ui/SynthPanels.h"
 
@@ -53,13 +54,14 @@ public:
     static constexpr int width = 1600;
     static constexpr int height = 900;
 
-    enum class Page { synth, presets, settings, modulation };
+    enum class Page { synth, presets, settings, modulation, arp };
     void showPage (Page);
 
     // For snapshots and tests: the oscillator tabs.
     OscillatorPanel& getOscillatorPanel() noexcept { return oscillators; }
     FilterPanel& getFilterPanel() noexcept { return filter; }
     ModPage& getModPage() noexcept { return modPage; }
+    ArpPage& getArpPage() noexcept { return arpPage; }
     ModSourceStrip& getSourceStrip() noexcept { return sources; }
     SettingsPage& getSettingsPage() noexcept { return settingsPage; }
 
@@ -89,6 +91,7 @@ private:
     // Header
     IconButton synthTab { "The synth", Icons::Type::processor, "SYNTH" },
                modTab { "Modulation: LFOs, macros and the mod matrix", Icons::Type::modulation, "MOD" },
+               arpTab { "The arpeggiators", Icons::Type::arpeggio, "ARP" },
                presetsTab { "Browse, save and organise presets", Icons::Type::presets, "PRESETS" },
                settingsTab { "Tuning and other settings", Icons::Type::settings, "SETTINGS" };
     IconButton previousRig { "Previous preset", Icons::Type::chevronLeft }, nextRig { "Next preset", Icons::Type::chevronRight };
@@ -115,6 +118,7 @@ private:
 
     // Other pages
     ModPage modPage;
+    ArpPage arpPage;
     RigBrowser rigBrowser;
     SettingsPage settingsPage;
     Page page = Page::synth;

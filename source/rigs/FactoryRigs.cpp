@@ -475,5 +475,31 @@ std::vector<Rig> makeFactoryRigs()
     }
     add (talking);
 
+    // The ARPEGGIATOR (stage 5a).
+    Builder arpPad ("Arp Over Pad", 34, { "Pad", "Arp" },
+                    "Hold a chord: oscillator 1, a bright pluck, runs through ARP 1 (up and down two octaves in sixteenths, "
+                    "with octave jumps, slides and a ratchet), while oscillator 2, a soft pad, plays the chord itself.");
+    arpPad.osc (0, "Volume", 0.55f).osc (0, "Arp", 1.0f).osc (0, "UniVoices", 3.0f).osc (0, "UniMix", 0.6f).osc (0, "UniDetune", 0.2f)
+          .osc (1, "On", 1.0f).osc (1, "Wave", (float) synth::OscWave::triangle).osc (1, "Volume", 0.35f).osc (1, "Transpose", -12.0f)
+          .osc (1, "UniVoices", 5.0f).osc (1, "UniMix", 0.8f).osc (1, "UniDetune", 0.3f).osc (1, "UniSpread", 1.0f)
+          .filter (FilterType::lp24, 2600.0f, 0.25f, 0.0f).filterEnvelope (0.0f, 220.0f, 0.2f, 200.0f)
+          .ampEnvelope (2.0f, 400.0f, 0.8f, 600.0f)
+          .set (ParamIDs::arp (0, "On"), 1.0f).set (ParamIDs::arp (0, "Mode"), (float) synth::arp::Mode::upDown)
+          .set (ParamIDs::arp (0, "Octaves"), 2.0f).set (ParamIDs::arp (0, "Gate"), 0.6f);
+    {
+        auto& p = arpPad.rig.modulation.arps[0].patterns[0];
+        p = {};
+        for (int k = 0; k < 16; ++k)
+        {
+            auto& b = p.blocks[(size_t) k];
+            b.on = k != 7;
+            b.transpose = k % 8 == 4 ? 12 : 0;
+            b.velocity = k % 4 == 0 ? 1.0f : 0.7f;
+            b.slide = k == 10;
+            b.ratchet = k == 15 ? 2 : 1;
+        }
+    }
+    add (arpPad);
+
     return rigs;
 }

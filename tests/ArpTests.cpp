@@ -342,3 +342,101 @@ TEST_CASE ("ARP in the plugin: settings reach the engine, it plays from a fresh 
     processor.undo();
     CHECK (processor.getModMatrix().arps == matrix.arps);
 }
+
+TEST_CASE ("The ARP page: laid out cleanly; clicks put, move, lengthen and delete blocks; routing, shift, patterns", "[arp][ui]")
+{
+    ParagonX1AudioProcessor processor;
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+    editor->setSize (1600, 900);
+    auto* view = dynamic_cast<MainView*> (editor->getChildComponent (0));
+    REQUIRE (view != nullptr);
+    view->showPage (MainView::Page::arp);
+    auto& page = view->getArpPage();
+    page.selectArp (2);
+
+    std::vector<juce::Component*> shown;
+    for (auto* child : page.getChildren())
+        if (child->isVisible())
+            shown.push_back (child);
+    CHECK (shown.size() > 40);
+    for (size_t i = 0; i < shown.size(); ++i)
+    {
+        INFO (shown[i]->getBounds().toString());
+        CHECK (page.getLocalBounds().contains (shown[i]->getBounds()));
+        for (size_t j = i + 1; j < shown.size(); ++j)
+        {
+            INFO (shown[i]->getBounds().toString() << " and " << shown[j]->getBounds().toString());
+            CHECK_FALSE (shown[i]->getBounds().intersects (shown[j]->getBounds()));
+        }
+    }
+
+    auto& grid = page.getEditor();
+    CHECK (grid.getArp() == 2);
+    const auto pattern = [&processor] (int p = 0) { return processor.getModMatrix().arps[2].patterns[(size_t) p]; };
+    const auto mouse = [&grid] (juce::Point<float> at, bool right = false)
+    {
+        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at,
+                                 right ? juce::ModifierKeys::rightButtonModifier : juce::ModifierKeys::leftButtonModifier, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                 &grid, &grid, juce::Time::getCurrentTime(), at, juce::Time::getCurrentTime(), 1, false);
+    };
+    const auto click = [&] (juce::Point<float> at, bool right = false) { grid.mouseDown (mouse (at, right)); grid.mouseUp (mouse (at, right)); };
+
+    // A new arp: blocks on steps 0-15. Step 3's block moved up a fifth: click at +7 on step 3.
+    click (grid.cell (3, 7).getCentre());
+    CHECK (pattern().blocks[3].on);
+    CHECK (pattern().blocks[3].transpose == 7);
+    // Drag it to an octave down.
+    const auto from = grid.cell (3, 7).getCentre();
+    grid.mouseDown (mouse (from));
+    grid.mouseDrag (mouse (grid.cell (3, -12).getCentre()));
+    grid.mouseUp (mouse (grid.cell (3, -12).getCentre()));
+    CHECK (pattern().blocks[3].transpose == -12);
+    // Its right edge dragged to step 5: three steps long.
+    const auto edge = grid.cell (3, -12).getTopRight().translated (-2.0f, 2.0f);
+    grid.mouseDown (mouse (edge));
+    grid.mouseDrag (mouse (grid.cell (5, -12).getCentre()));
+    grid.mouseUp (mouse (grid.cell (5, -12).getCentre()));
+    CHECK (pattern().blocks[3].length == 3);
+    // Right-click deletes it.
+    click (grid.cell (4, -12).getCentre(), true);   // (within its length)
+    CHECK_FALSE (pattern().blocks[3].on);
+    // Lanes: slide, ratchet up and down, velocity.
+    click (grid.slideArea (0).getCentre());
+    CHECK (pattern().blocks[0].slide);
+    click (grid.ratchetArea (0).getCentre());
+    click (grid.ratchetArea (0).getCentre());
+    CHECK (pattern().blocks[0].ratchet == 3);
+    click (grid.ratchetArea (0).getCentre(), true);
+    CHECK (pattern().blocks[0].ratchet == 2);
+    const auto lane = grid.velocityArea (1);
+    click ({ lane.getCentreX(), lane.getY() + lane.getHeight() * 0.75f });
+    CHECK_THAT (pattern().blocks[1].velocity, WithinAbs (0.27, 0.05));
+
+    // +1 / -1 move every block.
+    page.shift (1);
+    CHECK (pattern().blocks[0].transpose == 1);
+    page.shift (-1);
+    CHECK (pattern().blocks[0].transpose == 0);
+
+    // Pattern B: chosen (the arp's PATTERN) and edited; START FROM.
+    page.selectPattern (1);
+    CHECK (processor.getSynthSettings().arps[2].pattern == 1);
+    CHECK (grid.getPattern() == 1);
+    page.startFrom (2);   // octave bounce
+    CHECK (pattern (1).blocks[1].transpose == 12);
+    CHECK (pattern (0).blocks[1].transpose == 0);
+
+    // Routing oscillators 1 and 3 to this arp, then 1 back to the keys.
+    page.route (0, true);
+    page.route (2, true);
+    CHECK (processor.getSynthSettings().oscillators[0].arp == 3);
+    CHECK (page.isRouted (2));
+    processor.flushUndoStep();   // (the plugin's timer records a step between edits; tests have no timer running)
+    page.route (0, false);
+    CHECK (processor.getSynthSettings().oscillators[0].arp == 0);
+
+    // Each edit an undo step.
+    processor.flushUndoStep();
+    processor.undo();
+    CHECK (page.isRouted (0));
+}

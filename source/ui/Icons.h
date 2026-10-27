@@ -20,7 +20,9 @@ namespace Icons
                       // Version 0.24
                       glitch,
                       // Version 0.27
-                      pitch };
+                      pitch,
+                      // PR7-K 0.15: the arpeggiator
+                      arpeggio };
 
     juce::Path get (Type type);
 
