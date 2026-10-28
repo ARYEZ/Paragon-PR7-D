@@ -248,6 +248,10 @@ public:
     effects::MasterLimiter& getLimiter() noexcept { return rack->limiter; }
     effects::MasterLimiter::Settings getLimiterSettings() const;
 
+    // THE SENDS (stage 7b): DELAY's and REVERB's settings as they are now (as sends' returns: MIX is the level back).
+    effects::Delay::Settings getDelaySettings() const noexcept;
+    effects::Reverb::Settings getReverbSettings() const noexcept;
+
 private:
     void processChunk (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& midi, int start, int numSamples);
     float param (const char* id) const;
@@ -403,6 +407,7 @@ private:
 
     LevelMeterSource outputMeter;
     void processRack (juce::dsp::AudioBlock<float> block);   // the rack's effects before OUTPUT
+    void processSends (juce::dsp::AudioBlock<float> block);  // DELAY and REVERB on their sends, their returns added in
 
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParagonX1AudioProcessor)

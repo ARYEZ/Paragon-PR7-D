@@ -25,6 +25,7 @@ namespace
     constexpr int stage4f = 13;  // 0.14.0
     constexpr int stage5a = 14;  // 0.15.0
     constexpr int stage5b = 15;  // 0.16.0 (16, 0.17.0: the rack, in RackParameters.cpp)
+    constexpr int stage7b = 17;  // 0.18.0
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -322,6 +323,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         // Which ARP its notes come from (stage 5a).
         addChoice (layout, osc (i, "Arp"), name + "Arp", synth::arp::routeNames, defaults.arp, stage5a);
 
+        // Its SENDS (stage 7b).
+        add (layout, osc (i, "SendDelay"), name + "Send Delay", { 0.0f, 1.0f }, defaults.send[0], asPercent, stage7b);
+        add (layout, osc (i, "SendReverb"), name + "Send Reverb", { 0.0f, 1.0f }, defaults.send[1], asPercent, stage7b);
+
         // Whether it follows the PITCH envelope (stage 4c).
         addSwitch (layout, osc (i, "PitchEnv"), name + "Pitch Envelope", defaults.pitchEnvelope, stage4c);
     }
@@ -489,5 +494,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     add (layout, voices, "Voices", { 1.0f, (float) synth::maxVoices, 1.0f }, (float) play.voices, asCount);
 
     addRackParameters (layout);   // the rack (stage 7a): RackParameters.cpp
+    addSendParameters (layout);   // the sends (stage 7b): RackParameters.cpp
     return layout;
 }

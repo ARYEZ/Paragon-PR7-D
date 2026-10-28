@@ -244,6 +244,10 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     rack->compSidechain.setSize (2, preparedBlockSize);
     rack->limiter.prepare (sampleRate, preparedBlockSize);
     rack->eqInputTap.setSampleRate (sampleRate);
+    rack->delay.prepare (sampleRate, preparedBlockSize);
+    rack->reverb.prepare (sampleRate, preparedBlockSize);
+    for (auto& send : rack->sends)
+        send.setSize (2, preparedBlockSize);
     rack->eqOutputTap.setSampleRate (sampleRate);
     updateLatency();
 }
@@ -383,6 +387,59 @@ dominion::Settings ParagonX1AudioProcessor::getDominionSettings() const noexcept
     return s;
 }
 
+effects::Delay::Settings ParagonX1AudioProcessor::getDelaySettings() const noexcept
+{
+    effects::Delay::Settings s;
+    s.on = isOn (ParamIDs::delayOn);
+    s.timeMs = param (ParamIDs::delayTime);
+    s.syncIndex = juce::jlimit (0, effects::Delay::syncNames.size() - 1, juce::roundToInt (param (ParamIDs::delaySync)));
+    s.feedback = param (ParamIDs::delayFeedback);
+    s.tone = param (ParamIDs::delayTone);
+    s.mix = param (ParamIDs::delayMix);
+    s.pingPong = isOn (ParamIDs::delayPingPong);
+    s.type = (effects::Delay::Type) juce::jlimit (0, effects::Delay::typeNames.size() - 1, juce::roundToInt (param (ParamIDs::delayType)));
+    s.duck = param (ParamIDs::delayDuck);
+    s.returnOnly = true;
+    return s;
+}
+
+effects::Reverb::Settings ParagonX1AudioProcessor::getReverbSettings() const noexcept
+{
+    effects::Reverb::Settings s;
+    s.on = isOn (ParamIDs::reverbOn);
+    s.type = (effects::Reverb::Type) juce::jlimit (0, effects::Reverb::typeNames.size() - 1, juce::roundToInt (param (ParamIDs::reverbType)));
+    s.size = param (ParamIDs::reverbSize);
+    s.tone = param (ParamIDs::reverbTone);
+    s.mix = param (ParamIDs::reverbMix);
+    s.preDelayMs = param (ParamIDs::reverbPreDelay);
+    s.duck = param (ParamIDs::reverbDuck);
+    s.returnOnly = true;
+    return s;
+}
+
+void ParagonX1AudioProcessor::processSends (juce::dsp::AudioBlock<float> block)
+{
+    // DELAY on its send (giving back just its echoes), then REVERB on its own send plus DELAY > REVERB's share of
+    // those echoes; both returns join the synth before ECHELON. Each does nothing once it's off and its tail is gone.
+    auto& r = *rack;
+    const auto numSamples = (int) block.getNumSamples();
+    juce::dsp::AudioBlock<float> delayReturn (r.sends[0].getArrayOfWritePointers(), 2, (size_t) numSamples);
+    juce::dsp::AudioBlock<float> reverbReturn (r.sends[1].getArrayOfWritePointers(), 2, (size_t) numSamples);
+    r.delay.process (delayReturn, getDelaySettings(), juce::jmax (1.0, hostBpm.load()));
+    if (const auto feed = param (ParamIDs::delayToReverb); feed > 0.0f)
+        for (int c = 0; c < 2; ++c)
+            r.sends[1].addFrom (c, 0, r.sends[0], c, 0, numSamples, feed);
+    r.reverb.process (reverbReturn, getReverbSettings());
+    const auto numChannels = (int) block.getNumChannels();
+    for (int c = 0; c < numChannels; ++c)
+    {
+        auto* out = block.getChannelPointer ((size_t) c);
+        for (int i = 0; i < numSamples; ++i)
+            out[i] += numChannels == 1 ? 0.5f * (r.sends[0].getSample (0, i) + r.sends[0].getSample (1, i) + r.sends[1].getSample (0, i) + r.sends[1].getSample (1, i))
+                                       : r.sends[0].getSample (c, i) + r.sends[1].getSample (c, i);
+    }
+}
+
 void ParagonX1AudioProcessor::processRack (juce::dsp::AudioBlock<float> block)
 {
     // As PR7-E 0.18.1's processChunk, from its EQ to its COMP: ECHELON, with what goes in and comes out kept for its
@@ -489,6 +546,7 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
         tr.sync = (synth::mod::LfoSync) choice (get (oscSetting ("TrSync")), synth::mod::lfoSyncNames.size());
         tr.division = choice (get (oscSetting ("TrDivision")), synth::mod::lfoDivisionNames.size());
         o.arp = choice (get (oscSetting ("Arp")), synth::arp::routeNames.size());
+        o.send = { get (oscSetting ("SendDelay")), get (oscSetting ("SendReverb")) };
 
         o.table = tablesForAudio[i].load();
         o.spectral = spectralForAudio[i].load();
@@ -627,6 +685,7 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
         s.modulation.buttons[(size_t) k] = isOn (ParamIDs::macroButtons[k]);
     s.modulation.bpm = hostBpm.load();
     s.arpsTogether = isOn (ParamIDs::arpsTogether);
+    s.sendOn = { isOn (ParamIDs::delayOn), isOn (ParamIDs::reverbOn) };
     s.modulation.toModWheel = { isOn (ParamIDs::mwBreath), isOn (ParamIDs::mwExpression), isOn (ParamIDs::mwAftertouch), isOn (ParamIDs::mwSustain) };
 
     // The PITCH module (its envelope's points are added per block).
@@ -774,10 +833,20 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
     // Mono out: render the right side into the scratch end of the buffer's
     // second channel if there is one, else fold it in afterwards.
     float scratchRight[512];
+    // THE SENDS (stage 7b): the engine fills each send's mix while its effect is on; silence otherwise.
+    const auto sendsReady = rack->sends[0].getNumSamples() >= numSamples;
+    if (sendsReady)
+        for (auto& send : rack->sends)
+            send.clear (0, numSamples);
     for (int done = 0; done < numSamples; done += (int) std::size (scratchRight))
     {
         const auto n = juce::jmin ((int) std::size (scratchRight), numSamples - done);
         auto* right = numChannels > 1 ? buffer.getWritePointer (1, start + done) : scratchRight;
+        if (sendsReady)
+            engine.setSendOutputs ({ rack->sends[0].getWritePointer (0, done), rack->sends[1].getWritePointer (0, done) },
+                                   { rack->sends[0].getWritePointer (1, done), rack->sends[1].getWritePointer (1, done) });
+        else
+            engine.setSendOutputs ({}, {});
         auto settings = getSynthSettings();
         // The MOD MATRIX: each route with its knob's position now.
         if (const auto* compiled = matrixForAudio.load())
@@ -825,6 +894,8 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
     // limiter); then BYPASS (to silence: there's nothing "clean" to pass through on an instrument).
     const auto block = juce::dsp::AudioBlock<float> (buffer).getSubBlock ((size_t) start, (size_t) numSamples)
                                                             .getSubsetChannelBlock (0, (size_t) juce::jmin (numChannels, 2));
+    if (sendsReady)
+        processSends (block);
     processRack (block);
     outputGain.setTargetValue (juce::Decibels::decibelsToGain (param (ParamIDs::outputGain) + param (ParamIDs::patchLevel)));
     for (int i = 0; i < numSamples; ++i)

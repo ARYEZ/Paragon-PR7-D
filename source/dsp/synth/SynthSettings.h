@@ -16,6 +16,7 @@
 namespace synth
 {
     inline constexpr int numOscillators = 8;   // as on Avenger: up to 8 oscillator tabs
+    inline constexpr int numSends = 2;         // stage 7b: the send effects, DELAY and REVERB
     inline constexpr int maxVoices = 64;       // notes at once
 
     class Wavetable;
@@ -122,6 +123,8 @@ namespace synth
         bool pitchEnvelope = true;
         int voiceLimit = maxVoices; // this oscillator's own notes-at-once limit
         int arp = 0;                // stage 5a: 0 straight from the keys; 1 to 8 its notes come from ARP n (when that arp is on)
+        // Stage 7b: how much goes to each send (DELAY, REVERB), 0 to 1, after the AMP (and the note's pan).
+        std::array<float, numSends> send { 1.0f, 1.0f };
 
         // UNISON (stage 2, as Avenger's V-Saw): copies of each note, detuned and spread.
         int unisonVoices = maxUnison;   // 2 to 7 copies in all, the note itself included...
@@ -269,6 +272,8 @@ namespace synth
         PitchSettings pitch;
         StepSeqSettings stepSeq;
         std::array<ArpSettings, arp::numArps> arps {};
+        // Stage 7b: the sends in use (their effect on): only then does the engine fill their mixes.
+        std::array<bool, numSends> sendOn {};
         bool arpsTogether = false;   // 0.16.0: the first key starts every arp's clock, so arps joining later are in step
 
         Settings() { oscillators[0].on = true; }

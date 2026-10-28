@@ -4,10 +4,13 @@
 #include "dsp/InputTap.h"
 #include "dsp/dominion/Dominion.h"
 #include "dsp/effects/Compressor.h"
+#include "dsp/effects/Delay.h"
 #include "dsp/effects/MasterLimiter.h"
 #include "dsp/effects/MultibandComp.h"
+#include "dsp/effects/Reverb.h"
 #include "dsp/eq/EqMatchSession.h"
 #include "dsp/eq/ParametricEq.h"
+#include "dsp/synth/SynthSettings.h"
 #include "rigs/CompPresets.h"
 #include "rigs/DominionPresets.h"
 
@@ -42,6 +45,12 @@ struct Rack
 
     effects::MasterLimiter limiter;   // with its OUTPUT TRIM and DITHER
     double sampleRate = 48000.0;
+
+    // THE SENDS (stage 7b): PR7-G's DELAY and REVERB, each fed its own mix from the engine (each oscillator at its
+    // SEND amount), returning only their echoes / reverb into the mix before ECHELON.
+    effects::Delay delay;
+    effects::Reverb reverb;
+    std::array<juce::AudioBuffer<float>, synth::numSends> sends;   // 2 channels each, the prepared block size
 
     void setFolder (const juce::File& presetsFolder)
     {

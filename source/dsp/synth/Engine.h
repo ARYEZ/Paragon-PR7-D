@@ -49,6 +49,14 @@ namespace synth
         void process (float* left, float* right, int numSamples,
                       const juce::MidiBuffer& midi, int midiStart, const Settings&) noexcept;
 
+        // Stage 7b: where each send's mix goes (DELAY's, REVERB's), as long as `process`'s output; nullptr: not wanted.
+        // Set before each `process`; it fills them (from silence) for the sends that are on.
+        void setSendOutputs (const std::array<float*, numSends>& left, const std::array<float*, numSends>& right) noexcept
+        {
+            sendBaseLeft = left;
+            sendBaseRight = right;
+        }
+
         // Notes sounding now (including releasing ones), for the display and tests.
         int getNumActiveVoices() const noexcept;
 
@@ -109,7 +117,8 @@ namespace synth
         // A route through the note: the FILTER (or not) and which SHAPERs, with their state.
         struct Path
         {
-            int key = -1;               // bit 0: the FILTER; bits 1 to 4: SHAPERs 1 to 4 (-1: not in use)
+            int key = -1;               // bit 0: the FILTER; bits 1 to 4: SHAPERs 1 to 4 (-1: not in use);
+                                        // bits 5 on (7b): each send's amount, 7 bits each (0: 100%, n: n - 1 %)
             FilterChannel filterLeft, filterRight;
             Saturator driveLeft, driveRight;
             FilterChannel::Coefficients coefficients;   // the filter's now (glided to each update)
@@ -239,6 +248,16 @@ namespace synth
         std::array<int, numOscillators> oscillatorPath {};
         std::array<bool, numOscillators> pathUsed {};
         std::array<float, controlInterval> mixLeft {}, mixRight {}, scratch {};
+        // Stage 7b: the sends' mixes for this voice's interval, and where the block's sends go.
+        std::array<std::array<float, controlInterval>, numSends> sendMixLeft {}, sendMixRight {};
+        std::array<float*, numSends> sendBaseLeft {}, sendBaseRight {};
+        float* outputBase = nullptr;   // `process`'s left output (renderVoice finds its place in the sends from it)
+        bool sendsWanted (const Settings& s, int send) const noexcept { return s.sendOn[(size_t) send] && sendBaseLeft[(size_t) send] != nullptr; }
+        static float sendGainOf (int key, int send) noexcept
+        {
+            const auto code = (key >> (5 + 7 * send)) & 127;
+            return code == 0 ? 1.0f : (float) (code - 1) / 100.0f;
+        }
 
         // The SHAPERs' EQ bands, worked out once per block (they're the same for every note).
         std::array<shaper::Coefficients, numShapers> shaperCoefficients {};

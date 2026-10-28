@@ -307,6 +307,9 @@ OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
         { "Invert", { "INVERT", "The wave (and sub) upside down: against a second oscillator, it can cancel or hollow out the sound." } },
         { "Filter", { "TO FILTER", "Through the FILTER (lit) or straight to the AMP." } },
         { "Arp", { "ARP", "Where this oscillator's notes come from: OFF, straight from the keys; ARP 1 to 8, from that arpeggiator (when it's on: the ARP page)." } },
+        { "SendDelay", { "DELAY", "How much of this oscillator goes to the DELAY (when it's on: the FX page), after the AMP. "
+                                  "Its echoes come back in at the DELAY's MIX; the oscillator itself plays as before." } },
+        { "SendReverb", { "REVERB", "How much of this oscillator goes to the REVERB (when it's on: the FX page), after the AMP." } },
         { "Voices", { "VOICES", "This oscillator's own limit on notes at once. 1 makes just this oscillator mono, e.g. a bass under chords." } },
         { "Noise", { "NOISE", "Noise mixed in with the wave." } },
         { "NoiseColour", { "COLOUR", "From white (bright hiss) through pink to brown (a deep rumble)." } },
@@ -596,6 +599,34 @@ void OscillatorPanel::resized()
         }
     };
 
+    // A row whose dropdowns (`wide`) get 40% more room than a knob (the wavetable's row 3: off the grid anyway).
+    const auto placeWeighted = [&] (juce::Rectangle<int> row, std::vector<std::pair<juce::String, std::vector<const char*>>> sections,
+                                    std::initializer_list<const char*> wide)
+    {
+        const auto weightOf = [&wide] (const char* what)
+        {
+            return std::any_of (wide.begin(), wide.end(), [what] (const char* w) { return juce::String (w) == what; }) ? 1.4f : 1.0f;
+        };
+        auto total = 0.0f;
+        for (const auto& [text, items] : sections)
+            for (const auto* item : items)
+                total += weightOf (item);
+        const auto unit = (float) row.getWidth() / total;
+        auto titles = row.removeFromTop (18);
+        auto x = (float) row.getX();
+        for (const auto& [text, items] : sections)
+        {
+            const auto start = x;
+            for (const auto* item : items)
+            {
+                const auto width = unit * weightOf (item);
+                control (item).setBounds (juce::roundToInt (x), row.getY() + 2, juce::roundToInt (width) - 4, h);
+                x += width;
+            }
+            sectionTitles.push_back ({ titles.withX (juce::roundToInt (start)).withWidth (juce::roundToInt (x - start) - 10), text });
+        }
+    };
+
     auto left = area.removeFromLeft (264);
     area.removeFromLeft (16);
     const auto rowHeight = (area.getHeight() - 2 * 6) / 3;
@@ -716,12 +747,15 @@ void OscillatorPanel::resized()
                                                    { "SUB", { "Sub", "SubWave", "SubOct", "SubInvert" } } });
     area.removeFromTop (6);
     if (showingWavetable)
-        placeRow (area.removeFromTop (rowHeight), 8, { { "LEVEL", { "Volume", "Pan" } },
-                                                       { "NOTES", { "Voices", "Filter", "Arp" } },
-                                                       { "WAVETABLE", { "WtIndex", "WtMode", "WtFrames" } } });
+        placeWeighted (area.removeFromTop (rowHeight), { { "LEVEL", { "Volume", "Pan" } },
+                                                         { "NOTES", { "Voices", "Filter", "Arp" } },
+                                                         { "WAVETABLE", { "WtIndex", "WtMode", "WtFrames" } },
+                                                         { "SENDS", { "SendDelay", "SendReverb" } } },
+                       { "Arp", "WtMode" });
     else
         placeRow (area.removeFromTop (rowHeight), 7, { { "LEVEL", { "Volume", "Pan" } },
-                                                       { "NOTES", { "Voices", "Filter", "Arp" } } });
+                                                       { "NOTES", { "Voices", "Filter", "Arp" } },
+                                                       { "SENDS", { "SendDelay", "SendReverb" } } });
 }
 
 //==============================================================================

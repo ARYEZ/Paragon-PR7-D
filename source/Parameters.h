@@ -48,7 +48,9 @@ namespace ParamIDs
         "TrOn", "TrEditors", "TrTrigger", "TrMode", "TrPatternMode", "TrSteps", "TrStrength", "TrVelocity", "TrVelCurve",
         "TrSmooth", "TrPhase", "TrFlip", "TrRate", "TrSync", "TrDivision",
         // Stage 5a: which ARP its notes come from.
-        "Arp" };
+        "Arp",
+        // Stage 7b: how much it sends to DELAY and to REVERB.
+        "SendDelay", "SendReverb" };
 
     // Where a setting is in oscSettings, worked out by the compiler (a typo won't compile).
     consteval int oscSetting (std::string_view what)
@@ -291,6 +293,26 @@ namespace ParamIDs
     inline constexpr auto limitDcFilter      = "limitDcFilter";
 
 
+    // THE SENDS (stage 7b, 0.18.0): PR7-G 0.52.0's DELAY and REVERB, with PR7-G's IDs, ranges and defaults; each
+    // oscillator's SendDelay / SendReverb (oscSettings) feeds them, and their MIX is the return's level.
+    inline constexpr auto delayOn        = "delayOn";
+    inline constexpr auto delayTime      = "delayTime";       // ms (SYNC off)
+    inline constexpr auto delaySync      = "delaySync";       // choice: effects::Delay::syncNames
+    inline constexpr auto delayFeedback  = "delayFeedback";   // 0 to 0.95
+    inline constexpr auto delayTone      = "delayTone";       // 0 to 10
+    inline constexpr auto delayMix       = "delayMix";        // 0 to 1: the return's level
+    inline constexpr auto delayPingPong  = "delayPingPong";
+    inline constexpr auto delayType      = "delayType";       // choice: effects::Delay::typeNames
+    inline constexpr auto delayDuck      = "delayDuck";       // 0 to 1
+    inline constexpr auto reverbOn       = "reverbOn";
+    inline constexpr auto reverbSize     = "reverbSize";      // 0 to 1
+    inline constexpr auto reverbTone     = "reverbTone";      // 0 to 10
+    inline constexpr auto reverbMix      = "reverbMix";       // 0 to 1: the return's level
+    inline constexpr auto reverbType     = "reverbType";      // choice: effects::Reverb::typeNames
+    inline constexpr auto reverbPreDelay = "reverbPreDelay";  // ms
+    inline constexpr auto reverbDuck     = "reverbDuck";      // 0 to 1
+    inline constexpr auto delayToReverb  = "delayToReverb";   // PR7-K's own: how much of DELAY's echoes go on into REVERB
+
     // Global settings: kept when switching presets. Everything else is part of a preset.
     // The LIMITER's UNITY and DELTA are for listening while you set it, not part of a sound.
     inline const juce::StringArray notInRigs { outputGain, bypass, tune, mwBreath, mwExpression, mwAftertouch, mwSustain, limitUnity, limitDelta };
@@ -322,3 +344,4 @@ namespace ParamRanges
 
 juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 void addRackParameters (juce::AudioProcessorValueTreeState::ParameterLayout&);   // RackParameters.cpp
+void addSendParameters (juce::AudioProcessorValueTreeState::ParameterLayout&);   // RackParameters.cpp (stage 7b)

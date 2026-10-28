@@ -5,7 +5,9 @@
 #include "Parameters.h"
 
 #include "dsp/dominion/Dominion.h"
+#include "dsp/effects/Delay.h"
 #include "dsp/effects/MasterLimiter.h"
+#include "dsp/effects/Reverb.h"
 #include "dsp/effects/MultibandComp.h"
 #include "dsp/eq/Dynamics.h"
 #include "dsp/eq/EqDesign.h"
@@ -285,4 +287,37 @@ void addRackParameters (juce::AudioProcessorValueTreeState::ParameterLayout& lay
     layout.add (makeFloat (ParamIDs::eqOutput, "Echelon Output", { -36.0f, 36.0f, 0.01f }, 0.0f, v30, asDb));
     layout.add (makeFloat (ParamIDs::eqGainScale, "Echelon Gain Scale", { 0.0f, 2.0f, 0.01f }, 1.0f, v30, asPercent));
     layout.add (makeSwitch (ParamIDs::eqAutoGain, "Echelon Auto Gain", v30, false));
+}
+
+// THE SENDS (stage 7b, 0.18.0): PR7-G 0.52.0's DELAY and REVERB, with PR7-G's IDs, ranges, defaults and choice lists
+// (its Parameters.cpp); version hint 17. DELAY > REVERB is PR7-K's own.
+void addSendParameters (juce::AudioProcessorValueTreeState::ParameterLayout& layout)
+{
+    constexpr int v = 17;   // 0.18.0
+    const auto skewed = [] (float min, float max, float centre, float step)
+    {
+        Range range { min, max, step };
+        range.setSkewForCentre (centre);
+        return range;
+    };
+    const ToText asKnob = [] (float value, int) { return juce::String (value, 1); };
+    const ToText asWholeMs = [] (float value, int) { return juce::String (juce::roundToInt (value)) + " ms"; };
+    layout.add (makeSwitch (ParamIDs::delayOn, "Delay On", v, false));
+    layout.add (makeFloat (ParamIDs::delayTime, "Delay Time", skewed (1.0f, effects::Delay::maxDelaySeconds * 1000.0f, 400.0f, 1.0f),
+                           375.0f, v, asWholeMs));
+    layout.add (makeChoice (ParamIDs::delaySync, "Delay Sync", v, effects::Delay::syncNames, 3));   // 1/4
+    layout.add (makeFloat (ParamIDs::delayFeedback, "Delay Feedback", { 0.0f, 0.95f, 0.01f }, 0.35f, v, asPercent));
+    layout.add (makeFloat (ParamIDs::delayTone, "Delay Tone", { 0.0f, 10.0f, 0.1f }, 7.0f, v, asKnob));
+    layout.add (makeFloat (ParamIDs::delayMix, "Delay Mix", { 0.0f, 1.0f, 0.01f }, 0.25f, v, asPercent));
+    layout.add (makeSwitch (ParamIDs::delayPingPong, "Delay Ping-Pong", v, false));
+    layout.add (makeChoice (ParamIDs::delayType, "Delay Type", v, effects::Delay::typeNames, (int) effects::Delay::Type::digital));
+    layout.add (makeFloat (ParamIDs::delayDuck, "Delay Duck", { 0.0f, 1.0f, 0.01f }, 0.0f, v, asPercent));
+    layout.add (makeSwitch (ParamIDs::reverbOn, "Reverb On", v, false));
+    layout.add (makeFloat (ParamIDs::reverbSize, "Reverb Size", { 0.0f, 1.0f, 0.01f }, 0.5f, v, asPercent));
+    layout.add (makeFloat (ParamIDs::reverbTone, "Reverb Tone", { 0.0f, 10.0f, 0.1f }, 6.0f, v, asKnob));
+    layout.add (makeFloat (ParamIDs::reverbMix, "Reverb Mix", { 0.0f, 1.0f, 0.01f }, 0.28f, v, asPercent));
+    layout.add (makeChoice (ParamIDs::reverbType, "Reverb Type", v, effects::Reverb::typeNames, (int) effects::Reverb::Type::digital));
+    layout.add (makeFloat (ParamIDs::reverbPreDelay, "Reverb Pre-Delay", { 0.0f, effects::Reverb::maxPreDelayMs, 1.0f }, 20.0f, v, asWholeMs));
+    layout.add (makeFloat (ParamIDs::reverbDuck, "Reverb Duck", { 0.0f, 1.0f, 0.01f }, 0.0f, v, asPercent));
+    layout.add (makeFloat (ParamIDs::delayToReverb, "Delay To Reverb", { 0.0f, 1.0f, 0.01f }, 0.0f, v, asPercent));
 }

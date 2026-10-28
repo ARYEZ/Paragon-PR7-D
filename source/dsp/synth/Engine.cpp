@@ -402,6 +402,13 @@ namespace synth
 
         std::fill (left, left + numSamples, 0.0f);
         std::fill (right, right + numSamples, 0.0f);
+        outputBase = left;
+        for (int s = 0; s < numSends; ++s)
+            if (sendsWanted (settings, s))
+            {
+                std::fill (sendBaseLeft[(size_t) s], sendBaseLeft[(size_t) s] + numSamples, 0.0f);
+                std::fill (sendBaseRight[(size_t) s], sendBaseRight[(size_t) s] + numSamples, 0.0f);
+            }
         samplesIntoBlock = 0.0;
         blockStartClock = sampleClock;
         updateArpMasks (settings);
@@ -1253,9 +1260,16 @@ namespace synth
             filterTarget = FilterChannel::Coefficients::make (cutoff, resonance, sampleRate);
         }
 
-        // Each path through its shapers and filter, then all of them together.
+        // Each path through its shapers and filter, then all of them together (and, 7b, into the sends at each path's amount).
         std::fill (mixLeft.begin(), mixLeft.begin() + n, 0.0f);
         std::fill (mixRight.begin(), mixRight.begin() + n, 0.0f);
+        std::array<bool, numSends> sending {};
+        for (int s = 0; s < numSends; ++s)
+            if ((sending[(size_t) s] = sendsWanted (unmodulated, s)))
+            {
+                std::fill (sendMixLeft[(size_t) s].begin(), sendMixLeft[(size_t) s].begin() + n, 0.0f);
+                std::fill (sendMixRight[(size_t) s].begin(), sendMixRight[(size_t) s].begin() + n, 0.0f);
+            }
         for (size_t p = 0; p < pathUsed.size(); ++p)
         {
             if (! pathUsed[p])
@@ -1266,7 +1280,16 @@ namespace synth
                 mixLeft[(size_t) i] += pathLeft[p][(size_t) i];
                 mixRight[(size_t) i] += pathRight[p][(size_t) i];
             }
+            for (int s = 0; s < numSends; ++s)
+                if (sending[(size_t) s])
+                    if (const auto amount = sendGainOf (voice.paths[p].key, s); amount > 0.0f)
+                        for (int i = 0; i < n; ++i)
+                        {
+                            sendMixLeft[(size_t) s][(size_t) i] += pathLeft[p][(size_t) i] * amount;
+                            sendMixRight[(size_t) s][(size_t) i] += pathRight[p][(size_t) i] * amount;
+                        }
         }
+        const auto offset = left - outputBase;   // this interval's place in the block (and so in the sends)
 
         // The AMP: envelope, velocity, SPIKE, VOLUME, then this note's pan.
         const auto velocityGain = 1.0f - ampSettings.velocity * velocityDown;
@@ -1298,6 +1321,12 @@ namespace synth
             }
             left[i] += mixLeft[(size_t) i] * gainLeft * voice.panLeft;
             right[i] += mixRight[(size_t) i] * gainRight * voice.panRight;
+            for (int s = 0; s < numSends; ++s)
+                if (sending[(size_t) s])
+                {
+                    sendBaseLeft[(size_t) s][offset + i] += sendMixLeft[(size_t) s][(size_t) i] * gainLeft * voice.panLeft;
+                    sendBaseRight[(size_t) s][offset + i] += sendMixRight[(size_t) s][(size_t) i] * gainRight * voice.panRight;
+                }
         }
 
         // Over once it can't be heard.
@@ -1710,6 +1739,12 @@ namespace synth
             for (int k = 0; k < numShapers; ++k)
                 if (settings.shapers[(size_t) k].on && s.toShaper[(size_t) k])
                     key |= 2 << k;
+            // Stage 7b: an oscillator sending a different amount needs its own path (sends are taken after the
+            // path). 100%, or a send that's off, is code 0: so switching an effect on re-routes nothing.
+            for (int send = 0; send < numSends; ++send)
+                if (sendsWanted (settings, send))
+                    if (const auto percent = juce::jlimit (0, 100, juce::roundToInt (s.send[(size_t) send] * 100.0f)); percent != 100)
+                        key |= (percent + 1) << (5 + 7 * send);
             keys[i] = key;
         }
 

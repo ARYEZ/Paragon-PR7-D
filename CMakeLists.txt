@@ -60,6 +60,9 @@ target_sources(ParagonX1
         source/dsp/effects/Limiter.cpp
         source/dsp/effects/MasterLimiter.cpp
         source/dsp/effects/Loudness.cpp
+        source/dsp/effects/Delay.cpp
+        source/dsp/effects/Reverb.cpp
+        source/dsp/effects/PitchShifter.cpp
         source/dsp/eq/EqDesign.cpp
         source/dsp/eq/ParametricEq.cpp
         source/dsp/eq/EqMatch.cpp
