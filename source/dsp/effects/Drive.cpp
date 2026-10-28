@@ -27,7 +27,10 @@ namespace effects
 
     Drive::Drive()
         : oversampling (1, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true),   // 3 stages = 8x, steep filters
-          screamerOversampling (2, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true)
+          screamerOversampling (2, 3, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true),
+          // (PR7-K 0.20.2: COSMONAUT at 4x, the owner's choice: measured, its aliasing and harmonics were the
+          // same as at 8x, within 0.2 dB, for about 40% less CPU.)
+          cosmonautOversampling (1, 2, juce::dsp::Oversampling<float>::filterHalfBandPolyphaseIIR, true)
     {
     }
 
@@ -48,6 +51,8 @@ namespace effects
         oversampling.reset();
         screamerOversampling.initProcessing ((size_t) maxBlockSize);
         screamerOversampling.reset();
+        cosmonautOversampling.initProcessing ((size_t) maxBlockSize);
+        cosmonautOversampling.reset();
         screamerPaths.setSize (3, maxBlockSize);   // clean, clipping path, and Skyline's gate
         screamerLowCutNow = skylineAttackHz (skylineTubeScreamerAttack);   // the TS808's 4.7k and 47 nF: 720 Hz
         gateEnvelope = 0.0f;
@@ -58,7 +63,7 @@ namespace effects
         screamerGain.reset (sampleRate, 0.02);
         screamerTone.reset (sampleRate, 0.02);
         screamerLevel.reset (sampleRate, 0.02);
-        cosmonaut.prepare (sampleRate * (double) oversampling.getOversamplingFactor(), sampleRate);
+        cosmonaut.prepare (sampleRate * (double) cosmonautOversampling.getOversamplingFactor(), sampleRate);
         fuzzGain.reset (sampleRate, 0.02);
         fuzzTone.reset (sampleRate, 0.02);
         fuzzLevel.reset (sampleRate, 0.02);
@@ -82,6 +87,7 @@ namespace effects
                 screamerLowCut.reset();
                 screamerOversampling.reset();
                 oversampling.reset();
+                cosmonautOversampling.reset();
                 rabid.reset();
                 chimera.reset();
                 abyss.reset();
@@ -273,12 +279,12 @@ namespace effects
         cosmonaut.setSustain (fuzzGain.skip (numSamples));
         cosmonaut.setTone (fuzzTone.skip (numSamples));
 
-        // The three clipping-capable stages at 8x the rate, against aliasing.
-        auto upsampled = oversampling.processSamplesUp (block);
+        // The three clipping-capable stages at 4x the rate, against aliasing (PR7-G: 8x).
+        auto upsampled = cosmonautOversampling.processSamplesUp (block);
         auto* fast = upsampled.getChannelPointer (0);
         for (size_t i = 0; i < upsampled.getNumSamples(); ++i)
             fast[i] = (float) cosmonaut.clip (fast[i]);
-        oversampling.processSamplesDown (block);
+        cosmonautOversampling.processSamplesDown (block);
 
         auto* samples = block.getChannelPointer (0);
         for (int i = 0; i < numSamples; ++i)

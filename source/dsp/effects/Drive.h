@@ -112,6 +112,7 @@ namespace effects
         // Screamer: the clean guitar and the clipping path, oversampled together
         // so they stay exactly in step when they're added back together.
         juce::dsp::Oversampling<float> screamerOversampling;
+        juce::dsp::Oversampling<float> cosmonautOversampling;   // (PR7-K: 4x)
         juce::AudioBuffer<float> screamerPaths;
         juce::dsp::IIR::Filter<float> screamerLowCut;
         float screamerLowCutNow = 0.0f;

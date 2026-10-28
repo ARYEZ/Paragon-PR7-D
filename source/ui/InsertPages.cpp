@@ -130,8 +130,8 @@ void DrivePreview::paint (juce::Graphics& g)
     // What the model costs on a bus (both sides), as measured here (InsertTests' report): PR7-G's circuits solved at 8x,
     // on a played saw chord and on loud noise. HALO, the whole fuzz circuit solved at once, works far harder on loud,
     // bright sound (its solver takes many more steps to settle), so it shows both.
-    constexpr int percentOnBus[] = { 11, 4, 30, 33, 3, 11, 18 };   // Drive::Model's order
-    constexpr int worstOnBus[] = { 14, 4, 30, 120, 3, 13, 19 };
+    constexpr int percentOnBus[] = { 11, 4, 17, 33, 3, 11, 18 };   // Drive::Model's order
+    constexpr int worstOnBus[] = { 14, 4, 17, 120, 3, 13, 19 };
     const auto model = juce::jlimit (0, (int) std::size (percentOnBus) - 1, (int) processor.getInsertDriveSettings (bus).model);
     const auto percent = percentOnBus[model], worst = worstOnBus[model];
     g.setFont (juce::FontOptions (12.0f, juce::Font::bold));

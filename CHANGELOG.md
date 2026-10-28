@@ -2,6 +2,17 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.20.2
+
+**COSMONAUT runs at 4x instead of 8x: about 40% less CPU** (your choice, after 0.20.1).
+
+- **What changed:** the drives work out their circuits at several times the sample rate, so the new high harmonics that distortion makes don't fold back down as harsh, out-of-tune tones (aliasing). COSMONAUT now works at 4 times the rate instead of 8. The other drives stay at 8x.
+- **What I measured before changing it:** at 4x, COSMONAUT's aliasing was the same as at 8x (both under my measurement's floor, about 47 dB down), and its harmonics were within 0.2 dB. PR7-G's own COSMONAUT test (odd harmonics, the scooped mids) still passes.
+- **Not sample-identical to 8x:** it's a different oversampling filter, so the output differs very slightly, mostly at the very top of the range. I can't listen here; if COSMONAUT sounds different to you, tell me and it goes back to 8x.
+- **CPU on a bus (both sides), a played saw chord:** COSMONAUT 30% → about 17%. DRIVE's page shows the new figure.
+- **Not changed:** RABID and ABYSS aliased audibly more at 4x, and CHIMERA moved one high harmonic by 6 dB, so they stay at 8x. HALO is as before (its fix is still offered).
+- **PR7-G** still runs COSMONAUT at 8x; if you want this there too, it goes in PR7-G's own chat.
+
 ## 0.20.1
 
 **Faster drives: RABID, CHIMERA, COSMONAUT and ABYSS use about a third less CPU, with exactly the same sound.**
