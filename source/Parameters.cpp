@@ -24,7 +24,7 @@ namespace
     constexpr int stage4e = 12;  // 0.13.0
     constexpr int stage4f = 13;  // 0.14.0
     constexpr int stage5a = 14;  // 0.15.0
-    constexpr int stage5b = 15;  // 0.16.0
+    constexpr int stage5b = 15;  // 0.16.0 (16, 0.17.0: the rack, in RackParameters.cpp)
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -488,5 +488,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     add (layout, bendDown, "Bend Down", { 0.0f, 48.0f, 1.0f }, play.bendDown, asSemitones);
     add (layout, voices, "Voices", { 1.0f, (float) synth::maxVoices, 1.0f }, (float) play.voices, asCount);
 
+    addRackParameters (layout);   // the rack (stage 7a): RackParameters.cpp
     return layout;
 }

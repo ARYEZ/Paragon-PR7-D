@@ -170,7 +170,19 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
     for (int i = 0; i < ParamIDs::numOscillators; ++i)
         buildFreeform (i);
 
+    // THE RACK: each band's parameters, read every block.
+    for (int band = 0; band < ParamIDs::eqNumBands; ++band)
+        for (size_t i = 0; i < std::size (ParamIDs::eqBandSettings); ++i)
+            rack->eqBandParameters[(size_t) band].values[i] = parameters.getRawParameterValue (ParamIDs::eqBand (band, ParamIDs::eqBandSettings[i]));
+    for (int band = 0; band < ParamIDs::domNumBands; ++band)
+        for (size_t i = 0; i < std::size (ParamIDs::domBandSettings); ++i)
+            rack->dominionBandParameters[(size_t) band].values[i] = parameters.getRawParameterValue (ParamIDs::domBand (band, ParamIDs::domBandSettings[i]));
+    for (int band = 0; band < ParamIDs::mbNumBands; ++band)
+        for (size_t i = 0; i < std::size (ParamIDs::mbBandSettings); ++i)
+            rack->multibandBandParameters[(size_t) band].values[i] = parameters.getRawParameterValue (ParamIDs::mbBand (band, ParamIDs::mbBandSettings[i]));
+
     rigLibrary = std::make_unique<RigLibrary>();
+    rack->setFolder (rigLibrary->getFolder());
     // MIDI LEARN: a new instance starts with the default links, if some were saved.
     if (midiLinksDefaultFile().existsAsFile())
         importMidiLinks (midiLinksDefaultFile());
@@ -222,6 +234,193 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     outputGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (param (ParamIDs::outputGain) + param (ParamIDs::patchLevel)));
     bypassAmount.reset (sampleRate, gainRampSeconds);
     bypassAmount.setCurrentAndTargetValue (isOn (ParamIDs::bypass) ? 1.0f : 0.0f);
+
+    // THE RACK.
+    rack->sampleRate = sampleRate;
+    rack->parametricEq.prepare (sampleRate, preparedBlockSize);
+    rack->dominionProcessor.prepare (sampleRate, preparedBlockSize);
+    rack->compressor.prepare (sampleRate, preparedBlockSize);
+    rack->multiband.prepare (sampleRate, preparedBlockSize);
+    rack->compSidechain.setSize (2, preparedBlockSize);
+    rack->limiter.prepare (sampleRate, preparedBlockSize);
+    rack->eqInputTap.setSampleRate (sampleRate);
+    rack->eqOutputTap.setSampleRate (sampleRate);
+    updateLatency();
+}
+
+effects::MasterLimiter::Settings ParagonX1AudioProcessor::getLimiterSettings() const
+{
+    effects::MasterLimiter::Settings s;
+    s.on = isOn (ParamIDs::limitOn);
+    s.style = (effects::limiter::Style) juce::jlimit (0, ParamRanges::limitModes.size() - 1, juce::roundToInt (param (ParamIDs::limitMode)));
+    s.gainDb = param (ParamIDs::limitGain);
+    s.ceilingDb = param (ParamIDs::limitCeiling);
+    s.lookaheadMs = param (ParamIDs::limitLookahead);
+    s.attackMs = param (ParamIDs::limitAttack);
+    s.releaseMs = param (ParamIDs::limitRelease);
+    s.transientLink = param (ParamIDs::limitLinkTransient) / 100.0f;
+    s.releaseLink = param (ParamIDs::limitLinkRelease) / 100.0f;
+    s.truePeak = isOn (ParamIDs::limitTruePeak);
+    s.oversampling = juce::roundToInt (param (ParamIDs::limitOversampling));
+    s.dither = juce::roundToInt (param (ParamIDs::limitDither));
+    s.shaping = juce::roundToInt (param (ParamIDs::limitShaping));
+    s.unity = isOn (ParamIDs::limitUnity);
+    s.delta = isOn (ParamIDs::limitDelta);
+    s.dcFilter = isOn (ParamIDs::limitDcFilter);
+    s.trimDb = param (ParamIDs::limitTrim);
+    s.mix = param (ParamIDs::limitMix) / 100.0f;
+    s.link = isOn (ParamIDs::limitLink);
+    return s;
+}
+
+void ParagonX1AudioProcessor::updateLatency()
+{
+    // CONSTRICTOR's LOOK-AHEAD, and the LIMITER's (with its oversampling and true peak): the synth itself adds none.
+    const auto latency = (isOn (ParamIDs::mbLookahead) ? (int) std::lround (effects::multiband::lookaheadSeconds * rack->sampleRate) : 0)
+                         + rack->limiter.getLatencySamples (getLimiterSettings());
+    if (latency != getLatencySamples())
+        setLatencySamples (latency);
+}
+
+effects::multiband::Settings ParagonX1AudioProcessor::getMultibandSettings() const noexcept
+{
+    namespace mb = effects::multiband;
+    mb::Settings settings;
+    settings.lookahead = isOn (ParamIDs::mbLookahead);
+    settings.mix = param (ParamIDs::mbMix) / 100.0f;
+    settings.soloBand = rack->multibandSolo.load();
+    for (size_t i = 0; i < settings.bands.size(); ++i)
+    {
+        const auto& v = rack->multibandBandParameters[i].values;   // in mbBandSettings' order
+        auto& band = settings.bands[i];
+        band.used = v[0]->load() > 0.5f;
+        band.on = v[1]->load() > 0.5f;
+        band.lowHz = v[2]->load();
+        band.highHz = v[3]->load();
+        band.slope = juce::jlimit (0, mb::numSlopes - 1, juce::roundToInt (v[4]->load()));
+        band.thresholdDb = v[5]->load();
+        band.rangeDb = v[6]->load();
+        band.mode = (mb::Mode) juce::jlimit (0, 1, juce::roundToInt (v[7]->load()));
+        band.ratio = v[8]->load();
+        band.kneeDb = v[9]->load();
+        band.attackMs = v[10]->load();
+        band.releaseMs = v[11]->load();
+        band.character = (effects::Compressor::Character) juce::jlimit (0, 2, juce::roundToInt (v[12]->load()));
+        band.stereo = (mb::Stereo) juce::jlimit (0, 2, juce::roundToInt (v[13]->load()));
+        band.link = v[14]->load() / 100.0f;
+        band.outputDb = v[15]->load();
+        band.lookaheadMs = v[16]->load();
+    }
+    return settings;
+}
+
+eq::ParametricEq::Settings ParagonX1AudioProcessor::getEqSettings() const noexcept
+{
+    eq::ParametricEq::Settings settings;
+    settings.on = isOn (ParamIDs::eqOn);
+    settings.outputDb = param (ParamIDs::eqOutput);
+    settings.gainScale = param (ParamIDs::eqGainScale);
+    settings.autoGain = isOn (ParamIDs::eqAutoGain);
+    settings.soloBand = rack->eqSoloBand.load();
+    for (size_t i = 0; i < settings.bands.size(); ++i)
+    {
+        const auto& values = rack->eqBandParameters[i].values;   // in eqBandSettings' order
+        auto& band = settings.bands[i];
+        band.used = values[0]->load() > 0.5f;
+        band.on = values[1]->load() > 0.5f;
+        band.shape = (eq::Shape) juce::roundToInt (values[2]->load());
+        band.frequency = values[3]->load();
+        band.gainDb = values[4]->load();
+        band.q = values[5]->load();
+        band.slope = juce::roundToInt (values[6]->load());
+        band.placement = (eq::Placement) juce::roundToInt (values[7]->load());
+        band.dynamicRangeDb = values[8]->load();
+        band.autoThreshold = values[9]->load() > 0.5f;
+        band.thresholdDb = values[10]->load();
+        band.attack = values[11]->load();
+        band.release = values[12]->load();
+    }
+    return settings;
+}
+
+dominion::Settings ParagonX1AudioProcessor::getDominionSettings() const noexcept
+{
+    dominion::Settings s;
+    s.on = isOn (ParamIDs::domOn);
+    s.mode = (dominion::Mode) juce::jlimit (0, 1, juce::roundToInt (param (ParamIDs::domMode)));
+    s.depth = param (ParamIDs::domDepth);
+    s.detail = param (ParamIDs::domDetail);
+    s.attack = param (ParamIDs::domAttack);
+    s.release = param (ParamIDs::domRelease);
+    s.stereo = (dominion::StereoMode) juce::jlimit (0, 1, juce::roundToInt (param (ParamIDs::domStereo)));
+    s.link = param (ParamIDs::domLink);
+    s.focus = param (ParamIDs::domFocus);
+    s.detailTiltLow = param (ParamIDs::domDetailLow);
+    s.detailTiltHigh = param (ParamIDs::domDetailHigh);
+    s.attackTiltLow = param (ParamIDs::domAttackLow);
+    s.attackTiltHigh = param (ParamIDs::domAttackHigh);
+    s.releaseTiltLow = param (ParamIDs::domReleaseLow);
+    s.releaseTiltHigh = param (ParamIDs::domReleaseHigh);
+    s.maxCutDb = param (ParamIDs::domMaxCut);
+    s.wetTrimDb = param (ParamIDs::domWetTrim);
+    s.mix = param (ParamIDs::domMix);
+    s.outDb = param (ParamIDs::domOut);
+    s.delta = isOn (ParamIDs::domDelta);
+    for (size_t i = 0; i < s.bands.size(); ++i)
+    {
+        const auto& values = rack->dominionBandParameters[i].values;   // in domBandSettings' order
+        auto& band = s.bands[i];
+        band.used = values[0]->load() > 0.5f;
+        band.on = values[1]->load() > 0.5f;
+        band.shape = (dominion::Shape) juce::jlimit (0, dominion::shapeNames.size() - 1, juce::roundToInt (values[2]->load()));
+        band.frequency = values[3]->load();
+        band.depthDb = values[4]->load();
+        band.q = values[5]->load();
+        band.slope = juce::roundToInt (values[6]->load());
+        band.focus = values[7]->load();
+    }
+    s.listenBand = rack->dominionListen.load();
+    return s;
+}
+
+void ParagonX1AudioProcessor::processRack (juce::dsp::AudioBlock<float> block)
+{
+    // As PR7-E 0.18.1's processChunk, from its EQ to its COMP: ECHELON, with what goes in and comes out kept for its
+    // analyser (and EQ Match); DOMINION after it (so it hears what the EQ made); CONSTRICTOR's bands, then its full band
+    // (PR7-C's compressor, which takes whole buffers and the same audio to listen to). Each does nothing while off.
+    auto& r = *rack;
+    const auto numChannels = (int) block.getNumChannels();
+    const auto numSamples = (int) block.getNumSamples();
+    if (r.compSidechain.getNumSamples() < numSamples)
+        return;   // not prepared (prepareToPlay sizes everything): pass the synth through rather than read past a buffer
+    const auto writeTap = [&] (InputTap& tap)
+    {
+        if (numChannels > 1)
+            tap.write (block.getChannelPointer (0), block.getChannelPointer (1), numSamples);
+        else
+            tap.write (block.getChannelPointer (0), numSamples);
+    };
+    writeTap (r.eqInputTap);
+    r.parametricEq.process (block, getEqSettings());
+    writeTap (r.eqOutputTap);
+
+    r.dominionProcessor.process (block, getDominionSettings());
+
+    r.multiband.process (block, getMultibandSettings(), isOn (ParamIDs::compOn));
+    float* channels[effects::maxChannels] {};
+    for (int channel = 0; channel < numChannels; ++channel)
+    {
+        channels[channel] = block.getChannelPointer ((size_t) channel);
+        r.compSidechain.copyFrom (channel, 0, channels[channel], numSamples);
+    }
+    juce::AudioBuffer<float> audio (channels, numChannels, numSamples);
+    const juce::AudioBuffer<float> detector (r.compSidechain.getArrayOfWritePointers(), numChannels, numSamples);
+    r.compressor.process (audio, detector, numSamples,
+                          { isOn (ParamIDs::compOn) && isOn (ParamIDs::compWide), param (ParamIDs::compThreshold), param (ParamIDs::compRatio),
+                            param (ParamIDs::compAttack), param (ParamIDs::compRelease), isOn (ParamIDs::compAuto),
+                            param (ParamIDs::compMakeUp),
+                            (effects::Compressor::Character) juce::jlimit (0, 2, juce::roundToInt (param (ParamIDs::compCharacter))),
+                            isOn (ParamIDs::compLink) });
 }
 
 juce::AudioProcessorParameter* ParagonX1AudioProcessor::getBypassParameter() const
@@ -621,16 +820,29 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
                 left[done + i] = 0.5f * (left[done + i] + scratchRight[i]);
     }
 
-    // The preset's own level and OUTPUT, then BYPASS (to silence: there's
-    // nothing "clean" to pass through on an instrument).
+    // THE RACK (stage 7a): ECHELON, DOMINION, CONSTRICTOR; then the preset's own level and OUTPUT; then the LIMITER,
+    // last, so nothing after it can push a peak past its ceiling (OUTPUT drives into it, as into a mastering
+    // limiter); then BYPASS (to silence: there's nothing "clean" to pass through on an instrument).
+    const auto block = juce::dsp::AudioBlock<float> (buffer).getSubBlock ((size_t) start, (size_t) numSamples)
+                                                            .getSubsetChannelBlock (0, (size_t) juce::jmin (numChannels, 2));
+    processRack (block);
     outputGain.setTargetValue (juce::Decibels::decibelsToGain (param (ParamIDs::outputGain) + param (ParamIDs::patchLevel)));
-    bypassAmount.setTargetValue (isOn (ParamIDs::bypass) ? 1.0f : 0.0f);
     for (int i = 0; i < numSamples; ++i)
     {
-        const auto gain = outputGain.getNextValue() * (1.0f - bypassAmount.getNextValue());
+        const auto gain = outputGain.getNextValue();
         for (int channel = 0; channel < juce::jmin (numChannels, 2); ++channel)
             buffer.getWritePointer (channel, start)[i] *= gain;
     }
+    if (rack->compSidechain.getNumSamples() >= numSamples)
+        rack->limiter.process (block, getLimiterSettings());
+    bypassAmount.setTargetValue (isOn (ParamIDs::bypass) ? 1.0f : 0.0f);
+    if (bypassAmount.isSmoothing() || bypassAmount.getTargetValue() > 0.5f)
+        for (int i = 0; i < numSamples; ++i)
+        {
+            const auto gain = 1.0f - bypassAmount.getNextValue();
+            for (int channel = 0; channel < juce::jmin (numChannels, 2); ++channel)
+                buffer.getWritePointer (channel, start)[i] *= gain;
+        }
     for (int channel = 2; channel < numChannels; ++channel)
         buffer.clear (channel, start, numSamples);
 
@@ -643,6 +855,8 @@ void ParagonX1AudioProcessor::timerCallback()
 {
     finishMidiLearn();
     updateWavetables();
+    updateLatency();
+    rack->eqMatch.update (rack->eqInputTap);   // EQ Match listens with its window closed too
     recordCheckpointIfReady();
 }
 
@@ -969,6 +1183,7 @@ void ParagonX1AudioProcessor::parameterChanged (const juce::String&, float)
 void ParagonX1AudioProcessor::useRigFolder (const juce::File& folder)
 {
     rigLibrary = std::make_unique<RigLibrary> (folder);
+    rack->setFolder (folder);
     rigBroadcaster.sendChangeMessage();
 }
 

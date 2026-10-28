@@ -7,6 +7,7 @@
 
 #include "LevelMeterSource.h"
 #include "Parameters.h"
+#include "Rack.h"
 #include "dsp/synth/Engine.h"
 #include "dsp/synth/Freeform.h"
 #include "dsp/synth/Spectrum.h"
@@ -200,6 +201,51 @@ public:
     juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
     LevelMeterSource& getOutputMeter() noexcept { return outputMeter; }
 
+    //==========================================================================
+    // THE RACK (stage 7a): PR7-E 0.18.1's four effects after the synth, with PR7-E's names for what its pages read.
+    // ECHELON (the EQ): its settings as they are now (any thread), the audio going into and out of it (for the
+    // analyser), and SOLO, which isn't a parameter: it's held while listening.
+    eq::ParametricEq::Settings getEqSettings() const noexcept;
+    const InputTap& getEqInputTap() const noexcept { return rack->eqInputTap; }
+    const InputTap& getEqOutputTap() const noexcept { return rack->eqOutputTap; }
+    void setEqSolo (int band) noexcept { rack->eqSoloBand = band; }
+    int getEqSolo() const noexcept { return rack->eqSoloBand.load(); }
+    double getEqAutoGainDb() const noexcept { return rack->parametricEq.getAutoGainDb(); }
+    eq::ParametricEq::DynamicReading getEqDynamics (int band) const noexcept { return rack->parametricEq.getDynamics (band); }
+    eq::match::Session& getEqMatch() noexcept { return rack->eqMatch; }
+
+    // DOMINION: its settings, what it's cutting (for its page), and listening to one of its depth-curve bands (-1: none).
+    dominion::Settings getDominionSettings() const noexcept;
+    const dominion::Processor& getDominion() const noexcept { return rack->dominionProcessor; }
+    void setDominionListen (int band) noexcept { rack->dominionListen = band; }
+    int getDominionListen() const noexcept { return rack->dominionListen.load(); }
+    // Its own presets (message thread): the one loaded last (and whether it's been changed since), loading one, and yours.
+    DominionPresets& getDominionPresets() noexcept { return rack->dominionPresets; }
+    void loadDominionPreset (const DominionPreset& preset) { DominionPresets::apply (preset, parameters); rack->dominionPreset = preset; }
+    juce::String getDominionPresetName() const { return rack->dominionPreset.name; }
+    bool isDominionPresetModified() { return ! DominionPresets::matches (rack->dominionPreset, parameters); }
+    void rememberDominionPreset (const DominionPreset& preset) { rack->dominionPreset = preset; }   // after saving it
+
+    // CONSTRICTOR's presets, as DOMINION's.
+    CompPresets& getCompPresets() noexcept { return rack->compPresets; }
+    void loadCompPreset (const CompPreset& preset) { CompPresets::apply (preset, parameters); rack->compPreset = preset; }
+    juce::String getCompPresetName() const { return rack->compPreset.name; }
+    bool isCompPresetModified() { return ! CompPresets::matches (rack->compPreset, parameters); }
+    void rememberCompPreset (const CompPreset& preset) { rack->compPreset = preset; }
+
+    // CONSTRICTOR's bands as set now (any thread), and each band now (the page's meters).
+    effects::multiband::Settings getMultibandSettings() const noexcept;
+    effects::multiband::Processor::Reading getMultibandReading (int band) const noexcept { return rack->multiband.getReading (band); }
+    void setMultibandSolo (int band) noexcept { rack->multibandSolo = band; }
+    // The delay CONSTRICTOR's LOOK-AHEAD and the LIMITER add, told to the DAW (the timer calls this; tests too).
+    void updateLatency();
+
+    // CONSTRICTOR's and the LIMITER's gain reduction on a channel in the last block (dB, 0 or more).
+    float getCompressorReductionDb (int channel) const noexcept { return rack->compressor.getReductionDb (channel); }
+    float getLimiterReductionDb (int channel) const noexcept { return rack->limiter.getReductionDb (channel); }
+    effects::MasterLimiter& getLimiter() noexcept { return rack->limiter; }
+    effects::MasterLimiter::Settings getLimiterSettings() const;
+
 private:
     void processChunk (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& midi, int start, int numSamples);
     float param (const char* id) const;
@@ -302,6 +348,7 @@ private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> outputGain;
     juce::SmoothedValue<float> bypassAmount;   // 1: silent
 
+    std::unique_ptr<Rack> rack = std::make_unique<Rack>();   // made first: the rig folder sets its folders
     std::unique_ptr<RigLibrary> rigLibrary;
     CurrentRig currentRig;
     // Atomic because the DAW's automation changes parameters on the audio thread.
@@ -353,6 +400,8 @@ private:
     void compileMatrix();
 
     LevelMeterSource outputMeter;
+    void processRack (juce::dsp::AudioBlock<float> block);   // the rack's effects before OUTPUT
+
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParagonX1AudioProcessor)
 };

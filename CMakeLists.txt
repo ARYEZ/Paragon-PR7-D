@@ -46,6 +46,7 @@ juce_add_binary_data(ParagonX1Fonts
 target_sources(ParagonX1
     PRIVATE
         source/Parameters.cpp
+        source/RackParameters.cpp
         source/ModDestinations.cpp
         source/PluginProcessor.cpp
         source/PluginEditor.cpp
@@ -57,11 +58,16 @@ target_sources(ParagonX1
         source/dsp/effects/Compressor.cpp
         source/dsp/effects/MultibandComp.cpp
         source/dsp/effects/Limiter.cpp
+        source/dsp/effects/MasterLimiter.cpp
+        source/dsp/effects/Loudness.cpp
         source/dsp/eq/EqDesign.cpp
         source/dsp/eq/ParametricEq.cpp
         source/dsp/eq/EqMatch.cpp
+        source/dsp/eq/EqMatchSession.cpp
         source/rigs/Rig.cpp
         source/rigs/FactoryRigs.cpp
+        source/rigs/CompPresets.cpp
+        source/rigs/DominionPresets.cpp
         source/rigs/RigLibrary.cpp
         source/ui/LevelMeter.cpp
         source/ui/Logo.cpp

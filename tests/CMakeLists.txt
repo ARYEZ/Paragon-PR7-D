@@ -22,6 +22,7 @@ add_executable(ParagonX1Tests
     ArpTests.cpp
     ArpChordTests.cpp
     StackSizeTests.cpp
+    ParameterIdTests.cpp
     ProcessorTests.cpp
     RigTests.cpp
     UiTests.cpp
@@ -29,6 +30,7 @@ add_executable(ParagonX1Tests
     EffectTests.cpp
     EqTests.cpp
     LimiterTests.cpp
+    MasterLimiterTests.cpp
     CompressorTests.cpp
     DominionTests.cpp
     MultibandTests.cpp
