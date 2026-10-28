@@ -2,6 +2,56 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.18.0
+
+Stage 7, part 2: **THE SENDS**: PR7-G's **DELAY** and **REVERB**, fed by a send from each oscillator. They're PR7-G 0.52.0's own effects, the same code ported, as you asked.
+
+- **The FX page now has two views,** with tabs along the top:
+  - **SENDS:** DELAY and REVERB as two rack units, and a send matrix under them.
+  - **MASTER:** 0.17.0's rack (ECHELON, DOMINION, CONSTRICTOR, LIMITER), unchanged.
+- **How the sends work** (as on a mixing desk):
+  - Each oscillator has a **DELAY** and a **REVERB** send: on its WAVE page (SENDS, beside NOTES), on the matrix, and on each effect's page.
+  - The sound itself plays as before. A copy of each oscillator, at its send amount, goes to the effect, which gives back only its echoes or reverb, at its MIX.
+  - So you can keep a sub dry and tight while the lead swims in reverb, or echo just one layer.
+  - The sends are taken after the AMP and the note's pan, so each echo follows the note's envelope and position.
+  - Sends are 100% by default, so switching DELAY or REVERB on just works on everything.
+- **DELAY > REVERB** (on the matrix and the DELAY page): an amount of the echoes goes on into the reverb, so they get a space of their own.
+- **The returns** come back in before the MASTER rack, so ECHELON, CONSTRICTOR and the LIMITER treat the echoes and reverb as part of the sound (the LIMITER holds them under its ceiling too).
+- **DELAY**, PR7-G's, in all its types:
+  - Digital, Analog, Tape, Mod, Reverse, Multi-Tap, Shimmer, Ducking;
+  - TIME or SYNC to the song, FEEDBACK, TONE, MIX, PING-PONG, DUCK;
+  - **on the unit:** PING-PONG, SYNC and DUCK keys, FEEDBACK and MIX knobs, the echo time in big digits, the return's level on the meter;
+  - **its page** draws the echoes on a timeline: where each comes and how far down it is in dB, left above and right below with PING-PONG.
+- **REVERB**, PR7-G's:
+  - Classic, Room, Hall, Cathedral, Plate, Spring, Digital, Reverse;
+  - SIZE, PRE-DELAY, TONE, MIX, DUCK;
+  - **on the unit:** ROOM, HALL and PLATE keys to pick those quickly, SIZE and MIX, the tail's length in big digits;
+  - **its page** draws the tail: silence for PRE-DELAY, then the fall to -60 dB.
+- **Stereo:**
+  - A sound on the left echoes on the left. It's exactly silent on the right; only TAPE's own hiss is on both sides.
+  - PING-PONG takes what's sent as one sound and bounces it left, right, left, as on PR7-G. Otherwise a sound in the middle would echo on both sides at once and never bounce.
+  - The reverb spreads what it's given across both sides, as a room does.
+- **Nothing changes until you use them:**
+  - With DELAY and REVERB off, the sound is exactly as in 0.17.0, sample for sample.
+  - Switching one on while a note plays doesn't re-route the note (no click).
+- **One trade-off:** oscillators with *different* send amounts each get their own copy of the filter and shapers. That's the same rule as routing them to different shapers. If the filter's DRIVE or a SHAPER is on, distorting them separately sounds a little different from distorting them together.
+- **CPU:** DELAY and REVERB on a two-oscillator chord added about 2% of a core here; off, nothing.
+- **A new factory preset:** **Echo Pluck** (A37). A pluck with ping-pong dotted-eighth echoes and a hall, over a sub that sends nothing. Our own settings, not tuned by ear.
+- **Not yet:** inserts (effects on single oscillators: 7d), modulation and lo-fi (7c).
+- **In the tests:**
+  - PR7-G's own delay and reverb tests, run as they are (through a stand-in for PR7-G's plugin);
+  - and, in the synth, from the sound:
+    - an oscillator at 0% gets no echoes and changes nothing in them;
+    - 50% gives echoes 6 dB down;
+    - the reverb's tail comes only from what's sent, and DELAY > REVERB carries the echoes in;
+    - left stays left (and PING-PONG bounces);
+    - switching DELAY on mid-note, or different sends while it's off, changes nothing, sample for sample;
+    - the LIMITER holds the echoes;
+    - CPU;
+    - the SENDS view, its pages and the echo timeline;
+    - the new preset.
+- I can't listen here. If an echo or a reverb sounds different from PR7-G's, tell me which type and what you hear.
+
 ## 0.17.0
 
 Stage 7, part 1: **THE RACK**, a new **FX** page (in the header, after ARP) with PR7-E's four effects after the synth. They're PR7-E 0.18.1's, as you asked, with the same sound and controls: the same code, ported, not new versions.

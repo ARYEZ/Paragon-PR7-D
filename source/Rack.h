@@ -51,6 +51,7 @@ struct Rack
     effects::Delay delay;
     effects::Reverb reverb;
     std::array<juce::AudioBuffer<float>, synth::numSends> sends;   // 2 channels each, the prepared block size
+    std::array<std::atomic<float>, synth::numSends> returnPeak {};   // each return's peak in the last block (the units' meters)
 
     void setFolder (const juce::File& presetsFolder)
     {

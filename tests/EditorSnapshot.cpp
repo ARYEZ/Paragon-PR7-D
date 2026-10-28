@@ -3,6 +3,7 @@
 #include "Parameters.h"
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
+#include "dsp/effects/Reverb.h"
 #include "ui/ParagonLookAndFeel.h"
 
 // Hidden test (the "[.]" tag): renders the editor to a PNG for reviewing the
@@ -17,7 +18,7 @@
 //   PARAGON_SNAPSHOT_FILTERPAGE=n     the FILTER panel's SHP n tab (shaper n's page)
 //   PARAGON_SNAPSHOT_FFT=band:dB,...  a curve drawn for oscillator 1; PARAGON_SNAPSHOT_FFT_VIEW=harmonic|bins
 //   PARAGON_SNAPSHOT_PARAMS=id=value,...   parameters set (real units)
-//   PARAGON_SNAPSHOT_PAGE=fx         THE RACK (PARAGON_SNAPSHOT_RACK=1: at work on a chord; PARAGON_SNAPSHOT_FX=eq|dominion|comp|limiter: that page)
+//   PARAGON_SNAPSHOT_PAGE=fx         THE RACK (PARAGON_SNAPSHOT_RACK=1: at work on a chord, the sends too; PARAGON_SNAPSHOT_FX=eq|dominion|comp|limiter|sends|delay|reverb: that view)
 //   PARAGON_SNAPSHOT_NOTES=1         a chord held on the keyboard (so the PLAY panel counts notes, and keys light)
 TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
 {
@@ -107,6 +108,19 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             set (ParamIDs::limitOn, 1.0f);
             set (ParamIDs::limitTruePeak, 1.0f);
             set (ParamIDs::limitGain, 6.0f);
+            // The SENDS (7b): DELAY in ping-pong eighths dotted, REVERB a hall; oscillator 2 (an octave up) sends less.
+            set (ParamIDs::delayOn, 1.0f);
+            set (ParamIDs::delayPingPong, 1.0f);
+            set (ParamIDs::delaySync, 7.0f);
+            set (ParamIDs::delayFeedback, 0.45f);
+            set (ParamIDs::delayToReverb, 0.3f);
+            set (ParamIDs::reverbOn, 1.0f);
+            set (ParamIDs::reverbType, (float) (int) effects::Reverb::Type::hall);
+            set (ParamIDs::reverbSize, 0.65f);
+            set (ParamIDs::osc (1, "On"), 1.0f);
+            set (ParamIDs::osc (1, "Transpose"), 12.0f);
+            set (ParamIDs::osc (1, "SendDelay"), 0.4f);
+            set (ParamIDs::osc (1, "SendReverb"), 0.6f);
             for (const auto note : { 48, 55, 60, 64, 67 })
                 processor.getKeyboardState().noteOn (1, note, 0.85f);
             juce::AudioBuffer<float> buffer (2, 256);
@@ -124,7 +138,8 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         const auto fx = env ("PARAGON_SNAPSHOT_FX");
         auto& fxPage = view->getFxPage();
         fxPage.show (fx == "eq" ? FxPage::View::eq : fx == "dominion" ? FxPage::View::dominion : fx == "comp" ? FxPage::View::comp
-                     : fx == "limiter" ? FxPage::View::limiter : FxPage::View::rack);
+                     : fx == "limiter" ? FxPage::View::limiter : fx == "sends" ? FxPage::View::sends : fx == "delay" ? FxPage::View::delay
+                     : fx == "reverb" ? FxPage::View::reverb : FxPage::View::rack);
         // A display reads its bands and analyser on its own timer, but only while it's on screen, which a snapshot
         // never is (as PR7-E's snapshots, refresh them by hand). ECHELON with its dynamic band 3 selected.
         if (fx == "eq")

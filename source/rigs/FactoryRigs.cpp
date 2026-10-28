@@ -1,6 +1,7 @@
 #include "FactoryRigs.h"
 
 #include "dsp/eq/EqDesign.h"
+#include "dsp/effects/Reverb.h"
 
 #include "Parameters.h"
 #include "dsp/synth/SynthSettings.h"
@@ -560,6 +561,22 @@ std::vector<Rig> makeFactoryRigs()
             .set (ParamIDs::limitOn, 1.0f).set (ParamIDs::limitTruePeak, 1.0f).set (ParamIDs::limitGain, 3.0f)
             .set (ParamIDs::limitCeiling, -1.0f);
     add (mastered);
+
+    // THE SENDS (stage 7b).
+    Builder echo ("Echo Pluck", 37, { "Pluck", "Sends", "Delay", "Reverb" },
+                  "A bright pluck with ping-pong echoes in dotted eighths and a hall around them, over a sub an octave down "
+                  "that sends nothing: the low end stays dry and tight while the top gets the space. Our own settings, not tuned by ear.");
+    echo.osc (0, "Volume", 0.7f).osc (0, "UniVoices", 3.0f).osc (0, "UniMix", 0.5f).osc (0, "UniDetune", 0.15f).osc (0, "UniSpread", 0.7f)
+        .osc (1, "On", 1.0f).osc (1, "Wave", (float) synth::OscWave::sine).osc (1, "Transpose", -12.0f).osc (1, "Volume", 0.6f)
+        .osc (1, "SendDelay", 0.0f).osc (1, "SendReverb", 0.0f)
+        .filter (FilterType::lp24, 1800.0f, 0.25f, 0.5f).filterEnvelope (0.0f, 250.0f, 0.0f, 200.0f)
+        .ampEnvelope (1.0f, 450.0f, 0.0f, 300.0f)
+        .set (ParamIDs::delayOn, 1.0f).set (ParamIDs::delaySync, 7.0f).set (ParamIDs::delayPingPong, 1.0f)
+        .set (ParamIDs::delayFeedback, 0.4f).set (ParamIDs::delayMix, 0.35f).set (ParamIDs::delayTone, 6.0f)
+        .set (ParamIDs::delayToReverb, 0.3f)
+        .set (ParamIDs::reverbOn, 1.0f).set (ParamIDs::reverbType, (float) (int) effects::Reverb::Type::hall)
+        .set (ParamIDs::reverbSize, 0.6f).set (ParamIDs::reverbMix, 0.25f);
+    add (echo);
 
     return rigs;
 }

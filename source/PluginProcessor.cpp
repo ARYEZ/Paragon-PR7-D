@@ -430,6 +430,8 @@ void ParagonX1AudioProcessor::processSends (juce::dsp::AudioBlock<float> block)
         for (int c = 0; c < 2; ++c)
             r.sends[1].addFrom (c, 0, r.sends[0], c, 0, numSamples, feed);
     r.reverb.process (reverbReturn, getReverbSettings());
+    for (int s = 0; s < synth::numSends; ++s)
+        r.returnPeak[(size_t) s] = juce::jmax (r.sends[(size_t) s].getMagnitude (0, 0, numSamples), r.sends[(size_t) s].getMagnitude (1, 0, numSamples));
     const auto numChannels = (int) block.getNumChannels();
     for (int c = 0; c < numChannels; ++c)
     {

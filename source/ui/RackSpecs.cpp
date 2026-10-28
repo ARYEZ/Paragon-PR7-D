@@ -5,6 +5,8 @@
 #include "Parameters.h"
 #include "ParagonLookAndFeel.h"
 #include "dsp/eq/EqDesign.h"
+#include "dsp/effects/Delay.h"
+#include "dsp/effects/Reverb.h"
 
 namespace
 {
@@ -347,6 +349,108 @@ std::array<RackUnit::Spec, 4> makeRackSpecs (ParagonX1AudioProcessor& p, RackAct
         s.footTitle = "STYLE";
         s.footText = [&p] { return textOf (p, limitMode); };
         s.onEdit = [actions] { actions.openPage (3); };
+    }
+    return specs;
+}
+
+//==============================================================================
+std::array<RackUnit::Spec, 2> makeSendSpecs (ParagonX1AudioProcessor& p, std::function<void (int)> openPage)
+{
+    using namespace ParamIDs;
+    std::array<RackUnit::Spec, 2> specs;
+
+    // DELAY (PR7-G's): the echo time in big digits, its type, feedback and PING-PONG.
+    {
+        auto& s = specs[0];
+        s.number = 1;
+        s.name = "DELAY";
+        s.kind = "STEREO DELAY  8 TYPES";
+        s.series = "PR7-K SERIES  SEND 1";
+        s.onParameterIds = { delayOn };
+        s.powerTooltip = "The DELAY on or off (each oscillator's DELAY send feeds it). Click POWER (the word) or EDIT for its page";
+        auto lastSync = std::make_shared<float> (3.0f);   // SYNC's note when it's switched back on (1/4 to start)
+        s.keys[0] = { "PING-PONG", "The echoes bounce left, right, left...",
+                      [&p] { return valueOf (p, delayPingPong) > 0.5f; }, [&p] { toggle (p, delayPingPong); } };
+        s.keys[1] = { "SYNC", "The echo time in notes at the song's tempo (lit), or in milliseconds",
+                      [&p] { return valueOf (p, delaySync) > 0.5f; },
+                      [&p, lastSync]
+                      {
+                          if (const auto now = valueOf (p, delaySync); now > 0.5f)
+                          {
+                              *lastSync = now;
+                              setValue (p, delaySync, 0.0f);
+                          }
+                          else
+                              setValue (p, delaySync, *lastSync);
+                      } };
+        s.keys[2] = { "DUCK", "Tucks the echoes under what you play, swelling back in the gaps (half way; set it on the page)",
+                      [&p] { return valueOf (p, delayDuck) > 0.01f; }, [&p] { setValue (p, delayDuck, valueOf (p, delayDuck) > 0.01f ? 0.0f : 0.5f); } };
+        s.knobs = { RackUnit::Knob { delayFeedback, "FEEDBACK" }, RackUnit::Knob { delayMix, "MIX" } };
+        s.ladderTitle = "RET";
+        s.ladderMarks = { -3.0f, -9.0f, -18.0f, -30.0f, -48.0f };
+        s.ladderLabels = { "-3", "-9", "-18", "-30", "-48" };
+        s.ladderReading = [&p] { return p.getReturnPeakDb (0); };
+        s.paintReadout = [&p] (juce::Graphics& g, juce::Rectangle<float> glass)
+        {
+            auto content = glass.reduced (glass.getWidth() * 0.045f, glass.getHeight() * 0.14f);
+            auto left = content.removeFromLeft (content.getWidth() * 0.55f);
+            const auto synced = valueOf (p, delaySync) > 0.5f;
+            const auto ms = effects::Delay::delaySeconds (p.getDelaySettings(), juce::jmax (1.0, p.getHostBpm())) * 1000.0f;
+            const auto h = left.getHeight() * 0.56f;
+            const auto end = drawNumber (g, juce::String (juce::roundToInt (ms)), left.getTopLeft(), h);
+            line (g, "ms", { end + 6.0f, left.getY(), left.getRight() - end, h * 0.5f }, h * 0.24f);
+            line (g, synced ? textOf (p, delaySync) + " AT " + juce::String (p.getHostBpm(), 0) + " BPM" : juce::String ("FREE"),
+                  left.withTop (left.getY() + h * 1.1f).withHeight (h * 0.4f), h * 0.22f);
+            column (g, content, { textOf (p, delayType).toUpperCase(), "FEEDBACK " + textOf (p, delayFeedback),
+                                  juce::String (valueOf (p, delayPingPong) > 0.5f ? "PING-PONG" : "STEREO"),
+                                  "> REVERB " + textOf (p, delayToReverb) },
+                    content.getHeight() * 0.16f);
+        };
+        s.footTitle = "TYPE";
+        s.footText = [&p] { return textOf (p, delayType); };
+        s.onEdit = [openPage] { openPage (0); };
+    }
+
+    // REVERB (PR7-G's): how long its tail lasts in big digits, its type, size and pre-delay.
+    {
+        auto& s = specs[1];
+        s.number = 2;
+        s.name = "REVERB";
+        s.kind = "STEREO REVERB  8 TYPES";
+        s.series = "PR7-K SERIES  SEND 2";
+        s.onParameterIds = { reverbOn };
+        s.powerTooltip = "The REVERB on or off (each oscillator's REVERB send feeds it). Click POWER (the word) or EDIT for its page";
+        const auto typeKey = [&p] (effects::Reverb::Type type, const char* tip)
+        {
+            return RackUnit::Key { effects::Reverb::typeNames[(int) type].toUpperCase(), tip,
+                                   [&p, type] { return juce::roundToInt (valueOf (p, reverbType)) == (int) type; },
+                                   [&p, type] { setValue (p, reverbType, (float) (int) type); } };
+        };
+        s.keys[0] = typeKey (effects::Reverb::Type::room, "A small room: close reflections, a short tail");
+        s.keys[1] = typeKey (effects::Reverb::Type::hall, "A concert hall: a gap, then a long, smooth tail");
+        s.keys[2] = typeKey (effects::Reverb::Type::plate, "A studio plate: dense and bright from the start");
+        s.knobs = { RackUnit::Knob { reverbSize, "SIZE" }, RackUnit::Knob { reverbMix, "MIX" } };
+        s.ladderTitle = "RET";
+        s.ladderMarks = { -3.0f, -9.0f, -18.0f, -30.0f, -48.0f };
+        s.ladderLabels = { "-3", "-9", "-18", "-30", "-48" };
+        s.ladderReading = [&p] { return p.getReturnPeakDb (1); };
+        s.paintReadout = [&p] (juce::Graphics& g, juce::Rectangle<float> glass)
+        {
+            auto content = glass.reduced (glass.getWidth() * 0.045f, glass.getHeight() * 0.14f);
+            auto left = content.removeFromLeft (content.getWidth() * 0.55f);
+            const auto settings = p.getReverbSettings();
+            const auto seconds = effects::Reverb::decaySeconds (settings.type, settings.size);
+            const auto h = left.getHeight() * 0.56f;
+            const auto end = drawNumber (g, juce::String (seconds, seconds < 10.0f ? 1 : 0), left.getTopLeft(), h);
+            line (g, "s", { end + 6.0f, left.getY(), left.getRight() - end, h * 0.5f }, h * 0.24f);
+            line (g, "TAIL TO -60 dB", left.withTop (left.getY() + h * 1.1f).withHeight (h * 0.4f), h * 0.22f);
+            column (g, content, { textOf (p, reverbType).toUpperCase(), "SIZE " + textOf (p, reverbSize),
+                                  "PRE-DELAY " + textOf (p, reverbPreDelay), "TONE " + textOf (p, reverbTone) },
+                    content.getHeight() * 0.16f);
+        };
+        s.footTitle = "TYPE";
+        s.footText = [&p] { return textOf (p, reverbType); };
+        s.onEdit = [openPage] { openPage (1); };
     }
     return specs;
 }

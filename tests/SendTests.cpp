@@ -4,6 +4,8 @@
 
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
+#include "ui/FxPage.h"
+#include "ui/MainView.h"
 
 namespace
 {
@@ -249,4 +251,87 @@ TEST_CASE ("SENDS: each oscillator's sends are on its WAVE page; the settings re
     CHECK (s.sendOn == std::array<bool, synth::numSends> { false, true });
     CHECK (p.processor.getDelaySettings().returnOnly);
     CHECK (p.processor.getReverbSettings().returnOnly);
+}
+
+TEST_CASE ("The FX page's SENDS view: DELAY and REVERB units, the matrix, their pages; laid out cleanly", "[sends][ui]")
+{
+    ParagonX1AudioProcessor processor;
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+    editor->setSize (1600, 900);
+    auto* view = dynamic_cast<MainView*> (editor->getChildComponent (0));
+    REQUIRE (view != nullptr);
+    view->showPage (MainView::Page::fx);
+    auto& page = view->getFxPage();
+    CHECK (page.getView() == FxPage::View::rack);   // MASTER first, as in 0.17.0
+    page.getSendsTab().onClick();
+    CHECK (page.getView() == FxPage::View::sends);
+    CHECK (page.getSendUnit (0).getSpec().name == "DELAY");
+    CHECK (page.getSendUnit (1).getSpec().name == "REVERB");
+    std::vector<juce::Component*> shown { &page.getSendUnit (0), &page.getSendUnit (1), &page.getSendMatrix(), &page.getSendsTab(), &page.getMasterTab() };
+    for (size_t i = 0; i < shown.size(); ++i)
+    {
+        INFO (shown[i]->getBounds().toString());
+        CHECK (shown[i]->isVisible());
+        CHECK (page.getLocalBounds().contains (shown[i]->getBounds()));
+        for (size_t j = i + 1; j < shown.size(); ++j)
+            CHECK_FALSE (shown[i]->getBounds().intersects (shown[j]->getBounds()));
+    }
+    CHECK_FALSE (page.getUnit (0).isVisible());
+
+    // The matrix's knob is oscillator 3's REVERB send; DELAY's power switch is delayOn.
+    CHECK (page.getSendMatrix().send (2, 1).getBounds().getWidth() > 20);
+    auto& delayOn = *processor.getParameters().getParameter (ParamIDs::delayOn);
+    page.getSendUnit (0).getPower().toggle();
+    CHECK (delayOn.getValue() > 0.5f);
+
+    // EDIT opens each page; every control inside it; BACK TO RACK returns to SENDS.
+    for (int i = 0; i < 2; ++i)
+    {
+        page.getSendUnit (i).getEdit().onClick();
+        auto& sendPage = i == 0 ? page.getDelayPage() : page.getReverbPage();
+        CHECK (page.getView() == (i == 0 ? FxPage::View::delay : FxPage::View::reverb));
+        CHECK (sendPage.isVisible());
+        CHECK (sendPage.getSends().size() == 8);
+        for (auto* c : sendPage.getControls())
+        {
+            INFO (c->getBounds().toString());
+            CHECK (sendPage.getLocalBounds().contains (c->getBounds()));
+        }
+        for (auto* c : sendPage.getSends())
+            CHECK (sendPage.getLocalBounds().contains (c->getBounds()));
+        CHECK (sendPage.getLocalBounds().contains (sendPage.getDisplay().getBounds()));
+        sendPage.onClose();
+        CHECK (page.getView() == FxPage::View::sends);
+    }
+
+    // The echoes drawn: at the delay time, the first at MIX, each next FEEDBACK down; ping-pong alternating sides.
+    auto set = [&] (const char* id, float v) { auto* q = processor.getParameters().getParameter (id); q->setValueNotifyingHost (q->convertTo0to1 (v)); };
+    set (ParamIDs::delaySync, 0.0f);
+    set (ParamIDs::delayTime, 500.0f);
+    set (ParamIDs::delayMix, 0.5f);
+    set (ParamIDs::delayFeedback, 0.5f);
+    set (ParamIDs::delayPingPong, 1.0f);
+    const auto echoes = dynamic_cast<EchoDisplay&> (page.getDelayPage().getDisplay()).echoes();
+    REQUIRE (echoes.size() >= 4);
+    CHECK_THAT (echoes[0].seconds, WithinAbs (0.5, 1.0e-3));
+    CHECK_THAT (echoes[1].seconds, WithinAbs (1.0, 1.0e-3));
+    CHECK_THAT (echoes[0].level, WithinAbs (0.5, 1.0e-3));
+    CHECK_THAT (echoes[1].level, WithinAbs (0.25, 1.0e-3));
+    CHECK (echoes[0].side == -1);
+    CHECK (echoes[1].side == 1);
+}
+
+TEST_CASE ("SENDS: the factory preset Echo Pluck: echoes and a hall on the pluck, the sub dry", "[sends][rigs]")
+{
+    Plugin p;
+    const auto* entry = p.processor.getRigLibrary().findFactory ("Echo Pluck");
+    REQUIRE (entry != nullptr);
+    p.processor.loadRig (*entry);
+    const auto s = p.processor.getSynthSettings();
+    CHECK (s.sendOn == std::array<bool, synth::numSends> { true, true });
+    CHECK (s.oscillators[1].send == std::array<float, synth::numSends> { 0.0f, 0.0f });
+    const auto out = p.play (57, 0.15, 2.0);
+    // After the pluck has died away (its decay is 450 ms), its echoes and reverb are still there; the sub (A2, 110 Hz) isn't.
+    CHECK (rms (out[0], (size_t) (1.0 * sampleRate), (size_t) (1.6 * sampleRate)) > 1.0e-3);
+    CHECK (tone (out[0], 110.0, 1.0, 0.5) < 0.05 * tone (out[0], 110.0, 0.02, 0.1));
 }

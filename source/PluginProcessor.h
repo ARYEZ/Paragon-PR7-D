@@ -251,6 +251,12 @@ public:
     // THE SENDS (stage 7b): DELAY's and REVERB's settings as they are now (as sends' returns: MIX is the level back).
     effects::Delay::Settings getDelaySettings() const noexcept;
     effects::Reverb::Settings getReverbSettings() const noexcept;
+    // Each return's peak in the last block, dB (-100: silent): DELAY 0, REVERB 1.
+    float getReturnPeakDb (int send) const noexcept
+    {
+        const auto peak = rack->returnPeak[(size_t) juce::jlimit (0, synth::numSends - 1, send)].load();
+        return peak > 1.0e-5f ? juce::Decibels::gainToDecibels (peak) : -100.0f;
+    }
 
 private:
     void processChunk (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& midi, int start, int numSamples);
