@@ -25,7 +25,8 @@ namespace
     constexpr int stage4f = 13;  // 0.14.0
     constexpr int stage5a = 14;  // 0.15.0
     constexpr int stage5b = 15;  // 0.16.0 (16, 0.17.0: the rack, in RackParameters.cpp)
-    constexpr int stage7b = 17;  // 0.18.0
+    constexpr int stage7b = 17;  // 0.18.0 (18, 0.19.0: MOD / LO-FI, in RackParameters.cpp)
+    constexpr int stage7d = 19;  // 0.20.0
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -326,6 +327,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         // Its SENDS (stage 7b).
         add (layout, osc (i, "SendDelay"), name + "Send Delay", { 0.0f, 1.0f }, defaults.send[0], asPercent, stage7b);
         add (layout, osc (i, "SendReverb"), name + "Send Reverb", { 0.0f, 1.0f }, defaults.send[1], asPercent, stage7b);
+        // Its INSERT bus (stage 7d).
+        addChoice (layout, osc (i, "Insert"), name + "Insert", ParamIDs::insertBusNames, defaults.insertBus, stage7d);
 
         // Whether it follows the PITCH envelope (stage 4c).
         addSwitch (layout, osc (i, "PitchEnv"), name + "Pitch Envelope", defaults.pitchEnvelope, stage4c);
@@ -496,5 +499,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     addRackParameters (layout);   // the rack (stage 7a): RackParameters.cpp
     addSendParameters (layout);   // the sends (stage 7b): RackParameters.cpp
     addModFxParameters (layout);  // MOD, MOD 2, LO-FI (stage 7c): RackParameters.cpp
+    addInsertParameters (layout); // the insert buses (stage 7d): RackParameters.cpp
     return layout;
 }

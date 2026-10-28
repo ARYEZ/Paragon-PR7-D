@@ -403,6 +403,12 @@ namespace synth
         std::fill (left, left + numSamples, 0.0f);
         std::fill (right, right + numSamples, 0.0f);
         outputBase = left;
+        for (int b = 0; b < numInsertBuses; ++b)
+            if (insertBaseLeft[(size_t) b] != nullptr)
+            {
+                std::fill (insertBaseLeft[(size_t) b], insertBaseLeft[(size_t) b] + numSamples, 0.0f);
+                std::fill (insertBaseRight[(size_t) b], insertBaseRight[(size_t) b] + numSamples, 0.0f);
+            }
         for (int s = 0; s < numSends; ++s)
             if (sendsWanted (settings, s))
             {
@@ -1270,11 +1276,31 @@ namespace synth
                 std::fill (sendMixLeft[(size_t) s].begin(), sendMixLeft[(size_t) s].begin() + n, 0.0f);
                 std::fill (sendMixRight[(size_t) s].begin(), sendMixRight[(size_t) s].begin() + n, 0.0f);
             }
+        // Stage 7d: paths on an insert bus go into that bus's mix instead (and skip their own sends: the bus sends).
+        std::array<bool, numInsertBuses> busing {};
+        for (size_t p = 0; p < pathUsed.size(); ++p)
+            if (pathUsed[p])
+                if (const auto bus = busOf (voice.paths[p].key); bus > 0)
+                    if (! busing[(size_t) bus - 1])
+                    {
+                        busing[(size_t) bus - 1] = true;
+                        std::fill (busMixLeft[(size_t) bus - 1].begin(), busMixLeft[(size_t) bus - 1].begin() + n, 0.0f);
+                        std::fill (busMixRight[(size_t) bus - 1].begin(), busMixRight[(size_t) bus - 1].begin() + n, 0.0f);
+                    }
         for (size_t p = 0; p < pathUsed.size(); ++p)
         {
             if (! pathUsed[p])
                 continue;
             processPath (voice, voice.paths[p], pathLeft[p].data(), pathRight[p].data(), n, settings, filterTarget);
+            if (const auto bus = busOf (voice.paths[p].key); bus > 0)
+            {
+                for (int i = 0; i < n; ++i)
+                {
+                    busMixLeft[(size_t) bus - 1][(size_t) i] += pathLeft[p][(size_t) i];
+                    busMixRight[(size_t) bus - 1][(size_t) i] += pathRight[p][(size_t) i];
+                }
+                continue;
+            }
             for (int i = 0; i < n; ++i)
             {
                 mixLeft[(size_t) i] += pathLeft[p][(size_t) i];
@@ -1321,6 +1347,12 @@ namespace synth
             }
             left[i] += mixLeft[(size_t) i] * gainLeft * voice.panLeft;
             right[i] += mixRight[(size_t) i] * gainRight * voice.panRight;
+            for (int b = 0; b < numInsertBuses; ++b)
+                if (busing[(size_t) b])
+                {
+                    insertBaseLeft[(size_t) b][offset + i] += busMixLeft[(size_t) b][(size_t) i] * gainLeft * voice.panLeft;
+                    insertBaseRight[(size_t) b][offset + i] += busMixRight[(size_t) b][(size_t) i] * gainRight * voice.panRight;
+                }
             for (int s = 0; s < numSends; ++s)
                 if (sending[(size_t) s])
                 {
@@ -1741,10 +1773,14 @@ namespace synth
                     key |= 2 << k;
             // Stage 7b: an oscillator sending a different amount needs its own path (sends are taken after the
             // path). 100%, or a send that's off, is code 0: so switching an effect on re-routes nothing.
-            for (int send = 0; send < numSends; ++send)
-                if (sendsWanted (settings, send))
-                    if (const auto percent = juce::jlimit (0, 100, juce::roundToInt (s.send[(size_t) send] * 100.0f)); percent != 100)
-                        key |= (percent + 1) << (5 + 7 * send);
+            // Stage 7d: on an insert bus (one that's wanted), its own path into the bus; the bus does the sending.
+            if (const auto bus = s.insertBus; bus > 0 && bus <= numInsertBuses && insertBaseLeft[(size_t) bus - 1] != nullptr)
+                key |= bus << busShift;
+            else
+                for (int send = 0; send < numSends; ++send)
+                    if (sendsWanted (settings, send))
+                        if (const auto percent = juce::jlimit (0, 100, juce::roundToInt (s.send[(size_t) send] * 100.0f)); percent != 100)
+                            key |= (percent + 1) << (5 + 7 * send);
             keys[i] = key;
         }
 

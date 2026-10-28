@@ -1,6 +1,7 @@
 #include "FactoryRigs.h"
 
 #include "dsp/eq/EqDesign.h"
+#include "dsp/effects/Drive.h"
 #include "dsp/effects/LoFi.h"
 #include "dsp/effects/Modulation.h"
 #include "dsp/effects/Reverb.h"
@@ -597,6 +598,27 @@ std::vector<Rig> makeFactoryRigs()
         .set (ParamIDs::reverbOn, 1.0f).set (ParamIDs::reverbType, (float) (int) effects::Reverb::Type::room)
         .set (ParamIDs::reverbSize, 0.4f).set (ParamIDs::reverbMix, 0.2f);
     add (tape);
+
+    // THE INSERT BUSES (stage 7d).
+    Builder driven ("Driven Lead", 39, { "Lead", "Drive", "Inserts" },
+                    "A saw lead through insert bus A: RABID's distortion and a CARBONITE chorus after it, its echoes (ping-pong "
+                    "eighths) taken after the drive. Under it a sine sub an octave down, straight into the mix, so the low end "
+                    "stays clean. Our own settings, not tuned by ear.");
+    driven.osc (0, "UniVoices", 3.0f).osc (0, "UniMix", 0.6f).osc (0, "UniDetune", 0.12f).osc (0, "UniSpread", 0.6f).osc (0, "Insert", 1.0f)
+        .osc (1, "On", 1.0f).osc (1, "Wave", (float) synth::OscWave::sine).osc (1, "Transpose", -12.0f).osc (1, "Volume", 0.55f)
+        .osc (1, "SendDelay", 0.0f).osc (1, "SendReverb", 0.0f)
+        .filter (FilterType::lp24, 4200.0f, 0.2f, 0.25f).filterEnvelope (0.0f, 400.0f, 0.5f, 300.0f)
+        .ampEnvelope (3.0f, 300.0f, 0.85f, 250.0f)
+        .set (ParamIDs::ins (0, "DriveOn"), 1.0f).set (ParamIDs::ins (0, "DriveModel"), (float) (int) effects::Drive::Model::rabid)
+        .set (ParamIDs::ins (0, "DriveGain"), 6.0f).set (ParamIDs::ins (0, "DriveTone"), 6.0f).set (ParamIDs::ins (0, "DriveLevel"), -8.0f)
+        .set (ParamIDs::insModIds (0).on, 1.0f).set (ParamIDs::insModIds (0).type, (float) (int) effects::Modulation::Type::carbonite)
+        .set (ParamIDs::insModIds (0).depth, 0.35f)
+        .set (ParamIDs::ins (0, "SendDelay"), 0.6f).set (ParamIDs::ins (0, "SendReverb"), 0.4f)
+        .set (ParamIDs::delayOn, 1.0f).set (ParamIDs::delaySync, 7.0f).set (ParamIDs::delayPingPong, 1.0f)
+        .set (ParamIDs::delayFeedback, 0.3f).set (ParamIDs::delayMix, 0.3f)
+        .set (ParamIDs::reverbOn, 1.0f).set (ParamIDs::reverbType, (float) (int) effects::Reverb::Type::hall)
+        .set (ParamIDs::reverbSize, 0.5f).set (ParamIDs::reverbMix, 0.18f);
+    add (driven);
 
     return rigs;
 }

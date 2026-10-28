@@ -310,6 +310,8 @@ OscillatorPanel::OscillatorPanel (ParagonX1AudioProcessor& processorToUse)
         { "SendDelay", { "DELAY", "How much of this oscillator goes to the DELAY (when it's on: the FX page), after the AMP. "
                                   "Its echoes come back in at the DELAY's MIX; the oscillator itself plays as before." } },
         { "SendReverb", { "REVERB", "How much of this oscillator goes to the REVERB (when it's on: the FX page), after the AMP." } },
+        { "Insert", { "INSERT", "The insert bus it plays into (the FX page's INSERTS): NONE, straight into the mix; A to D, through that bus's "
+                                "DRIVE, GLITCH, MOD and LO-FI first. On a bus, the bus's own DELAY and REVERB sends are used, not these." } },
         { "Voices", { "VOICES", "This oscillator's own limit on notes at once. 1 makes just this oscillator mono, e.g. a bass under chords." } },
         { "Noise", { "NOISE", "Noise mixed in with the wave." } },
         { "NoiseColour", { "COLOUR", "From white (bright hiss) through pink to brown (a deep rumble)." } },
@@ -746,16 +748,18 @@ void OscillatorPanel::resized()
     placeRow (area.removeFromTop (rowHeight), 7, { { "NOISE", { "Noise", "NoiseColour", "NoiseWidth" } },
                                                    { "SUB", { "Sub", "SubWave", "SubOct", "SubInvert" } } });
     area.removeFromTop (6);
+    // OUT (7b, 7d): its INSERT bus and its sends.
     if (showingWavetable)
         placeWeighted (area.removeFromTop (rowHeight), { { "LEVEL", { "Volume", "Pan" } },
                                                          { "NOTES", { "Voices", "Filter", "Arp" } },
                                                          { "WAVETABLE", { "WtIndex", "WtMode", "WtFrames" } },
-                                                         { "SENDS", { "SendDelay", "SendReverb" } } },
-                       { "Arp", "WtMode" });
+                                                         { "OUT", { "Insert", "SendDelay", "SendReverb" } } },
+                       { "Arp", "WtMode", "Insert" });
     else
-        placeRow (area.removeFromTop (rowHeight), 7, { { "LEVEL", { "Volume", "Pan" } },
-                                                       { "NOTES", { "Voices", "Filter", "Arp" } },
-                                                       { "SENDS", { "SendDelay", "SendReverb" } } });
+        placeWeighted (area.removeFromTop (rowHeight), { { "LEVEL", { "Volume", "Pan" } },
+                                                         { "NOTES", { "Voices", "Filter", "Arp" } },
+                                                         { "OUT", { "Insert", "SendDelay", "SendReverb" } } },
+                       { "Arp", "Insert" });
 }
 
 //==============================================================================

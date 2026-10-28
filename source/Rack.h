@@ -5,6 +5,8 @@
 #include "dsp/dominion/Dominion.h"
 #include "dsp/effects/Compressor.h"
 #include "dsp/effects/Delay.h"
+#include "dsp/effects/Drive.h"
+#include "dsp/effects/Glitch.h"
 #include "dsp/effects/LoFi.h"
 #include "dsp/effects/Modulation.h"
 #include "dsp/effects/MasterLimiter.h"
@@ -60,6 +62,26 @@ struct Rack
     std::array<effects::Modulation, 2> modulation;
     effects::LoFi loFi;
     std::atomic<float> loFiPeak { 0.0f };   // LO-FI's output peak in the last block, while it's on (its unit's meter)
+
+    // THE INSERT BUSES (stage 7d): A to D, each PR7-G's DRIVE and GLITCH (mono there: one a side here), MOD and LO-FI,
+    // on the oscillators routed to it, before the sends (the bus sends at its own amounts) and the mix.
+    struct InsertBus
+    {
+        std::array<effects::Drive, 2> drive;
+        std::array<effects::Glitch, 2> glitch;
+        effects::Modulation modulation;
+        effects::LoFi loFi;
+        juce::AudioBuffer<float> buffer;   // 2 channels, the prepared block size: what the engine plays into it
+        std::atomic<float> peak { 0.0f };  // its output's peak in the last block (0 while nothing's routed to it)
+        bool used = false;                 // an oscillator that's on is routed to it (only then does it run)
+        std::array<float, 2> driveDc {};   // what the DC blocker after the DRIVE takes off each side (see processInsertBuses)
+        // Its parameters (ParamIDs::insDriveSettings... order), found once: a bus's IDs are made strings.
+        std::array<std::atomic<float>*, std::size (ParamIDs::insDriveSettings)> drive_ {};
+        std::array<std::atomic<float>*, std::size (ParamIDs::insGlitchSettings)> glitch_ {};
+        std::array<std::atomic<float>*, std::size (ParamIDs::insLofiSettings)> lofi_ {};
+        std::array<std::atomic<float>*, synth::numSends> sends_ {};
+    };
+    std::array<InsertBus, synth::numInsertBuses> buses;
 
     void setFolder (const juce::File& presetsFolder)
     {

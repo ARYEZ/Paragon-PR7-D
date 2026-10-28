@@ -254,6 +254,18 @@ public:
     // MOD (0) or MOD 2's (1) settings as they are now (SYNC worked out at the song's tempo), and LO-FI's (stage 7c).
     effects::Modulation::Settings getModSettings (int which) const noexcept;
     effects::LoFi::Settings getLoFiSettings() const noexcept;
+    // An insert bus's (0 to 3: A to D) effects' settings as they are now (stage 7d), its sends, and its output's peak.
+    effects::Drive::Settings getInsertDriveSettings (int bus) const noexcept;
+    effects::Glitch::Settings getInsertGlitchSettings (int bus) const noexcept;
+    effects::Modulation::Settings getInsertModSettings (int bus) const noexcept { return modSettingsFor (ParamIDs::insModIds (bus)); }
+    effects::LoFi::Settings getInsertLoFiSettings (int bus) const noexcept;
+    std::array<float, synth::numSends> getInsertSends (int bus) const noexcept;
+    float getInsertPeakDb (int bus) const noexcept
+    {
+        const auto peak = rack->buses[(size_t) juce::jlimit (0, synth::numInsertBuses - 1, bus)].peak.load();
+        return peak > 1.0e-5f ? juce::Decibels::gainToDecibels (peak) : -100.0f;
+    }
+    float getInsertModSweepPhase (int bus) const noexcept { return rack->buses[(size_t) juce::jlimit (0, synth::numInsertBuses - 1, bus)].modulation.getSweepPhase(); }
     // Where MOD's (0) or MOD 2's (1) sweep is now, 0 to 1, and LO-FI's output peak in the last block (dB, -100 while off).
     float getModSweepPhase (int which) const noexcept { return rack->modulation[(size_t) juce::jlimit (0, 1, which)].getSweepPhase(); }
     float getLoFiPeakDb() const noexcept
@@ -271,6 +283,9 @@ public:
 private:
     void processChunk (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& midi, int start, int numSamples);
     void processModFx (juce::dsp::AudioBlock<float> block);
+    void processInsertBuses (juce::dsp::AudioBlock<float> block, bool sendsReady);
+    effects::Modulation::Settings modSettingsFor (const ParamIDs::ModIds&) const noexcept;
+    effects::LoFi::Settings loFiSettingsFor (int bus) const noexcept;   // -1: the whole sound's
     float param (const char* id) const;
     bool isOn (const char* id) const { return param (id) > 0.5f; }
 

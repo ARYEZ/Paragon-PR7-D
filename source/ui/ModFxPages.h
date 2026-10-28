@@ -1,6 +1,8 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "dsp/effects/LoFi.h"
+#include "dsp/effects/Modulation.h"
 #include "ui/SynthControls.h"
 
 // MOD, MOD 2 and LO-FI's pages (stage 7c): each unit's EDIT on the FX page's MOD / LO-FI view.
@@ -14,7 +16,7 @@ class SweepDisplay final : public juce::Component,
                            private juce::Timer
 {
 public:
-    SweepDisplay (ParagonX1AudioProcessor&, int which);
+    SweepDisplay (std::function<effects::Modulation::Settings()> settingsNow, std::function<float()> phaseNow);
     void paint (juce::Graphics&) override;
 
     // What's drawn moving, for the type ("DELAY", "VOLUME"...), and how far the LFO swings it (0 to 1). For tests too.
@@ -23,8 +25,8 @@ public:
 
 private:
     void timerCallback() override;
-    ParagonX1AudioProcessor& processor;
-    int which;
+    std::function<effects::Modulation::Settings()> settingsNow;
+    std::function<float()> phaseNow;
 };
 
 // LO-FI's band: what gets through, 20 Hz to 20 kHz (a speaker's resonant bump marked), or for the bitcrusher a sine
@@ -34,12 +36,13 @@ class LoFiDisplay final : public juce::Component,
                           private juce::Timer
 {
 public:
-    explicit LoFiDisplay (ParagonX1AudioProcessor&);
+    LoFiDisplay (ParagonX1AudioProcessor&, std::function<effects::LoFi::Settings()> settingsNow);
     void paint (juce::Graphics&) override;
 
 private:
     void timerCallback() override;
     ParagonX1AudioProcessor& processor;
+    std::function<effects::LoFi::Settings()> settingsNow;
     int shownType = -1;
     float shownAmount = -1.0f;
 };
@@ -51,7 +54,8 @@ class ModFxPage final : public juce::Component,
 {
 public:
     enum class Kind { mod, mod2, loFi };
-    ModFxPage (ParagonX1AudioProcessor&, Kind);
+    // `bus` 0 to 3: an insert bus's MOD or LO-FI (stage 7d; Kind mod2 isn't one); -1: the whole sound's.
+    ModFxPage (ParagonX1AudioProcessor&, Kind, int bus = -1);
     std::function<void()> onClose;
 
     void paint (juce::Graphics&) override;
@@ -67,6 +71,8 @@ private:
 
     ParagonX1AudioProcessor& processor;
     Kind kind;
+    int bus;
+    ParamIDs::ModIds modIds {};
     std::unique_ptr<juce::Component> display;
     std::vector<std::unique_ptr<ParamControl>> top, controls;
     juce::TextButton back { "BACK TO RACK" };

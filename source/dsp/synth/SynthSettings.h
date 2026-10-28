@@ -17,6 +17,7 @@ namespace synth
 {
     inline constexpr int numOscillators = 8;   // as on Avenger: up to 8 oscillator tabs
     inline constexpr int numSends = 2;         // stage 7b: the send effects, DELAY and REVERB
+    inline constexpr int numInsertBuses = 4;   // stage 7d: the insert buses A to D
     inline constexpr int maxVoices = 64;       // notes at once
 
     class Wavetable;
@@ -125,6 +126,9 @@ namespace synth
         int arp = 0;                // stage 5a: 0 straight from the keys; 1 to 8 its notes come from ARP n (when that arp is on)
         // Stage 7b: how much goes to each send (DELAY, REVERB), 0 to 1, after the AMP (and the note's pan).
         std::array<float, numSends> send { 1.0f, 1.0f };
+        // Stage 7d: the insert bus it plays into, after the AMP and pan (0: none, 1 to 4: A to D). On a bus, the bus's
+        // own sends feed DELAY and REVERB (after its effects), not `send`.
+        int insertBus = 0;
 
         // UNISON (stage 2, as Avenger's V-Saw): copies of each note, detuned and spread.
         int unisonVoices = maxUnison;   // 2 to 7 copies in all, the note itself included...

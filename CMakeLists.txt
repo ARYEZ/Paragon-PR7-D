@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.24)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "macOS architectures")
 
-project(ParagonX1 VERSION 0.19.0 LANGUAGES C CXX)
+project(ParagonX1 VERSION 0.20.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -65,6 +65,13 @@ target_sources(ParagonX1
         source/dsp/effects/Aeon.cpp
         source/dsp/effects/Modulation.cpp
         source/dsp/effects/LoFi.cpp
+        source/dsp/effects/Drive.cpp
+        source/dsp/effects/Glitch.cpp
+        source/dsp/effects/Abyss.cpp
+        source/dsp/effects/Chimera.cpp
+        source/dsp/effects/Cosmonaut.cpp
+        source/dsp/effects/Halo.cpp
+        source/dsp/effects/Rabid.cpp
         source/dsp/effects/PitchShifter.cpp
         source/dsp/eq/EqDesign.cpp
         source/dsp/eq/ParametricEq.cpp
@@ -93,6 +100,7 @@ target_sources(ParagonX1
         source/ui/FxPage.cpp
         source/ui/SendPages.cpp
         source/ui/ModFxPages.cpp
+        source/ui/InsertPages.cpp
         source/ui/EqPage.cpp
         source/ui/EqDisplay.cpp
         source/ui/EqMatchPanel.cpp

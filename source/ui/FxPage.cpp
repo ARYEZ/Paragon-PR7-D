@@ -5,7 +5,7 @@
 #include "ui/RackSpecs.h"
 
 FxPage::FxPage (ParagonX1AudioProcessor& processor)
-    : matrix (processor), delayPage (processor, SendPage::Kind::delay), reverbPage (processor, SendPage::Kind::reverb),
+    : insertStrip (processor), matrix (processor), delayPage (processor, SendPage::Kind::delay), reverbPage (processor, SendPage::Kind::reverb),
       eqPage (processor), dominionPage (processor), compPage (processor), limiterPage (processor)
 {
     RackActions actions;
@@ -58,7 +58,37 @@ FxPage::FxPage (ParagonX1AudioProcessor& processor)
         modFxPages[i]->onClose = [this] { show (View::modFx); };
         addChildComponent (*modFxPages[i]);
     }
-    for (auto* tab : { &sendsTab, &modFxTab, &masterTab })
+    // THE INSERT BUSES (stage 7d): every bus's units and pages made now, the strip's bus shown.
+    for (int b = 0; b < ParamIDs::numInsertBuses; ++b)
+    {
+        auto specs = makeInsertSpecs (processor, b, [this] (int unit)
+        {
+            constexpr View views[] = { View::insertDrive, View::insertGlitch, View::insertMod, View::insertLoFi };
+            show (views[juce::jlimit (0, 3, unit)]);
+        });
+        for (size_t i = 0; i < 4; ++i)
+        {
+            insertUnits[(size_t) b][i] = std::make_unique<RackUnit> (processor.getParameters(), std::move (specs[i]));
+            addChildComponent (*insertUnits[(size_t) b][i]);
+        }
+        insertEffectPages[(size_t) b][0] = std::make_unique<InsertEffectPage> (processor, InsertEffectPage::Kind::drive, b);
+        insertEffectPages[(size_t) b][1] = std::make_unique<InsertEffectPage> (processor, InsertEffectPage::Kind::glitch, b);
+        insertModFxPages[(size_t) b][0] = std::make_unique<ModFxPage> (processor, ModFxPage::Kind::mod, b);
+        insertModFxPages[(size_t) b][1] = std::make_unique<ModFxPage> (processor, ModFxPage::Kind::loFi, b);
+        for (auto& page : insertEffectPages[(size_t) b])
+        {
+            page->onClose = [this] { show (View::inserts); };
+            addChildComponent (*page);
+        }
+        for (auto& page : insertModFxPages[(size_t) b])
+        {
+            page->onClose = [this] { show (View::inserts); };
+            addChildComponent (*page);
+        }
+    }
+    addChildComponent (insertStrip);
+    insertStrip.onBusChanged = [this] (int) { show (View::inserts); };
+    for (auto* tab : { &insertsTab, &sendsTab, &modFxTab, &masterTab })
     {
         tab->setClickingTogglesState (true);
         tab->setRadioGroupId (971);
@@ -71,6 +101,8 @@ FxPage::FxPage (ParagonX1AudioProcessor& processor)
     sendsTab.setTooltip ("The SENDS: DELAY and REVERB, fed by each oscillator's send; they come back in before the MASTER rack");
     masterTab.setTooltip ("The MASTER rack: ECHELON, DOMINION, CONSTRICTOR and the LIMITER, on everything");
     modFxTab.setTooltip ("MOD, MOD 2 and LO-FI: PR7-G's modulation (twice) and lo-fi, on everything, the echoes and reverb too, before the MASTER rack");
+    insertsTab.setTooltip ("The INSERTS: buses A to D, each a DRIVE, GLITCH, MOD and LO-FI on the oscillators routed to it, before the sends");
+    insertsTab.onClick = [this] { show (View::inserts); };
     sendsTab.onClick = [this] { show (View::sends); };
     modFxTab.onClick = [this] { show (View::modFx); };
     masterTab.onClick = [this] { show (View::rack); };
@@ -94,12 +126,24 @@ void FxPage::show (View newView)
     modFxPages[0]->setVisible (view == View::mod);
     modFxPages[1]->setVisible (view == View::mod2);
     modFxPages[2]->setVisible (view == View::loFi);
+    const auto bus = insertStrip.getBus();
+    insertStrip.setVisible (view == View::inserts);
+    for (int b = 0; b < ParamIDs::numInsertBuses; ++b)
+    {
+        for (auto& unit : insertUnits[(size_t) b])
+            unit->setVisible (view == View::inserts && b == bus);
+        insertEffectPages[(size_t) b][0]->setVisible (view == View::insertDrive && b == bus);
+        insertEffectPages[(size_t) b][1]->setVisible (view == View::insertGlitch && b == bus);
+        insertModFxPages[(size_t) b][0]->setVisible (view == View::insertMod && b == bus);
+        insertModFxPages[(size_t) b][1]->setVisible (view == View::insertLoFi && b == bus);
+    }
     delayPage.setVisible (view == View::delay);
     reverbPage.setVisible (view == View::reverb);
-    const auto onRackView = view == View::rack || view == View::sends || view == View::modFx;
-    for (auto* tab : { &sendsTab, &modFxTab, &masterTab })
+    const auto onRackView = view == View::rack || view == View::sends || view == View::modFx || view == View::inserts;
+    for (auto* tab : { &insertsTab, &sendsTab, &modFxTab, &masterTab })
         tab->setVisible (onRackView);
-    (view == View::sends ? sendsTab : view == View::modFx ? modFxTab : masterTab).setToggleState (true, juce::dontSendNotification);
+    (view == View::inserts ? insertsTab : view == View::sends ? sendsTab : view == View::modFx ? modFxTab : masterTab)
+        .setToggleState (true, juce::dontSendNotification);
     eqPage.setVisible (view == View::eq);
     dominionPage.setVisible (view == View::dominion);
     compPage.setVisible (view == View::comp);
@@ -114,7 +158,7 @@ void FxPage::show (View newView)
 
 void FxPage::paint (juce::Graphics& g)
 {
-    if (view == View::rack || view == View::sends || view == View::modFx)
+    if (view == View::rack || view == View::sends || view == View::modFx || view == View::inserts)
         DockStyle::drawPanel (g, getLocalBounds().toFloat());
 }
 
@@ -123,6 +167,8 @@ void FxPage::resized()
     // The tabs, then the four units, one to a row as in a rack, each as wide as the page allows at its drawn proportions.
     auto area = getLocalBounds().reduced (12, 10);
     auto tabs = area.removeFromTop (26);
+    insertsTab.setBounds (tabs.removeFromLeft (110));
+    tabs.removeFromLeft (4);
     sendsTab.setBounds (tabs.removeFromLeft (110));
     tabs.removeFromLeft (4);
     modFxTab.setBounds (tabs.removeFromLeft (130));
@@ -140,6 +186,26 @@ void FxPage::resized()
     for (auto* page : std::initializer_list<juce::Component*> { &eqPage, &dominionPage, &compPage, &limiterPage, &delayPage, &reverbPage,
                                                                 modFxPages[0].get(), modFxPages[1].get(), modFxPages[2].get() })
         page->setBounds (getLocalBounds());
+    // INSERTS: the strip, then the bus's four units, sized to fit what's left.
+    {
+        auto insertArea = rackArea;
+        insertStrip.setBounds (insertArea.removeFromTop (ParamControl::knobHeight + 8));
+        insertArea.removeFromTop (gap);
+        const auto byHeightNow = (float) (insertArea.getHeight() - 3 * gap) / 4.0f;
+        const auto w = juce::jmin ((float) insertArea.getWidth(), byHeightNow * RackUnit::referenceWidth / RackUnit::referenceHeight);
+        const auto h = w * RackUnit::referenceHeight / RackUnit::referenceWidth;
+        for (auto& busUnits : insertUnits)
+            for (size_t i = 0; i < busUnits.size(); ++i)
+                busUnits[i]->setBounds (juce::Rectangle<float> ((float) insertArea.getCentreX() - w * 0.5f, (float) insertArea.getY() + (float) i * (h + gap),
+                                                                w, h).toNearestInt());
+        for (int b = 0; b < ParamIDs::numInsertBuses; ++b)
+        {
+            for (auto& page : insertEffectPages[(size_t) b])
+                page->setBounds (getLocalBounds());
+            for (auto& page : insertModFxPages[(size_t) b])
+                page->setBounds (getLocalBounds());
+        }
+    }
     // MOD / LO-FI: the three units at the master units' size, from the top.
     for (size_t i = 0; i < modFxUnits.size(); ++i)
         modFxUnits[i]->setBounds (juce::Rectangle<float> ((float) rackArea.getCentreX() - width * 0.5f, (float) rackArea.getY() + (float) i * (height + gap),

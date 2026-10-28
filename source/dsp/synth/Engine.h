@@ -57,6 +57,14 @@ namespace synth
             sendBaseRight = right;
         }
 
+        // Stage 7d: where each insert bus's mix goes (A to D), as long as `process`'s output; nullptr: no bus (its
+        // oscillators play straight into the mix). Set before each `process`; it fills them from silence.
+        void setInsertOutputs (const std::array<float*, numInsertBuses>& left, const std::array<float*, numInsertBuses>& right) noexcept
+        {
+            insertBaseLeft = left;
+            insertBaseRight = right;
+        }
+
         // Notes sounding now (including releasing ones), for the display and tests.
         int getNumActiveVoices() const noexcept;
 
@@ -119,6 +127,7 @@ namespace synth
         {
             int key = -1;               // bit 0: the FILTER; bits 1 to 4: SHAPERs 1 to 4 (-1: not in use);
                                         // bits 5 on (7b): each send's amount, 7 bits each (0: 100%, n: n - 1 %)
+                                        // bits 19 to 21 (7d): the insert bus (0: none, 1 to 4: A to D)
             FilterChannel filterLeft, filterRight;
             Saturator driveLeft, driveRight;
             FilterChannel::Coefficients coefficients;   // the filter's now (glided to each update)
@@ -251,6 +260,11 @@ namespace synth
         // Stage 7b: the sends' mixes for this voice's interval, and where the block's sends go.
         std::array<std::array<float, controlInterval>, numSends> sendMixLeft {}, sendMixRight {};
         std::array<float*, numSends> sendBaseLeft {}, sendBaseRight {};
+        // Stage 7d: the insert buses' mixes for this voice's interval, and where the block's buses go.
+        std::array<std::array<float, controlInterval>, numInsertBuses> busMixLeft {}, busMixRight {};
+        std::array<float*, numInsertBuses> insertBaseLeft {}, insertBaseRight {};
+        static constexpr int busShift = 19;
+        static int busOf (int key) noexcept { return (key >> busShift) & 7; }
         float* outputBase = nullptr;   // `process`'s left output (renderVoice finds its place in the sends from it)
         bool sendsWanted (const Settings& s, int send) const noexcept { return s.sendOn[(size_t) send] && sendBaseLeft[(size_t) send] != nullptr; }
         static float sendGainOf (int key, int send) noexcept

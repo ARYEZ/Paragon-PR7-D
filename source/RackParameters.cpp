@@ -6,6 +6,8 @@
 
 #include "dsp/dominion/Dominion.h"
 #include "dsp/effects/Delay.h"
+#include "dsp/effects/Drive.h"
+#include "dsp/effects/Glitch.h"
 #include "dsp/effects/LoFi.h"
 #include "dsp/effects/Modulation.h"
 #include "dsp/effects/MasterLimiter.h"
@@ -88,7 +90,7 @@ namespace
         return ms < 1000.0f ? juce::String (ms, ms < 10.0f ? 1 : 0) + " ms" : juce::String (ms / 1000.0f, 2) + " s";
     };
 
-    std::unique_ptr<juce::AudioParameterFloat> makeFloat (const char* id, const juce::String& name, Range range,
+    std::unique_ptr<juce::AudioParameterFloat> makeFloat (const juce::String& id, const juce::String& name, Range range,
                                                           float defaultValue, int versionHint, const ToText& toText)
     {
         return std::make_unique<juce::AudioParameterFloat> (
@@ -96,13 +98,13 @@ namespace
             juce::AudioParameterFloatAttributes().withStringFromValueFunction (toText));
     }
 
-    std::unique_ptr<juce::AudioParameterBool> makeSwitch (const char* id, const juce::String& name, int versionHint,
+    std::unique_ptr<juce::AudioParameterBool> makeSwitch (const juce::String& id, const juce::String& name, int versionHint,
                                                           bool defaultValue = true)
     {
         return std::make_unique<juce::AudioParameterBool> (juce::ParameterID { id, versionHint }, name, defaultValue);
     }
 
-    std::unique_ptr<juce::AudioParameterChoice> makeChoice (const char* id, const juce::String& name, int versionHint,
+    std::unique_ptr<juce::AudioParameterChoice> makeChoice (const juce::String& id, const juce::String& name, int versionHint,
                                                             const juce::StringArray& choices, int defaultIndex)
     {
         return std::make_unique<juce::AudioParameterChoice> (juce::ParameterID { id, versionHint }, name, choices, defaultIndex);
@@ -365,4 +367,84 @@ void addModFxParameters (juce::AudioProcessorValueTreeState::ParameterLayout& la
     layout.add (makeFloat (ParamIDs::lofiNoise, "Lo-Fi Noise", { 0.0f, 10.0f, 0.1f }, 3.0f, v, asKnob));
     layout.add (makeFloat (ParamIDs::lofiMix, "Lo-Fi Mix", { 0.0f, 1.0f, 0.01f }, 1.0f, v, asPercent));
     layout.add (makeFloat (ParamIDs::lofiLevel, "Lo-Fi Level", { -12.0f, 12.0f, 0.1f }, 0.0f, v, asDb));
+}
+
+void addInsertParameters (juce::AudioProcessorValueTreeState::ParameterLayout& layout)
+{
+    // Each bus: PR7-G 0.52.0's DRIVE and GLITCH (their ranges and defaults, not GLITCH's POSITION), MOD and LO-FI as
+    // the whole sound's (MOD on the Vortex), and its own DELAY and REVERB sends (100%, as an oscillator's).
+    constexpr int v = 19;   // 0.20.0
+    const auto skewed = [] (float min, float max, float centre, float step)
+    {
+        Range range { min, max, step };
+        range.setSkewForCentre (centre);
+        return range;
+    };
+    const ToText asKnob = [] (float value, int) { return juce::String (value, 1); };
+    const ToText asHz = [] (float value, int) { return juce::String (value, value < 1.0f ? 2 : 1) + " Hz"; };
+    const ToText asMs = [] (float value, int) { return juce::String (juce::roundToInt (value)) + " ms"; };
+    const ToText asSemitones = [] (float value, int)
+    {
+        const auto semitones = juce::roundToInt (value);
+        if (semitones == 0)
+            return juce::String ("Unison");
+        if (std::abs (semitones) % 12 == 0)
+            return juce::String (semitones > 0 ? "+" : "-") + juce::String (std::abs (semitones) / 12) + " oct";
+        return (semitones > 0 ? "+" : "") + juce::String (semitones) + " st";
+    };
+    const ToText asVortexEq = [] (float value, int)
+    {
+        const auto db = value * effects::Modulation::vortexEqRangeDb;
+        return std::abs (db) < 0.05f ? juce::String ("Flat") : (db > 0.0f ? "+" : "") + juce::String (db, 1) + " dB";
+    };
+    for (int b = 0; b < ParamIDs::numInsertBuses; ++b)
+    {
+        const auto id = [b] (const char* what) { return ParamIDs::ins (b, what); };
+        const auto name = "Insert " + ParamIDs::insertBusNames[b + 1] + " ";
+        layout.add (makeSwitch (id ("DriveOn"), name + "Drive On", v, false));
+        layout.add (makeChoice (id ("DriveModel"), name + "Drive Model", v, effects::Drive::modelNames, (int) effects::Drive::Model::screamer));
+        layout.add (makeFloat (id ("DriveGain"), name + "Drive", { 0.0f, 10.0f, 0.1f }, 5.0f, v, asKnob));
+        layout.add (makeFloat (id ("DriveTone"), name + "Drive Tone", { 0.0f, 10.0f, 0.1f }, 5.0f, v, asKnob));
+        layout.add (makeFloat (id ("DriveLevel"), name + "Drive Level", { -24.0f, 12.0f, 0.1f }, 0.0f, v, asDb));
+        layout.add (makeChoice (id ("DriveAttack"), name + "Skyline Attack", v, effects::Drive::skylineAttackNames, effects::Drive::skylineTubeScreamerAttack));
+        layout.add (makeFloat (id ("DriveGate"), name + "Skyline Gate", { 0.0f, 10.0f, 0.1f }, 0.0f, v, asKnob));
+        layout.add (makeFloat (id ("DriveHigh"), name + "Abyss High", { 0.0f, 10.0f, 0.1f }, 5.0f, v, asKnob));
+        layout.add (makeFloat (id ("DriveLow"), name + "Abyss Low", { 0.0f, 10.0f, 0.1f }, 5.0f, v, asKnob));
+        layout.add (makeFloat (id ("DriveMiddle"), name + "Abyss Middle", { 0.0f, 10.0f, 0.1f }, 5.0f, v, asKnob));
+        layout.add (makeFloat (id ("DriveMidFreq"), name + "Abyss Mid Freq", { 0.0f, 10.0f, 0.1f }, 5.0f, v, asKnob));
+
+        layout.add (makeSwitch (id ("GlitchOn"), name + "Glitch On", v, false));
+        layout.add (makeChoice (id ("GlitchMode"), name + "Glitch Mode", v, effects::Glitch::modeNames, (int) effects::Glitch::Mode::sequence));
+        layout.add (makeSwitch (id ("GlitchSync"), name + "Glitch Sync", v, true));
+        layout.add (makeFloat (id ("GlitchTime"), name + "Glitch Length", skewed (10.0f, 1000.0f, 150.0f, 1.0f), 120.0f, v, asMs));
+        layout.add (makeChoice (id ("GlitchDivision"), name + "Glitch Length (Sync)", v, effects::Glitch::syncNames, 3));
+        layout.add (makeFloat (id ("GlitchDensity"), name + "Glitch Density", { 0.0f, 10.0f, 0.1f }, 5.0f, v, asKnob));
+        layout.add (makeFloat (id ("GlitchPitch"), name + "Glitch Pitch", { -12.0f, 12.0f, 1.0f }, 0.0f, v, asSemitones));
+        layout.add (makeFloat (id ("GlitchChaos"), name + "Glitch Chaos", { 0.0f, 10.0f, 0.1f }, 3.0f, v, asKnob));
+        layout.add (makeFloat (id ("GlitchMix"), name + "Glitch Mix", { 0.0f, 1.0f, 0.01f }, 0.5f, v, asPercent));
+
+        const auto& mod = ParamIDs::insModIds (b);
+        layout.add (makeSwitch (mod.on, name + "Mod On", v, false));
+        layout.add (makeChoice (mod.type, name + "Mod Type", v, effects::Modulation::typeNames, (int) effects::Modulation::Type::chorus));
+        layout.add (makeFloat (mod.rate, name + "Mod Rate", skewed (0.05f, 10.0f, 1.0f, 0.01f), 0.8f, v, asHz));
+        layout.add (makeFloat (mod.depth, name + "Mod Depth", { 0.0f, 1.0f, 0.01f }, 0.45f, v, asPercent));
+        layout.add (makeFloat (mod.mix, name + "Mod Mix", { 0.0f, 1.0f, 0.01f }, 0.5f, v, asPercent));
+        layout.add (makeChoice (mod.sync, name + "Mod Sync", v, effects::Delay::syncNames, 0));
+        layout.add (makeFloat (mod.eq, name + "Mod EQ", { -1.0f, 1.0f, 0.01f }, 0.0f, v, asVortexEq));
+        layout.add (makeSwitch (mod.stereo, name + "Mod Stereo", v, false));
+        layout.add (makeFloat (mod.manual, name + "Mod AEON Manual", { 0.0f, 10.0f, 0.1f }, 5.0f, v, asKnob));
+        layout.add (makeFloat (mod.res, name + "Mod AEON Res", { 0.0f, 10.0f, 0.1f }, 5.0f, v, asKnob));
+        layout.add (makeChoice (mod.hadron, name + "Mod Hadron Circuit", v, effects::Modulation::hadronCircuitNames, 0));
+        layout.add (makeFloat (mod.wave, name + "Mod Razor Wave", { 0.0f, 10.0f, 0.1f }, 0.0f, v, asKnob));
+
+        layout.add (makeSwitch (id ("LofiOn"), name + "Lo-Fi On", v, false));
+        layout.add (makeChoice (id ("LofiType"), name + "Lo-Fi Type", v, effects::LoFi::typeNames, 0));
+        layout.add (makeFloat (id ("LofiAmount"), name + "Lo-Fi Amount", { 0.0f, 10.0f, 0.1f }, 5.0f, v, asKnob));
+        layout.add (makeFloat (id ("LofiNoise"), name + "Lo-Fi Noise", { 0.0f, 10.0f, 0.1f }, 3.0f, v, asKnob));
+        layout.add (makeFloat (id ("LofiMix"), name + "Lo-Fi Mix", { 0.0f, 1.0f, 0.01f }, 1.0f, v, asPercent));
+        layout.add (makeFloat (id ("LofiLevel"), name + "Lo-Fi Level", { -12.0f, 12.0f, 0.1f }, 0.0f, v, asDb));
+
+        layout.add (makeFloat (id ("SendDelay"), name + "Send Delay", { 0.0f, 1.0f, 0.01f }, 1.0f, v, asPercent));
+        layout.add (makeFloat (id ("SendReverb"), name + "Send Reverb", { 0.0f, 1.0f, 0.01f }, 1.0f, v, asPercent));
+    }
 }

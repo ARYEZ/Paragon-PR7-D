@@ -24,7 +24,7 @@ public:
     };
     struct Knob
     {
-        const char* parameterId;
+        juce::String parameterId;
         juce::String label;
     };
     struct Spec

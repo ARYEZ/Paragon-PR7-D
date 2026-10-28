@@ -50,7 +50,9 @@ namespace ParamIDs
         // Stage 5a: which ARP its notes come from.
         "Arp",
         // Stage 7b: how much it sends to DELAY and to REVERB.
-        "SendDelay", "SendReverb" };
+        "SendDelay", "SendReverb",
+        // Stage 7d: the insert bus it plays into (NONE, A to D).
+        "Insert" };
 
     // Where a setting is in oscSettings, worked out by the compiler (a typo won't compile).
     consteval int oscSetting (std::string_view what)
@@ -355,6 +357,43 @@ namespace ParamIDs
     inline constexpr auto lofiMix    = "lofiMix";      // 0 to 1
     inline constexpr auto lofiLevel  = "lofiLevel";    // dB
 
+    // THE INSERT BUSES (stage 7d, version hint 19): A to D, each "ins1"... "ins4" plus a setting below: PR7-G's
+    // DRIVE and GLITCH (their IDs after the prefix, capitalised), then MOD and LO-FI as above, then the bus's SENDS.
+    inline constexpr int numInsertBuses = 4;
+    inline juce::String ins (int bus, const char* what) { return "ins" + juce::String (bus + 1) + what; }
+    inline const juce::StringArray insertBusNames { "None", "A", "B", "C", "D" };   // osc{n}Insert, by index: only append
+    inline constexpr const char* insDriveSettings[] = { "DriveOn", "DriveModel", "DriveGain", "DriveTone", "DriveLevel", "DriveAttack",
+                                                        "DriveGate", "DriveHigh", "DriveLow", "DriveMiddle", "DriveMidFreq" };
+    inline constexpr const char* insGlitchSettings[] = { "GlitchOn", "GlitchMode", "GlitchSync", "GlitchTime", "GlitchDivision",
+                                                         "GlitchDensity", "GlitchPitch", "GlitchChaos", "GlitchMix" };
+    inline constexpr const char* insModSettings[] = { "ModOn", "ModType", "ModRate", "ModDepth", "ModMix", "ModSync", "ModEq", "ModStereo",
+                                                      "ModManual", "ModRes", "ModHadron", "ModWave" };   // ModIds' order
+    inline constexpr const char* insLofiSettings[] = { "LofiOn", "LofiType", "LofiAmount", "LofiNoise", "LofiMix", "LofiLevel" };
+    // A bus's MOD as ModIds (the strings made once and kept).
+    inline const ModIds& insModIds (int bus)
+    {
+        static const auto table = []
+        {
+            std::array<std::array<juce::String, std::size (insModSettings)>, numInsertBuses> names;
+            for (int b = 0; b < numInsertBuses; ++b)
+                for (size_t k = 0; k < std::size (insModSettings); ++k)
+                    names[(size_t) b][k] = ins (b, insModSettings[k]);
+            return names;
+        }();
+        static const auto ids = []
+        {
+            std::array<ModIds, numInsertBuses> result {};
+            for (size_t b = 0; b < (size_t) numInsertBuses; ++b)
+            {
+                const auto& n = table[b];
+                result[b] = { n[0].toRawUTF8(), n[1].toRawUTF8(), n[2].toRawUTF8(), n[3].toRawUTF8(), n[4].toRawUTF8(), n[5].toRawUTF8(),
+                              n[6].toRawUTF8(), n[7].toRawUTF8(), n[8].toRawUTF8(), n[9].toRawUTF8(), n[10].toRawUTF8(), n[11].toRawUTF8() };
+            }
+            return result;
+        }();
+        return ids[(size_t) juce::jlimit (0, numInsertBuses - 1, bus)];
+    }
+
     // Global settings: kept when switching presets. Everything else is part of a preset.
     // The LIMITER's UNITY and DELTA are for listening while you set it, not part of a sound.
     inline const juce::StringArray notInRigs { outputGain, bypass, tune, mwBreath, mwExpression, mwAftertouch, mwSustain, limitUnity, limitDelta };
@@ -388,3 +427,4 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 void addRackParameters (juce::AudioProcessorValueTreeState::ParameterLayout&);   // RackParameters.cpp
 void addSendParameters (juce::AudioProcessorValueTreeState::ParameterLayout&);   // RackParameters.cpp (stage 7b)
 void addModFxParameters (juce::AudioProcessorValueTreeState::ParameterLayout&);   // RackParameters.cpp (stage 7c)
+void addInsertParameters (juce::AudioProcessorValueTreeState::ParameterLayout&);   // RackParameters.cpp (stage 7d)

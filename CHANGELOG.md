@@ -2,6 +2,65 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.20.0
+
+Stage 7, part 4: **THE INSERTS**: four insert buses, A to D, each running PR7-G's **DRIVE** (all seven pedals), **GLITCH**, **MOD** and **LO-FI** on the oscillators you send to it. This is the insert-bus design you chose. It completes stage 7's effects.
+
+- **How it works** (like a mixer's subgroups):
+  - Each oscillator has an **INSERT**: NONE (straight into the mix, as before) or bus A, B, C or D. It's on the WAVE page (OUT, beside its sends) and on the new INSERTS view.
+  - A bus runs DRIVE, then GLITCH, MOD and LO-FI on everything routed to it, after those oscillators' filter, AMP and pan. So a drive works on that oscillator's whole chord, as a pedal would.
+  - Several oscillators can share a bus. Two oscillators on different buses never touch each other: a drive on A leaves B's oscillator clean (tested).
+  - **One rule to remember:** a bus feeds DELAY and REVERB with its own two send knobs, after its effects, so the echoes carry the drive. An oscillator on a bus therefore uses the bus's sends, not its own. That's how a mixer's subgroup works, and it's the reason echoes of a distorted sound are distorted too.
+  - This is also the way to put a MOD before the delay and reverb (the whole-sound MOD on the MOD / LO-FI view comes after them).
+- **The FX page's new INSERTS tab** (first, as the sound goes through it):
+  - **The bus strip:** BUS A to D, the oscillators on the bus shown (click 1 to 8 to route one here, again to take it off), and the bus's sends TO DELAY and TO REVERB.
+  - **Four rack units for that bus:**
+    - **DRIVE:** BANSHEE / RABID / COSMONAUT keys (the others on its page), DRIVE and LEVEL knobs, the bus's level on the ladder.
+    - **GLITCH:** SEQUENCE / INTERFERE / KILLSWITCH keys, DENSITY and MIX knobs, LENGTH in big digits.
+    - **MOD and LO-FI:** as on the MOD / LO-FI view.
+  - **DRIVE's page:** its screen runs a separate copy of the chosen pedal, at your settings, on a 120 Hz sine. It shows one cycle in and out, the harmonics it adds, and what the model costs on a bus. The controls are the model's own: SKYLINE's ATTACK and GATE, ABYSS's EQ, and no TONE on HALO (the original has none).
+  - **GLITCH's page:** a separate copy chops a plain riff of eighth notes at the song's tempo, so you see what it will do: the level in and out over two bars.
+- **The drives and GLITCH are PR7-G 0.52.0's own code, unchanged.** I checked all seven drives against PR7-G's code, sample for sample: identical (one case differed by 0.000000007, rounding).
+  - **Stereo:** they're mono pedals on PR7-G, so here each bus runs one per side. GLITCH's two copies make the same random choices, so both sides chop together. A sound on the left stays on the left through everything on a bus (tested).
+- **One addition: a DC blocker after each bus's DRIVE** (5 Hz, only while the drive is on).
+  - **Why:** RABID's circuit can leave its coupling capacitor charged after loud playing, a steady offset that never drains. On PR7-G the amp after the pedal blocks it; here nothing would. A real pedal's output capacitor does the same job.
+  - It affects only what's below 5 Hz. Switched off, it fades out in about 50 ms (no click).
+- **CPU, measured here: the drives are heavy, HALO very heavy.** PR7-G's drives solve their circuits part by part at 8 times the sample rate, and a stereo bus runs two. On a bus (both sides):
+
+  | Model | CPU on a bus (% of one core) |
+  |---|---|
+  | SKYLINE | about 3% |
+  | BANSHEE | about 4% |
+  | CHIMERA | about 22% |
+  | RABID | about 24% |
+  | ABYSS | about 28% |
+  | COSMONAUT | about 38% |
+  | **HALO** | **about 124%: very heavy** |
+
+  - **HALO** solves its whole germanium fuzz circuit at once, every sample. It already costs about 62% on PR7-G, which is mono; here, in stereo, it can be enough to cause dropouts.
+  - DRIVE's page shows each model's cost, in red for HALO.
+  - As you chose, they ship exactly as on PR7-G. A separate pass will speed up the drive circuits for PR7-G and PR7-K together. Faster solving can change the sound slightly on very loud, bright input (as I found with AEON in 0.19.0), so you'll want to check it by ear.
+  - GLITCH, MOD and LO-FI are light.
+  - **A bus nothing is routed to costs nothing**, whatever is switched on in it (tested).
+- **Nothing changes until you use them:** with every oscillator on NONE, the sound is exactly as in 0.19.0, sample for sample. An oscillator on a bus with its effects off sounds as it did.
+- **A new factory preset: Driven Lead** (A39).
+  - A saw lead on bus A through RABID and a CARBONITE chorus, with ping-pong echoes taken after the drive.
+  - A sine sub an octave down goes straight into the mix, so the low end stays clean.
+  - Our own settings, not tuned by ear.
+- **In the tests:**
+  - PR7-G's own drive and GLITCH tests, run as they are (through a stand-in for PR7-G's plugin, using bus A's settings). Left out: GLITCH's expression pedal, its PRE / POST, and PR7-G's noise gate, none of which PR7-K has.
+  - And, from the sound:
+    - unused buses change nothing;
+    - a drive works only on its oscillators (measured by what the drive adds, with a windowed measurement);
+    - a bus's sends carry the driven sound into the echoes;
+    - left stays left through everything on a bus;
+    - buses are independent of each other;
+    - no offset is left behind;
+    - each model's CPU, the page, DRIVE's screen (BANSHEE's odd harmonics, HALO's strong 2nd), and the new preset.
+- **Left in PR7-G,** as planned: the NAM amp and cab, the expression-pedal wah, the talk box and the XP-100 bends. Ask if you want any of them.
+- **Next:** stage 6, the drums (you asked for them after stage 7). Then the drive speed-up pass, and in time the `.avxp2` import.
+- I can't listen here. If a drive sounds different from PR7-G's, tell me which one and what you hear.
+
 ## 0.19.0
 
 Stage 7, part 3: **MOD, MOD 2 and LO-FI**: PR7-G's modulation block (twice, as on PR7-G) and its lo-fi, ported from PR7-G 0.52.0 as you asked. The same code, with two kinds of change, both explained below: each side now kept on its own, and AEON made cheaper to run.

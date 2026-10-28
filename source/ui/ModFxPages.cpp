@@ -9,7 +9,6 @@
 namespace
 {
     using Type = effects::Modulation::Type;
-    const ParamIDs::ModIds& idsFor (int which) { return which == 0 ? ParamIDs::modIds : ParamIDs::mod2Ids; }
 
     // Two things moving in turn: drawn as the shape and its opposite.
     bool drawsTwo (Type type) { return type == Type::dimension || type == Type::harmonicTremolo || type == Type::autoPan; }
@@ -18,7 +17,8 @@ namespace
 }
 
 //==============================================================================
-SweepDisplay::SweepDisplay (ParagonX1AudioProcessor& p, int w) : processor (p), which (w)
+SweepDisplay::SweepDisplay (std::function<effects::Modulation::Settings()> settings, std::function<float()> phase)
+    : settingsNow (std::move (settings)), phaseNow (std::move (phase))
 {
     setTooltip ("What the LFO moves, from now (left) over its next two cycles, at DEPTH: the shapes the effect plays. The pedals' "
                 "own quirks (the Vortex's uneven clock, the Uni-Vibe's slow lamp, the rotor's inertia) shape the sound beyond this line.");
@@ -63,7 +63,7 @@ void SweepDisplay::timerCallback()
 void SweepDisplay::paint (juce::Graphics& g)
 {
     DisplayStyle::drawScreen (g, getLocalBounds().toFloat());
-    const auto settings = processor.getModSettings (which);
+    const auto settings = settingsNow();
     const auto area = getLocalBounds().toFloat().reduced (28.0f, 22.0f).withTrimmedBottom (14.0f);
     const auto rate = juce::jmax (0.01f, settings.rateHz);
     const auto seconds = 2.0f / rate;
@@ -83,7 +83,7 @@ void SweepDisplay::paint (juce::Graphics& g)
     g.drawHorizontalLine (juce::roundToInt (area.getCentreY()), area.getX(), area.getRight());
 
     const auto swing = SweepDisplay::swing (settings);
-    const auto phaseNow = processor.getModSweepPhase (which);
+    const auto phase = phaseNow();
     // Razor's DEPTH is how far down the volume dips: full volume stays at the top.
     const auto valueAt = [&] (float phase, float sign)
     {
@@ -98,7 +98,7 @@ void SweepDisplay::paint (juce::Graphics& g)
         {
             const auto t = (float) i / (float) points;   // 0 to 1 across: two cycles
             const auto x = area.getX() + area.getWidth() * t;
-            const auto y = area.getCentreY() - area.getHeight() * 0.46f * valueAt (phaseNow + 2.0f * t, sign);
+            const auto y = area.getCentreY() - area.getHeight() * 0.46f * valueAt (phase + 2.0f * t, sign);
             if (i == 0)
                 line.startNewSubPath (x, y);
             else
@@ -113,7 +113,7 @@ void SweepDisplay::paint (juce::Graphics& g)
     }
     g.setGradientFill (ParagonLookAndFeel::menuHighlight (area));
     g.strokePath (path (1.0f), juce::PathStrokeType (2.4f));
-    const auto nowY = area.getCentreY() - area.getHeight() * 0.46f * valueAt (phaseNow, 1.0f);
+    const auto nowY = area.getCentreY() - area.getHeight() * 0.46f * valueAt (phase, 1.0f);
     g.setColour (settings.on ? ParagonColours::accent : ParagonColours::textDim);
     g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ area.getX(), nowY }));
 
@@ -125,7 +125,8 @@ void SweepDisplay::paint (juce::Graphics& g)
 }
 
 //==============================================================================
-LoFiDisplay::LoFiDisplay (ParagonX1AudioProcessor& p) : processor (p)
+LoFiDisplay::LoFiDisplay (ParagonX1AudioProcessor& p, std::function<effects::LoFi::Settings()> settings)
+    : processor (p), settingsNow (std::move (settings))
 {
     setTooltip ("What LO-FI lets through at this AMOUNT: its filters' response, 20 Hz to 20 kHz (the saturation, hiss and wobble aren't "
                 "drawn). For the bitcrusher, a sine as it comes out: the levels its bits leave, each held for its samples.");
@@ -134,7 +135,7 @@ LoFiDisplay::LoFiDisplay (ParagonX1AudioProcessor& p) : processor (p)
 
 void LoFiDisplay::timerCallback()
 {
-    const auto settings = processor.getLoFiSettings();
+    const auto settings = settingsNow();
     if ((int) settings.type != shownType || settings.amount != shownAmount)
     {
         shownType = (int) settings.type;
@@ -147,7 +148,7 @@ void LoFiDisplay::paint (juce::Graphics& g)
 {
     using LoFiType = effects::LoFi::Type;
     DisplayStyle::drawScreen (g, getLocalBounds().toFloat());
-    const auto settings = processor.getLoFiSettings();
+    const auto settings = settingsNow();
     const auto sampleRate = processor.getSampleRate() > 0.0 ? processor.getSampleRate() : 48000.0;
     const auto area = getLocalBounds().toFloat().reduced (28.0f, 22.0f).withTrimmedBottom (14.0f).withTrimmedLeft (18.0f);
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
@@ -260,31 +261,34 @@ void LoFiDisplay::paint (juce::Graphics& g)
 }
 
 //==============================================================================
-ModFxPage::ModFxPage (ParagonX1AudioProcessor& p, Kind k) : processor (p), kind (k)
+ModFxPage::ModFxPage (ParagonX1AudioProcessor& p, Kind k, int b) : processor (p), kind (k), bus (b)
 {
     auto& state = p.getParameters();
-    using namespace ParamIDs;
     const auto make = [&state] (auto& list, const juce::String& id, const juce::String& label, const juce::String& tip)
     {
         list.push_back (std::make_unique<ParamControl> (state, id, label, tip));
     };
+    // The whole sound's IDs, or the bus's ("lofiOn" -> "ins1LofiOn").
+    const auto lofi = [b] (const char* what) { return b < 0 ? juce::String ("lofi") + what : ParamIDs::ins (b, (juce::String ("Lofi") + what).toRawUTF8()); };
     if (kind == Kind::loFi)
     {
-        display = std::make_unique<LoFiDisplay> (p);
-        make (top, lofiOn, "ON", "LO-FI on or off.");
-        make (top, lofiType, "TYPE", "TELEPHONE a phone line, only the voice band; AM RADIO a small radio speaker, nasal; MEGAPHONE narrow, "
+        display = std::make_unique<LoFiDisplay> (p, [&p, b] { return b < 0 ? p.getLoFiSettings() : p.getInsertLoFiSettings (b); });
+        make (top, lofi ("On"), "ON", "LO-FI on or off.");
+        make (top, lofi ("Type"), "TYPE", "TELEPHONE a phone line, only the voice band; AM RADIO a small radio speaker, nasal; MEGAPHONE narrow, "
                                      "honky and driven hard; CASSETTE wow, flutter, a dull top and hiss; BITCRUSHER fewer bits and a lower "
                                      "sample rate. Each side through its own (PR7-G's speakers are mono).");
-        make (controls, lofiAmount, "AMOUNT", "How strong: narrower, dirtier, wobblier, crunchier.");
-        make (controls, lofiNoise, "NOISE", "The line hiss, tape hiss or static that sells it.");
-        make (controls, lofiMix, "MIX", "How much of the lo-fi sound against the clean one.");
-        make (controls, lofiLevel, "LEVEL", "The level after it.");
+        make (controls, lofi ("Amount"), "AMOUNT", "How strong: narrower, dirtier, wobblier, crunchier.");
+        make (controls, lofi ("Noise"), "NOISE", "The line hiss, tape hiss or static that sells it.");
+        make (controls, lofi ("Mix"), "MIX", "How much of the lo-fi sound against the clean one.");
+        make (controls, lofi ("Level"), "LEVEL", "The level after it.");
     }
     else
     {
+        modIds = b >= 0 ? ParamIDs::insModIds (b) : kind == Kind::mod ? ParamIDs::modIds : ParamIDs::mod2Ids;
+        const auto& ids = modIds;
         const auto which = kind == Kind::mod ? 0 : 1;
-        const auto& ids = idsFor (which);
-        display = std::make_unique<SweepDisplay> (p, which);
+        display = std::make_unique<SweepDisplay> ([&p, which, b] { return b >= 0 ? p.getInsertModSettings (b) : p.getModSettings (which); },
+                                                  [&p, which, b] { return b >= 0 ? p.getInsertModSweepPhase (b) : p.getModSweepPhase (which); });
         make (top, ids.on, "ON", "On or off.");
         make (top, ids.type, "TYPE", "VORTEX a late-'80s stereo chorus pedal; AEON a BF-2 flanger; HADRON a Phase 90 (SCRIPT or BLOCK); RAZOR a "
                                      "TR-2 tremolo with its WAVE; PRISM a Dimension-style dual chorus; NEBULA a Uni-Vibe; ROTARY a Leslie; "
@@ -317,8 +321,8 @@ bool ModFxPage::shows (const ParamControl& control) const
     if (kind == Kind::loFi)
         return true;
     // As PR7-G's MOD panel: RATE while not synced, each type's own controls, DEPTH and MIX where they do something.
-    const auto& ids = idsFor (kind == Kind::mod ? 0 : 1);
-    const auto settings = processor.getModSettings (kind == Kind::mod ? 0 : 1);
+    const auto& ids = modIds;
+    const auto settings = bus >= 0 ? processor.getInsertModSettings (bus) : processor.getModSettings (kind == Kind::mod ? 0 : 1);
     const auto& id = control.getParameterId();
     const auto type = settings.type;
     if (id == ids.rate)    return processor.getParameters().getRawParameterValue (ids.sync)->load() < 0.5f;
@@ -370,7 +374,9 @@ void ModFxPage::paint (juce::Graphics& g)
                 juce::Justification::centredLeft, false);
     g.setColour (ParagonColours::textDim);
     g.setFont (juce::FontOptions (10.5f));
-    g.drawText (kind == Kind::loFi ? "Insert 3: after MOD 2" : kind == Kind::mod ? "Insert 1: after the sends" : "Insert 2: after MOD",
+    const auto busName = bus >= 0 ? ParamIDs::insertBusNames[bus + 1] : juce::String();
+    g.drawText (bus >= 0 ? (kind == Kind::loFi ? "Bus " + busName + ": after MOD" : "Bus " + busName + ": after GLITCH")
+                         : kind == Kind::loFi ? "Insert 3: after MOD 2" : kind == Kind::mod ? "Insert 1: after the sends" : "Insert 2: after MOD",
                 juce::Rectangle<int> (24, 38, 200, 16), juce::Justification::centredLeft, false);
 }
 

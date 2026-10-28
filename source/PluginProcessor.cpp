@@ -134,6 +134,20 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
             oscParameters[(size_t) i].values[s] = parameters.getRawParameterValue (ParamIDs::osc (i, ParamIDs::oscSettings[s]));
             jassert (oscParameters[(size_t) i].values[s] != nullptr);
         }
+    for (int b = 0; b < ParamIDs::numInsertBuses; ++b)
+    {
+        auto& bus = rack->buses[(size_t) b];
+        const auto find = [this, b] (const char* what)
+        {
+            auto* value = parameters.getRawParameterValue (ParamIDs::ins (b, what));
+            jassert (value != nullptr);
+            return value;
+        };
+        for (size_t s = 0; s < bus.drive_.size(); ++s) bus.drive_[s] = find (ParamIDs::insDriveSettings[s]);
+        for (size_t s = 0; s < bus.glitch_.size(); ++s) bus.glitch_[s] = find (ParamIDs::insGlitchSettings[s]);
+        for (size_t s = 0; s < bus.lofi_.size(); ++s) bus.lofi_[s] = find (ParamIDs::insLofiSettings[s]);
+        bus.sends_ = { find ("SendDelay"), find ("SendReverb") };
+    }
     for (int k = 0; k < ParamIDs::numLfos; ++k)
         for (size_t s = 0; s < std::size (ParamIDs::lfoSettings); ++s)
         {
@@ -248,6 +262,17 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     rack->reverb.prepare (sampleRate, preparedBlockSize);
     for (auto& block : rack->modulation)
         block.prepare (sampleRate, preparedBlockSize);
+    for (auto& bus : rack->buses)
+    {
+        for (int c = 0; c < 2; ++c)
+        {
+            bus.drive[(size_t) c].prepare (sampleRate, preparedBlockSize);
+            bus.glitch[(size_t) c].prepare (sampleRate, preparedBlockSize);
+        }
+        bus.modulation.prepare (sampleRate, preparedBlockSize);
+        bus.loFi.prepare (sampleRate, preparedBlockSize);
+        bus.buffer.setSize (2, preparedBlockSize);
+    }
     rack->loFi.prepare (sampleRate, preparedBlockSize);
     for (auto& send : rack->sends)
         send.setSize (2, preparedBlockSize);
@@ -447,8 +472,12 @@ void ParagonX1AudioProcessor::processSends (juce::dsp::AudioBlock<float> block)
 
 effects::Modulation::Settings ParagonX1AudioProcessor::getModSettings (int which) const noexcept
 {
+    return modSettingsFor (which == 0 ? ParamIDs::modIds : ParamIDs::mod2Ids);
+}
+
+effects::Modulation::Settings ParagonX1AudioProcessor::modSettingsFor (const ParamIDs::ModIds& ids) const noexcept
+{
     // As PR7-G's modSettingsFor, without its expression pedal and POSITION.
-    const auto& ids = which == 0 ? ParamIDs::modIds : ParamIDs::mod2Ids;
     effects::Modulation::Settings s;
     s.on = isOn (ids.on);
     s.type = (effects::Modulation::Type) juce::jlimit (0, effects::Modulation::typeNames.size() - 1, juce::roundToInt (param (ids.type)));
@@ -467,16 +496,138 @@ effects::Modulation::Settings ParagonX1AudioProcessor::getModSettings (int which
     return s;
 }
 
-effects::LoFi::Settings ParagonX1AudioProcessor::getLoFiSettings() const noexcept
+effects::LoFi::Settings ParagonX1AudioProcessor::getLoFiSettings() const noexcept { return loFiSettingsFor (-1); }
+
+effects::LoFi::Settings ParagonX1AudioProcessor::getInsertLoFiSettings (int bus) const noexcept { return loFiSettingsFor (bus); }
+
+effects::LoFi::Settings ParagonX1AudioProcessor::loFiSettingsFor (int bus) const noexcept
 {
+    // The whole sound's lofi* (bus -1), or a bus's "ins<n>Lofi*": the same settings in the same order.
+    const auto value = [this, bus] (const char* whole, int index)
+    {
+        return bus < 0 ? param (whole) : rack->buses[(size_t) bus].lofi_[(size_t) index]->load();
+    };
     effects::LoFi::Settings s;
-    s.on = isOn (ParamIDs::lofiOn);
-    s.type = (effects::LoFi::Type) juce::jlimit (0, effects::LoFi::typeNames.size() - 1, juce::roundToInt (param (ParamIDs::lofiType)));
-    s.amount = param (ParamIDs::lofiAmount);
-    s.noise = param (ParamIDs::lofiNoise);
-    s.mix = param (ParamIDs::lofiMix);
-    s.levelDb = param (ParamIDs::lofiLevel);
+    s.on = value (ParamIDs::lofiOn, 0) > 0.5f;
+    s.type = (effects::LoFi::Type) juce::jlimit (0, effects::LoFi::typeNames.size() - 1, juce::roundToInt (value (ParamIDs::lofiType, 1)));
+    s.amount = value (ParamIDs::lofiAmount, 2);
+    s.noise = value (ParamIDs::lofiNoise, 3);
+    s.mix = value (ParamIDs::lofiMix, 4);
+    s.levelDb = value (ParamIDs::lofiLevel, 5);
     return s;
+}
+
+effects::Drive::Settings ParagonX1AudioProcessor::getInsertDriveSettings (int bus) const noexcept
+{
+    const auto& v = rack->buses[(size_t) juce::jlimit (0, synth::numInsertBuses - 1, bus)].drive_;   // insDriveSettings' order
+    const auto value = [&v] (int index) { return v[(size_t) index]->load(); };
+    effects::Drive::Settings s;
+    s.on = value (0) > 0.5f;
+    s.model = (effects::Drive::Model) juce::jlimit (0, effects::Drive::modelNames.size() - 1, juce::roundToInt (value (1)));
+    s.drive = value (2);
+    s.tone = value (3);
+    s.levelDb = value (4);
+    s.attack = juce::jlimit (0, effects::Drive::skylineAttackNames.size() - 1, juce::roundToInt (value (5)));
+    s.gate = value (6);
+    s.high = value (7);
+    s.low = value (8);
+    s.middle = value (9);
+    s.midFreq = value (10);
+    return s;
+}
+
+effects::Glitch::Settings ParagonX1AudioProcessor::getInsertGlitchSettings (int bus) const noexcept
+{
+    const auto& v = rack->buses[(size_t) juce::jlimit (0, synth::numInsertBuses - 1, bus)].glitch_;   // insGlitchSettings' order
+    const auto value = [&v] (int index) { return v[(size_t) index]->load(); };
+    effects::Glitch::Settings s;
+    s.on = value (0) > 0.5f;
+    s.mode = (effects::Glitch::Mode) juce::jlimit (0, effects::Glitch::modeNames.size() - 1, juce::roundToInt (value (1)));
+    s.sync = value (2) > 0.5f;
+    s.lengthMs = value (3);
+    s.division = juce::jlimit (0, effects::Glitch::syncNames.size() - 1, juce::roundToInt (value (4)));
+    s.density = value (5);
+    s.pitch = value (6);
+    s.chaos = value (7);
+    s.mix = value (8);
+    return s;
+}
+
+std::array<float, synth::numSends> ParagonX1AudioProcessor::getInsertSends (int bus) const noexcept
+{
+    const auto& v = rack->buses[(size_t) juce::jlimit (0, synth::numInsertBuses - 1, bus)].sends_;
+    return { v[0]->load(), v[1]->load() };
+}
+
+void ParagonX1AudioProcessor::processInsertBuses (juce::dsp::AudioBlock<float> block, bool sendsReady)
+{
+    // Each bus an oscillator plays into: DRIVE and GLITCH (one a side: PR7-G's are mono), MOD, LO-FI, as on PR7-G's
+    // chain (GLITCH POST, after the drive); then into the mix, and into the sends at the bus's amounts.
+    const auto numSamples = (int) block.getNumSamples();
+    const auto bpm = juce::jmax (1.0, hostBpm.load());
+    for (int b = 0; b < synth::numInsertBuses; ++b)
+    {
+        auto& bus = rack->buses[(size_t) b];
+        if (! bus.used)
+        {
+            bus.peak = 0.0f;
+            continue;
+        }
+        auto busBlock = juce::dsp::AudioBlock<float> (bus.buffer).getSubBlock (0, (size_t) numSamples);
+        const auto drive = getInsertDriveSettings (b);
+        const auto glitch = getInsertGlitchSettings (b);
+        // After the DRIVE, a DC blocker (5 Hz): RABID's circuit can leave its coupling capacitor charged, a steady
+        // offset after loud playing. On PR7-G the amp after the pedal blocks it; here nothing would. Only while the
+        // drive is on; switched off, what it was taking off fades out over about 50 ms, then the bus is untouched.
+        const auto dcCoefficient = 1.0f - std::exp (-juce::MathConstants<float>::twoPi * 5.0f / (float) getSampleRate());
+        const auto dcFade = std::exp (-1.0f / (0.01f * (float) getSampleRate()));
+        for (size_t c = 0; c < 2; ++c)
+        {
+            bus.drive[c].process (busBlock.getSingleChannelBlock (c), drive);
+            auto& dc = bus.driveDc[c];
+            auto* x = busBlock.getChannelPointer (c);
+            if (drive.on)
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    dc += (x[i] - dc) * dcCoefficient;
+                    x[i] -= dc;
+                }
+            else if (dc != 0.0f)
+            {
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    dc *= dcFade;
+                    x[i] -= dc;
+                }
+                if (std::abs (dc) < 1.0e-9f)
+                    dc = 0.0f;
+            }
+            bus.glitch[c].process (busBlock.getSingleChannelBlock (c), glitch, bpm, hostPpq);
+        }
+        bus.modulation.process (busBlock, getInsertModSettings (b));
+        bus.loFi.process (busBlock, getInsertLoFiSettings (b));
+        bus.peak = juce::jmax (bus.buffer.getMagnitude (0, 0, numSamples), bus.buffer.getMagnitude (1, 0, numSamples));
+
+        const auto numChannels = (int) block.getNumChannels();
+        for (int c = 0; c < numChannels; ++c)
+        {
+            auto* out = block.getChannelPointer ((size_t) c);
+            if (numChannels == 1)
+                for (int i = 0; i < numSamples; ++i)
+                    out[i] += 0.5f * (bus.buffer.getSample (0, i) + bus.buffer.getSample (1, i));
+            else
+                juce::FloatVectorOperations::add (out, bus.buffer.getReadPointer (c), numSamples);
+        }
+        if (sendsReady)
+        {
+            const auto sends = getInsertSends (b);
+            const auto on = std::array<bool, synth::numSends> { isOn (ParamIDs::delayOn), isOn (ParamIDs::reverbOn) };
+            for (int s = 0; s < synth::numSends; ++s)
+                if (on[(size_t) s] && sends[(size_t) s] > 0.0f)
+                    for (int c = 0; c < 2; ++c)
+                        rack->sends[(size_t) s].addFrom (c, 0, bus.buffer, c, 0, numSamples, sends[(size_t) s]);
+        }
+    }
 }
 
 void ParagonX1AudioProcessor::processModFx (juce::dsp::AudioBlock<float> block)
@@ -602,6 +753,7 @@ synth::Settings ParagonX1AudioProcessor::getSynthSettings() const noexcept
         tr.division = choice (get (oscSetting ("TrDivision")), synth::mod::lfoDivisionNames.size());
         o.arp = choice (get (oscSetting ("Arp")), synth::arp::routeNames.size());
         o.send = { get (oscSetting ("SendDelay")), get (oscSetting ("SendReverb")) };
+        o.insertBus = choice (get (oscSetting ("Insert")), ParamIDs::insertBusNames.size());
 
         o.table = tablesForAudio[i].load();
         o.spectral = spectralForAudio[i].load();
@@ -890,6 +1042,13 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
     float scratchRight[512];
     // THE SENDS (stage 7b): the engine fills each send's mix while its effect is on; silence otherwise.
     const auto sendsReady = rack->sends[0].getNumSamples() >= numSamples;
+    // THE INSERT BUSES (stage 7d): which ones an oscillator that's on plays into this block.
+    for (auto& bus : rack->buses)
+        bus.used = false;
+    for (const auto& osc : oscParameters)
+        if (osc.values[(size_t) ParamIDs::oscSetting ("On")]->load() > 0.5f)
+            if (const auto b = juce::roundToInt (osc.values[(size_t) ParamIDs::oscSetting ("Insert")]->load()); b >= 1 && b <= synth::numInsertBuses)
+                rack->buses[(size_t) b - 1].used = true;
     if (sendsReady)
         for (auto& send : rack->sends)
             send.clear (0, numSamples);
@@ -898,10 +1057,24 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
         const auto n = juce::jmin ((int) std::size (scratchRight), numSamples - done);
         auto* right = numChannels > 1 ? buffer.getWritePointer (1, start + done) : scratchRight;
         if (sendsReady)
+        {
             engine.setSendOutputs ({ rack->sends[0].getWritePointer (0, done), rack->sends[1].getWritePointer (0, done) },
                                    { rack->sends[0].getWritePointer (1, done), rack->sends[1].getWritePointer (1, done) });
+            // THE INSERT BUSES (stage 7d): only the ones an oscillator plays into.
+            std::array<float*, synth::numInsertBuses> busLeft {}, busRight {};
+            for (size_t b = 0; b < rack->buses.size(); ++b)
+                if (rack->buses[b].used)
+                {
+                    busLeft[b] = rack->buses[b].buffer.getWritePointer (0, done);
+                    busRight[b] = rack->buses[b].buffer.getWritePointer (1, done);
+                }
+            engine.setInsertOutputs (busLeft, busRight);
+        }
         else
+        {
             engine.setSendOutputs ({}, {});
+            engine.setInsertOutputs ({}, {});
+        }
         auto settings = getSynthSettings();
         // The MOD MATRIX: each route with its knob's position now.
         if (const auto* compiled = matrixForAudio.load())
@@ -951,6 +1124,7 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
                                                             .getSubsetChannelBlock (0, (size_t) juce::jmin (numChannels, 2));
     if (sendsReady)
     {
+        processInsertBuses (block, true);
         processSends (block);
         processModFx (block);   // stage 7c: after the returns, so the echoes and reverb are part of what they shape
     }
