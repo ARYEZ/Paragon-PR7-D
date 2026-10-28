@@ -31,6 +31,7 @@ add_executable(ParagonX1Tests
     EqTests.cpp
     LimiterTests.cpp
     MasterLimiterTests.cpp
+    RackTests.cpp
     CompressorTests.cpp
     DominionTests.cpp
     MultibandTests.cpp

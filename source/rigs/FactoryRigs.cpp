@@ -1,5 +1,7 @@
 #include "FactoryRigs.h"
 
+#include "dsp/eq/EqDesign.h"
+
 #include "Parameters.h"
 #include "dsp/synth/SynthSettings.h"
 #include "dsp/synth/Wavetable.h"
@@ -534,6 +536,30 @@ std::vector<Rig> makeFactoryRigs()
         r.restChance = 0.3f;
     }
     add (stabs);
+
+    // THE RACK (stage 7a).
+    Builder mastered ("Mastered Supersaw", 36, { "Lead", "Unison", "Rack" },
+                      "Supersaw Lead finished in the rack: ECHELON cuts the rumble under 90 Hz, takes 2 dB out of the boxy "
+                      "low mids and adds air over 10 kHz; CONSTRICTOR (OPTO, 2:1) glues the chords; the LIMITER (MODERN, "
+                      "TRUE PEAK) holds it at -1 dB. Our own settings, not tuned by ear.");
+    mastered.osc (0, "UniVoices", 7.0f).osc (0, "UniMix", 0.8f).osc (0, "UniDetune", 0.45f).osc (0, "UniSpread", 0.8f)
+            .osc (0, "VibAmount", 8.0f).osc (0, "VibRate", 5.5f).osc (0, "VibFade", 400.0f).osc (0, "Volume", 0.6f)
+            .filter (FilterType::lp24, 3500.0f, 0.15f, 0.2f).filterEnvelope (5.0f, 500.0f, 0.5f, 300.0f)
+            .set (ParamIDs::fltKey, 0.5f)
+            .ampEnvelope (5.0f, 300.0f, 0.9f, 350.0f).set (ParamIDs::ampReleaseCurve, -0.4f);
+    struct EqBand { eq::Shape shape; float hz, db, q; };
+    const EqBand bands[] = { { eq::Shape::lowCut, 90.0f, 0.0f, 0.7f }, { eq::Shape::bell, 400.0f, -2.0f, 1.0f },
+                             { eq::Shape::highShelf, 10000.0f, 2.0f, 0.7f } };
+    for (int i = 0; i < 3; ++i)
+        mastered.set (ParamIDs::eqBand (i, "Used"), 1.0f).set (ParamIDs::eqBand (i, "Shape"), (float) (int) bands[i].shape)
+                .set (ParamIDs::eqBand (i, "Freq"), bands[i].hz).set (ParamIDs::eqBand (i, "Gain"), bands[i].db)
+                .set (ParamIDs::eqBand (i, "Q"), bands[i].q);
+    mastered.set (ParamIDs::eqOn, 1.0f)
+            .set (ParamIDs::compOn, 1.0f).set (ParamIDs::compCharacter, 1.0f).set (ParamIDs::compThreshold, -18.0f)
+            .set (ParamIDs::compRatio, 2.0f).set (ParamIDs::compMakeUp, 2.0f)
+            .set (ParamIDs::limitOn, 1.0f).set (ParamIDs::limitTruePeak, 1.0f).set (ParamIDs::limitGain, 3.0f)
+            .set (ParamIDs::limitCeiling, -1.0f);
+    add (mastered);
 
     return rigs;
 }

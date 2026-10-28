@@ -192,6 +192,8 @@ public:
     juce::File arpMidiDragFile (int arp) const;   // a file to drag onto a track
     bool importMidiLinks (const juce::File&);
     void controllerForTest (int controller, float value);   // a controller, played through a short block
+    // Tests: the synth's random choices (start phases...) the same on every run, for sample-for-sample comparisons.
+    void seedRandomForTest (juce::int64 seed) noexcept { engine.seedRandom (seed); }
     // How many routes the audio thread is playing (on, with a source and a known destination). For tests and the display.
     int getNumPlayingRoutes() const noexcept;
 

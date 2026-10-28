@@ -2,6 +2,52 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.17.0
+
+Stage 7, part 1: **THE RACK**, a new **FX** page (in the header, after ARP) with PR7-E's four effects after the synth. They're PR7-E 0.18.1's, as you asked, with the same sound and controls: the same code, ported, not new versions.
+
+- **The four rack units,** drawn as on PR7-E (after your rack photo), one to a row in the order the sound goes through them:
+  - **ECHELON**, the EQ (inspired by FabFilter Pro-Q): up to 24 bands, dynamic bands, the analyser, and **EQ Match**.
+  - **DOMINION**, the resonance smoother (inspired by soothe).
+  - **CONSTRICTOR**, the compressor, with its up to six bands.
+  - **The LIMITER** (inspired by Pro-L 2): its styles, look-ahead, true peak, loudness meters and dither, and 0.18.1's cleaner bass.
+- **On each unit:** POWER, its meter, its screen, three keys, two knobs, and EDIT, which opens its big page in the rack's place (**BACK TO RACK** comes back).
+- **Where they sit:** after the synth (its oscillators, filter, shapers and amp); then the preset's level and OUTPUT; then the LIMITER, last, so turning OUTPUT up drives into it as into a mastering limiter; then BYPASS.
+- **In your presets:** the rack is saved with each preset (all four are off in the presets made before, so they sound as they did).
+  - CONSTRICTOR and DOMINION also have **their own presets**, as on PR7-E. They're the same files (the "Comp Presets" and "Dominion Presets" folders in PR7-K's presets folder), so a preset saved in PR7-E can be copied over and loads the same.
+  - Their parameters have PR7-E's names, so DAW automation reads the same too.
+- **EQ Match on a synth:** "your sound" is the synth going into ECHELON.
+  - **RECORD SYNTH** records the synth itself as the reference: play one preset as the reference, switch presets, and match the new one to it.
+  - **LOAD FILE** matches to a song file.
+- **Delay:** the LIMITER's look-ahead (1 ms by default, about 3.3 ms with TRUE PEAK) and CONSTRICTOR's LOOK-AHEAD (20 ms) make the sound a little late. Your DAW makes up for it on playback, but you'll feel it when playing live. Switched off, nothing is late. With the LIMITER's LOOKAHEAD at 0, TRUE PEAK and OVERSAMPLING off, it adds no delay either.
+- **CPU, measured on a four-note saw chord** (one core of this machine; yours will differ):
+  - the synth alone 0.7%;
+  - ECHELON with six bands +0.4% (dynamic bands +0.9%);
+  - CONSTRICTOR +0.3% (with three bands +1.3%);
+  - the LIMITER with TRUE PEAK +3.9%;
+  - **DOMINION +10.6%: by far the heaviest.** It listens with about 120 detectors and works out its cuts all the time; it costs the same on PR7-E. Switch it on where it's needed. Off, every unit costs nothing. If its weight bothers you, tell me: it could be made lighter, at some risk of changing its sound.
+- **Changes from PR7-E:**
+  - DOMINION's right-hand column is a little tighter, to fit PR7-K's page.
+  - The text talks about the rack, presets and your sound instead of stomps, rigs and your track.
+- **A new factory preset:** **Mastered Supersaw** (A36). Supersaw Lead with a low cut, a small dip in the boxy low mids, air on top, CONSTRICTOR's glue and the LIMITER at -1 dB. Our own settings, not tuned by ear.
+- **Not yet:** inserts (effects on single oscillators) and sends, which come with PR7-G's delay and reverb (7b), modulation and lo-fi (7c), drives and glitch (7d).
+- **In the tests:**
+  - PR7-E's own tests for each effect (the limiter's came with it; the others were already here);
+  - and, in the synth, from the sound:
+    - off, the rack changes nothing, sample for sample;
+    - ECHELON cuts exactly the band it's set to;
+    - CONSTRICTOR turns a loud chord down;
+    - the LIMITER holds its ceiling;
+    - left and right stay apart (a note on one side leaves the other exactly silent through all four), and LINK turns both down together;
+    - the delay reaches the DAW;
+    - presets keep the rack;
+    - the effects' own presets load;
+    - the new preset;
+    - CPU;
+    - the FX page's layout, POWER and EDIT;
+    - no parameter ID shared.
+- I can't listen here. If something about the rack sounds or behaves differently from PR7-E, tell me.
+
 ## 0.16.0
 
 Stage 5, part 2 (stage 5 complete): **chords, fixed note, the note randomizer, MIDI export, arp-note triggers and arps together**, modelled on Avenger's arpeggiator (the manual's pages 74-80; our own design and code).
