@@ -110,7 +110,7 @@ void DrivePreview::paint (juce::Graphics& g)
         juce::Path line;
         for (size_t i = 0; i < cycle.size(); ++i)
         {
-            const auto x = area.getX() + area.getWidth() * (float) i / (float) juce::jmax<size_t> (1, cycle.size() - 1);
+            const auto x = area.getX() + area.getWidth() * (float) i / (float) std::max<size_t> (1, cycle.size() - 1);
             const auto y = area.getCentreY() - area.getHeight() * 0.45f * cycle[i] / peak;
             if (i == 0)
                 line.startNewSubPath (x, y);
@@ -242,7 +242,7 @@ void GlitchPreview::paint (juce::Graphics& g)
         juce::Path shape;
         shape.startNewSubPath (area.getX(), area.getBottom());
         for (size_t i = 0; i < list.size(); ++i)
-            shape.lineTo (area.getX() + area.getWidth() * (float) i / (float) juce::jmax<size_t> (1, list.size() - 1),
+            shape.lineTo (area.getX() + area.getWidth() * (float) i / (float) std::max<size_t> (1, list.size() - 1),
                           area.getBottom() - area.getHeight() * 0.9f * list[i] / peak);
         shape.lineTo (area.getRight(), area.getBottom());
         shape.closeSubPath();
