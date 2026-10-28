@@ -202,7 +202,7 @@ TEST_CASE ("RACK: a preset keeps the rack's settings; CONSTRICTOR's and DOMINION
     const auto rig = p.processor.captureRig();
     CHECK (rig.parameters.at (ParamIDs::eqOn) == 1.0f);
     CHECK_THAT (rig.parameters.at (ParamIDs::eqBand (5, "Freq")), Catch::Matchers::WithinRel (2500.0f, 0.001f));
-    CHECK (rig.parameters.at (ParamIDs::limitCeiling) == -2.0f);
+    CHECK_THAT (rig.parameters.at (ParamIDs::limitCeiling), WithinAbs (-2.0, 1.0e-4));   // (through the 0-1 scale: within a hair)
     CHECK (rig.parameters.count (ParamIDs::limitUnity) == 0);
 
     // Saved as a preset, then loaded into another instance.
@@ -221,7 +221,7 @@ TEST_CASE ("RACK: a preset keeps the rack's settings; CONSTRICTOR's and DOMINION
     const auto value = [&] (const juce::String& id) { return other.processor.getParameters().getRawParameterValue (id)->load(); };
     CHECK (value (ParamIDs::eqOn) == 1.0f);
     CHECK_THAT (value (ParamIDs::eqBand (5, "Freq")), Catch::Matchers::WithinRel (2500.0f, 0.001f));
-    CHECK (value (ParamIDs::limitCeiling) == -2.0f);
+    CHECK_THAT (value (ParamIDs::limitCeiling), WithinAbs (-2.0, 1.0e-4));
 
     // Each effect's own factory presets (its settings, not whether it's on).
     const auto& comp = CompPresets::factory();
