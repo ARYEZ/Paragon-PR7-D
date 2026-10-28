@@ -3,6 +3,7 @@
 #include "Parameters.h"
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
+#include "dsp/effects/LoFi.h"
 #include "dsp/effects/Reverb.h"
 #include "ui/ParagonLookAndFeel.h"
 
@@ -18,7 +19,7 @@
 //   PARAGON_SNAPSHOT_FILTERPAGE=n     the FILTER panel's SHP n tab (shaper n's page)
 //   PARAGON_SNAPSHOT_FFT=band:dB,...  a curve drawn for oscillator 1; PARAGON_SNAPSHOT_FFT_VIEW=harmonic|bins
 //   PARAGON_SNAPSHOT_PARAMS=id=value,...   parameters set (real units)
-//   PARAGON_SNAPSHOT_PAGE=fx         THE RACK (PARAGON_SNAPSHOT_RACK=1: at work on a chord, the sends too; PARAGON_SNAPSHOT_FX=eq|dominion|comp|limiter|sends|delay|reverb: that view)
+//   PARAGON_SNAPSHOT_PAGE=fx         THE RACK (PARAGON_SNAPSHOT_RACK=1: at work on a chord, the sends too; PARAGON_SNAPSHOT_FX=eq|dominion|comp|limiter|sends|delay|reverb|modfx|mod|mod2|lofi: that view)
 //   PARAGON_SNAPSHOT_NOTES=1         a chord held on the keyboard (so the PLAY panel counts notes, and keys light)
 TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
 {
@@ -121,6 +122,17 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             set (ParamIDs::osc (1, "Transpose"), 12.0f);
             set (ParamIDs::osc (1, "SendDelay"), 0.4f);
             set (ParamIDs::osc (1, "SendReverb"), 0.6f);
+            // MOD / LO-FI (7c): the Vortex in STEREO, AEON after it, a gently worn cassette.
+            set (ParamIDs::modOn, 1.0f);
+            set (ParamIDs::modStereo, 1.0f);
+            set (ParamIDs::modMix, 0.6f);
+            set (ParamIDs::mod2On, 1.0f);
+            set (ParamIDs::mod2Depth, 0.6f);
+            set (ParamIDs::mod2Res, 6.5f);
+            set (ParamIDs::lofiOn, 1.0f);
+            set (ParamIDs::lofiType, (float) (int) effects::LoFi::Type::cassette);
+            set (ParamIDs::lofiAmount, 3.0f);
+            set (ParamIDs::lofiNoise, 2.0f);
             for (const auto note : { 48, 55, 60, 64, 67 })
                 processor.getKeyboardState().noteOn (1, note, 0.85f);
             juce::AudioBuffer<float> buffer (2, 256);
@@ -139,7 +151,8 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         auto& fxPage = view->getFxPage();
         fxPage.show (fx == "eq" ? FxPage::View::eq : fx == "dominion" ? FxPage::View::dominion : fx == "comp" ? FxPage::View::comp
                      : fx == "limiter" ? FxPage::View::limiter : fx == "sends" ? FxPage::View::sends : fx == "delay" ? FxPage::View::delay
-                     : fx == "reverb" ? FxPage::View::reverb : FxPage::View::rack);
+                     : fx == "reverb" ? FxPage::View::reverb : fx == "modfx" ? FxPage::View::modFx : fx == "mod" ? FxPage::View::mod
+                     : fx == "mod2" ? FxPage::View::mod2 : fx == "lofi" ? FxPage::View::loFi : FxPage::View::rack);
         // A display reads its bands and analyser on its own timer, but only while it's on screen, which a snapshot
         // never is (as PR7-E's snapshots, refresh them by hand). ECHELON with its dynamic band 3 selected.
         if (fx == "eq")

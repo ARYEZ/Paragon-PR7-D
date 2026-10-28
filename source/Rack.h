@@ -5,6 +5,8 @@
 #include "dsp/dominion/Dominion.h"
 #include "dsp/effects/Compressor.h"
 #include "dsp/effects/Delay.h"
+#include "dsp/effects/LoFi.h"
+#include "dsp/effects/Modulation.h"
 #include "dsp/effects/MasterLimiter.h"
 #include "dsp/effects/MultibandComp.h"
 #include "dsp/effects/Reverb.h"
@@ -52,6 +54,12 @@ struct Rack
     effects::Reverb reverb;
     std::array<juce::AudioBuffer<float>, synth::numSends> sends;   // 2 channels each, the prepared block size
     std::array<std::atomic<float>, synth::numSends> returnPeak {};   // each return's peak in the last block (the units' meters)
+
+    // MOD, MOD 2 and LO-FI (stage 7c): PR7-G's modulation block twice and its LO-FI, on the whole sound (the returns
+    // included), before ECHELON.
+    std::array<effects::Modulation, 2> modulation;
+    effects::LoFi loFi;
+    std::atomic<float> loFiPeak { 0.0f };   // LO-FI's output peak in the last block, while it's on (its unit's meter)
 
     void setFolder (const juce::File& presetsFolder)
     {

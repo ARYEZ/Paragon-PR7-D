@@ -33,6 +33,8 @@ add_executable(ParagonX1Tests
     MasterLimiterTests.cpp
     RackTests.cpp
     DelayReverbTests.cpp
+    ModFxTests.cpp
+    ModFxStereoTests.cpp
     SendTests.cpp
     CompressorTests.cpp
     DominionTests.cpp

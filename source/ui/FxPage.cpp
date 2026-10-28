@@ -42,7 +42,23 @@ FxPage::FxPage (ParagonX1AudioProcessor& processor)
     addChildComponent (reverbPage);
     delayPage.onClose = [this] { show (View::sends); };
     reverbPage.onClose = [this] { show (View::sends); };
-    for (auto* tab : { &sendsTab, &masterTab })
+
+    // MOD, MOD 2 and LO-FI (stage 7c).
+    auto modFxSpecs = makeModFxSpecs (processor, [this] (int unit)
+    {
+        constexpr View views[] = { View::mod, View::mod2, View::loFi };
+        show (views[juce::jlimit (0, 2, unit)]);
+    });
+    constexpr ModFxPage::Kind kinds[] = { ModFxPage::Kind::mod, ModFxPage::Kind::mod2, ModFxPage::Kind::loFi };
+    for (size_t i = 0; i < modFxUnits.size(); ++i)
+    {
+        modFxUnits[i] = std::make_unique<RackUnit> (processor.getParameters(), std::move (modFxSpecs[i]));
+        addChildComponent (*modFxUnits[i]);
+        modFxPages[i] = std::make_unique<ModFxPage> (processor, kinds[i]);
+        modFxPages[i]->onClose = [this] { show (View::modFx); };
+        addChildComponent (*modFxPages[i]);
+    }
+    for (auto* tab : { &sendsTab, &modFxTab, &masterTab })
     {
         tab->setClickingTogglesState (true);
         tab->setRadioGroupId (971);
@@ -54,7 +70,9 @@ FxPage::FxPage (ParagonX1AudioProcessor& processor)
     }
     sendsTab.setTooltip ("The SENDS: DELAY and REVERB, fed by each oscillator's send; they come back in before the MASTER rack");
     masterTab.setTooltip ("The MASTER rack: ECHELON, DOMINION, CONSTRICTOR and the LIMITER, on everything");
+    modFxTab.setTooltip ("MOD, MOD 2 and LO-FI: PR7-G's modulation (twice) and lo-fi, on everything, the echoes and reverb too, before the MASTER rack");
     sendsTab.onClick = [this] { show (View::sends); };
+    modFxTab.onClick = [this] { show (View::modFx); };
     masterTab.onClick = [this] { show (View::rack); };
     show (View::rack);
     eqPage.onClose = [this] { show (View::rack); };
@@ -71,12 +89,17 @@ void FxPage::show (View newView)
     for (auto& unit : sendUnits)
         unit->setVisible (view == View::sends);
     matrix.setVisible (view == View::sends);
+    for (auto& unit : modFxUnits)
+        unit->setVisible (view == View::modFx);
+    modFxPages[0]->setVisible (view == View::mod);
+    modFxPages[1]->setVisible (view == View::mod2);
+    modFxPages[2]->setVisible (view == View::loFi);
     delayPage.setVisible (view == View::delay);
     reverbPage.setVisible (view == View::reverb);
-    const auto onRackView = view == View::rack || view == View::sends;
-    sendsTab.setVisible (onRackView);
-    masterTab.setVisible (onRackView);
-    (view == View::sends ? sendsTab : masterTab).setToggleState (true, juce::dontSendNotification);
+    const auto onRackView = view == View::rack || view == View::sends || view == View::modFx;
+    for (auto* tab : { &sendsTab, &modFxTab, &masterTab })
+        tab->setVisible (onRackView);
+    (view == View::sends ? sendsTab : view == View::modFx ? modFxTab : masterTab).setToggleState (true, juce::dontSendNotification);
     eqPage.setVisible (view == View::eq);
     dominionPage.setVisible (view == View::dominion);
     compPage.setVisible (view == View::comp);
@@ -91,7 +114,7 @@ void FxPage::show (View newView)
 
 void FxPage::paint (juce::Graphics& g)
 {
-    if (view == View::rack || view == View::sends)
+    if (view == View::rack || view == View::sends || view == View::modFx)
         DockStyle::drawPanel (g, getLocalBounds().toFloat());
 }
 
@@ -101,6 +124,8 @@ void FxPage::resized()
     auto area = getLocalBounds().reduced (12, 10);
     auto tabs = area.removeFromTop (26);
     sendsTab.setBounds (tabs.removeFromLeft (110));
+    tabs.removeFromLeft (4);
+    modFxTab.setBounds (tabs.removeFromLeft (130));
     tabs.removeFromLeft (4);
     masterTab.setBounds (tabs.removeFromLeft (110));
     area.removeFromTop (8);
@@ -112,8 +137,13 @@ void FxPage::resized()
     const auto top = (float) area.getY() + ((float) area.getHeight() - 4.0f * height - 3.0f * gap) * 0.5f;
     for (size_t i = 0; i < units.size(); ++i)
         units[i]->setBounds (juce::Rectangle<float> ((float) area.getCentreX() - width * 0.5f, top + (float) i * (height + gap), width, height).toNearestInt());
-    for (auto* page : std::initializer_list<juce::Component*> { &eqPage, &dominionPage, &compPage, &limiterPage, &delayPage, &reverbPage })
+    for (auto* page : std::initializer_list<juce::Component*> { &eqPage, &dominionPage, &compPage, &limiterPage, &delayPage, &reverbPage,
+                                                                modFxPages[0].get(), modFxPages[1].get(), modFxPages[2].get() })
         page->setBounds (getLocalBounds());
+    // MOD / LO-FI: the three units at the master units' size, from the top.
+    for (size_t i = 0; i < modFxUnits.size(); ++i)
+        modFxUnits[i]->setBounds (juce::Rectangle<float> ((float) rackArea.getCentreX() - width * 0.5f, (float) rackArea.getY() + (float) i * (height + gap),
+                                                          width, height).toNearestInt());
 
     // SENDS: the two units at the master units' size, the matrix under them.
     auto sendsArea = rackArea;

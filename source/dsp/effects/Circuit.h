@@ -11,8 +11,13 @@ namespace effects
     // an op-amp stays clean almost to its rail, then flattens.
     inline double opAmpClip (double volts, double rail) noexcept
     {
-        constexpr double hardness = 5.0;
-        return volts / std::pow (1.0 + std::pow (std::abs (volts) / rail, hardness), 1.0 / hardness);
+        // volts / (1 + |volts / rail|^5)^(1/5). (PR7-K: the fifth power by multiplying, and below 6% of the rail
+        // the series 1 - x/5 + 3x^2/25, exact to 1e-18 there: the same curve for a third of the cost; it ran four
+        // times a sample in AEON, two pows each.)
+        const auto r = std::abs (volts) / rail, r2 = r * r, r5 = r2 * r2 * r;
+        if (r5 < 1.0e-6)
+            return volts * (1.0 - 0.2 * r5 + 0.12 * r5 * r5);
+        return volts / std::pow (1.0 + r5, 0.2);
     }
 
     // A small linear circuit (resistors, capacitors and ideal op-amps, one
@@ -37,7 +42,7 @@ namespace effects
     class Circuit
     {
     public:
-        static constexpr int maxNodes = 16, maxResistors = 24, maxCapacitors = 8, maxOpAmps = 4;
+        static constexpr int maxNodes = 16, maxResistors = 24, maxCapacitors = 12, maxOpAmps = 4;
 
         int node() noexcept { return numNodes++; }   // returns the new node's number
         int resistor (int a, int b, double ohms) noexcept { resistors[(size_t) numResistors] = { a, b, ohms }; return numResistors++; }
@@ -131,10 +136,22 @@ namespace effects
             inputToOutput = voltage (outputNode, numCapacitors);
         }
 
+        // The output is feedthrough() * input + pending(): what the next
+        // process() will give, split so a nonlinear part around the circuit
+        // can solve for its input first (e.g. an op-amp driving it).
+        double feedthrough() const noexcept { return inputToOutput; }
+        double pending() const noexcept
+        {
+            auto out = 0.0;
+            for (int k = 0; k < numCapacitors; ++k)
+                out += stateToOutput[(size_t) k] * state[(size_t) k];
+            return out;
+        }
+
         double process (double in) noexcept
         {
             auto out = inputToOutput * in;
-            std::array<double, maxCapacitors> next {};
+            std::array<double, maxCapacitors> next;   // (PR7-K: only the capacitors in use set and copied)
             for (int k = 0; k < numCapacitors; ++k)
             {
                 out += stateToOutput[(size_t) k] * state[(size_t) k];
@@ -143,7 +160,7 @@ namespace effects
                     sum += stateMatrix[(size_t) k][(size_t) j] * state[(size_t) j];
                 next[(size_t) k] = sum;
             }
-            state = next;
+            std::copy (next.begin(), next.begin() + numCapacitors, state.begin());
             return out;
         }
 

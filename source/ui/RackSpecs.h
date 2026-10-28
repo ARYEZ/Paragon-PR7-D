@@ -18,3 +18,6 @@ std::array<RackUnit::Spec, 4> makeRackSpecs (ParagonX1AudioProcessor&, RackActio
 
 // The SENDS' two rack units (stage 7b): DELAY and REVERB. `openPage` 0 opens DELAY's page, 1 REVERB's.
 std::array<RackUnit::Spec, 2> makeSendSpecs (ParagonX1AudioProcessor&, std::function<void (int send)> openPage);
+
+// MOD, MOD 2 and LO-FI's rack units (stage 7c). `openPage` 0 opens MOD's page, 1 MOD 2's, 2 LO-FI's.
+std::array<RackUnit::Spec, 3> makeModFxSpecs (ParagonX1AudioProcessor&, std::function<void (int unit)> openPage);

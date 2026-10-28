@@ -6,6 +6,8 @@
 #include "ParagonLookAndFeel.h"
 #include "dsp/eq/EqDesign.h"
 #include "dsp/effects/Delay.h"
+#include "dsp/effects/LoFi.h"
+#include "dsp/effects/Modulation.h"
 #include "dsp/effects/Reverb.h"
 
 namespace
@@ -451,6 +453,145 @@ std::array<RackUnit::Spec, 2> makeSendSpecs (ParagonX1AudioProcessor& p, std::fu
         s.footTitle = "TYPE";
         s.footText = [&p] { return textOf (p, reverbType); };
         s.onEdit = [openPage] { openPage (1); };
+    }
+    return specs;
+}
+
+//==============================================================================
+std::array<RackUnit::Spec, 3> makeModFxSpecs (ParagonX1AudioProcessor& p, std::function<void (int)> openPage)
+{
+    using namespace ParamIDs;
+    using Type = effects::Modulation::Type;
+    std::array<RackUnit::Spec, 3> specs;
+
+    // MOD and MOD 2 (PR7-G's modulation block, twice): the LFO's rate in big digits, the type's own settings beside
+    // it, and the ladder following the sweep.
+    for (int which = 0; which < 2; ++which)
+    {
+        const auto& ids = which == 0 ? modIds : mod2Ids;
+        auto& s = specs[(size_t) which];
+        s.number = which + 1;
+        s.name = which == 0 ? "MOD" : "MOD 2";
+        s.kind = "STEREO MODULATION  12 TYPES";
+        s.series = "PR7-K SERIES  INSERT " + juce::String (which + 1);
+        s.onParameterIds = { ids.on };
+        s.powerTooltip = juce::String (which == 0 ? "MOD" : "MOD 2") + " on or off (on everything, after the sends come back"
+                         + (which == 0 ? "" : " and after MOD") + "). Click POWER (the word) or EDIT for its page";
+        const auto step = [&p, ids] (int by)
+        {
+            const auto count = effects::Modulation::typeNames.size();
+            setValue (p, ids.type, (float) ((juce::roundToInt (valueOf (p, ids.type)) + by + count) % count));
+        };
+        s.keys[0] = { "< TYPE", "The type before this one", [] { return false; }, [step] { step (-1); } };
+        s.keys[1] = { "TYPE >", "The next type", [] { return false; }, [step] { step (1); } };
+        auto lastSync = std::make_shared<float> (3.0f);   // SYNC's note when it's switched back on (1/4 to start)
+        s.keys[2] = { "SYNC", "The LFO in notes at the song's tempo (lit), or at RATE",
+                      [&p, ids] { return valueOf (p, ids.sync) > 0.5f; },
+                      [&p, ids, lastSync]
+                      {
+                          if (const auto now = valueOf (p, ids.sync); now > 0.5f)
+                          {
+                              *lastSync = now;
+                              setValue (p, ids.sync, 0.0f);
+                          }
+                          else
+                              setValue (p, ids.sync, *lastSync);
+                      } };
+        s.knobs = { RackUnit::Knob { ids.rate, "RATE" }, RackUnit::Knob { ids.depth, "DEPTH" } };
+        s.ladderTitle = "LFO";
+        s.ladderMarks = { 0.8f, 0.4f, 0.0f, -0.4f, -0.8f };
+        s.ladderLabels = { "+", "", "0", "", "-" };
+        s.ladderReading = [&p, which]
+        {
+            const auto settings = p.getModSettings (which);
+            return settings.on ? effects::Modulation::sweepShape (settings.type, p.getModSweepPhase (which), settings) : -100.0f;
+        };
+        s.paintReadout = [&p, ids, which] (juce::Graphics& g, juce::Rectangle<float> glass)
+        {
+            auto content = glass.reduced (glass.getWidth() * 0.045f, glass.getHeight() * 0.14f);
+            auto left = content.removeFromLeft (content.getWidth() * 0.5f);
+            const auto settings = p.getModSettings (which);
+            const auto h = left.getHeight() * 0.56f;
+            const auto end = drawNumber (g, juce::String (settings.rateHz, settings.rateHz < 1.0f ? 2 : 1), left.getTopLeft(), h);
+            line (g, "Hz", { end + 6.0f, left.getY(), left.getRight() - end, h * 0.5f }, h * 0.24f);
+            line (g, valueOf (p, ids.sync) > 0.5f ? textOf (p, ids.sync) + " AT " + juce::String (p.getHostBpm(), 0) + " BPM" : juce::String ("FREE"),
+                  left.withTop (left.getY() + h * 1.1f).withHeight (h * 0.4f), h * 0.22f);
+            juce::StringArray rows { textOf (p, ids.type).toUpperCase() };
+            switch (settings.type)
+            {
+                case Type::chorus:   rows.add ("DEPTH " + textOf (p, ids.depth)); rows.add ("E.LEVEL " + textOf (p, ids.mix));
+                                     rows.add ("EQ " + textOf (p, ids.eq).toUpperCase() + (settings.stereoOutputs ? "  STEREO" : "  MONO")); break;
+                case Type::flanger:  rows.add ("DEPTH " + textOf (p, ids.depth)); rows.add ("MANUAL " + textOf (p, ids.manual));
+                                     rows.add ("RES " + textOf (p, ids.res)); break;
+                case Type::phaser:   rows.add ("CIRCUIT " + textOf (p, ids.hadron).toUpperCase()); break;
+                case Type::tremolo:  rows.add ("DEPTH " + textOf (p, ids.depth)); rows.add ("WAVE " + textOf (p, ids.wave)); break;
+                case Type::carbonite:
+                case Type::vibrato:
+                case Type::harmonicTremolo:
+                case Type::autoPan:  rows.add ("DEPTH " + textOf (p, ids.depth)); break;
+                case Type::dimension:
+                case Type::uniVibe:
+                case Type::rotary:
+                case Type::doubler:  rows.add ("DEPTH " + textOf (p, ids.depth)); rows.add ("MIX " + textOf (p, ids.mix)); break;
+            }
+            column (g, content, rows, content.getHeight() * 0.16f);
+        };
+        s.footTitle = "TYPE";
+        s.footText = [&p, ids] { return textOf (p, ids.type); };
+        s.onEdit = [openPage, which] { openPage (which); };
+    }
+
+    // LO-FI (PR7-G's): AMOUNT in big digits, the band it lets through (or the bitcrusher's bits), its output on the ladder.
+    {
+        using LoFiType = effects::LoFi::Type;
+        auto& s = specs[2];
+        s.number = 3;
+        s.name = "LO-FI";
+        s.kind = "STEREO LO-FI  5 TYPES";
+        s.series = "PR7-K SERIES  INSERT 3";
+        s.onParameterIds = { lofiOn };
+        s.powerTooltip = "LO-FI on or off: the whole sound, echoes and all, through a phone, a radio, a megaphone, a cassette or a bitcrusher. "
+                         "Click POWER (the word) or EDIT for its page";
+        const auto typeKey = [&p] (LoFiType type, const char* tip)
+        {
+            return RackUnit::Key { effects::LoFi::typeNames[(int) type].toUpperCase(), tip,
+                                   [&p, type] { return juce::roundToInt (valueOf (p, lofiType)) == (int) type; },
+                                   [&p, type] { setValue (p, lofiType, (float) (int) type); } };
+        };
+        s.keys[0] = typeKey (LoFiType::telephone, "A phone line: only the voice band gets through");
+        s.keys[1] = typeKey (LoFiType::cassette, "A worn tape: wobbling pitch, a dull top end, saturation and hiss");
+        s.keys[2] = typeKey (LoFiType::bitcrusher, "Fewer bits and a lower sample rate: early samplers and games");
+        s.knobs = { RackUnit::Knob { lofiAmount, "AMOUNT" }, RackUnit::Knob { lofiMix, "MIX" } };
+        s.ladderTitle = "OUT";
+        s.ladderMarks = { -3.0f, -9.0f, -18.0f, -30.0f, -48.0f };
+        s.ladderLabels = { "-3", "-9", "-18", "-30", "-48" };
+        s.ladderReading = [&p] { return p.getLoFiPeakDb(); };
+        s.paintReadout = [&p] (juce::Graphics& g, juce::Rectangle<float> glass)
+        {
+            auto content = glass.reduced (glass.getWidth() * 0.045f, glass.getHeight() * 0.14f);
+            auto left = content.removeFromLeft (content.getWidth() * 0.5f);
+            const auto settings = p.getLoFiSettings();
+            const auto h = left.getHeight() * 0.56f;
+            drawNumber (g, juce::String (settings.amount, 1), left.getTopLeft(), h);
+            line (g, "AMOUNT", left.withTop (left.getY() + h * 1.1f).withHeight (h * 0.4f), h * 0.22f);
+            juce::StringArray rows { textOf (p, lofiType).toUpperCase() };
+            const auto sampleRate = p.getSampleRate() > 0.0 ? p.getSampleRate() : 48000.0;
+            if (settings.type == LoFiType::bitcrusher)
+                rows.add (juce::String (effects::LoFi::crusherBits (settings.amount), 1) + " BITS  1/"
+                          + juce::String (effects::LoFi::crusherHold (settings.amount, sampleRate)) + " RATE");
+            else
+            {
+                const auto band = effects::LoFi::bandFor (settings.type, settings.amount, sampleRate);
+                const auto hz = [] (float f) { return f < 1000.0f ? juce::String (juce::roundToInt (f)) : juce::String (f / 1000.0f, 1) + "k"; };
+                rows.add (hz (band.lowHz) + " - " + hz (band.highHz) + " Hz");
+            }
+            rows.add ("NOISE " + textOf (p, lofiNoise));
+            rows.add ("MIX " + textOf (p, lofiMix) + "  " + textOf (p, lofiLevel));
+            column (g, content, rows, content.getHeight() * 0.16f);
+        };
+        s.footTitle = "TYPE";
+        s.footText = [&p] { return textOf (p, lofiType); };
+        s.onEdit = [openPage] { openPage (2); };
     }
     return specs;
 }

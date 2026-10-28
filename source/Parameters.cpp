@@ -495,5 +495,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
 
     addRackParameters (layout);   // the rack (stage 7a): RackParameters.cpp
     addSendParameters (layout);   // the sends (stage 7b): RackParameters.cpp
+    addModFxParameters (layout);  // MOD, MOD 2, LO-FI (stage 7c): RackParameters.cpp
     return layout;
 }

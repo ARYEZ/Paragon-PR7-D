@@ -2,6 +2,61 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.19.0
+
+Stage 7, part 3: **MOD, MOD 2 and LO-FI**: PR7-G's modulation block (twice, as on PR7-G) and its lo-fi, ported from PR7-G 0.52.0 as you asked. The same code, with two kinds of change, both explained below: each side now kept on its own, and AEON made cheaper to run.
+
+- **The FX page has a third view,** between SENDS and MASTER, in the order the sound goes through them:
+  - **MOD / LO-FI:** three rack units, MOD, MOD 2 and LO-FI.
+- **Where they sit:** after the sends come back, before the MASTER rack.
+  - So the echoes and the reverb are chorused, panned or sent "through the phone" with everything else, as PR7-G's LO-FI does (it's last there, after the reverb).
+  - The LIMITER still catches whatever comes out of them.
+  - **One trade-off:** a tremolo or auto-pan chops the reverb's tail too. On PR7-G the modulation comes *before* the delay and reverb. Here the delay and reverb are sends taken from each oscillator inside the synth, so there's no single point "before" them to insert into. Effects on single oscillators, before their sends, are coming in 7d (inserts).
+- **MOD and MOD 2: all twelve of PR7-G's types:**
+  - Vortex, AEON, Hadron, Razor, Prism, Nebula, Rotary, Vibrato, Harmonic Tremolo, Auto-Pan, Doubler, Carbonite.
+  - Each has PR7-G's own controls: SYNC to the song, AEON's MANUAL and RES, Hadron's SCRIPT / BLOCK, Razor's WAVE, the Vortex's EQ and STEREO.
+  - MOD 2 starts on AEON, to pair with MOD's Vortex, as on PR7-G.
+- **On each unit:**
+  - **MOD and MOD 2:** < TYPE / TYPE > and SYNC keys, RATE and DEPTH knobs, the rate in big digits, the type's own settings beside it, and a ladder that rises and falls with the sweep.
+  - **LO-FI:** TELEPHONE, CASSETTE and BITCRUSHER keys, AMOUNT and MIX knobs, the band it lets through (or the bitcrusher's bits and rate), and its output on the ladder.
+- **On each page:**
+  - **MOD:** the next two cycles of what the sweep moves, scrolling as it plays (the chip clock, the delay, the volume, the pan...), and only the controls the chosen type uses, as on PR7-G's panel.
+  - **LO-FI:** its filters' response from 20 Hz to 20 kHz, or for the bitcrusher, a sine as it comes out, stepped and held.
+- **Stereo, kept.** PR7-G's chain is mono up to its modulation, so a few types there summed or crossed the two sides. Here each side runs on its own:
+  - **AEON:** one pedal per side, sweeping in step.
+  - **Rotary:** one cabinet per side, the rotors turning together.
+  - **Doubler:** each side's take comes from that side.
+  - **LO-FI's TELEPHONE, AM RADIO and MEGAPHONE:** each side through its own speaker. They're mono on PR7-G, as real phones and radios are. NOISE is still one hiss, in the middle.
+  - **The Vortex's STEREO** needed an adaptation of our own. On the pedal it puts the chorus alone on the left and the dry sound alone on the right. That needs a single input, and the synth's sound is already stereo. So here each side keeps its own sound, and its chorus is added on the left and taken away on the right. The chorus still sits between the speakers, and summed to mono it folds back to the dry sound.
+  - **Checked against PR7-G's own code, sample for sample:** for a sound in the middle, every type comes out exactly as on PR7-G. A sound on the left stays exactly silent on the right.
+- **AEON made cheaper (about 45% less CPU).**
+  - PR7-G's AEON models the pedal's circuit part by part, at twice the sample rate. Two of them (one a side) cost about 17% of a core here.
+  - I changed only how the maths is done, not what it computes: the op-amps' clipping curve with one power instead of two, the diode limiter's sinh and cosh from one shared exp, and three sums that never changed worked out once.
+  - Now about 9%. The same sound: bit for bit identical to PR7-G's on saws, from quiet to full scale.
+- **Something I found in PR7-G's AEON (and so here too):** very loud, very bright input becomes unpredictable inside its diode limiter.
+  - For example, white noise above about a third of full scale, or a full-scale saw at 1760 Hz.
+  - A one-in-ten-million change to the input then changes the output completely. It can come out much louder than it went in (white noise at 0.3 came out peaking near 1.9).
+  - The cause: the limiter's solver takes four fixed steps per sample, and with that much treble they aren't enough to settle.
+  - Ordinary playing levels are perfectly steady.
+  - I haven't changed it, because it's PR7-G's sound and should change in both plugins together. If you hear crackle from AEON on hot, bright sounds, say so and I'll give the solver as many steps as it needs, in PR7-G and here.
+- **CPU:** every type except AEON costs under 1% of a core, and LO-FI about 1%. A chord through AEON, the Rotary and the cassette together cost about 11%. Switched off, they cost nothing.
+- **A new factory preset:** **Tape Keys** (A38): soft keys through the Vortex in STEREO, a slow auto-pan in half notes, and a lightly worn cassette, with a little room.
+  - Its cassette has no hiss, because hiss would keep playing when no notes do. Turn NOISE up on the LO-FI page if you want it.
+  - Our own settings, not tuned by ear.
+- **Not yet:** the drives and glitch, and inserts on single oscillators (7d).
+- **In the tests:**
+  - PR7-G's own MOD, LO-FI and AEON tests, run as they are, through a stand-in for PR7-G's plugin. The Vortex's STEREO tests read the pedal's two outputs back from PR7-K's sides.
+  - And, from the sound:
+    - each side stays its own in every type;
+    - switched off, they change nothing;
+    - the reverb's tail goes through the phone;
+    - the LIMITER holds LO-FI turned all the way up;
+    - the sweep's marker moves at RATE;
+    - the speakers' band edges are where the page draws them;
+    - the bitcrusher holds for as long as drawn;
+    - CPU, the page, and the new preset.
+- I can't listen here. If a type sounds different from PR7-G's, tell me which and what you hear.
+
 ## 0.18.0
 
 Stage 7, part 2: **THE SENDS**: PR7-G's **DELAY** and **REVERB**, fed by a send from each oscillator. They're PR7-G 0.52.0's own effects, the same code ported, as you asked.

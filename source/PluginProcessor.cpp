@@ -246,6 +246,9 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     rack->eqInputTap.setSampleRate (sampleRate);
     rack->delay.prepare (sampleRate, preparedBlockSize);
     rack->reverb.prepare (sampleRate, preparedBlockSize);
+    for (auto& block : rack->modulation)
+        block.prepare (sampleRate, preparedBlockSize);
+    rack->loFi.prepare (sampleRate, preparedBlockSize);
     for (auto& send : rack->sends)
         send.setSize (2, preparedBlockSize);
     rack->eqOutputTap.setSampleRate (sampleRate);
@@ -440,6 +443,56 @@ void ParagonX1AudioProcessor::processSends (juce::dsp::AudioBlock<float> block)
             out[i] += numChannels == 1 ? 0.5f * (r.sends[0].getSample (0, i) + r.sends[0].getSample (1, i) + r.sends[1].getSample (0, i) + r.sends[1].getSample (1, i))
                                        : r.sends[0].getSample (c, i) + r.sends[1].getSample (c, i);
     }
+}
+
+effects::Modulation::Settings ParagonX1AudioProcessor::getModSettings (int which) const noexcept
+{
+    // As PR7-G's modSettingsFor, without its expression pedal and POSITION.
+    const auto& ids = which == 0 ? ParamIDs::modIds : ParamIDs::mod2Ids;
+    effects::Modulation::Settings s;
+    s.on = isOn (ids.on);
+    s.type = (effects::Modulation::Type) juce::jlimit (0, effects::Modulation::typeNames.size() - 1, juce::roundToInt (param (ids.type)));
+    // SYNC: one LFO cycle per note length at the song's tempo.
+    s.rateHz = param (ids.rate);
+    if (const auto sync = juce::roundToInt (param (ids.sync)); sync > 0 && sync < (int) std::size (effects::Delay::syncBeats))
+        s.rateHz = juce::jlimit (0.02f, 40.0f, (float) (juce::jmax (1.0, hostBpm.load()) / 60.0) / effects::Delay::syncBeats[sync]);   // 1/32 at 300 BPM
+    s.depth = param (ids.depth);
+    s.mix = param (ids.mix);
+    s.eq = param (ids.eq);
+    s.stereoOutputs = isOn (ids.stereo);
+    s.manual = param (ids.manual);
+    s.resonance = param (ids.res);
+    s.hadronBlock = isOn (ids.hadron);
+    s.wave = param (ids.wave);
+    return s;
+}
+
+effects::LoFi::Settings ParagonX1AudioProcessor::getLoFiSettings() const noexcept
+{
+    effects::LoFi::Settings s;
+    s.on = isOn (ParamIDs::lofiOn);
+    s.type = (effects::LoFi::Type) juce::jlimit (0, effects::LoFi::typeNames.size() - 1, juce::roundToInt (param (ParamIDs::lofiType)));
+    s.amount = param (ParamIDs::lofiAmount);
+    s.noise = param (ParamIDs::lofiNoise);
+    s.mix = param (ParamIDs::lofiMix);
+    s.levelDb = param (ParamIDs::lofiLevel);
+    return s;
+}
+
+void ParagonX1AudioProcessor::processModFx (juce::dsp::AudioBlock<float> block)
+{
+    // MOD, then MOD 2, then LO-FI, as on PR7-G (where LO-FI comes after the reverb too, so the echoes go "through
+    // the phone" with the rest). Each passes the sound untouched while off.
+    rack->modulation[0].process (block, getModSettings (0));
+    rack->modulation[1].process (block, getModSettings (1));
+    const auto loFi = getLoFiSettings();
+    rack->loFi.process (block, loFi);
+    auto peak = 0.0f;
+    if (loFi.on)
+        for (size_t c = 0; c < block.getNumChannels(); ++c)
+            peak = juce::jmax (peak, juce::FloatVectorOperations::findMaximum (block.getChannelPointer (c), (int) block.getNumSamples()),
+                               -juce::FloatVectorOperations::findMinimum (block.getChannelPointer (c), (int) block.getNumSamples()));
+    rack->loFiPeak = peak;
 }
 
 void ParagonX1AudioProcessor::processRack (juce::dsp::AudioBlock<float> block)
@@ -891,13 +944,16 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
                 left[done + i] = 0.5f * (left[done + i] + scratchRight[i]);
     }
 
-    // THE RACK (stage 7a): ECHELON, DOMINION, CONSTRICTOR; then the preset's own level and OUTPUT; then the LIMITER,
+    // THE SENDS' returns, then MOD, MOD 2 and LO-FI (stages 7b, 7c); THE RACK (stage 7a): ECHELON, DOMINION, CONSTRICTOR; then the preset's own level and OUTPUT; then the LIMITER,
     // last, so nothing after it can push a peak past its ceiling (OUTPUT drives into it, as into a mastering
     // limiter); then BYPASS (to silence: there's nothing "clean" to pass through on an instrument).
     const auto block = juce::dsp::AudioBlock<float> (buffer).getSubBlock ((size_t) start, (size_t) numSamples)
                                                             .getSubsetChannelBlock (0, (size_t) juce::jmin (numChannels, 2));
     if (sendsReady)
+    {
         processSends (block);
+        processModFx (block);   // stage 7c: after the returns, so the echoes and reverb are part of what they shape
+    }
     processRack (block);
     outputGain.setTargetValue (juce::Decibels::decibelsToGain (param (ParamIDs::outputGain) + param (ParamIDs::patchLevel)));
     for (int i = 0; i < numSamples; ++i)

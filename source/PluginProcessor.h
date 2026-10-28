@@ -193,7 +193,7 @@ public:
     bool importMidiLinks (const juce::File&);
     void controllerForTest (int controller, float value);   // a controller, played through a short block
     // Tests: the synth's random choices (start phases...) the same on every run, for sample-for-sample comparisons.
-    void seedRandomForTest (juce::int64 seed) noexcept { engine.seedRandom (seed); }
+    void seedRandomForTest (juce::int64 seed) noexcept { engine.seedRandom (seed); rack->loFi.seedRandom (seed); }
     // How many routes the audio thread is playing (on, with a source and a known destination). For tests and the display.
     int getNumPlayingRoutes() const noexcept;
 
@@ -251,6 +251,16 @@ public:
     // THE SENDS (stage 7b): DELAY's and REVERB's settings as they are now (as sends' returns: MIX is the level back).
     effects::Delay::Settings getDelaySettings() const noexcept;
     effects::Reverb::Settings getReverbSettings() const noexcept;
+    // MOD (0) or MOD 2's (1) settings as they are now (SYNC worked out at the song's tempo), and LO-FI's (stage 7c).
+    effects::Modulation::Settings getModSettings (int which) const noexcept;
+    effects::LoFi::Settings getLoFiSettings() const noexcept;
+    // Where MOD's (0) or MOD 2's (1) sweep is now, 0 to 1, and LO-FI's output peak in the last block (dB, -100 while off).
+    float getModSweepPhase (int which) const noexcept { return rack->modulation[(size_t) juce::jlimit (0, 1, which)].getSweepPhase(); }
+    float getLoFiPeakDb() const noexcept
+    {
+        const auto peak = rack->loFiPeak.load();
+        return peak > 1.0e-5f ? juce::Decibels::gainToDecibels (peak) : -100.0f;
+    }
     // Each return's peak in the last block, dB (-100: silent): DELAY 0, REVERB 1.
     float getReturnPeakDb (int send) const noexcept
     {
@@ -260,6 +270,7 @@ public:
 
 private:
     void processChunk (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& midi, int start, int numSamples);
+    void processModFx (juce::dsp::AudioBlock<float> block);
     float param (const char* id) const;
     bool isOn (const char* id) const { return param (id) > 0.5f; }
 

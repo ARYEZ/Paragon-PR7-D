@@ -313,6 +313,48 @@ namespace ParamIDs
     inline constexpr auto reverbDuck     = "reverbDuck";      // 0 to 1
     inline constexpr auto delayToReverb  = "delayToReverb";   // PR7-K's own: how much of DELAY's echoes go on into REVERB
 
+    // MOD, MOD 2 and LO-FI (stage 7c, version hint 18): PR7-G 0.52.0's IDs, ranges and defaults, so the same names
+    // mean the same knobs across the family. Not PR7-G's MOD POSITION: PR7-K has no amp to put them before.
+    inline constexpr auto modOn      = "modOn";
+    inline constexpr auto modType    = "modType";      // choice: effects::Modulation::typeNames
+    inline constexpr auto modRate    = "modRate";      // Hz (SYNC off)
+    inline constexpr auto modDepth   = "modDepth";     // 0 to 1
+    inline constexpr auto modMix     = "modMix";       // 0 to 1 (E.LEVEL for the Vortex)
+    inline constexpr auto modSync    = "modSync";      // choice: effects::Delay::syncNames ("Off" first)
+    inline constexpr auto modEq      = "modEq";        // the Vortex's EQ, -1 to 1
+    inline constexpr auto modStereo  = "modStereo";    // the Vortex's STEREO
+    inline constexpr auto modManual  = "modManual";    // AEON's MANUAL, 0 to 10
+    inline constexpr auto modRes     = "modRes";       // AEON's RES, 0 to 10
+    inline constexpr auto modHadron  = "modHadron";    // Hadron's SCRIPT / BLOCK circuit
+    inline constexpr auto modWave    = "modWave";      // Razor's WAVE, 0 to 10
+    inline constexpr auto mod2On     = "mod2On";
+    inline constexpr auto mod2Type   = "mod2Type";
+    inline constexpr auto mod2Rate   = "mod2Rate";
+    inline constexpr auto mod2Depth  = "mod2Depth";
+    inline constexpr auto mod2Mix    = "mod2Mix";
+    inline constexpr auto mod2Sync   = "mod2Sync";
+    inline constexpr auto mod2Eq     = "mod2Eq";
+    inline constexpr auto mod2Stereo = "mod2Stereo";
+    inline constexpr auto mod2Manual = "mod2Manual";
+    inline constexpr auto mod2Res    = "mod2Res";
+    inline constexpr auto mod2Hadron = "mod2Hadron";
+    inline constexpr auto mod2Wave   = "mod2Wave";
+
+    // A MOD block's controls, so MOD and MOD 2 share their code (as on PR7-G).
+    struct ModIds
+    {
+        const char *on, *type, *rate, *depth, *mix, *sync, *eq, *stereo, *manual, *res, *hadron, *wave;
+    };
+    inline constexpr ModIds modIds { modOn, modType, modRate, modDepth, modMix, modSync, modEq, modStereo, modManual, modRes, modHadron, modWave };
+    inline constexpr ModIds mod2Ids { mod2On, mod2Type, mod2Rate, mod2Depth, mod2Mix, mod2Sync, mod2Eq, mod2Stereo, mod2Manual, mod2Res, mod2Hadron, mod2Wave };
+
+    inline constexpr auto lofiOn     = "lofiOn";
+    inline constexpr auto lofiType   = "lofiType";     // choice: effects::LoFi::typeNames
+    inline constexpr auto lofiAmount = "lofiAmount";   // 0 to 10
+    inline constexpr auto lofiNoise  = "lofiNoise";    // 0 to 10
+    inline constexpr auto lofiMix    = "lofiMix";      // 0 to 1
+    inline constexpr auto lofiLevel  = "lofiLevel";    // dB
+
     // Global settings: kept when switching presets. Everything else is part of a preset.
     // The LIMITER's UNITY and DELTA are for listening while you set it, not part of a sound.
     inline const juce::StringArray notInRigs { outputGain, bypass, tune, mwBreath, mwExpression, mwAftertouch, mwSustain, limitUnity, limitDelta };
@@ -345,3 +387,4 @@ namespace ParamRanges
 juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 void addRackParameters (juce::AudioProcessorValueTreeState::ParameterLayout&);   // RackParameters.cpp
 void addSendParameters (juce::AudioProcessorValueTreeState::ParameterLayout&);   // RackParameters.cpp (stage 7b)
+void addModFxParameters (juce::AudioProcessorValueTreeState::ParameterLayout&);   // RackParameters.cpp (stage 7c)

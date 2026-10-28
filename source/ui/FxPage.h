@@ -5,12 +5,14 @@
 #include "ui/DominionPage.h"
 #include "ui/EqPage.h"
 #include "ui/LimiterPage.h"
+#include "ui/ModFxPages.h"
 #include "ui/RackUnit.h"
 #include "ui/SendPages.h"
 
-// The FX page: two views, SENDS and MASTER (tabs at the top).
+// The FX page: three views, SENDS, MOD / LO-FI and MASTER (tabs at the top, in the sound's order).
 //   SENDS (stage 7b): PR7-G's DELAY and REVERB as two rack units, and the send matrix (each oscillator's sends,
-//   DELAY > REVERB). Their returns join the synth before the MASTER rack.
+//   DELAY > REVERB). Their returns join the synth before the inserts.
+//   MOD / LO-FI (stage 7c): PR7-G's MOD block twice and its LO-FI, on the whole sound (the returns too), before MASTER.
 //   MASTER (stage 7a): THE RACK, PR7-E 0.18.1's four rack units in the signal chain's order (ECHELON, DOMINION,
 //   CONSTRICTOR, the LIMITER), each with its POWER switch, meter, screen, keys and knobs.
 // A unit's EDIT (or its name) opens that effect's big page here; the page's BACK TO RACK returns to its view.
@@ -20,7 +22,8 @@ public:
     explicit FxPage (ParagonX1AudioProcessor&);
 
     enum class View { rack, eq, dominion, comp, limiter,   // rack: the MASTER view
-                      sends, delay, reverb };              // stage 7b
+                      sends, delay, reverb,                // stage 7b
+                      modFx, mod, mod2, loFi };            // stage 7c
     void show (View);
     View getView() const noexcept { return view; }
 
@@ -29,6 +32,9 @@ public:
     SendPage& getDelayPage() noexcept { return delayPage; }
     SendPage& getReverbPage() noexcept { return reverbPage; }
     SendMatrix& getSendMatrix() noexcept { return matrix; }
+    RackUnit& getModFxUnit (int index) noexcept { return *modFxUnits[(size_t) index]; }   // MOD, MOD 2, LO-FI
+    ModFxPage& getModFxPage (int index) noexcept { return *modFxPages[(size_t) index]; }
+    juce::TextButton& getModFxTab() noexcept { return modFxTab; }
     juce::TextButton& getSendsTab() noexcept { return sendsTab; }
     juce::TextButton& getMasterTab() noexcept { return masterTab; }
     EqPage& getEqPage() noexcept { return eqPage; }
@@ -43,7 +49,9 @@ private:
     View view = View::rack;
     std::array<std::unique_ptr<RackUnit>, 4> units;
     std::array<std::unique_ptr<RackUnit>, 2> sendUnits;
-    juce::TextButton sendsTab { "SENDS" }, masterTab { "MASTER" };
+    std::array<std::unique_ptr<RackUnit>, 3> modFxUnits;
+    std::array<std::unique_ptr<ModFxPage>, 3> modFxPages;
+    juce::TextButton sendsTab { "SENDS" }, modFxTab { "MOD / LO-FI" }, masterTab { "MASTER" };
     SendMatrix matrix;
     SendPage delayPage, reverbPage;
     EqPage eqPage;

@@ -6,6 +6,8 @@
 
 #include "dsp/dominion/Dominion.h"
 #include "dsp/effects/Delay.h"
+#include "dsp/effects/LoFi.h"
+#include "dsp/effects/Modulation.h"
 #include "dsp/effects/MasterLimiter.h"
 #include "dsp/effects/Reverb.h"
 #include "dsp/effects/MultibandComp.h"
@@ -320,4 +322,47 @@ void addSendParameters (juce::AudioProcessorValueTreeState::ParameterLayout& lay
     layout.add (makeFloat (ParamIDs::reverbPreDelay, "Reverb Pre-Delay", { 0.0f, effects::Reverb::maxPreDelayMs, 1.0f }, 20.0f, v, asWholeMs));
     layout.add (makeFloat (ParamIDs::reverbDuck, "Reverb Duck", { 0.0f, 1.0f, 0.01f }, 0.0f, v, asPercent));
     layout.add (makeFloat (ParamIDs::delayToReverb, "Delay To Reverb", { 0.0f, 1.0f, 0.01f }, 0.0f, v, asPercent));
+}
+
+void addModFxParameters (juce::AudioProcessorValueTreeState::ParameterLayout& layout)
+{
+    // PR7-G 0.52.0's, as there (its MOD 2 defaults to a flanger, to pair with MOD's chorus); one version hint here.
+    constexpr int v = 18;   // 0.19.0
+    const auto skewed = [] (float min, float max, float centre, float step)
+    {
+        Range range { min, max, step };
+        range.setSkewForCentre (centre);
+        return range;
+    };
+    const ToText asKnob = [] (float value, int) { return juce::String (value, 1); };
+    const ToText asHz = [] (float value, int) { return juce::String (value, value < 1.0f ? 2 : 1) + " Hz"; };
+    const ToText asVortexEq = [] (float value, int)
+    {
+        const auto db = value * effects::Modulation::vortexEqRangeDb;
+        return std::abs (db) < 0.05f ? juce::String ("Flat") : (db > 0.0f ? "+" : "") + juce::String (db, 1) + " dB";
+    };
+    const auto addMod = [&] (const ParamIDs::ModIds& ids, const juce::String& name, int type, float rate)
+    {
+        layout.add (makeSwitch (ids.on, name + " On", v, false));
+        layout.add (makeChoice (ids.type, name + " Type", v, effects::Modulation::typeNames, type));
+        layout.add (makeFloat (ids.rate, name + " Rate", skewed (0.05f, 10.0f, 1.0f, 0.01f), rate, v, asHz));
+        layout.add (makeFloat (ids.depth, name + " Depth", { 0.0f, 1.0f, 0.01f }, 0.45f, v, asPercent));
+        layout.add (makeFloat (ids.mix, name + " Mix", { 0.0f, 1.0f, 0.01f }, 0.5f, v, asPercent));
+        layout.add (makeChoice (ids.sync, name + " Sync", v, effects::Delay::syncNames, 0));
+        layout.add (makeFloat (ids.eq, name + " EQ", { -1.0f, 1.0f, 0.01f }, 0.0f, v, asVortexEq));
+        layout.add (makeSwitch (ids.stereo, name + " Stereo", v, false));
+        layout.add (makeFloat (ids.manual, name + " AEON Manual", { 0.0f, 10.0f, 0.1f }, 5.0f, v, asKnob));
+        layout.add (makeFloat (ids.res, name + " AEON Res", { 0.0f, 10.0f, 0.1f }, 5.0f, v, asKnob));
+        layout.add (makeChoice (ids.hadron, name + " Hadron Circuit", v, effects::Modulation::hadronCircuitNames, 0));
+        layout.add (makeFloat (ids.wave, name + " Razor Wave", { 0.0f, 10.0f, 0.1f }, 0.0f, v, asKnob));
+    };
+    addMod (ParamIDs::modIds, "Mod", (int) effects::Modulation::Type::chorus, 0.8f);
+    addMod (ParamIDs::mod2Ids, "Mod 2", (int) effects::Modulation::Type::flanger, 0.3f);
+
+    layout.add (makeSwitch (ParamIDs::lofiOn, "Lo-Fi On", v, false));
+    layout.add (makeChoice (ParamIDs::lofiType, "Lo-Fi Type", v, effects::LoFi::typeNames, 0));
+    layout.add (makeFloat (ParamIDs::lofiAmount, "Lo-Fi Amount", { 0.0f, 10.0f, 0.1f }, 5.0f, v, asKnob));
+    layout.add (makeFloat (ParamIDs::lofiNoise, "Lo-Fi Noise", { 0.0f, 10.0f, 0.1f }, 3.0f, v, asKnob));
+    layout.add (makeFloat (ParamIDs::lofiMix, "Lo-Fi Mix", { 0.0f, 1.0f, 0.01f }, 1.0f, v, asPercent));
+    layout.add (makeFloat (ParamIDs::lofiLevel, "Lo-Fi Level", { -12.0f, 12.0f, 0.1f }, 0.0f, v, asDb));
 }

@@ -1,6 +1,8 @@
 #include "FactoryRigs.h"
 
 #include "dsp/eq/EqDesign.h"
+#include "dsp/effects/LoFi.h"
+#include "dsp/effects/Modulation.h"
 #include "dsp/effects/Reverb.h"
 
 #include "Parameters.h"
@@ -577,6 +579,24 @@ std::vector<Rig> makeFactoryRigs()
         .set (ParamIDs::reverbOn, 1.0f).set (ParamIDs::reverbType, (float) (int) effects::Reverb::Type::hall)
         .set (ParamIDs::reverbSize, 0.6f).set (ParamIDs::reverbMix, 0.25f);
     add (echo);
+
+    // MOD / LO-FI (stage 7c).
+    Builder tape ("Tape Keys", 38, { "Keys", "Chorus", "Lo-Fi", "Inserts" },
+                  "Soft electric-piano-style keys through the Vortex chorus in STEREO, a slow auto-pan in half notes, and a lightly "
+                  "worn cassette over all of it, with a little room. Our own settings, not tuned by ear.");
+    tape.osc (0, "Wave", (float) synth::OscWave::triangle).osc (0, "Volume", 0.7f)
+        .osc (1, "On", 1.0f).osc (1, "Wave", (float) synth::OscWave::sine).osc (1, "Transpose", 12.0f).osc (1, "Volume", 0.35f)
+        .filter (FilterType::lp12, 2600.0f, 0.1f, 0.3f).filterEnvelope (0.0f, 600.0f, 0.2f, 300.0f)
+        .ampEnvelope (2.0f, 1800.0f, 0.25f, 450.0f)
+        .set (ParamIDs::modOn, 1.0f).set (ParamIDs::modType, (float) (int) effects::Modulation::Type::chorus)
+        .set (ParamIDs::modRate, 0.6f).set (ParamIDs::modDepth, 0.4f).set (ParamIDs::modMix, 0.5f).set (ParamIDs::modStereo, 1.0f)
+        .set (ParamIDs::mod2On, 1.0f).set (ParamIDs::mod2Type, (float) (int) effects::Modulation::Type::autoPan)
+        .set (ParamIDs::mod2Sync, 2.0f).set (ParamIDs::mod2Depth, 0.35f)
+        .set (ParamIDs::lofiOn, 1.0f).set (ParamIDs::lofiType, (float) (int) effects::LoFi::Type::cassette)
+        .set (ParamIDs::lofiAmount, 3.0f).set (ParamIDs::lofiNoise, 0.0f)   // (no hiss: it would play on with no notes)
+        .set (ParamIDs::reverbOn, 1.0f).set (ParamIDs::reverbType, (float) (int) effects::Reverb::Type::room)
+        .set (ParamIDs::reverbSize, 0.4f).set (ParamIDs::reverbMix, 0.2f);
+    add (tape);
 
     return rigs;
 }
