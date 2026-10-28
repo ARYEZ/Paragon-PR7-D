@@ -127,14 +127,17 @@ void DrivePreview::paint (juce::Graphics& g)
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
     g.drawText ("120 Hz SINE, IN AND OUT", area.reduced (6.0f, 2.0f), juce::Justification::topLeft, false);
 
-    // What the model costs on a bus (both sides), as measured here (InsertTests' report): PR7-G's circuits solved at 8x.
-    // HALO, the whole fuzz circuit solved at once, is the heavy one.
-    constexpr int percentOnBus[] = { 24, 4, 38, 124, 3, 22, 28 };   // Drive::Model's order
-    const auto model = (int) processor.getInsertDriveSettings (bus).model;
-    const auto percent = percentOnBus[juce::jlimit (0, (int) std::size (percentOnBus) - 1, model)];
+    // What the model costs on a bus (both sides), as measured here (InsertTests' report): PR7-G's circuits solved at 8x,
+    // on a played saw chord and on loud noise. HALO, the whole fuzz circuit solved at once, works far harder on loud,
+    // bright sound (its solver takes many more steps to settle), so it shows both.
+    constexpr int percentOnBus[] = { 11, 4, 30, 33, 3, 11, 18 };   // Drive::Model's order
+    constexpr int worstOnBus[] = { 14, 4, 30, 120, 3, 13, 19 };
+    const auto model = juce::jlimit (0, (int) std::size (percentOnBus) - 1, (int) processor.getInsertDriveSettings (bus).model);
+    const auto percent = percentOnBus[model], worst = worstOnBus[model];
     g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
-    g.setColour (percent >= 50 ? juce::Colour (0xffff4d4d) : ParagonColours::textDim);
-    g.drawText ("CPU ON A BUS: ABOUT " + juce::String (percent) + "% OF A CORE" + (percent >= 50 ? " - VERY HEAVY" : ""),
+    g.setColour (worst >= 50 ? juce::Colour (0xffff4d4d) : ParagonColours::textDim);
+    g.drawText ("CPU ON A BUS: ABOUT " + juce::String (percent) + "% OF A CORE"
+                    + (worst >= 50 ? ", UP TO " + juce::String (worst) + "% ON LOUD, BRIGHT SOUND" : juce::String()),
                 area.reduced (6.0f, 2.0f), juce::Justification::bottomLeft, false);
 
     // The harmonics: 0 dB (the note) at the top to -60 at the bottom.

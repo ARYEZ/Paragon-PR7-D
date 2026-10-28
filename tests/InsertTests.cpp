@@ -408,30 +408,50 @@ TEST_CASE ("INSERTS: the DRIVE leaves no offset behind (RABID's charged capacito
 
 TEST_CASE ("INSERTS: CPU of each DRIVE model, a side and a bus (both sides)", "[inserts][performance]")
 {
-    // Reported, not limited: PR7-G's circuits as they are, solved at 8x. A bus runs one a side.
+    // Reported, not limited: PR7-G's circuits, solved at 8x. A bus runs one a side. Two inputs: a C major saw chord
+    // at about a played level (what DRIVE's page quotes) and loud white noise, the circuits' worst case (HALO's solver
+    // works hardest on it).
     for (int m = 0; m < effects::Drive::modelNames.size(); ++m)
-    {
-        auto best = 1.0e9;
-        for (int run = 0; run < 2; ++run)
+        for (const auto noise : { false, true })
         {
-            auto drive = std::make_unique<effects::Drive>();
-            drive->prepare (sampleRate, blockSize);
-            effects::Drive::Settings s;
-            s.on = true;
-            s.model = (Model) m;
-            s.drive = 7.0f;
-            std::vector<float> x ((size_t) blockSize);
-            juce::Random random (2);
-            const auto started = juce::Time::getMillisecondCounterHiRes();
-            for (int b = 0; b < (int) (2.0 * sampleRate) / blockSize; ++b)
+            auto best = 1.0e9;
+            for (int run = 0; run < 2; ++run)
             {
-                for (auto& v : x)
-                    v = 0.3f * (random.nextFloat() - 0.5f);
-                float* channels[] = { x.data() };
-                drive->process (juce::dsp::AudioBlock<float> (channels, 1, (size_t) blockSize), s);
+                auto drive = std::make_unique<effects::Drive>();
+                drive->prepare (sampleRate, blockSize);
+                effects::Drive::Settings s;
+                s.on = true;
+                s.model = (Model) m;
+                s.drive = 7.0f;
+                std::vector<float> x ((size_t) blockSize);
+                juce::Random random (2);
+                double phases[4] {};
+                constexpr double chord[] = { 130.81, 164.81, 196.0, 261.63 };
+                const auto started = juce::Time::getMillisecondCounterHiRes();
+                for (int b = 0; b < (int) (2.0 * sampleRate) / blockSize; ++b)
+                {
+                    for (auto& v : x)
+                    {
+                        if (noise)
+                        {
+                            v = 0.3f * (random.nextFloat() - 0.5f);
+                            continue;
+                        }
+                        auto sum = 0.0;
+                        for (size_t k = 0; k < 4; ++k)
+                        {
+                            phases[k] += chord[k] / sampleRate;
+                            phases[k] -= std::floor (phases[k]);
+                            sum += 2.0 * phases[k] - 1.0;
+                        }
+                        v = (float) (0.5 * sum / 4.0);
+                    }
+                    float* channels[] = { x.data() };
+                    drive->process (juce::dsp::AudioBlock<float> (channels, 1, (size_t) blockSize), s);
+                }
+                best = std::min (best, (juce::Time::getMillisecondCounterHiRes() - started) / 2000.0 * 100.0);
             }
-            best = std::min (best, (juce::Time::getMillisecondCounterHiRes() - started) / 2000.0 * 100.0);
+            WARN (effects::Drive::modelNames[m] << (noise ? " (noise)" : " (chord)") << ": " << best
+                                                << "% of one core a side, " << 2.0 * best << "% on a bus");
         }
-        WARN (effects::Drive::modelNames[m] << ": " << best << "% of one core a side, " << 2.0 * best << "% on a bus");
-    }
 }

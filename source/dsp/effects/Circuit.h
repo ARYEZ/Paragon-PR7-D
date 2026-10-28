@@ -20,6 +20,15 @@ namespace effects
         return volts / std::pow (1.0 + r5, 0.2);
     }
 
+    // A diode pair's sinh (x) and cosh (x), from one exp (PR7-K: the diode solvers called both, two library calls
+    // that each work out the exponential again; this was most of the drives' cost). The same values to rounding.
+    struct SinhCosh { double sinh, cosh; };
+    inline SinhCosh sinhCosh (double x) noexcept
+    {
+        const auto e = std::exp (x), inverse = 1.0 / e;
+        return { 0.5 * (e - inverse), 0.5 * (e + inverse) };
+    }
+
     // A small linear circuit (resistors, capacitors and ideal op-amps, one
     // input and one output) turned into a digital filter that behaves like
     // it. Used to model pedal stages from their schematics: each stage is

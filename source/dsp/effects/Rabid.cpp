@@ -97,8 +97,9 @@ namespace effects
         {
             const auto vf = (v * gFilter + jFilterCap) / (gFilter + gFilterCap);
             const auto x = std::clamp (v / diodeThermal, -40.0, 40.0);
-            const auto diode = 2.0 * diodeSaturation * std::sinh (x);
-            const auto slope = 2.0 * diodeSaturation / diodeThermal * std::cosh (x);
+            const auto [sinhX, coshX] = sinhCosh (x);   // (PR7-K: one exp for both)
+            const auto diode = 2.0 * diodeSaturation * sinhX;
+            const auto slope = 2.0 * diodeSaturation / diodeThermal * coshX;
             const auto f = (source - v) / sourceR - diode - (v - vf) * gFilter;
             const auto d = -1.0 / sourceR - slope - gFilter * (1.0 - filterShare);
             const auto step = std::clamp (-f / d, -0.1, 0.1);

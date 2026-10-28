@@ -77,8 +77,9 @@ namespace effects
 
             // The diodes, in series with their capacitor, carry the same current.
             const auto vd = std::clamp (u - (id + jDiodeCap) / gDiodeCap, -1.5, 1.5);
-            const auto current = 2.0 * diodeSaturation * std::sinh (vd / diodeThermal);
-            const auto slope = 2.0 * diodeSaturation / diodeThermal * std::cosh (vd / diodeThermal);
+            const auto [sinhX, coshX] = sinhCosh (vd / diodeThermal);   // (PR7-K: one exp for both)
+            const auto current = 2.0 * diodeSaturation * sinhX;
+            const auto slope = 2.0 * diodeSaturation / diodeThermal * coshX;
             const auto f2 = id - current;
             const auto d21 = slope * loop, d22 = 1.0 + slope / gDiodeCap;
             const auto determinant = d11 * d22 - d21;

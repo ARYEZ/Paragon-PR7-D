@@ -2,6 +2,26 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.20.1
+
+**Faster drives: RABID, CHIMERA, COSMONAUT and ABYSS use about a third less CPU, with exactly the same sound.**
+
+- **What changed:** these four circuits model their diodes, and every step of the circuit solve needed two slow maths functions per diode (sinh and cosh). Both come from the same exponential, so now it's worked out once and both are made from it. Nothing else changed.
+- **Same sound, checked:** I ran each changed drive against PR7-G's original code on saw chords, quiet and loud, at low and high DRIVE: the output is identical, sample for sample (not just close).
+- **CPU on a bus (both sides, % of one core), a played saw chord, before and after:**
+
+  | Model | 0.20.0 | 0.20.1 |
+  |---|---|---|
+  | RABID | 17% | 11% |
+  | CHIMERA | 17% | 11% |
+  | ABYSS | 22% | 18% |
+  | COSMONAUT | 43% | 30% |
+  | BANSHEE, SKYLINE | about 3.5% | unchanged |
+  | HALO | about 33% | unchanged |
+
+- **DRIVE's page now quotes these figures** (a played chord; 0.20.0's were measured on loud noise, the worst case). HALO's also says it can climb to about **120% on loud, bright sound**.
+- **HALO: not sped up, and why.** HALO solves the whole fuzz circuit at once, and on loud, bright input (loud high notes, noise) its solver often doesn't settle within the steps it's given. That's what makes it heavy there, and it leaves a faint grainy residue in the sound, about 16 dB below the note on a loud high sine. Letting it take more steps fixes most of that but changes HALO's sound on those notes (and costs more), so it isn't a pure speed-up. I've left HALO exactly as PR7-G has it; fixing it is offered as a choice for both plugins, since it needs your ears.
+
 ## 0.20.0
 
 Stage 7, part 4: **THE INSERTS**: four insert buses, A to D, each running PR7-G's **DRIVE** (all seven pedals), **GLITCH**, **MOD** and **LO-FI** on the oscillators you send to it. This is the insert-bus design you chose. It completes stage 7's effects.

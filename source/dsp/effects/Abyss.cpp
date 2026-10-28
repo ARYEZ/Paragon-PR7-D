@@ -255,8 +255,9 @@ namespace effects
         {
             const auto x = std::clamp (v / diodeThermal, -40.0, 40.0);
             const auto load = (v * (1.0 - through) - pending) / diodeOutOhms;
-            const auto f = (source - v) / sourceR - 2.0 * diodeSaturation * std::sinh (x) - load;
-            const auto d = -1.0 / sourceR - 2.0 * diodeSaturation / diodeThermal * std::cosh (x) - (1.0 - through) / diodeOutOhms;
+            const auto [sinhX, coshX] = sinhCosh (x);   // (PR7-K: one exp for both)
+            const auto f = (source - v) / sourceR - 2.0 * diodeSaturation * sinhX - load;
+            const auto d = -1.0 / sourceR - 2.0 * diodeSaturation / diodeThermal * coshX - (1.0 - through) / diodeOutOhms;
             const auto step = std::clamp (-f / d, -0.1, 0.1);
             v += step;
             if (std::abs (step) < 1.0e-9)
