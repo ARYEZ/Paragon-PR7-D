@@ -22,7 +22,9 @@ namespace Icons
                       // Version 0.27
                       pitch,
                       // PR7-K 0.15: the arpeggiator
-                      arpeggio };
+                      arpeggio,
+                      // PR7-K 0.17: the rack (FX)
+                      rack };
 
     juce::Path get (Type type);
 

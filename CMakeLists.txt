@@ -84,6 +84,18 @@ target_sources(ParagonX1
         source/ui/TravelPatternEditor.cpp
         source/ui/ModSourceStrip.cpp
         source/ui/ArpPage.cpp
+        source/ui/FxPage.cpp
+        source/ui/EqPage.cpp
+        source/ui/EqDisplay.cpp
+        source/ui/EqMatchPanel.cpp
+        source/ui/CompPage.cpp
+        source/ui/DominionPage.cpp
+        source/ui/LimiterPage.cpp
+        source/ui/PresetButton.cpp
+        source/ui/RackUnit.cpp
+        source/ui/RackSpecs.cpp
+        source/ui/Footswitch.cpp
+        source/ui/LedDisplay.cpp
         source/ui/SpectrumEditor.cpp
         source/ui/MainView.cpp
         source/ui/ParagonLookAndFeel.cpp

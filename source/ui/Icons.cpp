@@ -360,6 +360,18 @@ namespace Icons
                 break;
             }
 
+            case Type::rack:
+            {
+                // Three rack units, one over another, each with a knob at its right.
+                for (int i = 0; i < 3; ++i)
+                {
+                    const auto y = 0.08f + 0.3f * (float) i;
+                    p.addRoundedRectangle (0.04f, y, 0.92f, 0.24f, 0.04f);
+                    p.addEllipse (0.7f, y + 0.06f, 0.12f, 0.12f);
+                }
+                break;
+            }
+
             case Type::flame:
                 // The mockup's "All Rigs" icon.
                 p.startNewSubPath (0.5f, 0.05f);

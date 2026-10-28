@@ -17,6 +17,7 @@
 //   PARAGON_SNAPSHOT_FILTERPAGE=n     the FILTER panel's SHP n tab (shaper n's page)
 //   PARAGON_SNAPSHOT_FFT=band:dB,...  a curve drawn for oscillator 1; PARAGON_SNAPSHOT_FFT_VIEW=harmonic|bins
 //   PARAGON_SNAPSHOT_PARAMS=id=value,...   parameters set (real units)
+//   PARAGON_SNAPSHOT_PAGE=fx         THE RACK (PARAGON_SNAPSHOT_RACK=1: at work on a chord; PARAGON_SNAPSHOT_FX=eq|dominion|comp|limiter: that page)
 //   PARAGON_SNAPSHOT_NOTES=1         a chord held on the keyboard (so the PLAY panel counts notes, and keys light)
 TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
 {
@@ -69,6 +70,81 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
     auto* view = dynamic_cast<MainView*> (editor->getChildComponent (0));
     REQUIRE (view != nullptr);
+    if (page == "fx")
+    {
+        // THE RACK (stage 7a). PARAGON_SNAPSHOT_RACK=1: all four units at work on "Unison Strings" holding a chord
+        // (ECHELON's low cut, a dip, a dynamic presence band and an air shelf; DOMINION; CONSTRICTOR; the LIMITER
+        // on MODERN with TRUE PEAK, 6 dB in), the editor's timers run so the ladders and screens read it.
+        // PARAGON_SNAPSHOT_FX=eq|dominion|comp|limiter opens that unit's page.
+        view->showPage (MainView::Page::fx);
+        if (env ("PARAGON_SNAPSHOT_RACK") == "1")
+        {
+            processor.loadRig (*processor.getRigLibrary().findFactory ("Unison Strings"));
+            const auto set = [&] (const juce::String& id, float value)
+            {
+                auto* parameter = processor.getParameters().getParameter (id);
+                REQUIRE (parameter != nullptr);
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+            };
+            struct Band { eq::Shape shape; float hz, db, q, dynamic; };
+            const Band bands[] = { { eq::Shape::lowCut, 40.0f, 0.0f, 0.7f, 0.0f }, { eq::Shape::bell, 280.0f, -3.0f, 1.2f, 0.0f },
+                                   { eq::Shape::bell, 3200.0f, 1.5f, 1.5f, -4.0f }, { eq::Shape::highShelf, 11000.0f, 2.0f, 0.7f, 0.0f } };
+            for (int i = 0; i < 4; ++i)
+            {
+                set (ParamIDs::eqBand (i, "Used"), 1.0f);
+                set (ParamIDs::eqBand (i, "Shape"), (float) (int) bands[i].shape);
+                set (ParamIDs::eqBand (i, "Freq"), bands[i].hz);
+                set (ParamIDs::eqBand (i, "Gain"), bands[i].db);
+                set (ParamIDs::eqBand (i, "Q"), bands[i].q);
+                set (ParamIDs::eqBand (i, "Dyn"), bands[i].dynamic);
+            }
+            set (ParamIDs::eqOn, 1.0f);
+            set (ParamIDs::domOn, 1.0f);
+            set (ParamIDs::domDepth, 7.0f);
+            set (ParamIDs::compOn, 1.0f);
+            set (ParamIDs::compThreshold, -26.0f);
+            set (ParamIDs::compRatio, 3.0f);
+            set (ParamIDs::limitOn, 1.0f);
+            set (ParamIDs::limitTruePeak, 1.0f);
+            set (ParamIDs::limitGain, 6.0f);
+            for (const auto note : { 48, 55, 60, 64, 67 })
+                processor.getKeyboardState().noteOn (1, note, 0.85f);
+            juce::AudioBuffer<float> buffer (2, 256);
+            juce::MidiBuffer midi;
+            for (int block = 0; block < 700; ++block)
+            {
+                processor.processBlock (buffer, midi);
+                if (block > 600 && block % 10 == 0)   // the timers fire only when they're due
+                {
+                    juce::Thread::sleep (35);
+                    juce::Timer::callPendingTimersSynchronously();
+                }
+            }
+        }
+        const auto fx = env ("PARAGON_SNAPSHOT_FX");
+        auto& fxPage = view->getFxPage();
+        fxPage.show (fx == "eq" ? FxPage::View::eq : fx == "dominion" ? FxPage::View::dominion : fx == "comp" ? FxPage::View::comp
+                     : fx == "limiter" ? FxPage::View::limiter : FxPage::View::rack);
+        // A display reads its bands and analyser on its own timer, but only while it's on screen, which a snapshot
+        // never is (as PR7-E's snapshots, refresh them by hand). ECHELON with its dynamic band 3 selected.
+        if (fx == "eq")
+        {
+            fxPage.getEqPage().getDisplay().refresh();
+            fxPage.getEqPage().getDisplay().select (2);
+            fxPage.getEqPage().refreshControls();
+            if (env ("PARAGON_SNAPSHOT_MATCH") == "1")
+            {
+                fxPage.getEqPage().showMatch (true);
+                fxPage.getEqPage().getMatchPanel().refresh();
+            }
+        }
+        if (fx == "dominion")
+            fxPage.getDominionPage().getDisplay().refresh();
+        if (fx == "comp")
+            fxPage.getCompPage().getDisplay().refresh();
+        if (fx == "limiter")
+            fxPage.getLimiterPage().refresh();
+    }
     if (const auto osc = env ("PARAGON_SNAPSHOT_OSC").getIntValue(); osc > 0)
         view->getOscillatorPanel().selectOscillator (osc - 1);
     if (env ("PARAGON_SNAPSHOT_TRAVEL") == "1")
