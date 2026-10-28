@@ -21,6 +21,7 @@ add_executable(ParagonX1Tests
     ModRoutingTests.cpp
     ArpTests.cpp
     ArpChordTests.cpp
+    StackSizeTests.cpp
     ProcessorTests.cpp
     RigTests.cpp
     UiTests.cpp

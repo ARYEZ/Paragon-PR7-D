@@ -710,7 +710,7 @@ void ParagonX1AudioProcessor::compileMatrix()
         compiled->travelShapes[i] = matrix.travel[i].envelope.toShape();
         compiled->travelPatterns[i] = matrix.travel[i].pattern;
     }
-    compiled->arpPatterns = matrix.arps;
+    std::copy (matrix.arps.begin(), matrix.arps.end(), compiled->arpPatterns.begin());
     compiled->arpRandomizers = matrix.arpRandomizers;
     std::stable_sort (compiled->routes.begin(), compiled->routes.end(), [] (const CompiledRoute& a, const CompiledRoute& b)
     {

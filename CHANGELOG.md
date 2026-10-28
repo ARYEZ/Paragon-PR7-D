@@ -2,6 +2,54 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.16.0
+
+Stage 5, part 2 (stage 5 complete): **chords, fixed note, the note randomizer, MIDI export, arp-note triggers and arps together**, modelled on Avenger's arpeggiator (the manual's pages 74-80; our own design and code).
+
+**This release also brings 0.15.0's ARPEGGIATOR (stage 5a), which was never published:** the eight arps, patterns A to D, the ARP page and the preset Arp Over Pad (A34); see 0.15.0 below for all of it.
+- **Why 0.15.0 never appeared:** the arp patterns made each preset's data 40 KB bigger. The plugin copies that data (for undo, loading presets, comparing) in places that use the thread's stack, which Windows keeps at 1 MB (Linux 8 MB). On Windows the tests crashed, so CI didn't publish it.
+- **The fix:** the patterns now live on the heap (the copies are 7 KB again), and a new test keeps those sizes small. All the tests also pass here with Windows' stack size.
+
+- **CHORDS mode** (MODE: CHORDS): each block plays a chord on the next key in turn. In this mode the pattern gets three more lanes:
+  - **CHORD:** click for its type: Single, Major, Minor, Sus2, Sus4, Dim, Aug, 6, Min6, 7, Maj7, Min7, Min7b5, Dim7, Add9, 9, Maj9, Min9, Power, Octave.
+  - **TONES:** a small switch per tone of the chord (root lit orange): click one to leave it out, e.g. a 7th without its fifth.
+  - **SUB:** click for a note under the chord (an octave down); right-click for how far: 5, 7, 12, 17, 19 or 24 semitones.
+  - The block's transposition moves the whole chord, so a pattern can be a progression.
+- **NOTE SOURCE** (the new NOTES column, right of the pattern):
+  - **KEYS:** as before.
+  - **FIXED NOTE:** the arp takes the chord you hold and plays from its root alone (in your lowest key's octave), so the pattern's blocks make the tune. One key: that key.
+  - **FIXED NOTE +:** the same, and the pattern follows the chord. A pattern is written as if over a minor chord; hold a major one and its minor third, sixth and seventh (+3, +8, +10, in any octave) become major (+4, +9, +11).
+- **The RANDOMIZER:**
+  - **ROLL** makes a new pattern from chances you set: which notes (by semitones above the key, kept to a **SCALE**: 14 to choose from, notes outside it dim), which octaves (-2 to +2), lengths (1 to 4 steps), and how likely a rest, a slide or a ratchet is, with the velocity's range.
+  - **ROLLS** chooses what a roll changes (notes, octaves, lengths, velocities, rests): the rest of the pattern stays, so you can keep a rhythm and roll new notes, or the reverse.
+  - Each roll has a **SEED** (shown, with - and +): the same seed and chances always make the same pattern. Undo brings the last pattern back.
+  - **SYMMETRY:** the second half of a roll is the first half backwards.
+  - **AUTODICE:** a new pattern rolled at the start of every time through, from the pattern written and the chances. It's the same every time you play the song (each pass has its own seed), so a bounce matches what you heard. Not with CHAIN.
+- **EXPORT MIDI:** click to save the arp's notes as a MIDI file, or **drag the button onto a track** in your song.
+  - It writes what the arp plays over the keys you hold on the on-screen keyboard (none held: C4), at the song's tempo.
+  - Length: one time through (CHAIN: each pattern; AUTODICE: four passes).
+  - It uses the same note code as the sound, so the file matches. A slide becomes notes that overlap, which most synths glide on.
+- **ARP NOTES** trigger, for the LFOs and the mod envelopes (TRIGGER: ARP NOTES): restarted by every note any arp plays. One envelope shared by all notes; it lets go when no arp note sounds.
+- **ARPS TOGETHER** (in the NOTES column): every arp counts its steps from the first key held, so an arp started later (a second key zone) comes in on the next step, in time with the others. Off: each arp runs from its own first key, as before.
+- **Ours, where the manual says nothing:**
+  - Avenger's chord types and scales aren't listed in the manual: these are the common ones.
+  - How a held chord is recognised (each held note tried as the root against each chord type: most tones matched, fewest left over; the lowest key wins a tie).
+  - The "+" mapping above.
+  - The randomizer's chances, its defaults and how SYMMETRY mirrors.
+  - That AUTODICE repeats the same passes each time you play.
+- **Saved** with the preset and the project; undo covers chords, rolls and the randomizer. Presets from 0.15.0 load unchanged.
+- **A new factory preset:** **Chord Stabs** (A35). Hold a chord or one key: a four-chord progression (i, VI, III, VII), stabbed in sixteenths with a sub note on each beat. Our own, not tuned by ear.
+- In the tests, from the sound (each note's pitch and level) where it plays:
+  - chord types, tones left out, the sub note, chords on each key in turn;
+  - FIXED NOTE and "+" over major and minor chords, chord detection;
+  - rolls kept to the scale and chances, the same seed giving the same pattern, ROLLS keeping what isn't rolled, SYMMETRY;
+  - AUTODICE changing each pass and repeating;
+  - an envelope restarted by each arp note;
+  - ARPS TOGETHER's later arp waiting for the step;
+  - the MIDI file's notes, times, lengths and velocities, and chords in it;
+  - saving (and 0.15.0's patterns still reading);
+  - the page's layout, lanes and ROLL with undo.
+
 ## 0.15.0
 
 Stage 5, part 1: **the ARPEGGIATOR**, modelled on Avenger's (the manual's pages 74-80; our own design and code). A new **ARP** page (in the header, between MOD and PRESETS).

@@ -501,5 +501,39 @@ std::vector<Rig> makeFactoryRigs()
     }
     add (arpPad);
 
+    // CHORDS and FIXED NOTE + (stage 5b).
+    Builder stabs ("Chord Stabs", 35, { "Keys", "Arp", "Chords" },
+                   "Hold a chord (or one key): ARP 1 takes its root and plays a four-chord progression on it, stabbed in sixteenths "
+                   "with a sub note on each beat. Written over a minor chord (i, VI, III, VII); FIXED NOTE + moves its minor "
+                   "intervals up a semitone when you hold a major chord instead. AUTODICE is off: switch it on for a new rhythm each bar.");
+    stabs.osc (0, "Wave", (float) synth::OscWave::saw).osc (0, "Volume", 0.5f).osc (0, "Arp", 1.0f)
+         .osc (0, "UniVoices", 3.0f).osc (0, "UniMix", 0.5f).osc (0, "UniDetune", 0.18f).osc (0, "UniSpread", 0.8f)
+         .filter (FilterType::lp24, 1400.0f, 0.3f, 0.0f).filterEnvelope (0.0f, 160.0f, 0.1f, 120.0f)
+         .ampEnvelope (1.0f, 250.0f, 0.5f, 150.0f)
+         .set (ParamIDs::arp (0, "On"), 1.0f).set (ParamIDs::arp (0, "Mode"), (float) synth::arp::Mode::chords)
+         .set (ParamIDs::arp (0, "NoteSource"), (float) synth::arp::NoteSource::fixedNotePlus)
+         .set (ParamIDs::arp (0, "Gate"), 0.45f);
+    {
+        auto& p = stabs.rig.modulation.arps[0].patterns[0];
+        p = {};
+        const char* chords[] = { "Min7", "Maj7", "Major", "7" };
+        const int roots[] = { 0, 8, 3, 10 };
+        for (int k = 0; k < 16; ++k)
+        {
+            auto& b = p.blocks[(size_t) k];
+            const auto group = k / 4, beat = k % 4;
+            b.on = beat != 1;
+            b.chord = synth::arp::chordNames.indexOf (chords[group]);
+            b.transpose = roots[group] - (roots[group] > 6 ? 12 : 0);   // the chords close together, not climbing
+            b.velocity = beat == 0 ? 1.0f : 0.7f;
+            b.sub = beat == 0;
+        }
+        auto& r = stabs.rig.modulation.arpRandomizers[0];
+        r.scale = synth::arp::scaleNames.indexOf ("Minor");
+        r.rollNotes = r.rollOctaves = false;   // a roll keeps the progression, changes the rhythm
+        r.restChance = 0.3f;
+    }
+    add (stabs);
+
     return rigs;
 }

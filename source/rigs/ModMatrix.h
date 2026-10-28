@@ -182,14 +182,14 @@ struct ModMatrix
     // Each oscillator's TRAVEL (stage 4e).
     std::array<TravelData, synth::numOscillators> travel {};
     // The ARPEGGIATORS' patterns (stage 5a): A to D for each of the 8.
-    std::array<synth::arp::Patterns, synth::arp::numArps> arps = filledArps();
+    // On the heap (40 KB): a ModMatrix is copied for undo, presets and comparisons, often on the stack, and
+    // Windows gives a thread 1 MB (with it inline, 0.15.0's build crashed there).
+    std::vector<synth::arp::Patterns> arps = filledArps();
     // Each arp's note RANDOMIZER (stage 5b).
     std::array<synth::arp::Randomizer, synth::arp::numArps> arpRandomizers {};
-    static std::array<synth::arp::Patterns, synth::arp::numArps> filledArps()
+    static std::vector<synth::arp::Patterns> filledArps()
     {
-        std::array<synth::arp::Patterns, synth::arp::numArps> a;
-        a.fill (synth::arp::Patterns::makeDefault());
-        return a;
+        return std::vector<synth::arp::Patterns> ((size_t) synth::arp::numArps, synth::arp::Patterns::makeDefault());
     }
 
     template <int N>

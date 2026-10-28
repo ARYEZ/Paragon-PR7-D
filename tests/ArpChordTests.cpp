@@ -5,8 +5,11 @@
 
 #include <set>
 
+#include "PluginEditor.h"
 #include "PluginProcessor.h"
 #include "rigs/ModMatrix.h"
+#include "ui/ArpPage.h"
+#include "ui/MainView.h"
 
 namespace
 {
@@ -440,4 +443,89 @@ TEST_CASE ("ARP 5b saving: chords, randomizers, NOTE SOURCE and ARPS TOGETHER ke
     const auto s = processor.getSynthSettings();
     CHECK (s.arps[3].noteSource == NoteSource::fixedNotePlus);
     CHECK (s.arpsTogether);
+}
+
+TEST_CASE ("The ARP page, 5b: CHORDS lanes, the NOTES column, ROLL (undoable)", "[arp][ui]")
+{
+    ParagonX1AudioProcessor processor;
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+    editor->setSize (1600, 900);
+    auto* view = dynamic_cast<MainView*> (editor->getChildComponent (0));
+    REQUIRE (view != nullptr);
+    view->showPage (MainView::Page::arp);
+    auto& page = view->getArpPage();
+    page.selectArp (1);
+    auto& grid = page.getEditor();
+    auto& notes = page.getNotesPanel();
+    const auto pattern = [&processor] { return processor.getModMatrix().arps[1].patterns[0]; };
+    const auto at = [] (juce::Component& c, juce::Point<float> where, bool right = false)
+    {
+        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), where,
+                                 right ? juce::ModifierKeys::rightButtonModifier : juce::ModifierKeys::leftButtonModifier, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                 &c, &c, juce::Time::getCurrentTime(), where, juce::Time::getCurrentTime(), 1, false);
+    };
+    const auto click = [&] (juce::Component& c, juce::Point<float> where, bool right = false)
+    {
+        c.mouseDown (at (c, where, right));
+        c.mouseUp (at (c, where, right));
+        processor.flushUndoStep();
+    };
+
+    // The NOTES column beside the grid, inside the page; its own parts inside it, none on another.
+    CHECK (page.getLocalBounds().contains (notes.getBounds()));
+    CHECK_FALSE (notes.getBounds().intersects (grid.getBounds()));
+    CHECK (notes.getWidth() >= 300);
+    std::vector<juce::Component*> parts;
+    for (auto* child : notes.getChildren())
+        if (child->isVisible())
+            parts.push_back (child);
+    CHECK (parts.size() >= 20);
+    for (size_t i = 0; i < parts.size(); ++i)
+    {
+        INFO (parts[i]->getBounds().toString());
+        CHECK (notes.getLocalBounds().contains (parts[i]->getBounds()));
+        for (size_t j = i + 1; j < parts.size(); ++j)
+            CHECK_FALSE (parts[i]->getBounds().intersects (parts[j]->getBounds()));
+    }
+
+    // The chord lanes only in CHORDS mode, under RATCH, inside the editor; the grid shorter by them.
+    const auto plainGrid = grid.gridArea();
+    CHECK_FALSE (grid.showsChords());
+    auto* mode = processor.getParameters().getParameter (ParamIDs::arp (1, "Mode"));
+    mode->setValueNotifyingHost (mode->convertTo0to1 ((float) (int) Mode::chords));
+    CHECK (grid.showsChords());
+    CHECK (grid.gridArea().getHeight() < plainGrid.getHeight() - 50.0f);
+    CHECK (grid.chordArea (0).getY() >= grid.ratchetArea (0).getBottom());
+    CHECK (grid.subArea (0).getBottom() <= (float) grid.getHeight());
+
+    // TONES: the third (tone 1) off and on; SUB on.
+    click (grid, grid.toneArea (0, 1).getCentre());
+    CHECK (pattern().blocks[0].chordMask == (0x1f & ~0x2));
+    click (grid, grid.toneArea (0, 1).getCentre());
+    CHECK (pattern().blocks[0].chordMask == 0x1f);
+    click (grid, grid.subArea (2).getCentre());
+    CHECK (pattern().blocks[2].sub);
+
+    // A chance bar dragged: the note chance of the fifth (7 semitones) to the top.
+    auto& bars = notes.getNotes();
+    const auto fifth = bars.barArea (7);
+    bars.mouseDown (at (bars, { fifth.getCentreX(), fifth.getBottom() - 2.0f }));
+    bars.mouseDrag (at (bars, { fifth.getCentreX(), fifth.getY() - 10.0f }));
+    bars.mouseUp (at (bars, { fifth.getCentreX(), fifth.getY() - 10.0f }));
+    CHECK (processor.getModMatrix().arpRandomizers[1].noteChances[7] == 1.0f);
+    CHECK (processor.getModMatrix().arpRandomizers[0].noteChances[7] != 1.0f);   // ARP 2's, not ARP 1's
+    processor.flushUndoStep();
+
+    // ROLL: a new seed and a new pattern in the scale; undo brings the old one back.
+    const auto before = pattern();
+    const auto seed = processor.getModMatrix().arpRandomizers[1].seed;
+    notes.getRollButton().onClick();
+    processor.flushUndoStep();
+    CHECK (processor.getModMatrix().arpRandomizers[1].seed == seed + 1);
+    CHECK_FALSE (pattern() == before);
+    for (const auto& b : pattern().blocks)
+        if (b.on)
+            CHECK (synth::arp::inScale (processor.getModMatrix().arpRandomizers[1].scale, b.transpose));
+    processor.undo();
+    CHECK (pattern() == before);
 }

@@ -86,7 +86,7 @@ int ArpPatternEditor::getLength() const
 juce::Rectangle<float> ArpPatternEditor::gridArea() const
 {
     auto area = getLocalBounds().toFloat().reduced (6.0f, 6.0f).withTrimmedLeft (gutter);
-    area.removeFromBottom (velocityLane + 2.0f * smallLane + 3.0f * laneGap);
+    area.removeFromBottom (velocityLane + 2.0f * smallLane + 3.0f * laneGap + (showsChords() ? 3.0f * (smallLane + laneGap) : 0.0f));
     return area;
 }
 
@@ -115,6 +115,33 @@ juce::Rectangle<float> ArpPatternEditor::ratchetArea (int step) const
     return slideArea (step).translated (0.0f, smallLane + laneGap);
 }
 
+juce::Rectangle<float> ArpPatternEditor::chordArea (int step) const
+{
+    return ratchetArea (step).translated (0.0f, smallLane + laneGap);
+}
+
+juce::Rectangle<float> ArpPatternEditor::tonesArea (int step) const
+{
+    return chordArea (step).translated (0.0f, smallLane + laneGap);
+}
+
+juce::Rectangle<float> ArpPatternEditor::toneArea (int step, int tone) const
+{
+    const auto area = tonesArea (step).reduced (3.0f, 3.0f);
+    const auto w = area.getWidth() / 5.0f;
+    return { area.getX() + w * (float) tone, area.getY(), w, area.getHeight() };
+}
+
+juce::Rectangle<float> ArpPatternEditor::subArea (int step) const
+{
+    return tonesArea (step).translated (0.0f, smallLane + laneGap);
+}
+
+bool ArpPatternEditor::showsChords() const
+{
+    return juce::roundToInt (processor.getParameters().getRawParameterValue (ParamIDs::arp (arp, "Mode"))->load()) == (int) synth::arp::Mode::chords;
+}
+
 int ArpPatternEditor::stepAt (float x) const
 {
     const auto grid = gridArea();
@@ -130,7 +157,7 @@ int ArpPatternEditor::transposeAt (float y) const
 
 void ArpPatternEditor::timerCallback()
 {
-    const std::vector<float> settings { (float) getLength() };
+    const std::vector<float> settings { (float) getLength(), showsChords() ? 1.0f : 0.0f };
     if (dragStep < 0 && ! (getShown() == shown))
     {
         shown = getShown();
@@ -211,6 +238,23 @@ void ArpPatternEditor::paint (juce::Graphics& g)
         g.setColour (b.ratchet > 1 ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.5f));
         g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
         g.drawText (juce::String (b.ratchet), ratchetArea (k), juce::Justification::centred, false);
+
+        // CHORDS mode: the chord, its tones (lit: sounding) and the sub note.
+        if (showsChords())
+        {
+            g.setColour (amber);
+            g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+            g.drawFittedText (synth::arp::chordNames[b.chord], chordArea (k).reduced (2.0f, 0.0f).toNearestInt(), juce::Justification::centred, 1, 0.7f);
+            const auto& shape = synth::arp::chordShape (b.chord);
+            for (int t = 0; t < shape.count; ++t)
+            {
+                const auto r = toneArea (k, t).reduced (1.0f, 0.0f);
+                g.setColour ((b.chordMask >> t) & 1 ? (t == 0 ? ParagonColours::accent : amber) : ParagonColours::panelEdge);
+                g.fillRoundedRectangle (r, 1.5f);
+            }
+            g.setColour (b.sub ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.4f));
+            g.drawText (b.sub ? juce::String (b.subTranspose) : juce::String ("-"), subArea (k), juce::Justification::centred, false);
+        }
     }
 
     // The lanes' names.
@@ -223,6 +267,12 @@ void ArpPatternEditor::paint (juce::Graphics& g)
     label (velocityArea (0), "VEL");
     label (slideArea (0), "SLIDE");
     label (ratchetArea (0), "RATCH");
+    if (showsChords())
+    {
+        label (chordArea (0), "CHORD");
+        label (tonesArea (0), "TONES");
+        label (subArea (0), "SUB");
+    }
 }
 
 void ArpPatternEditor::mouseDown (const juce::MouseEvent& e)
@@ -288,6 +338,57 @@ void ArpPatternEditor::mouseDown (const juce::MouseEvent& e)
                                           : (b.ratchet >= synth::arp::maxRatchet ? 1 : b.ratchet + 1);
         setShown (shown, true);
     }
+    else if (! showsChords())
+        return;
+    else if (chordArea (k).contains (at))
+    {
+        juce::PopupMenu menu;
+        for (int c = 0; c < synth::arp::chordNames.size(); ++c)
+            menu.addItem (c + 1, synth::arp::chordNames[c], true, c == b.chord);
+        juce::Component::SafePointer<ArpPatternEditor> self (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (localAreaToGlobal (chordArea (k).toNearestInt())),
+                            [self, k] (int result)
+                            {
+                                if (self == nullptr || result <= 0)
+                                    return;
+                                auto p = self->getShown();
+                                p.blocks[(size_t) k].chord = result - 1;
+                                self->setShown (p, true);
+                            });
+    }
+    else if (tonesArea (k).contains (at))
+    {
+        for (int t = 0; t < synth::arp::chordShape (b.chord).count; ++t)
+            if (toneArea (k, t).getHorizontalRange().contains (at.x))
+            {
+                b.chordMask ^= 1 << t;
+                setShown (shown, true);
+            }
+    }
+    else if (subArea (k).contains (at))
+    {
+        if (! e.mods.isPopupMenu())
+        {
+            b.sub = ! b.sub;
+            setShown (shown, true);
+            return;
+        }
+        juce::PopupMenu menu;
+        for (const auto semitones : { -5, -7, -12, -17, -19, -24 })
+            menu.addItem (semitones + 100, juce::String (semitones) + " semitones" + (semitones == -12 ? " (an octave)" : semitones == -24 ? " (two octaves)" : ""),
+                          true, b.sub && b.subTranspose == semitones);
+        juce::Component::SafePointer<ArpPatternEditor> self (this);
+        menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (localAreaToGlobal (subArea (k).toNearestInt())),
+                            [self, k] (int result)
+                            {
+                                if (self == nullptr || result <= 0)
+                                    return;
+                                auto p = self->getShown();
+                                p.blocks[(size_t) k].sub = true;
+                                p.blocks[(size_t) k].subTranspose = result - 100;
+                                self->setShown (p, true);
+                            });
+    }
 }
 
 void ArpPatternEditor::mouseDrag (const juce::MouseEvent& e)
@@ -317,6 +418,337 @@ void ArpPatternEditor::mouseUp (const juce::MouseEvent&)
 }
 
 //==============================================================================
+ChanceBars::ChanceBars (const juce::String& t, const juce::StringArray& n)
+    : values ((size_t) n.size(), 0.0f), dimmed ((size_t) n.size(), false), title (t), names (n)
+{
+}
+
+juce::Rectangle<float> ChanceBars::barArea (int index) const
+{
+    auto area = getLocalBounds().toFloat();
+    area.removeFromTop (13.0f);
+    area.removeFromBottom (12.0f);
+    const auto w = area.getWidth() / (float) juce::jmax (1, names.size());
+    return { area.getX() + w * (float) index, area.getY(), w, area.getHeight() };
+}
+
+void ChanceBars::paint (juce::Graphics& g)
+{
+    g.setColour (ParagonColours::textDim);
+    g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+    g.drawText (title, getLocalBounds().removeFromTop (12), juce::Justification::centredLeft, false);
+    for (int i = 0; i < names.size(); ++i)
+    {
+        const auto area = barArea (i).reduced (1.5f, 0.0f);
+        g.setColour (juce::Colour (0xff0d0a0e));
+        g.fillRect (area);
+        const auto dim = dimmed[(size_t) i];
+        g.setColour ((dim ? ParagonColours::textDim.withAlpha (0.25f) : ParagonColours::accent.withAlpha (0.85f)));
+        g.fillRect (area.withTop (area.getBottom() - area.getHeight() * values[(size_t) i]));
+        g.setColour (dim ? ParagonColours::textDim.withAlpha (0.4f) : ParagonColours::textDim);
+        g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+        g.drawText (names[i], area.withY (area.getBottom() + 1.0f).withHeight (11.0f).expanded (3.0f, 0.0f), juce::Justification::centred, false);
+    }
+}
+
+void ChanceBars::setFrom (juce::Point<float> at, bool finished)
+{
+    if (dragging < 0)
+        return;
+    const auto area = barArea (dragging);
+    const auto value = (float) juce::roundToInt (juce::jlimit (0.0f, 1.0f, (area.getBottom() - at.y) / area.getHeight()) * 20.0f) / 20.0f;
+    values[(size_t) dragging] = value;
+    repaint();
+    if (onChange)
+        onChange (dragging, value, finished);
+}
+
+void ChanceBars::mouseDown (const juce::MouseEvent& e)
+{
+    dragging = -1;
+    for (int i = 0; i < names.size(); ++i)
+        if (barArea (i).getHorizontalRange().contains (e.position.x))
+            dragging = i;
+    setFrom (e.position, false);
+}
+
+void ChanceBars::mouseDrag (const juce::MouseEvent& e) { setFrom (e.position, false); }
+
+void ChanceBars::mouseUp (const juce::MouseEvent& e)
+{
+    setFrom (e.position, true);
+    dragging = -1;
+}
+
+//==============================================================================
+MidiExportButton::MidiExportButton (ParagonX1AudioProcessor& p) : juce::TextButton ("EXPORT MIDI"), processor (p)
+{
+    setTooltip ("Click to save this arp's notes as a MIDI file; or drag this button onto a track in your song. "
+                "It plays the keys held on the keyboard below (none: C4), one time through the pattern (CHAIN: each pattern; "
+                "AUTODICE: four rolls), at the song's tempo.");
+}
+
+void MidiExportButton::mouseDrag (const juce::MouseEvent& e)
+{
+    juce::TextButton::mouseDrag (e);
+    if (dragged || e.getDistanceFromDragStart() < 6)
+        return;
+    dragged = true;
+    const auto file = processor.arpMidiDragFile (arp);
+    juce::DragAndDropContainer::performExternalDragDropOfFiles ({ file.getFullPathName() }, false, this);
+}
+
+void MidiExportButton::clicked()
+{
+    if (std::exchange (dragged, false))
+        return;
+    chooser = std::make_unique<juce::FileChooser> ("Save Arp " + juce::String (arp + 1) + "'s notes as MIDI",
+                                                   juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
+                                                       .getChildFile ("Arp " + juce::String (arp + 1) + ".mid"),
+                                                   "*.mid");
+    juce::Component::SafePointer<MidiExportButton> self (this);
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                              | juce::FileBrowserComponent::warnAboutOverwriting,
+                          [self] (const juce::FileChooser& c)
+                          {
+                              if (self != nullptr && c.getResult() != juce::File())
+                                  self->processor.exportArpMidi (self->arp, c.getResult().withFileExtension ("mid"));
+                          });
+}
+
+//==============================================================================
+ArpNotesPanel::ArpNotesPanel (ParagonX1AudioProcessor& p)
+    : processor (p),
+      noteSource (p.getParameters(), ParamIDs::arp (0, "NoteSource"), "NOTE SOURCE",
+                  "What the arp plays from: the KEYS you hold; FIXED NOTE: a held chord's root alone (the pattern's blocks make the tune); "
+                  "FIXED NOTE +: the same, and the pattern follows the chord: written over a minor chord, its minor third, sixth and seventh "
+                  "become major over a major one."),
+      together (p.getParameters(), ParamIDs::arpsTogether, "ARPS TOGETHER",
+                "All the arps counted from the first key held: one started later waits for the next step, so they stay in step "
+                "(off: each runs from its own first key)."),
+      notes ("NOTE CHANCES (above the key)", { "R", "b2", "2", "b3", "3", "4", "b5", "5", "b6", "6", "b7", "7" }),
+      octaves ("OCTAVES", { "-2", "-1", "0", "+1", "+2" }),
+      lengths ("LENGTH (STEPS)", { "1", "2", "3", "4" }),
+      more ("CHANCES", { "REST", "SLIDE", "RATCH", "VEL LO", "VEL HI" }),
+      exportMidi (p)
+{
+    for (auto* label : { &sourceLabel, &randomLabel, &scaleLabel, &seedLabel, &rollLabel })
+    {
+        label->setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        label->setColour (juce::Label::textColourId, ParagonColours::textDim);
+        addAndMakeVisible (*label);
+    }
+    sourceLabel.setText ("NOTE SOURCE", juce::dontSendNotification);
+    randomLabel.setText ("RANDOMIZER", juce::dontSendNotification);
+    randomLabel.setColour (juce::Label::textColourId, ParagonColours::text);
+    scaleLabel.setText ("SCALE", juce::dontSendNotification);
+    rollLabel.setText ("ROLLS", juce::dontSendNotification);
+    noteSource.setCompact (true);
+    together.setCompact (true);
+    addAndMakeVisible (noteSource);
+    addAndMakeVisible (together);
+
+    scale.addItemList (synth::arp::scaleNames, 1);
+    scale.setColour (juce::ComboBox::backgroundColourId, juce::Colour (0xff151217));
+    scale.setColour (juce::ComboBox::outlineColourId, ParagonColours::panelEdge);
+    scale.setColour (juce::ComboBox::textColourId, ParagonColours::accent);
+    scale.setTooltip ("The notes a roll may use (the others get no chance, and show dim)");
+    scale.onChange = [this]
+    {
+        auto r = get();
+        r.scale = juce::jmax (0, scale.getSelectedId() - 1);
+        set (r, true);
+    };
+    addAndMakeVisible (scale);
+
+    const auto style = [] (juce::TextButton& b)
+    {
+        b.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff0d0a0e));
+        b.setColour (juce::TextButton::buttonOnColourId, ParagonColours::accentDim.withAlpha (0.6f));
+        b.setColour (juce::TextButton::textColourOffId, ParagonColours::textDim);
+        b.setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
+    };
+    for (auto* b : { &roll, &seedDown, &seedUp, &autoDice, &symmetry, static_cast<juce::TextButton*> (&exportMidi) })
+    {
+        style (*b);
+        addAndMakeVisible (*b);
+    }
+    roll.setColour (juce::TextButton::textColourOffId, ParagonColours::accent);
+    roll.setTooltip ("A new pattern from the chances below (a new SEED each time; undo brings the last one back). "
+                     "Only what's lit under ROLLS changes: the rest of the pattern stays.");
+    roll.onClick = [this] { if (onRoll) onRoll(); };
+    seedDown.setTooltip ("The SEED before: the pattern a ROLL would make with it");
+    seedUp.setTooltip ("The SEED after");
+    seedDown.onClick = [this] { auto r = get(); r.seed = r.seed <= 1 ? 9999 : r.seed - 1; set (r, true); };
+    seedUp.onClick = [this] { auto r = get(); r.seed = r.seed >= 9999 ? 1 : r.seed + 1; set (r, true); };
+    autoDice.setTooltip ("A new pattern rolled at the start of every time through (from this one and the chances), "
+                         "the same each time you play the song. Not with CHAIN.");
+    autoDice.onClick = [this] { auto r = get(); r.autoDice = ! r.autoDice; set (r, true); };
+    symmetry.setTooltip ("The second half of each roll is the first half backwards");
+    symmetry.onClick = [this] { auto r = get(); r.symmetry = ! r.symmetry; set (r, true); };
+    const char* rollNames[] = { "NOTES", "OCT", "LEN", "VEL", "REST" };
+    for (int i = 0; i < 5; ++i)
+    {
+        auto& b = rolls[(size_t) i];
+        b.setButtonText (rollNames[i]);
+        style (b);
+        b.setTooltip ("Lit: ROLL changes each block's " + juce::String (rollNames[i]).toLowerCase() + "; dark: it's kept");
+        b.onClick = [this, i]
+        {
+            auto r = get();
+            auto* flags = std::array<bool*, 5> { &r.rollNotes, &r.rollOctaves, &r.rollLengths, &r.rollVelocity, &r.rollRests }[(size_t) i];
+            *flags = ! *flags;
+            set (r, true);
+        };
+        addAndMakeVisible (b);
+    }
+
+    notes.setTooltip ("How likely each note is, by semitones above the key you hold (R: the key itself)");
+    octaves.setTooltip ("How likely each octave is");
+    lengths.setTooltip ("How likely a block is to be 1, 2, 3 or 4 steps long");
+    more.setTooltip ("REST: how likely a step is silent; SLIDE: glides into the next; RATCH: repeats 2-4 times; "
+                     "VEL LO / HI: the softest and loudest a block can be");
+    notes.onChange = [this] (int i, float v, bool finished) { auto r = get(); r.noteChances[(size_t) i] = v; set (r, finished); };
+    octaves.onChange = [this] (int i, float v, bool finished) { auto r = get(); r.octaveChances[(size_t) i] = v; set (r, finished); };
+    lengths.onChange = [this] (int i, float v, bool finished) { auto r = get(); r.lengthChances[(size_t) i] = v; set (r, finished); };
+    more.onChange = [this] (int i, float v, bool finished)
+    {
+        auto r = get();
+        float* fields[] = { &r.restChance, &r.slideChance, &r.ratchetChance, &r.velocityLow, &r.velocityHigh };
+        *fields[i] = v;
+        if (i == 3)
+            r.velocityHigh = juce::jmax (r.velocityHigh, v);
+        if (i == 4)
+            r.velocityLow = juce::jmin (r.velocityLow, v);
+        set (r, finished);
+    };
+    for (auto* bars : { &notes, &octaves, &lengths, &more })
+        addAndMakeVisible (*bars);
+
+    refresh();
+    startTimerHz (8);
+}
+
+void ArpNotesPanel::setArp (int index)
+{
+    arp = juce::jlimit (0, synth::arp::numArps - 1, index);
+    noteSource.attach (ParamIDs::arp (arp, "NoteSource"));
+    exportMidi.arp = arp;
+    shown = get();
+    refresh();
+}
+
+synth::arp::Randomizer ArpNotesPanel::get() const
+{
+    return processor.getModMatrix().arpRandomizers[(size_t) arp];
+}
+
+void ArpNotesPanel::set (const synth::arp::Randomizer& r, bool finished)
+{
+    auto matrix = processor.getModMatrix();
+    matrix.arpRandomizers[(size_t) arp] = r;
+    processor.setModMatrix (matrix);
+    if (finished)
+        processor.modMatrixEditFinished();
+    shown = r;
+    refresh();
+}
+
+void ArpNotesPanel::refresh()
+{
+    const auto& r = shown;
+    scale.setSelectedId (r.scale + 1, juce::dontSendNotification);
+    seedLabel.setText ("SEED " + juce::String (r.seed), juce::dontSendNotification);
+    autoDice.setToggleState (r.autoDice, juce::dontSendNotification);
+    symmetry.setToggleState (r.symmetry, juce::dontSendNotification);
+    const bool flags[] = { r.rollNotes, r.rollOctaves, r.rollLengths, r.rollVelocity, r.rollRests };
+    for (size_t i = 0; i < 5; ++i)
+        rolls[i].setToggleState (flags[i], juce::dontSendNotification);
+    for (size_t i = 0; i < 12; ++i)
+    {
+        notes.values[i] = r.noteChances[i];
+        notes.dimmed[i] = ! synth::arp::inScale (r.scale, (int) i);
+    }
+    for (size_t i = 0; i < 5; ++i)
+        octaves.values[i] = r.octaveChances[i];
+    for (size_t i = 0; i < 4; ++i)
+        lengths.values[i] = r.lengthChances[i];
+    more.values = { r.restChance, r.slideChance, r.ratchetChance, r.velocityLow, r.velocityHigh };
+    for (auto* bars : { &notes, &octaves, &lengths, &more })
+        bars->repaint();
+}
+
+void ArpNotesPanel::timerCallback()
+{
+    // Undo, presets and projects change it from outside.
+    if (! (get() == shown))
+    {
+        shown = get();
+        refresh();
+    }
+}
+
+void ArpNotesPanel::paint (juce::Graphics& g)
+{
+    DisplayStyle::drawScreen (g, getLocalBounds().toFloat());
+    g.setColour (ParagonColours::panelEdge);
+    g.drawHorizontalLine (juce::roundToInt (randomLabel.getY() - 6.0f), 8.0f, (float) getWidth() - 8.0f);
+    g.drawHorizontalLine (juce::roundToInt (exportMidi.getY() - 8.0f), 8.0f, (float) getWidth() - 8.0f);
+}
+
+void ArpNotesPanel::resized()
+{
+    auto area = getLocalBounds().reduced (10, 8);
+    auto row = area.removeFromTop (24);
+    sourceLabel.setBounds (row.removeFromLeft (92));
+    noteSource.setBounds (row);
+    area.removeFromTop (14);
+
+    row = area.removeFromTop (24);
+    randomLabel.setBounds (row.removeFromLeft (100));
+    roll.setBounds (row.removeFromRight (70));
+    area.removeFromTop (6);
+    row = area.removeFromTop (24);
+    scaleLabel.setBounds (row.removeFromLeft (52));
+    scale.setBounds (row);
+    area.removeFromTop (6);
+    row = area.removeFromTop (22);
+    seedLabel.setBounds (row.removeFromLeft (76));
+    seedDown.setBounds (row.removeFromLeft (24));
+    row.removeFromLeft (2);
+    seedUp.setBounds (row.removeFromLeft (24));
+    row.removeFromLeft (8);
+    const auto half = (row.getWidth() - 4) / 2;
+    autoDice.setBounds (row.removeFromLeft (half));
+    symmetry.setBounds (row.removeFromRight (half));
+
+    // At the bottom: EXPORT MIDI and ARPS TOGETHER.
+    auto bottom = area.removeFromBottom (26);
+    exportMidi.setBounds (bottom.removeFromLeft ((bottom.getWidth() - 6) / 2));
+    together.setBounds (bottom.removeFromRight ((bottom.getWidth() - 6)));
+    area.removeFromBottom (16);
+
+    area.removeFromTop (8);
+    row = area.removeFromBottom (22);
+    rollLabel.setBounds (row.removeFromLeft (46));
+    const auto w = row.getWidth() / 5;
+    for (auto& b : rolls)
+        b.setBounds (row.removeFromLeft (w).reduced (1, 0));
+    area.removeFromBottom (8);
+
+    // The chances share what's left: notes, octaves | lengths, more.
+    const auto h = (area.getHeight() - 16) / 3;
+    notes.setBounds (area.removeFromTop (h));
+    area.removeFromTop (8);
+    row = area.removeFromTop (h);
+    octaves.setBounds (row.removeFromLeft (row.getWidth() * 5 / 9 - 6));
+    row.removeFromLeft (12);
+    lengths.setBounds (row);
+    area.removeFromTop (8);
+    more.setBounds (area);
+}
+
+//==============================================================================
 void ArpPage::ArpTab::paintButton (juce::Graphics& g, bool highlighted, bool down)
 {
     juce::TextButton::paintButton (g, highlighted, down);
@@ -326,10 +758,11 @@ void ArpPage::ArpTab::paintButton (juce::Graphics& g, bool highlighted, bool dow
 }
 
 ArpPage::ArpPage (ParagonX1AudioProcessor& p)
-    : processor (p), state (p.getParameters()), editor (p),
+    : processor (p), state (p.getParameters()), editor (p), notesPanel (p),
       on (state, ParamIDs::arp (0, "On"), "ON", "This arp on: the oscillators routed to it (ticked above) play its notes, not the keys'."),
       mode (state, ParamIDs::arp (0, "Mode"), "MODE", "How it walks through the keys you hold: UP, DOWN, UP/DOWN, DOWN/UP, AS PLAYED (the order you pressed them), "
-                                                    "RANDOM; POLY plays them all together on each block."),
+                                                    "RANDOM; POLY plays them all together on each block; CHORDS plays each block's chord (its "
+                                                    "CHORD, TONES and SUB lanes) on the next key."),
       speed (state, ParamIDs::arp (0, "Division"), "SPEED", "A step's length, in notes at the song's tempo (1/16: a sixteenth)."),
       timing (state, ParamIDs::arp (0, "Timing"), "TIMING", "Straight, triplet or dotted steps."),
       octaves (state, ParamIDs::arp (0, "Octaves"), "OCTAVES", "How many octaves the keys you hold are spread over (up to 4)."),
@@ -411,6 +844,8 @@ ArpPage::ArpPage (ParagonX1AudioProcessor& p)
     hint.setJustificationType (juce::Justification::centredLeft);
     chain.setCompact (true);
     addAndMakeVisible (editor);
+    addAndMakeVisible (notesPanel);
+    notesPanel.onRoll = [this] { rollPattern(); };
     for (auto* c : controls())
         addAndMakeVisible (c);
     addAndMakeVisible (chain);
@@ -436,6 +871,7 @@ void ArpPage::selectArp (int index)
     const auto pattern = juce::roundToInt (state.getRawParameterValue (ParamIDs::arp (selected, "Pattern"))->load());
     patternButtons[(size_t) juce::jlimit (0, 3, pattern)]->setToggleState (true, juce::dontSendNotification);
     editor.setTarget (selected, pattern);
+    notesPanel.setArp (selected);
     timerCallback();
 }
 
@@ -458,6 +894,19 @@ void ArpPage::shift (int semitones)
 void ArpPage::startFrom (int choice)
 {
     editor.setShown (startPattern (choice), true);
+}
+
+void ArpPage::rollPattern()
+{
+    auto matrix = processor.getModMatrix();
+    auto& r = matrix.arpRandomizers[(size_t) selected];
+    r.seed = r.seed >= 9999 ? 1 : r.seed + 1;
+    const auto length = juce::roundToInt (state.getRawParameterValue (ParamIDs::arp (selected, "Length"))->load());
+    auto& pattern = matrix.arps[(size_t) selected].patterns[(size_t) editor.getPattern()];
+    pattern = synth::arp::roll (r, length, pattern, r.seed);
+    processor.setModMatrix (matrix);
+    processor.modMatrixEditFinished();
+    editor.setTarget (selected, editor.getPattern());
 }
 
 bool ArpPage::isRouted (int oscillator) const
@@ -546,5 +995,7 @@ void ArpPage::resized()
     area.removeFromBottom (4);
     hint.setBounds (area.removeFromBottom (20));
     area.removeFromBottom (4);
+    notesPanel.setBounds (area.removeFromRight (320));
+    area.removeFromRight (8);
     editor.setBounds (area);
 }

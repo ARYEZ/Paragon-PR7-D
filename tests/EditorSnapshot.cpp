@@ -125,6 +125,41 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             }
             page.getEditor().setShown (p, true);
         }
+        if (env ("PARAGON_SNAPSHOT_ARP") == "2")
+        {
+            // CHORDS mode (5b): a chord progression with tones switched off and sub notes, and a randomizer set up.
+            page.route (0, true);
+            auto& parameters = processor.getParameters();
+            parameters.getParameter (ParamIDs::arp (0, "On"))->setValueNotifyingHost (1.0f);
+            auto* mode = parameters.getParameter (ParamIDs::arp (0, "Mode"));
+            mode->setValueNotifyingHost (mode->convertTo0to1 ((float) (int) synth::arp::Mode::chords));
+            auto* source = parameters.getParameter (ParamIDs::arp (0, "NoteSource"));
+            source->setValueNotifyingHost (source->convertTo0to1 (2.0f));
+            synth::arp::Pattern p;
+            const char* chords[] = { "Min7", "Min7", "Maj7", "Maj7", "Sus4", "7", "Min9", "Power" };
+            const int transposes[] = { 0, 0, 8, 8, 5, 7, 3, 0 };
+            for (int k = 0; k < 8; ++k)
+            {
+                auto& b = p.blocks[(size_t) (k * 2)];
+                b.on = true;
+                b.length = k % 2 == 0 ? 2 : 1;
+                b.transpose = transposes[k];
+                b.chord = synth::arp::chordNames.indexOf (chords[k]);
+                b.velocity = k % 2 == 0 ? 1.0f : 0.7f;
+                b.sub = k % 4 == 0;
+                b.subTranspose = k == 4 ? -24 : -12;
+                b.chordMask = k == 3 ? 0x1f & ~0x4 : 0x1f;
+            }
+            page.getEditor().setShown (p, true);
+            auto r = synth::arp::Randomizer {};
+            r.scale = synth::arp::scaleNames.indexOf ("Dorian");
+            r.autoDice = true;
+            r.seed = 42;
+            r.rollLengths = false;
+            auto matrix = processor.getModMatrix();
+            matrix.arpRandomizers[0] = r;
+            processor.setModMatrix (matrix);
+        }
         page.selectArp (0);
     }
     if (const auto lfo = env ("PARAGON_SNAPSHOT_LFO").getIntValue(); lfo > 0)
