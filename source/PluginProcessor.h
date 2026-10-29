@@ -217,7 +217,7 @@ public:
     // compiled matrix). Reversed synth drums play a rendered copy of their hit, made here when a reversed note needs
     // one or the drum's sound changes (the timer; tests call it).
     synth::drumseq::Settings getDrumSeqSettings() const noexcept;
-    void updateDrumReverses();
+    void updateDrumReverses();   // and the drum synths' hit lengths for their envelopes (6c)
     // MIDI EXPORT: one pass of a pattern on the kit's keys, at the song's tempo; click saves, drag makes a file.
     juce::MidiFile drumPatternToMidi (int pattern) const;
     bool exportDrumMidi (int pattern, const juce::File&) const;
@@ -383,6 +383,9 @@ private:
     std::array<std::shared_ptr<const synth::drums::Sample>, ParamIDs::numDrums> reverseHits;
     std::array<juce::String, ParamIDs::numDrums> reverseKeys;
     std::array<std::atomic<const synth::drums::Sample*>, ParamIDs::numDrums> reversesForAudio {};
+    // A drum synth's hit length, which its drawn envelope spans (6c); what each was measured from.
+    std::array<std::atomic<float>, ParamIDs::numDrums> hitLengths {};
+    std::array<juce::String, ParamIDs::numDrums> hitLengthKeys;
 
     // WAVETABLES: tables loaded from files (null: the factory's), what each
     // oscillator plays now, the same for the audio thread (a plain pointer it
@@ -475,6 +478,7 @@ private:
         std::array<synth::arp::Patterns, synth::arp::numArps> arpPatterns {};
         std::array<synth::arp::Randomizer, synth::arp::numArps> arpRandomizers {};
         synth::drumseq::Patterns drumPatterns {};
+        std::array<synth::mod::Shape, synth::drums::numSlots> drumEnvelopes {};
         std::uint32_t usedSources = 0;
     };
     std::shared_ptr<const CompiledMatrix> compiledMatrix;

@@ -1302,6 +1302,9 @@ void ParagonX1AudioProcessor::compileMatrix()
     compiled->arpRandomizers = matrix.arpRandomizers;
     for (size_t p = 0; p < compiled->drumPatterns.size() && p < matrix.drumPatterns.size(); ++p)
         compiled->drumPatterns[p] = matrix.drumPatterns[p];
+    static_assert (ModMatrix::numDrumSlots == synth::drums::numSlots);
+    for (size_t k = 0; k < compiled->drumEnvelopes.size() && k < matrix.drumEnvelopes.size(); ++k)
+        compiled->drumEnvelopes[k] = matrix.drumEnvelopes[k].toShape();
     std::stable_sort (compiled->routes.begin(), compiled->routes.end(), [] (const CompiledRoute& a, const CompiledRoute& b)
     {
         return std::pair ((int) a.target.field, a.target.index) < std::pair ((int) b.target.field, b.target.index);
@@ -1580,6 +1583,15 @@ synth::drums::KitSettings ParagonX1AudioProcessor::getKitSettings() const noexce
         // REVERSE: a SAMPLE slot plays its own file backwards; a synth drum its rendered hit.
         s.reverseBaked = s.model != synth::drums::Model::sample;
         s.reverseSource = s.reverseBaked ? reversesForAudio[k].load() : s.sample;
+        // THE SAMPLE EDITOR (6c).
+        s.trim = juce::Decibels::decibelsToGain (get (drumSetting ("Gain")));
+        s.mono = get (drumSetting ("Mono")) > 0.5f;
+        s.delay = get (drumSetting ("Delay")) * 0.001f;
+        s.lowPass = get (drumSetting ("LowPass"));
+        s.highPass = get (drumSetting ("HighPass"));
+        if (const auto* compiled = matrixForAudio.load())
+            s.envelope = &compiled->drumEnvelopes[k];
+        s.envelopeSeconds = hitLengths[k].load();
     }
     return kit;
 }
@@ -1611,7 +1623,25 @@ void ParagonX1AudioProcessor::updateDrumReverses()
     const auto now = juce::Time::getMillisecondCounterHiRes();
     for (size_t k = 0; k < (size_t) ParamIDs::numDrums; ++k)
     {
-        const auto& s = kit.slots[k];
+        // The hit alone: VOLUME, GAIN, LP / HP and the envelope are put on as it plays (the envelope by where it is
+        // in the hit), so none of them go into the recording (before 6c, VOLUME did, and counted twice).
+        auto s = kit.slots[k];
+        s.gain = s.trim = 1.0f;
+        s.envelope = nullptr;
+        s.lowPass = 20000.0f;
+        s.highPass = 20.0f;
+        s.delay = 0.0f;
+
+        // The drum synths' hit lengths, which their drawn envelopes span (only measured for one that's drawn).
+        juce::String lengthKey;
+        if (s.model != synth::drums::Model::sample && synth::drums::envelopeShapes (kit.slots[k].envelope))
+            lengthKey << (int) s.model << ":" << s.pitch << ":" << s.decay << ":" << s.tone << ":" << s.snap;
+        if (lengthKey != hitLengthKeys[k])
+        {
+            hitLengthKeys[k] = lengthKey;
+            hitLengths[k] = lengthKey.isNotEmpty() ? (float) synth::drums::Kit::hitSeconds (s) : 0.0f;
+        }
+
         juce::String key;
         if (wanted[k] && s.model != synth::drums::Model::sample)
             key << (int) s.model << ":" << s.pitch << ":" << s.decay << ":" << s.tone << ":" << s.snap << ":" << rate;
@@ -1645,8 +1675,13 @@ void ParagonX1AudioProcessor::updateDrumReverses()
 juce::MidiFile ParagonX1AudioProcessor::drumPatternToMidi (int pattern) const
 {
     const auto p = (size_t) juce::jlimit (0, synth::drumseq::numPatterns - 1, pattern);
+    // Drums with an anchor (6c) written early, as the sequencer plays them.
+    const auto kit = getKitSettings();
+    std::array<double, synth::drumseq::numRows> lead {};
+    for (size_t k = 0; k < lead.size(); ++k)
+        lead[k] = kit.slots[k].anchorSeconds();
     return synth::drumseq::toMidi (matrix.drumPatterns[p], getDrumSeqSettings(), juce::roundToInt (param (ParamIDs::drumsRoot)),
-                                   juce::jmax (1.0, getHostBpm()));
+                                   juce::jmax (1.0, getHostBpm()), lead);
 }
 
 bool ParagonX1AudioProcessor::exportDrumMidi (int pattern, const juce::File& file) const

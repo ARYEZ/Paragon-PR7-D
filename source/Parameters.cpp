@@ -31,6 +31,7 @@ namespace
     constexpr int stage6a = 20;  // 0.21.0
     constexpr int stage6aStart = 21;   // 0.21.1: SAMPLE's START and END
     constexpr int stage6b = 22;  // 0.22.0
+    constexpr int stage6c = 23;  // 0.23.0
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -476,6 +477,17 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         };
         const ToText asLevel = [] (float db, int) { return db <= -47.95f ? juce::String ("-inf") : juce::String (db, 1) + " dB"; };
         const ToText asShare = [] (float value, int) { return juce::String (value * 100.0f, 2) + "%"; };   // of the sample
+        // DELAY: later to the right; to the left, the anchor (how far into the hit lands on the step), ms either way.
+        juce::NormalisableRange<float> delayRange (-1000.0f, 1000.0f, 0.1f, 0.35f, true);
+        const ToText asDrumDelay = [] (float ms, int)
+        {
+            if (std::abs (ms) < 0.05f)
+                return juce::String ("0 ms");
+            const auto text = juce::String (std::abs (ms), std::abs (ms) < 10.0f ? 1 : 0) + " ms";
+            return ms > 0.0f ? "+" + text : "Anchor " + text;
+        };
+        const ToText asLowPass = [] (float hz, int) { return hz >= 19999.0f ? juce::String ("Off") : asFrequency (hz, 0); };
+        const ToText asHighPass = [] (float hz, int) { return hz <= 20.01f ? juce::String ("Off") : asFrequency (hz, 0); };
         addSwitch (layout, drumsOn, "Drums On", false, stage6a);
         add (layout, drumsRoot, "Drums Root Key", { 0.0f, 116.0f, 1.0f }, 36.0f, asNote, stage6a);
         add (layout, drumsLevel, "Drums Level", { -24.0f, 12.0f, 0.1f }, 0.0f, asDb, stage6a);
@@ -499,6 +511,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
             add (layout, drum (k, "SendReverb"), name + "Send Reverb", { 0.0f, 1.0f }, 1.0f, asPercent, stage6a);
             add (layout, drum (k, "SampleStart"), name + "Sample Start", { 0.0f, 1.0f }, 0.0f, asShare, stage6aStart);
             add (layout, drum (k, "SampleEnd"), name + "Sample End", { 0.0f, 1.0f }, 1.0f, asShare, stage6aStart);
+            // THE SAMPLE EDITOR (6c).
+            add (layout, drum (k, "Gain"), name + "Gain", { -24.0f, 24.0f, 0.1f }, 0.0f, asDb, stage6c);
+            addSwitch (layout, drum (k, "Mono"), name + "Mono", false, stage6c);
+            add (layout, drum (k, "Delay"), name + "Delay", delayRange, 0.0f, asDrumDelay, stage6c);
+            add (layout, drum (k, "LowPass"), name + "Low Pass", logRange (20.0, 20000.0), 20000.0f, asLowPass, stage6c);
+            add (layout, drum (k, "HighPass"), name + "High Pass", logRange (20.0, 20000.0), 20.0f, asHighPass, stage6c);
         }
 
         // THE DRUM SEQUENCER (stage 6b).

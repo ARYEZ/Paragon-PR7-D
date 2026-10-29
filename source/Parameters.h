@@ -207,7 +207,8 @@ namespace ParamIDs
     inline juce::String drum (int slot, const char* what) { return "drum" + juce::String (slot + 1) + what; }
     inline constexpr const char* drumSettings[] = { "Model", "Level", "Pan", "Pitch", "Decay", "Tone", "Snap", "Mute", "Solo",
                                                     "Choke", "Insert", "SendDelay", "SendReverb",
-                                                    "SampleStart", "SampleEnd" };   // 0.21.1 (version hint 21): appended
+                                                    "SampleStart", "SampleEnd",     // 0.21.1 (version hint 21): appended
+                                                    "Gain", "Mono", "Delay", "LowPass", "HighPass" };   // 6c (hint 23)
     consteval int drumSetting (std::string_view what)
     {
         for (int i = 0; i < (int) std::size (drumSettings); ++i)

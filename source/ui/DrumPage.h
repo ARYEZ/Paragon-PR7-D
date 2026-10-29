@@ -3,6 +3,7 @@
 #include "PluginProcessor.h"
 #include "dsp/synth/Drums.h"
 #include "ui/DrumSeqPage.h"
+#include "ui/MultiPointEditor.h"
 #include "ui/SynthControls.h"
 
 // THE DRUMS page (stage 6a): the kit's 12 slots down the left (a row each: its key, its drum, a picture of its hit,
@@ -101,6 +102,7 @@ public:
     int getSelected() const noexcept { return selected; }
     DrumRow& getRow (int slot) noexcept { return *rows[(size_t) slot]; }
     DrumHitDisplay& getDisplay() noexcept { return display; }
+    MultiPointEditor& getEnvelopeEditor() noexcept { return envelope; }   // THE SAMPLE EDITOR's envelope (6c)
     // The chosen drum's controls (for tests): whatever parameter each is pointed at now.
     std::vector<ParamControl*> getSlotControls();
     void refreshPictures();   // now, not on the next tick (tests and snapshots)
@@ -122,6 +124,8 @@ private:
     void timerCallback() override;
     void chooseSample();
     juce::String keyFor (int slot) const;   // what a slot's picture was made from
+    void placeEnvelope();                   // over the part of the picture it shapes (a sample's START to END)
+    juce::Rectangle<int> envelopeStrip;
 
     ParagonX1AudioProcessor& processor;
     int selected = 0;
@@ -129,6 +133,7 @@ private:
     std::array<juce::String, synth::drums::numSlots> pictureKeys;
     std::vector<std::unique_ptr<ParamControl>> kitControls, slotControls, routingControls;
     DrumHitDisplay display;
+    MultiPointEditor envelope;
     juce::TextButton play { "PLAY" }, load { "LOAD SAMPLE..." }, clear { "CLEAR" }, wholeFile { "WHOLE FILE" };
     std::unique_ptr<juce::FileChooser> chooser;
     juce::Rectangle<int> kitArea, drumArea;

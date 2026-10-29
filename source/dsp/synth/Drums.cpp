@@ -972,6 +972,8 @@ namespace synth::drums
             if (! used[(size_t) slot])
             {
                 slotGain[(size_t) slot] = target;
+                lowState[(size_t) slot] = {};    // LP / HP start afresh with the next hit
+                highState[(size_t) slot] = {};
                 continue;
             }
 

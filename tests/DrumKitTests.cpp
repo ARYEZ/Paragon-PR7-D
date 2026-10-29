@@ -298,3 +298,87 @@ TEST_CASE ("DRUMS in the plugin: a newly loaded file plays whole (START and END 
     CHECK_THAT (p.processor.getKitSettings().slots[2].end, WithinAbs (1.0, 1.0e-6));
     file.deleteFile();
 }
+
+TEST_CASE ("DRUMS in the plugin: THE SAMPLE EDITOR's settings and envelope play, and are kept by presets, the project and undo", "[drumkit]")
+{
+    Plugin p;
+    p.set (ParamIDs::drumsOn, 1.0f);
+    p.set (ParamIDs::drum (2, "Gain"), 6.0f);
+    p.set (ParamIDs::drum (2, "Mono"), 1.0f);
+    p.set (ParamIDs::drum (2, "Delay"), -30.0f);
+    p.set (ParamIDs::drum (2, "LowPass"), 2000.0f);
+    p.set (ParamIDs::drum (2, "HighPass"), 100.0f);
+    const auto kit = p.processor.getKitSettings();
+    const auto& s = kit.slots[2];
+    CHECK_THAT (s.trim, WithinAbs (juce::Decibels::decibelsToGain (6.0), 1.0e-3));
+    CHECK (s.mono);
+    CHECK_THAT (s.anchorSeconds(), WithinAbs (0.03, 1.0e-4));
+    CHECK_THAT (s.lowPass, WithinAbs (2000.0, 1.0));
+    CHECK_THAT (s.highPass, WithinAbs (100.0, 0.1));
+    CHECK_FALSE (synth::drums::envelopeShapes (s.envelope));   // new: flat
+
+    // A gate drawn on the snare: its hit ends at half its length (measured by the processor, for the drum synth).
+    p.processor.flushUndoStep();
+    auto matrix = p.processor.getModMatrix();
+    matrix.drumEnvelopes[2] = { { { 0.0f, 1.0f, 0.0f }, { 0.25f, 1.0f, 0.0f }, { 0.26f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f } }, -1, -1, -1 };
+    p.processor.setModMatrix (matrix);
+    p.processor.modMatrixEditFinished();
+    p.processor.flushUndoStep();
+    p.processor.updateDrumReverses();
+    const auto seconds = p.processor.getKitSettings().slots[2].envelopeSeconds;
+    REQUIRE (seconds > 0.1f);
+    p.set (ParamIDs::drum (2, "Delay"), 0.0f);
+    p.set (ParamIDs::drum (2, "LowPass"), 20000.0f);   // (the filters' own short tails aside)
+    p.set (ParamIDs::drum (2, "HighPass"), 20.0f);
+    const auto played = p.play ({ { 38, 0.0 } }, 1.0);
+    CHECK (peakOf (played[0], 0.0, 0.25 * seconds - 0.005) > 0.05);
+    CHECK (peakOf (played[0], 0.26 * seconds + 0.003) < 1.0e-6);
+
+    // Presets and the project keep the envelope; undo takes it back.
+    const auto reread = Rig::fromXml (*p.processor.captureRig().toXml());
+    REQUIRE (reread.has_value());
+    CHECK (reread->modulation.drumEnvelopes[2] == matrix.drumEnvelopes[2]);
+    CHECK (reread->modulation.drumEnvelopes[0] == ModShapeData::flatDrumEnvelope());
+    juce::MemoryBlock state;
+    p.processor.getStateInformation (state);
+    Plugin other;
+    other.processor.setStateInformation (state.getData(), (int) state.getSize());
+    CHECK (other.processor.getModMatrix().drumEnvelopes[2] == matrix.drumEnvelopes[2]);
+    p.processor.undo();
+    CHECK (p.processor.getModMatrix().drumEnvelopes[2] == ModShapeData::flatDrumEnvelope());
+}
+
+TEST_CASE ("DRUMS page: the envelope strip edits the chosen drum's; its menu's shapes", "[drumkit][ui]")
+{
+    Plugin p;
+    DrumPage page (p.processor);
+    page.setSize (1476, 672);
+    page.select (5);
+    auto& editor = page.getEnvelopeEditor();
+    CHECK (editor.getKind() == MultiPointEditor::Kind::drumEnvelope);
+    CHECK (editor.getIndex() == 5);
+    editor.applyDrumShape (5);   // fade out
+    const auto fade = p.processor.getModMatrix().drumEnvelopes[5];
+    REQUIRE (fade.points.size() == 2);
+    CHECK (fade.points[0].y == 1.0f);
+    CHECK (fade.points[1].y == 0.0f);
+    editor.applyDrumShape (2);   // back to front: a fade in, curved the other way
+    const auto mirrored = p.processor.getModMatrix().drumEnvelopes[5];
+    CHECK (mirrored.points[0].y == 0.0f);
+    CHECK (mirrored.points[1].y == 1.0f);
+    CHECK (mirrored.points[0].curve == -fade.points[0].curve);
+    const auto a = fade.toShape(), b = mirrored.toShape();
+    for (const auto x : { 0.1, 0.3, 0.5, 0.8 })
+        CHECK_THAT (b.valueAt (x), WithinAbs (a.valueAt (1.0 - x), 0.02));
+    editor.applyDrumShape (3);   // upside down
+    CHECK (p.processor.getModMatrix().drumEnvelopes[5].points[0].y == 1.0f);
+    editor.applyDrumShape (1);
+    CHECK (p.processor.getModMatrix().drumEnvelopes[5] == ModShapeData::flatDrumEnvelope());
+    CHECK (p.processor.getModMatrix().drumEnvelopes[4] == ModShapeData::flatDrumEnvelope());   // others untouched
+
+    // Its plot lines up with the hit's picture.
+    const auto plot = page.getLocalArea (&editor, editor.getPlotArea());
+    const auto picture = page.getDisplay().getBounds().toFloat().reduced (20.0f, 0.0f);
+    CHECK_THAT (plot.getX(), WithinAbs (picture.getX(), 0.5));
+    CHECK_THAT (plot.getRight(), WithinAbs (picture.getRight(), 0.5));
+}

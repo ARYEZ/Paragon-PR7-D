@@ -4,6 +4,7 @@
 
 #include "dsp/synth/SynthSettings.h"
 #include "dsp/synth/DrumSequencer.h"
+#include "dsp/synth/MultiPoint.h"
 
 #include <vector>
 
@@ -56,6 +57,29 @@ struct ModShapeData
     static ModShapeData defaultPitchEnvelope()
     {
         return { { { 0.0f, 0.75f, -0.5f }, { 0.15f, 0.5f, 0.0f } }, -1, -1, -1 };
+    }
+    // A new drum envelope (6c): flat at the top, changing nothing; x 0 to 1 across the hit.
+    static ModShapeData flatDrumEnvelope()
+    {
+        return { { { 0.0f, 1.0f, 0.0f }, { 1.0f, 1.0f, 0.0f } }, -1, -1, -1 };
+    }
+    // The drum envelope's menu (6c): back to front (each line's curve turned round with it), and upside down.
+    ModShapeData mirrored() const
+    {
+        ModShapeData d { {}, -1, -1, -1 };
+        for (size_t i = points.size(); i-- > 0;)
+        {
+            const auto curve = i > 0 ? -points[i - 1].curve : 0.0f;   // the line that led to it now leads away
+            d.points.push_back ({ 1.0f - points[i].x, points[i].y, curve });
+        }
+        return d;
+    }
+    ModShapeData flipped() const
+    {
+        auto d = *this;
+        for (auto& p : d.points)
+            p.y = 1.0f - p.y;
+        return d;
     }
     // A new drawn LFO shape: a triangle.
     static ModShapeData defaultLfoShape()
@@ -190,6 +214,9 @@ struct ModMatrix
     std::array<synth::arp::Randomizer, synth::arp::numArps> arpRandomizers {};
     // THE DRUM SEQUENCER's patterns A to D (stage 6b); each pattern's notes on the heap.
     std::vector<synth::drumseq::Pattern> drumPatterns = std::vector<synth::drumseq::Pattern> ((size_t) synth::drumseq::numPatterns);
+    // THE SAMPLE EDITOR's envelopes, one per drum slot (6c).
+    static constexpr int numDrumSlots = 12;
+    std::vector<ModShapeData> drumEnvelopes = std::vector<ModShapeData> ((size_t) numDrumSlots, ModShapeData::flatDrumEnvelope());
     static std::vector<synth::arp::Patterns> filledArps()
     {
         return std::vector<synth::arp::Patterns> ((size_t) synth::arp::numArps, synth::arp::Patterns::makeDefault());
@@ -207,7 +234,7 @@ struct ModMatrix
     {
         return routes == o.routes && macroNames == o.macroNames && envelopes == o.envelopes && lfoShapes == o.lfoShapes
             && pitchEnvelope == o.pitchEnvelope && stepPattern == o.stepPattern && travel == o.travel && arps == o.arps
-            && arpRandomizers == o.arpRandomizers && drumPatterns == o.drumPatterns;
+            && arpRandomizers == o.arpRandomizers && drumPatterns == o.drumPatterns && drumEnvelopes == o.drumEnvelopes;
     }
     bool isEmpty() const noexcept { return *this == ModMatrix {}; }
 
@@ -253,6 +280,9 @@ struct ModMatrix
                 addShape ("LfoShape", i, lfoShapes[(size_t) i]);
         if (! (pitchEnvelope == ModShapeData::defaultPitchEnvelope()))
             addShape ("PitchEnvelope", 0, pitchEnvelope);
+        for (int i = 0; i < (int) drumEnvelopes.size(); ++i)
+            if (! (drumEnvelopes[(size_t) i] == ModShapeData::flatDrumEnvelope()))
+                addShape ("DrumEnvelope", i, drumEnvelopes[(size_t) i]);
         if (! (stepPattern == synth::seq::Pattern {}))
         {
             auto* e = xml->createNewChildElement ("StepSeq");
@@ -357,6 +387,13 @@ struct ModMatrix
                 const auto d = ModShapeData::decode (e->getStringAttribute ("points"), e->getIntAttribute ("sustain", -1),
                                                      e->getIntAttribute ("loopStart", -1), e->getIntAttribute ("loopEnd", -1), lfo);
                 (lfo ? m.lfoShapes[(size_t) index] : m.envelopes[(size_t) index]) = d;
+            }
+        for (const auto* e : xml.getChildWithTagNameIterator ("DrumEnvelope"))
+            if (const auto index = e->getIntAttribute ("index") - 1; index >= 0 && index < numDrumSlots)
+            {
+                auto d = ModShapeData::decode (e->getStringAttribute ("points"), -1, -1, -1, true);   // x within 0 to 1
+                if (d.points.size() >= 2)
+                    m.drumEnvelopes[(size_t) index] = d;
             }
         if (const auto* e = xml.getChildByName ("PitchEnvelope"))
             m.pitchEnvelope = ModShapeData::decode (e->getStringAttribute ("points"), e->getIntAttribute ("sustain", -1),

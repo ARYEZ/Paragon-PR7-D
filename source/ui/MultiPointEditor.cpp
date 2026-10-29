@@ -32,6 +32,8 @@ ModShapeData MultiPointEditor::getShape() const
         return matrix.pitchEnvelope;
     if (kind == Kind::travel)
         return matrix.travel[(size_t) juce::jlimit (0, synth::numOscillators - 1, index)].envelope;
+    if (kind == Kind::drumEnvelope)
+        return matrix.drumEnvelopes[(size_t) juce::jlimit (0, ModMatrix::numDrumSlots - 1, index)];
     return kind == Kind::envelope ? matrix.envelopes[(size_t) juce::jlimit (0, synth::mod::numEnvelopes - 1, index)]
                                   : matrix.lfoShapes[(size_t) juce::jlimit (0, synth::mod::numLfoShapes - 1, index)];
 }
@@ -43,6 +45,8 @@ void MultiPointEditor::setShape (const ModShapeData& shape, bool finished)
         matrix.pitchEnvelope = shape;
     else if (kind == Kind::travel)
         matrix.travel[(size_t) index].envelope = shape;
+    else if (kind == Kind::drumEnvelope)
+        matrix.drumEnvelopes[(size_t) index] = shape;
     else
         (kind == Kind::envelope ? matrix.envelopes[(size_t) index] : matrix.lfoShapes[(size_t) index]) = shape;
     processor.setModMatrix (matrix);
@@ -125,7 +129,7 @@ void MultiPointEditor::paint (juce::Graphics& g)
         g.drawText (label, juce::Rectangle<float> (60.0f, 12.0f).withCentre ({ pixelX (x), area.getBottom() + 8.0f }), juce::Justification::centred, false);
     }
     g.setColour (ParagonColours::panelEdge);
-    const auto middle = kind == Kind::envelope ? 0.0f : 0.5f;   // LFO shapes and the PITCH envelope swing both ways
+    const auto middle = kind == Kind::envelope || kind == Kind::drumEnvelope ? 0.0f : 0.5f;   // LFO shapes and the PITCH envelope swing both ways
     g.drawHorizontalLine (juce::roundToInt (pixelY (middle)), area.getX(), area.getRight());
     if (kind == Kind::pitchEnvelope)
     {
@@ -137,6 +141,18 @@ void MultiPointEditor::paint (juce::Graphics& g)
         g.drawText ("-" + juce::String (range) + " st", juce::Rectangle<float> (area.getX() + 4.0f, area.getBottom() - 12.0f, 60.0f, 12.0f), juce::Justification::centredLeft, false);
     }
 
+    if (caption.isNotEmpty())
+    {
+        // Below the top line (where a flat envelope runs), on a dark backing so the curve can pass behind it.
+        const juce::Font font (juce::FontOptions (10.0f, juce::Font::bold));
+        const auto box = juce::Rectangle<float> (area.getX() + 6.0f, area.getY() + 12.0f,
+                                                 juce::GlyphArrangement::getStringWidth (font, caption) + 10.0f, 14.0f);
+        g.setColour (juce::Colour (0xff060407).withAlpha (0.8f));
+        g.fillRoundedRectangle (box, 3.0f);
+        g.setColour (ParagonColours::textDim);
+        g.setFont (font);
+        g.drawText (caption, box, juce::Justification::centred, false);
+    }
     if (shown.points.empty())
         return;
 
@@ -196,6 +212,25 @@ void MultiPointEditor::mouseDown (const juce::MouseEvent& e)
     const auto near = pointNear (e.position);
     if (e.mods.isPopupMenu())
     {
+        if (near < 0 && kind == Kind::drumEnvelope)
+        {
+            juce::PopupMenu menu;
+            menu.addItem (1, "Flat (no change)");
+            menu.addItem (2, "Back to front");
+            menu.addItem (3, "Upside down");
+            menu.addSeparator();
+            menu.addItem (4, "Fade in");
+            menu.addItem (5, "Fade out");
+            menu.addItem (6, "Gate (cut halfway)");
+            menu.addItem (7, "Swell");
+            menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(),
+                                [safe = juce::Component::SafePointer<MultiPointEditor> (this)] (int result)
+                                {
+                                    if (safe != nullptr && result > 0)
+                                        safe->applyDrumShape (result);
+                                });
+            return;
+        }
         if (near < 0)
             return;
         juce::PopupMenu menu;
@@ -255,6 +290,24 @@ void MultiPointEditor::mouseDown (const juce::MouseEvent& e)
             dragStartY = e.position.y;
             break;
         }
+}
+
+void MultiPointEditor::applyDrumShape (int choice)
+{
+    const auto current = getShape();
+    ModShapeData shape;
+    switch (choice)
+    {
+        case 1: shape = ModShapeData::flatDrumEnvelope(); break;
+        case 2: shape = current.mirrored(); break;
+        case 3: shape = current.flipped(); break;
+        case 4: shape = { { { 0.0f, 0.0f, 0.4f }, { 1.0f, 1.0f, 0.0f } }, -1, -1, -1 }; break;
+        case 5: shape = { { { 0.0f, 1.0f, -0.5f }, { 1.0f, 0.0f, 0.0f } }, -1, -1, -1 }; break;
+        case 6: shape = { { { 0.0f, 1.0f, 0.0f }, { 0.5f, 1.0f, 0.0f }, { 0.52f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f } }, -1, -1, -1 }; break;
+        case 7: shape = { { { 0.0f, 0.15f, 0.6f }, { 0.85f, 1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f } }, -1, -1, -1 }; break;
+        default: return;
+    }
+    setShape (shape, true);
 }
 
 void MultiPointEditor::mouseDrag (const juce::MouseEvent& e)

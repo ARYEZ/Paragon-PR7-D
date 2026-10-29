@@ -20,6 +20,29 @@ namespace
         return sample != nullptr ? sample->name : juce::String ("SAMPLE (EMPTY)");
     }
 
+    // DELAY to the left (6c): a green line where the sequencer's step lands in the hit, as on Avenger's editor.
+    const juce::Colour anchorGreen { 0xff3ad17a };
+    void drawAnchor (juce::Graphics& g, float x, juce::Rectangle<float> area, const synth::drums::SlotSettings& s)
+    {
+        g.setColour (anchorGreen.withAlpha (0.12f));
+        g.fillRect (area.withRight (x));
+        g.setColour (anchorGreen);
+        g.fillRect (juce::Rectangle<float> (x - 1.0f, area.getY(), 2.0f, area.getHeight()));
+        g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        g.drawText ("ANCHOR  " + juce::String (s.anchorSeconds() * 1000.0, 0) + " ms", juce::Rectangle<float> (x + 4.0f, area.getY() + 2.0f, 140.0f, 14.0f),
+                    juce::Justification::centredLeft, false);
+    }
+    // DELAY to the right: said in the top corner (the picture is the hit itself).
+    void drawLate (juce::Graphics& g, juce::Rectangle<float> area, const synth::drums::SlotSettings& s)
+    {
+        if (s.delay <= 0.0f)
+            return;
+        g.setColour (anchorGreen);
+        g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        g.drawText ("PLAYS " + juce::String (s.delay * 1000.0f, 0) + " ms LATE", area.withHeight (14.0f).translated (0.0f, 2.0f),
+                    juce::Justification::centredRight, false);
+    }
+
     // The waveform mirrored about the middle, filled in the plugin's highlight.
     void drawPeaks (juce::Graphics& g, const std::vector<float>& peaks, juce::Rectangle<float> area, bool bright)
     {
@@ -62,6 +85,10 @@ HitPicture HitPicture::make (const synth::drums::SlotSettings& settings, int col
             break;
         }
     last = juce::jmax (last, (int) (0.05 * pictureRate));
+    // A drum synth with a drawn envelope: the picture spans what the envelope does (the hit's own length), so the
+    // two line up.
+    if (settings.model != Model::sample && synth::drums::envelopeShapes (settings.envelope) && settings.envelopeSeconds > 0.0f)
+        last = juce::jmin (hit.getNumSamples() - 1, (int) (settings.envelopeSeconds * pictureRate));
     picture.seconds = last / pictureRate;
     picture.peaks.assign ((size_t) columns, 0.0f);
     for (int i = 0; i <= last; ++i)
@@ -399,6 +426,28 @@ void DrumHitDisplay::paint (juce::Graphics& g)
             g.drawText (juce::String (i + 1), juce::Rectangle<float> (x + 2.0f, wave.getY() - 16.0f, 24.0f, 14.0f),
                         juce::Justification::centredLeft, false);
         }
+        // The ANCHOR (DELAY to the left): that far into the part played lands on the sequencer's step.
+        if (s.delay < 0.0f)
+        {
+            const auto anchorShare = startShare + (float) (s.anchorSeconds() * file->sampleRate * std::exp2 (s.pitch / 12.0) / file->length());
+            if (anchorShare <= endShare)
+                drawAnchor (g, wave.getX() + wave.getWidth() * anchorShare, wave, s);
+        }
+        drawLate (g, wave, s);
+        // The envelope (6c) over the part it shapes.
+        if (const auto& shape = processor.getModMatrix().drumEnvelopes[(size_t) slot]; synth::drums::envelopeShapes (s.envelope))
+        {
+            const auto curve = shape.toShape();
+            juce::Path path;
+            const auto width = juce::jmax (2.0f, endX - startX);
+            for (int i = 0; i <= (int) width; ++i)
+            {
+                const juce::Point<float> p (startX + (float) i, wave.getBottom() - wave.getHeight() * curve.valueAt ((float) i / width));
+                if (i == 0) path.startNewSubPath (p); else path.lineTo (p);
+            }
+            g.setColour (ParagonColours::text.withAlpha (0.8f));
+            g.strokePath (path, juce::PathStrokeType (1.5f));
+        }
         // START and END.
         for (const auto& [x, label] : { std::pair { startX, "S" }, std::pair { endX, "E" } })
         {
@@ -438,6 +487,9 @@ void DrumHitDisplay::paint (juce::Graphics& g)
     g.setColour (ParagonColours::panelEdge);
     g.drawHorizontalLine (juce::roundToInt (area.getCentreY()), area.getX(), area.getRight());
     drawPeaks (g, picture.peaks, area, ! s.mute);
+    if (s.delay < 0.0f && s.anchorSeconds() <= picture.seconds)
+        drawAnchor (g, area.getX() + area.getWidth() * (float) (s.anchorSeconds() / picture.seconds), area, s);
+    drawLate (g, area, s);
 
     // Time marks: 10, 4 or so along, at a round step.
     g.setFont (juce::FontOptions (10.0f));
@@ -472,7 +524,7 @@ void DrumHitDisplay::filesDropped (const juce::StringArray& files, int, int)
 }
 
 //==============================================================================
-DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), sequencer (p)
+DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), envelope (p), sequencer (p)
 {
     auto& state = p.getParameters();
     const auto kitControl = [&] (const char* id, const juce::String& label, const juce::String& tip)
@@ -499,11 +551,21 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), se
                                                "the cowbell's strike. SAMPLE: a softer attack below the middle, a spike above.");
     slotControl (slotControls, "Level", "VOLUME", "This drum's level.");
     slotControl (slotControls, "Pan", "PAN", "Left to right.");
+    slotControl (slotControls, "Gain", "GAIN", "More level than VOLUME gives (or less): for samples recorded very loud or very quiet.");
     slotControl (routingControls, "Choke", "CHOKE", "A hit stops the other drums in its group: the closed and pedal hats stop the open hat (group 1).");
     slotControl (routingControls, "Insert", "INSERT", "NONE: straight into the mix, through the sends. A to D: through that insert bus "
                                                       "(its DRIVE, GLITCH, MOD, LO-FI), whose own sends then feed DELAY and REVERB.");
     slotControl (routingControls, "SendDelay", "TO DELAY", "How much goes to DELAY (while DELAY is on, and the drum isn't on a bus).");
     slotControl (routingControls, "SendReverb", "TO REVERB", "How much goes to REVERB (while REVERB is on, and the drum isn't on a bus).");
+    slotControl (routingControls, "Mono", "MONO", "On: a new hit cuts this drum's last one short (a quick fade). Off (POLY): fast hits, "
+                                                  "like a snare roll, ring on over each other.");
+    slotControl (routingControls, "Delay", "DELAY", "Right: the hit comes later. Left: the ANCHOR, the green line: the sequencer starts the "
+                                                    "hit that much early, so that point in it lands on the step (a clap's main slap after its "
+                                                    "flams, the peak of a swoosh). Keys you play still start it at once.");
+    slotControl (routingControls, "LowPass", "LP", "Low-pass, 6 dB an octave: darkens the drum (damping a kick, softening hats). "
+                                                   "All the way up: off.");
+    slotControl (routingControls, "HighPass", "HP", "High-pass, 6 dB an octave: thins the drum (hats out of the kick's way). "
+                                                    "All the way down: off.");
 
     for (auto* list : { &kitControls, &slotControls, &routingControls })
         for (auto& c : *list)
@@ -516,6 +578,12 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), se
         addAndMakeVisible (*rows.back());
     }
     addAndMakeVisible (display);
+    envelope.setTarget (MultiPointEditor::Kind::drumEnvelope, 0);
+    envelope.caption = "ENVELOPE: ITS LEVEL ACROSS THE HIT";
+    envelope.setTooltip ("ENVELOPE: the drum's level across its hit, start to end (a sample: from START to END). Drag a point; drag a "
+                         "line up or down to curve it; double-click to add a point (or, on one, to delete it). Right-click: flat, back "
+                         "to front, upside down, fades, a gate, a swell. Flat at the top changes nothing.");
+    addAndMakeVisible (envelope);
 
     play.setTooltip ("Hear the chosen drum.");
     play.onClick = [this] { processor.previewDrum (selected); };
@@ -556,7 +624,8 @@ void DrumPage::showView (View v)
     for (auto* list : { &slotControls, &routingControls })
         for (auto& c : *list)
             c->setVisible (drum);
-    for (juce::Component* c : { (juce::Component*) &display, (juce::Component*) &play, (juce::Component*) &load, (juce::Component*) &clear })
+    for (juce::Component* c : { (juce::Component*) &display, (juce::Component*) &envelope, (juce::Component*) &play,
+                                (juce::Component*) &load, (juce::Component*) &clear })
         c->setVisible (drum);
     wholeFile.setVisible (drum && display.showsFile());
     sequencer.setVisible (! drum);
@@ -594,10 +663,21 @@ void DrumPage::select (int slot)
     for (auto& row : rows)
         row->setSelected (row->getSlot() == selected);
     sequencer.getGrid().setHighlightedRow (selected);
+    envelope.setTarget (MultiPointEditor::Kind::drumEnvelope, selected);
     display.setSlot (selected);
     pictureKeys[(size_t) selected] = {};   // the large picture for this drum
     refreshPictures();
     repaint();
+}
+
+void DrumPage::placeEnvelope()
+{
+    // The editor's plot is 14 px in from its sides, the picture 20 px in from the display's: a drum synth's hit lines
+    // up under it. A sample's file is shown whole, so the picture draws the curve over START to END itself (lining the
+    // strip up with one short hit out of a file left it too narrow to edit).
+    const auto bounds = envelopeStrip.reduced (6, 0);
+    if (envelope.getBounds() != bounds)
+        envelope.setBounds (bounds);
 }
 
 juce::String DrumPage::keyFor (int slot) const
@@ -606,12 +686,15 @@ juce::String DrumPage::keyFor (int slot) const
     return juce::String ((int) s.model) + ":" + juce::String (s.pitch) + ":" + juce::String (s.decay) + ":" + juce::String (s.tone) + ":"
          + juce::String (s.snap) + ":" + juce::String (s.gain) + ":" + juce::String ((juce::pointer_sized_int) s.sample)
          + ":" + juce::String ((int) s.mute) + ":" + juce::String (processor.getKitSettings().rootKey) + ":" + juce::String (s.start)
-         + ":" + juce::String (s.end);
+         + ":" + juce::String (s.end) + ":" + juce::String (s.trim) + ":" + juce::String (s.lowPass) + ":" + juce::String (s.highPass)
+         + ":" + juce::String (s.envelopeSeconds) + ":" + juce::String (s.delay) + ":"
+         + processor.getModMatrix().drumEnvelopes[(size_t) slot].encode();
 }
 
 void DrumPage::refreshPictures()
 {
     wholeFile.setVisible (view == View::drum && display.showsFile());
+    placeEnvelope();
     const auto kit = processor.getKitSettings();
     for (int k = 0; k < synth::drums::numSlots; ++k)
     {
@@ -688,6 +771,7 @@ void DrumPage::paint (juce::Graphics& g)
     }
     const auto& slotKit = kit.slots[(size_t) selected];
     title ("DRUM", drumArea.reduced (18, 0).withHeight (40));
+
     g.setColour (ParagonColours::textDim);
     g.setFont (juce::FontOptions (11.0f));
     g.drawText (noteName (kit.rootKey + selected) + "  " + synth::drums::slotDefaults[(size_t) selected].key + "  "
@@ -741,14 +825,20 @@ void DrumPage::resized()
     d.removeFromBottom (14);
     auto knobs = d.removeFromBottom (ParamControl::knobHeight);
     d.removeFromBottom (10);
+    // THE SAMPLE EDITOR's envelope (6c) above the hit, as Avenger has it.
+    // Its plot (14 px in from its sides) lined up with the hit's picture (20 px in from the display's), so each point
+    // sits over the moment it shapes.
+    envelopeStrip = d.removeFromTop (96);
+    d.removeFromTop (6);
     display.setBounds (d);
+    placeEnvelope();
     std::vector<juce::Component*> shaping, routes;
     for (size_t i = 1; i < slotControls.size(); ++i)
         shaping.push_back (slotControls[i].get());
     for (auto& c : routingControls)
         routes.push_back (c.get());
     SynthPanel::layoutRow (knobs, shaping, 110);
-    SynthPanel::layoutRow (routing, routes, 140);
+    SynthPanel::layoutRow (routing, routes);   // eight: shared out across the row
 
     std::fill (pictureKeys.begin(), pictureKeys.end(), juce::String());   // sized afresh
     refreshPictures();

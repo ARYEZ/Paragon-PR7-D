@@ -226,6 +226,14 @@ TEST_CASE ("DRUM SEQUENCER in the plugin: MIDI export puts the pattern on the ki
         if (e->message.isNoteOn())
             ons.emplace_back (e->message.getNoteNumber(), e->message.getTimeStamp());
     CHECK (ons == std::vector<std::pair<int, double>> { { 48, 0.0 }, { 51, 480.0 } });
+    // A drum with an anchor (6c) is written early: 62.5 ms at 120 BPM is an eighth of a beat.
+    p.set (ParamIDs::drum (3, "Delay"), -62.5f);
+    ons.clear();
+    const auto early = p.processor.drumPatternToMidi (2);
+    for (const auto* e : *early.getTrack (0))
+        if (e->message.isNoteOn())
+            ons.emplace_back (e->message.getNoteNumber(), e->message.getTimeStamp());
+    CHECK (ons == std::vector<std::pair<int, double>> { { 48, 0.0 }, { 51, 360.0 } });
     const auto drag = p.processor.drumMidiDragFile (2);
     CHECK (drag.existsAsFile());
     CHECK (drag.getFileName() == "Drums C.mid");

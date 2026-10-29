@@ -705,5 +705,29 @@ std::vector<Rig> makeFactoryRigs()
     }
     add (beat);
 
+    // THE SAMPLE EDITOR (stage 6c): A41's beat, tightened.
+    Builder tight ("Tight Kit", 42, { "Drums", "Bass", "Sequencer" },
+                   "A41's beat and bass, tightened with the sample editor: the clap's main slap on the beat (its flams start "
+                   "early: DELAY's anchor), the open hat cut short by its drawn envelope, the kick MONO and a little darker, the "
+                   "hats thinned out of the kick's way (HP). Our own settings, not tuned by ear.");
+    tight.rig.parameters = beat.rig.parameters;
+    tight.rig.modulation = beat.rig.modulation;
+    tight.set (ParamIDs::drum (3, "Delay"), -18.0f)
+        .set (ParamIDs::drum (0, "Mono"), 1.0f).set (ParamIDs::drum (0, "LowPass"), 5000.0f)
+        .set (ParamIDs::drum (6, "HighPass"), 400.0f).set (ParamIDs::drum (8, "HighPass"), 400.0f).set (ParamIDs::drum (10, "HighPass"), 300.0f);
+    tight.rig.modulation.drumEnvelopes[10] = { { { 0.0f, 1.0f, 0.0f }, { 0.3f, 0.8f, -0.4f }, { 0.45f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f } }, -1, -1, -1 };
+    {
+        auto& c = tight.rig.modulation.drumPatterns[0];   // the clap with the snare on beat 2 and 4
+        for (const auto step : { 4.0, 12.0 })
+        {
+            synth::drumseq::Note n;
+            n.row = 3;
+            n.start = step;
+            n.velocity = 0.7f;
+            c.notes.push_back (n);
+        }
+    }
+    add (tight);
+
     return rigs;
 }

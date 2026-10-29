@@ -21,7 +21,8 @@
 //   PARAGON_SNAPSHOT_FFT=band:dB,...  a curve drawn for oscillator 1; PARAGON_SNAPSHOT_FFT_VIEW=harmonic|bins
 //   PARAGON_SNAPSHOT_PARAMS=id=value,...   parameters set (real units)
 //   PARAGON_SNAPSHOT_PAGE=drums      THE DRUMS (PARAGON_SNAPSHOT_DRUM=n: slot n chosen; PARAGON_SNAPSHOT_DRUMS=1: a beat just played, its rows lit;
-//                                    PARAGON_SNAPSHOT_DRUMSEQ=1: the SEQUENCER view, a beat playing with the song)
+//                                    PARAGON_SNAPSHOT_DRUMSEQ=1: the SEQUENCER view, a beat playing with the song;
+//                                    PARAGON_SNAPSHOT_DRUMEDIT=1: the clap with an envelope, an anchor, GAIN and LP)
 //   PARAGON_SNAPSHOT_PAGE=fx         THE RACK (PARAGON_SNAPSHOT_RACK=1: at work on a chord, the sends too; PARAGON_SNAPSHOT_FX=eq|dominion|comp|limiter|sends|delay|reverb|modfx|mod|mod2|lofi|inserts|insdrive|insglitch|insmod|inslofi: that view, the inserts' on bus PARAGON_SNAPSHOT_BUS=1-4)
 //   PARAGON_SNAPSHOT_NOTES=1         a chord held on the keyboard (so the PLAY panel counts notes, and keys light)
 TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
@@ -370,6 +371,13 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             drums.select (0);
             drums.setSize (1476, 672);
             drums.getDisplay().pickHit (3);
+            if (env ("PARAGON_SNAPSHOT_DRUMEDIT") == "2")   // and a fade out drawn over it
+            {
+                auto matrix = processor.getModMatrix();
+                matrix.drumEnvelopes[0] = { { { 0.0f, 1.0f, -0.5f }, { 1.0f, 0.0f, 0.0f } }, -1, -1, -1 };
+                processor.setModMatrix (matrix);
+                drums.getEnvelopeEditor().setTarget (MultiPointEditor::Kind::drumEnvelope, 0);
+            }
             drums.refreshPictures();
         }
         if (env ("PARAGON_SNAPSHOT_DRUMS") != "2")
@@ -385,6 +393,26 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             for (int b = 0; b < 6; ++b)
                 processor.processBlock (buffer, midi);
             drums.updateLights();
+        }
+        if (env ("PARAGON_SNAPSHOT_DRUMEDIT") == "1")
+        {
+            // THE SAMPLE EDITOR (6c): the clap with a drawn envelope (its flams held, its tail cut), an anchor on its
+            // main slap, GAIN and LP.
+            const auto set = [&processor] (const juce::String& id, float value)
+            {
+                if (auto* p = processor.getParameters().getParameter (id))
+                    p->setValueNotifyingHost (p->convertTo0to1 (value));
+            };
+            set (ParamIDs::drum (3, "Delay"), -22.0f);
+            set (ParamIDs::drum (3, "Gain"), 3.0f);
+            set (ParamIDs::drum (3, "LowPass"), 7000.0f);
+            set (ParamIDs::drum (3, "Decay"), 0.7f);
+            auto matrix = processor.getModMatrix();
+            matrix.drumEnvelopes[3] = { { { 0.0f, 1.0f, 0.0f }, { 0.35f, 0.9f, -0.4f }, { 0.6f, 0.25f, 0.0f }, { 0.75f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f } }, -1, -1, -1 };
+            processor.setModMatrix (matrix);
+            processor.updateDrumReverses();   // the clap's hit length, which the envelope spans
+            drums.select (3);
+            drums.refreshPictures();
         }
         if (env ("PARAGON_SNAPSHOT_DRUMSEQ") == "1")
         {

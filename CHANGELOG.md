@@ -2,6 +2,49 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.23.0
+
+Stage 6, part 3 (first half): **THE SAMPLE EDITOR**, inspired by Avenger's drum sample editor (its manual's page 66). As you chose, it works on **every slot**, the drum synths as well as samples. Kit and sequence saving, choosing several drums at once, the < > sample arrows and a playhead in the rows come next, in 0.24.0.
+
+- **Where:** the DRUMS page's DRUM view, for the chosen drum.
+- **ENVELOPE:** the drum's level across its hit, drawn in a strip above the hit's picture, as on Avenger.
+  - It works like the MOD page's envelopes: drag a point; drag a line up or down to curve it; double-click to add a point, or on a point to delete it.
+  - Right-click for ready shapes: flat, back to front, upside down, fade in, fade out, a gate (cut halfway), a swell.
+  - **A drum synth's** envelope spans its hit, from the start to where it has died away, lined up under the picture. Change DECAY and the hit gets longer or shorter, and the envelope stretches with it.
+  - **A sample's** envelope spans START to END and follows the sample itself, so it stays put when you change the pitch. The file's picture draws the curve over that part.
+  - New, it's flat at the top, which changes nothing (tested: exactly the same sound as before). Drawn down to nothing, the hit ends there.
+- **GAIN:** more (or less) level than VOLUME gives, up to ±24 dB, for samples recorded very loud or very quiet.
+- **MONO / POLY:** MONO cuts the drum's last hit short (a 2 ms fade) when a new one starts. POLY, the default, lets fast hits like a snare roll ring on over each other.
+- **DELAY:**
+  - **Right of centre:** the hit comes that much later, up to 1 s.
+  - **Left of centre:** the **anchor**, a green line on the picture. The sequencer starts the hit that much early, so that point of it lands on the step: a clap's main slap after its flams, the peak of a swoosh.
+  - **EXPORT MIDI** writes those drums early too, so played back from a track the anchor still lands on the beat.
+  - As you chose, **keys you play** still start the hit at once (nothing can start in the past).
+- **LP and HP:** a simple 6 dB-an-octave low-pass and high-pass per drum, as on Avenger: damp a kick, thin the hats.
+  - My first version's HP came out 6 dB down at its own setting when set high (5 kHz), instead of the expected 3. The filters are now the kind that are exact at any setting (tested at 1 kHz and 5 kHz).
+- **Not repeated from Avenger:** its fine PITCH (ours already goes to hundredths of a semitone) and SPIKE (our SNAP adds a spike above its middle on a sample).
+- **New parameters** for each drum: GAIN, MONO, DELAY, LP, HP (automatable). The envelopes are kept in the preset, the project and undo, like the MOD page's.
+- **A 0.22.0 fix:** a reversed drum synth had its VOLUME applied twice (the recording it plays backwards had VOLUME in it). Only noticeable with VOLUME away from 0 dB; fixed.
+- **New preset A42, Tight Kit:**
+  - A41's beat and bass;
+  - the clap anchored 18 ms in, alongside the snare;
+  - the open hat cut short by its envelope;
+  - the kick MONO and a little darker;
+  - the hats thinned with HP.
+  - Our own settings, not tuned by ear.
+- **Tests:**
+  - what each control does to the sound:
+    - the envelope's level a quarter of the way through a sample, and where it ends (also an octave up);
+    - a drum synth's silent first half;
+    - GAIN's level;
+    - MONO against POLY on overlapping hits;
+    - DELAY to the sample, and the anchor's start in the sequencer;
+    - LP and HP at their settings and five times past them;
+  - presets, the project and undo keeping the envelopes;
+  - the page's envelope menu;
+  - the strip lining up with the picture.
+  - I can't listen here: how the shaped drums sound is for your ears.
+
 ## 0.22.0
 
 Stage 6, part 2: **THE DRUM SEQUENCER**, beats for the kit, inspired by Avenger's drum sequencer (its manual's pages 81-82). Our own design and numbers where the manual gives none.
