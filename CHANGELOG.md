@@ -2,6 +2,36 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.24.0
+
+Stage 6, part 3 (second half): the rest of the drum section from Avenger's manual (page 67), as you chose. **Stage 6 is now complete.** Next come the bigger kit (your option 2: ride, a second crash, a china and more) and then the groove player.
+
+- **Save and load kits and sequences:**
+  - **KITS** on the kit's title line saves the whole kit as a file: every drum's settings, samples and drawn envelope, plus the kit's LEVEL and VELOCITY. It goes in the presets folder's "Drum Kits" folder. The same menu loads kits back and shows the folder.
+  - **SEQUENCES** does the same for the drum sequencer: all four patterns and SPEED, TIMING, LENGTH and VEL AMOUNT, in "Drum Sequences".
+  - **LINK** (on at first): saving or loading a kit takes the sequence of the same name with it, and the other way round, so a song's kit and beat travel together.
+  - A load is one undo step. It leaves the synth, the effects and how the kit is played (DRUMS ON, ROOT) alone.
+  - The buttons show the kit and sequence last loaded or saved.
+  - SHUFFLE isn't saved with a sequence, because it's the synth's one swing setting, shared with the arpeggiator.
+- **Several drums at once:**
+  - CTRL-click rows to add or remove drums; SHIFT-click to choose a run of them. The chosen drums are outlined, and the one shown brightest.
+  - A change to the bottom row (CHOKE, INSERT, TO DELAY, TO REVERB, MONO, DELAY, LP, HP) then goes to every chosen drum. For example, a high-pass on all the cymbals in one move.
+  - Only changes you make on the page are copied. Automation from your song still moves just its own drum.
+- **< >** next to LOAD SAMPLE load the previous or next audio file from the same folder, so you can run through a folder of kicks one by one.
+  - Files go in number order ("Kick 2" before "Kick 10"), as sample packs number them.
+  - Each new file plays whole.
+  - Samples now remember which file they came from, in presets and projects too. Samples loaded before 0.24.0 don't know their file, so load them again once to use < >.
+- **Playheads:** a line moves across each kit row's picture while that drum plays.
+- **Tests:**
+  - kits and sequences surviving saving and loading;
+  - what a kit or sequence load changes and what it leaves alone;
+  - LINK both ways;
+  - undo;
+  - names cleaned for the file system;
+  - < > in number order, round and round;
+  - several drums getting a page change but not automation;
+  - the row playhead following a hit.
+
 ## 0.23.0
 
 Stage 6, part 3 (first half): **THE SAMPLE EDITOR**, inspired by Avenger's drum sample editor (its manual's page 66). As you chose, it works on **every slot**, the drum synths as well as samples. Kit and sequence saving, choosing several drums at once, the < > sample arrows and a playhead in the rows come next, in 0.24.0.
