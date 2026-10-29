@@ -140,10 +140,10 @@ void DrumRow::setLit (float amount)
 void DrumRow::paint (juce::Graphics& g)
 {
     const auto bounds = getLocalBounds().toFloat();
-    g.setColour (selected ? juce::Colour (0xff1b1418) : juce::Colour (0xff0f0c10));
+    g.setColour (selected ? juce::Colour (0xff1b1418) : chosen ? juce::Colour (0xff17111a) : juce::Colour (0xff0f0c10));
     g.fillRoundedRectangle (bounds, 4.0f);
-    g.setColour (selected ? ParagonColours::accent : ParagonColours::panelEdge);
-    g.drawRoundedRectangle (bounds.reduced (0.5f), 4.0f, selected ? 1.4f : 1.0f);
+    g.setColour (selected ? ParagonColours::accent : chosen ? ParagonColours::accent.withAlpha (0.55f) : ParagonColours::panelEdge);
+    g.drawRoundedRectangle (bounds.reduced (0.5f), 4.0f, selected || chosen ? 1.4f : 1.0f);
 
     // The hit light.
     const auto led = juce::Rectangle<float> (10.0f, bounds.getCentreY() - 5.0f, 10.0f, 10.0f);
@@ -179,6 +179,31 @@ void DrumRow::paint (juce::Graphics& g)
         const auto columns = (size_t) juce::jmax (2.0, picture.peaks.size() * shown / picture.seconds);
         const std::vector<float> first (picture.peaks.begin(), picture.peaks.begin() + (std::ptrdiff_t) juce::jmin (columns, picture.peaks.size()));
         drawPeaks (g, first, thumb.reduced (2.0f, 1.0f).withWidth ((thumb.getWidth() - 4.0f) * (float) (shown / 1.0)), ! s.mute);
+        // Where its last hit is now (6c part 2), while it's within the picture.
+        if (playhead >= 0.0f && playhead < (float) shown)
+        {
+            g.setColour (ParagonColours::text.withAlpha (0.85f));
+            g.fillRect (juce::Rectangle<float> (thumb.getX() + 2.0f + (thumb.getWidth() - 4.0f) * playhead - 0.75f, thumb.getY() + 1.0f, 1.5f,
+                                                thumb.getHeight() - 2.0f));
+        }
+    }
+}
+
+void DrumRow::setChosen (bool c)
+{
+    if (c != chosen)
+    {
+        chosen = c;
+        repaint();
+    }
+}
+
+void DrumRow::setPlayhead (float seconds)
+{
+    if (std::abs (seconds - playhead) > 0.002f)
+    {
+        playhead = seconds;
+        repaint();
     }
 }
 
@@ -189,10 +214,10 @@ void DrumRow::resized()
     mute.setBounds (area.removeFromRight (44));
 }
 
-void DrumRow::mouseDown (const juce::MouseEvent&)
+void DrumRow::mouseDown (const juce::MouseEvent& e)
 {
     if (onSelect)
-        onSelect (slot);
+        onSelect (slot, e.mods);
     processor.previewDrum (slot);
 }
 
@@ -206,7 +231,7 @@ void DrumRow::filesDropped (const juce::StringArray& files, int, int)
     if (processor.loadDrumSample (slot, juce::File (files[0])))
     {
         if (onSelect)
-            onSelect (slot);
+            onSelect (slot, {});
         processor.previewDrum (slot);
     }
 }
@@ -574,7 +599,7 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), en
     for (int k = 0; k < synth::drums::numSlots; ++k)
     {
         rows.push_back (std::make_unique<DrumRow> (p, k));
-        rows.back()->onSelect = [this] (int slot) { select (slot); };
+        rows.back()->onSelect = [this] (int slot, juce::ModifierKeys mods) { clickRow (slot, mods); };
         addAndMakeVisible (*rows.back());
     }
     addAndMakeVisible (display);
@@ -596,6 +621,29 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), en
     clear.onClick = [this] { processor.clearDrumSample (selected); };
     for (auto* b : { &play, &load, &clear })
         addAndMakeVisible (*b);
+
+    // < > (6c part 2): the next or previous audio file in the sample's folder.
+    previous.setTooltip ("The previous audio file in this sample's folder (by name): audition a folder of kicks one by one.");
+    next.setTooltip ("The next audio file in this sample's folder (by name).");
+    previous.onClick = [this] { processor.loadNeighbourSample (selected, -1); refreshPictures(); repaint(); };
+    next.onClick = [this] { processor.loadNeighbourSample (selected, 1); refreshPictures(); repaint(); };
+    addChildComponent (previous);
+    addChildComponent (next);
+
+    // KITS and SEQUENCES (6c part 2), and LINK.
+    for (auto* b : { &kitsButton, &sequencesButton, &linkButton })
+    {
+        DrumSeqPanel::style (*b);
+        addAndMakeVisible (*b);
+    }
+    kitsButton.setTooltip ("Save the kit (every drum's settings, samples and envelope) or load one from the presets folder's Drum Kits.");
+    sequencesButton.setTooltip ("Save the drum sequencer's four patterns (and its SPEED, TIMING, LENGTH, VEL AMOUNT) or load some.");
+    linkButton.setTooltip ("LINK: loading or saving a kit takes the sequence of the same name with it, and the other way round.");
+    linkButton.setClickingTogglesState (true);
+    linkButton.setToggleState (processor.drumLink.load(), juce::dontSendNotification);
+    linkButton.onClick = [this] { processor.drumLink = linkButton.getToggleState(); };
+    kitsButton.onClick = [this] { showKitMenu (false); };
+    sequencesButton.onClick = [this] { showKitMenu (true); };
 
     addChildComponent (sequencer);
     sequencer.getGrid().onRowTouched = [this] (int row) { select (row); };
@@ -628,6 +676,7 @@ void DrumPage::showView (View v)
                                 (juce::Component*) &load, (juce::Component*) &clear })
         c->setVisible (drum);
     wholeFile.setVisible (drum && display.showsFile());
+    refreshPictures();
     sequencer.setVisible (! drum);
     (drum ? drumTab : sequencerTab).setToggleState (true, juce::dontSendNotification);
     drumTab.toFront (false);
@@ -635,7 +684,146 @@ void DrumPage::showView (View v)
     repaint();
 }
 
-DrumPage::~DrumPage() = default;
+DrumPage::~DrumPage()
+{
+    for (auto* p : listened)
+        p->removeListener (this);
+}
+
+void DrumPage::clickRow (int slot, juce::ModifierKeys mods)
+{
+    slot = juce::jlimit (0, synth::drums::numSlots - 1, slot);
+    if (mods.isShiftDown())
+    {
+        for (auto& row : rows)
+            row->setChosen (row->getSlot() >= juce::jmin (anchor, slot) && row->getSlot() <= juce::jmax (anchor, slot));
+    }
+    else if (mods.isCommandDown() || mods.isCtrlDown())
+    {
+        auto& row = *rows[(size_t) slot];
+        if (! row.isChosen() || getChosen().size() > 1)
+            row.setChosen (! row.isChosen());
+        anchor = slot;
+        if (! row.isChosen())
+        {
+            // Taken out: the drum shown moves to one still chosen.
+            select (getChosen().front());
+            return;
+        }
+    }
+    else
+    {
+        for (auto& row : rows)
+            row->setChosen (row->getSlot() == slot);
+        anchor = slot;
+    }
+    select (slot);
+}
+
+std::vector<int> DrumPage::getChosen() const
+{
+    std::vector<int> chosen;
+    for (const auto& row : rows)
+        if (row->isChosen())
+            chosen.push_back (row->getSlot());
+    if (chosen.empty())
+        chosen.push_back (selected);
+    return chosen;
+}
+
+void DrumPage::listenToRouting()
+{
+    for (auto* p : listened)
+        p->removeListener (this);
+    listened.clear();
+    routingGesture = false;
+    if (getChosen().size() < 2)
+        return;
+    for (auto& c : routingControls)
+        if (auto* p = processor.getParameters().getParameter (c->getParameterId()))
+        {
+            p->addListener (this);
+            listened.push_back (p);
+        }
+}
+
+void DrumPage::parameterGestureChanged (int, bool starting)
+{
+    routingGesture = starting;   // a change made on the page (automation makes none)
+}
+
+void DrumPage::parameterValueChanged (int index, float value)
+{
+    if (! routingGesture || copying)
+        return;
+    for (auto* p : listened)
+        if (p->getParameterIndex() == index)
+        {
+            const auto id = dynamic_cast<juce::RangedAudioParameter*> (p)->paramID;
+            const auto what = id.fromFirstOccurrenceOf ("drum", false, false).trimCharactersAtStart ("0123456789");
+            const juce::ScopedValueSetter<bool> guard (copying, true);
+            for (const auto k : getChosen())
+                if (k != selected)
+                    if (auto* other = processor.getParameters().getParameter (ParamIDs::drum (k, what.toRawUTF8())))
+                        other->setValueNotifyingHost (value);
+            return;
+        }
+}
+
+void DrumPage::showKitMenu (bool sequences)
+{
+    juce::PopupMenu menu;
+    const auto files = sequences ? processor.listDrumSequences() : processor.listDrumKits();
+    const auto current = sequences ? processor.getDrumSequenceName() : processor.getDrumKitName();
+    menu.addItem (1, sequences ? "Save the sequence as..." : "Save the kit as...");
+    menu.addSeparator();
+    if (files.isEmpty())
+        menu.addItem (2, sequences ? "(no sequences saved yet)" : "(no kits saved yet)", false);
+    for (int i = 0; i < files.size(); ++i)
+        menu.addItem (100 + i, files[i].getFileNameWithoutExtension(), true, files[i].getFileNameWithoutExtension() == current);
+    menu.addSeparator();
+    menu.addItem (3, "Show the folder");
+    juce::Component::SafePointer<DrumPage> self (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (sequences ? &sequencesButton : &kitsButton),
+                        [self, sequences, files, current] (int result)
+    {
+        if (self == nullptr || result <= 0)
+            return;
+        auto& p = self->processor;
+        if (result == 1)
+        {
+            auto* window = new juce::AlertWindow (sequences ? "Save the sequence" : "Save the kit",
+                                                  "Its name (with LINK on, the other is saved under it too):", juce::MessageBoxIconType::NoIcon);
+            window->addTextEditor ("name", current.isNotEmpty() ? current : juce::String (sequences ? "My Beat" : "My Kit"));
+            window->addButton ("SAVE", 1, juce::KeyPress (juce::KeyPress::returnKey));
+            window->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+            window->enterModalState (true, juce::ModalCallbackFunction::create ([self, window, sequences] (int button)
+            {
+                if (self != nullptr && button == 1)
+                {
+                    const auto name = window->getTextEditorContents ("name");
+                    sequences ? self->processor.saveDrumSequence (name) : self->processor.saveDrumKit (name);
+                    self->repaint();
+                }
+            }), true);
+            return;
+        }
+        if (result == 3)
+        {
+            const auto folder = sequences ? p.drumSequencesFolder() : p.drumKitsFolder();
+            folder.createDirectory();
+            folder.startAsProcess();
+            return;
+        }
+        if (result >= 100 && result - 100 < files.size())
+        {
+            sequences ? p.loadDrumSequence (files[result - 100]) : p.loadDrumKit (files[result - 100]);
+            self->select (self->selected);
+            self->refreshPictures();
+            self->repaint();
+        }
+    });
+}
 
 bool DrumPage::isAudioFile (const juce::String& path)
 {
@@ -654,6 +842,9 @@ std::vector<ParamControl*> DrumPage::getSlotControls()
 void DrumPage::select (int slot)
 {
     selected = juce::jlimit (0, synth::drums::numSlots - 1, slot);
+    if (! rows[(size_t) selected]->isChosen())
+        for (auto& row : rows)
+            row->setChosen (row->getSlot() == selected);   // chosen from elsewhere (the sequencer): alone
     for (auto* list : { &slotControls, &routingControls })
         for (auto& c : *list)
         {
@@ -664,6 +855,7 @@ void DrumPage::select (int slot)
         row->setSelected (row->getSlot() == selected);
     sequencer.getGrid().setHighlightedRow (selected);
     envelope.setTarget (MultiPointEditor::Kind::drumEnvelope, selected);
+    listenToRouting();
     display.setSlot (selected);
     pictureKeys[(size_t) selected] = {};   // the large picture for this drum
     refreshPictures();
@@ -694,6 +886,17 @@ juce::String DrumPage::keyFor (int slot) const
 void DrumPage::refreshPictures()
 {
     wholeFile.setVisible (view == View::drum && display.showsFile());
+    {
+        const auto sample = processor.getDrumSample (selected);
+        const auto stepping = view == View::drum && display.showsFile() && sample != nullptr && sample->path.isNotEmpty();
+        previous.setVisible (stepping);
+        next.setVisible (stepping);
+    }
+    {
+        const auto kitName = processor.getDrumKitName(), seqName = processor.getDrumSequenceName();
+        kitsButton.setButtonText (kitName.isEmpty() ? juce::String ("KITS") : "KIT: " + kitName);
+        sequencesButton.setButtonText (seqName.isEmpty() ? juce::String ("SEQUENCES") : "SEQ: " + seqName);
+    }
     placeEnvelope();
     const auto kit = processor.getKitSettings();
     for (int k = 0; k < synth::drums::numSlots; ++k)
@@ -728,6 +931,7 @@ void DrumPage::updateLights()
     {
         const auto age = kit.getHitAge (row->getSlot());
         row->setLit (age >= 0.0f ? juce::jmax (0.0f, 1.0f - age / 0.25f) : 0.0f);
+        row->setPlayhead (age >= 0.0f && kit.isSounding (row->getSlot()) ? age : -1.0f);
     }
 }
 
@@ -786,9 +990,16 @@ void DrumPage::resized()
     area.removeFromLeft (10);
     drumArea = area;
 
-    // KIT: the kit's own settings, then the 12 rows.
+    // KIT: KITS, SEQUENCES and LINK at the end of the title line, the kit's own settings, then the 12 rows.
     auto k = kitArea.reduced (14, 10);
-    k.removeFromTop (30);
+    {
+        auto titleLine = k.removeFromTop (30);
+        linkButton.setBounds (titleLine.removeFromRight (54).withSizeKeepingCentre (50, 24));
+        titleLine.removeFromRight (4);
+        sequencesButton.setBounds (titleLine.removeFromRight (124).withSizeKeepingCentre (120, 24));
+        titleLine.removeFromRight (4);
+        kitsButton.setBounds (titleLine.removeFromRight (110).withSizeKeepingCentre (106, 24));
+    }
     std::vector<juce::Component*> globals;
     for (auto& c : kitControls)
         globals.push_back (c.get());
@@ -820,6 +1031,9 @@ void DrumPage::resized()
     clear.setBounds (bar.removeFromRight (90).withSizeKeepingCentre (90, 30).translated (0, 8));
     bar.removeFromRight (10);
     load.setBounds (bar.removeFromRight (150).withSizeKeepingCentre (150, 30).translated (0, 8));
+    bar.removeFromRight (6);
+    next.setBounds (bar.removeFromRight (32).withSizeKeepingCentre (30, 30).translated (0, 8));
+    previous.setBounds (bar.removeFromRight (34).withSizeKeepingCentre (30, 30).translated (0, 8));
     d.removeFromTop (8);
     auto routing = d.removeFromBottom (ParamControl::knobHeight);
     d.removeFromBottom (14);

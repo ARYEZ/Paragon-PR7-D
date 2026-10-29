@@ -102,6 +102,7 @@ namespace synth::drums
             reader->read (&buffer, 0, length, 0, true, channels > 1);
             auto sample = std::make_shared<Sample>();
             sample->name = file.getFileNameWithoutExtension();
+            sample->path = file.getFullPathName();
             sample->sampleRate = reader->sampleRate;
             for (int c = 0; c < channels; ++c)
                 sample->channels.emplace_back (buffer.getReadPointer (c), buffer.getReadPointer (c) + length);

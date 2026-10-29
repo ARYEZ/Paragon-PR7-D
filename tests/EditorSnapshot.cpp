@@ -414,6 +414,22 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             drums.select (3);
             drums.refreshPictures();
         }
+        if (env ("PARAGON_SNAPSHOT_DRUMCHOSEN") == "1")
+        {
+            // 6c part 2: the hats and cymbal chosen together, a kit and sequence "loaded", the tom's hit playing.
+            drums.clickRow (6, {});
+            drums.clickRow (8, juce::ModifierKeys::ctrlModifier);
+            drums.clickRow (10, juce::ModifierKeys::ctrlModifier);
+            drums.clickRow (11, juce::ModifierKeys::ctrlModifier);
+            juce::AudioBuffer<float> buffer (2, 512);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 45, 1.0f), 0);
+            processor.processBlock (buffer, midi);
+            midi.clear();
+            for (int b = 0; b < 12; ++b)
+                processor.processBlock (buffer, midi);
+            drums.updateLights();
+        }
         if (env ("PARAGON_SNAPSHOT_DRUMSEQ") == "1")
         {
             // THE DRUM SEQUENCER (stage 6b): a beat in pattern A (accented hats with a roll, a pitched tom fill, a

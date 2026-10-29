@@ -218,6 +218,28 @@ public:
     // one or the drum's sound changes (the timer; tests call it).
     synth::drumseq::Settings getDrumSeqSettings() const noexcept;
     void updateDrumReverses();   // and the drum synths' hit lengths for their envelopes (6c)
+    // KITS AND SEQUENCES (6c part 2): files in the presets folder's "Drum Kits" (.pr7kit: every drum's settings,
+    // samples and envelope, the kit's LEVEL and VELOCITY) and "Drum Sequences" (.pr7seq: the four patterns and the
+    // sequencer's SPEED, TIMING, LENGTH, VEL AMOUNT). With LINK on, loading or saving one takes the other of the same
+    // name too. Loading is one undo step.
+    juce::File drumKitsFolder() const;
+    juce::File drumSequencesFolder() const;
+    std::unique_ptr<juce::XmlElement> captureDrumKit() const;
+    std::unique_ptr<juce::XmlElement> captureDrumSequence() const;
+    bool applyDrumKit (const juce::XmlElement&);
+    bool applyDrumSequence (const juce::XmlElement&);
+    bool saveDrumKit (const juce::String& name);
+    bool saveDrumSequence (const juce::String& name);
+    bool loadDrumKit (const juce::File&);
+    bool loadDrumSequence (const juce::File&);
+    juce::Array<juce::File> listDrumKits() const;
+    juce::Array<juce::File> listDrumSequences() const;
+    std::atomic<bool> drumLink { true };
+    juce::String getDrumKitName() const { return drumKitName; }
+    juce::String getDrumSequenceName() const { return drumSequenceName; }
+    // < > (6c part 2): the next or previous audio file in the slot's sample's folder (by name), loaded into the slot.
+    bool loadNeighbourSample (int slot, int direction);
+
     // MIDI EXPORT: one pass of a pattern on the kit's keys, at the song's tempo; click saves, drag makes a file.
     juce::MidiFile drumPatternToMidi (int pattern) const;
     bool exportDrumMidi (int pattern, const juce::File&) const;
@@ -386,6 +408,8 @@ private:
     // A drum synth's hit length, which its drawn envelope spans (6c); what each was measured from.
     std::array<std::atomic<float>, ParamIDs::numDrums> hitLengths {};
     std::array<juce::String, ParamIDs::numDrums> hitLengthKeys;
+    juce::String drumKitName, drumSequenceName;   // the last loaded or saved (shown on the page)
+    bool saveDrumSequenceOnly (const juce::String& cleanName);
 
     // WAVETABLES: tables loaded from files (null: the factory's), what each
     // oscillator plays now, the same for the audio thread (a plain pointer it

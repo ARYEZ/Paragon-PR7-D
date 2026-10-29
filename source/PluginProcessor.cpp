@@ -1672,6 +1672,240 @@ void ParagonX1AudioProcessor::updateDrumReverses()
     }
 }
 
+//==============================================================================
+// KITS AND SEQUENCES (6c part 2).
+namespace
+{
+    // What each file holds: which parameters (the rest of the sound is untouched).
+    bool isKitParameter (const juce::String& id)
+    {
+        // The kit's LEVEL and VELOCITY, and every slot's "drum<n>..." setting (not DRUMS ON or ROOT: how it's played).
+        return id == ParamIDs::drumsLevel || id == ParamIDs::drumsVelocity
+            || (id.startsWith ("drum") && juce::CharacterFunctions::isDigit (id[4]));
+    }
+    const juce::StringArray sequenceParameters { ParamIDs::dseqDivision, ParamIDs::dseqTiming, ParamIDs::dseqLength, ParamIDs::dseqVelocity };
+
+    juce::String cleanName (const juce::String& name)
+    {
+        return juce::File::createLegalFileName (name.trim()).substring (0, 64);
+    }
+
+    juce::Array<juce::File> filesIn (const juce::File& folder, const juce::String& pattern)
+    {
+        auto files = folder.findChildFiles (juce::File::findFiles, false, pattern);
+        files.sort();
+        return files;
+    }
+}
+
+juce::File ParagonX1AudioProcessor::drumKitsFolder() const { return rigLibrary->getFolder().getChildFile ("Drum Kits"); }
+juce::File ParagonX1AudioProcessor::drumSequencesFolder() const { return rigLibrary->getFolder().getChildFile ("Drum Sequences"); }
+juce::Array<juce::File> ParagonX1AudioProcessor::listDrumKits() const { return filesIn (drumKitsFolder(), "*.pr7kit"); }
+juce::Array<juce::File> ParagonX1AudioProcessor::listDrumSequences() const { return filesIn (drumSequencesFolder(), "*.pr7seq"); }
+
+std::unique_ptr<juce::XmlElement> ParagonX1AudioProcessor::captureDrumKit() const
+{
+    auto xml = std::make_unique<juce::XmlElement> ("DrumKit");
+    xml->setAttribute ("version", 1);
+    for (auto* parameter : AudioProcessor::getParameters())
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter); ranged != nullptr && isKitParameter (ranged->paramID))
+        {
+            auto* e = xml->createNewChildElement ("Param");
+            e->setAttribute ("id", ranged->paramID);
+            e->setAttribute ("value", ranged->convertFrom0to1 (ranged->getValue()));
+        }
+    for (int k = 0; k < ParamIDs::numDrums; ++k)
+    {
+        if (const auto& sample = drumSamples[(size_t) k])
+        {
+            auto* e = xml->createNewChildElement ("DrumSample");
+            e->setAttribute ("slot", k + 1);
+            e->setAttribute ("name", sample->name);
+            if (sample->path.isNotEmpty())
+                e->setAttribute ("path", sample->path);
+            e->addTextElement (synth::drums::sampleFiles::encode (*sample));
+        }
+        const auto& envelope = matrix.drumEnvelopes[(size_t) k];
+        if (! (envelope == ModShapeData::flatDrumEnvelope()))
+        {
+            auto* e = xml->createNewChildElement ("DrumEnvelope");
+            e->setAttribute ("index", k + 1);
+            e->setAttribute ("points", envelope.encode());
+        }
+    }
+    return xml;
+}
+
+std::unique_ptr<juce::XmlElement> ParagonX1AudioProcessor::captureDrumSequence() const
+{
+    auto xml = std::make_unique<juce::XmlElement> ("DrumSequence");
+    xml->setAttribute ("version", 1);
+    for (const auto& id : sequenceParameters)
+        if (auto* ranged = parameters.getParameter (id))
+        {
+            auto* e = xml->createNewChildElement ("Param");
+            e->setAttribute ("id", id);
+            e->setAttribute ("value", ranged->convertFrom0to1 (ranged->getValue()));
+        }
+    for (int p = 0; p < (int) matrix.drumPatterns.size(); ++p)
+    {
+        auto* e = xml->createNewChildElement ("DrumPattern");
+        e->setAttribute ("pattern", synth::drumseq::patternNames[p]);
+        e->setAttribute ("notes", matrix.drumPatterns[(size_t) p].encode());
+    }
+    return xml;
+}
+
+bool ParagonX1AudioProcessor::applyDrumKit (const juce::XmlElement& xml)
+{
+    if (! xml.hasTagName ("DrumKit"))
+        return false;
+    // Every kit parameter: what the file says, the rest of the kit's to its default (as a preset does).
+    std::map<juce::String, float> values;
+    for (const auto* e : xml.getChildWithTagNameIterator ("Param"))
+        values[e->getStringAttribute ("id")] = (float) e->getDoubleAttribute ("value");
+    for (auto* parameter : AudioProcessor::getParameters())
+        if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter); ranged != nullptr && isKitParameter (ranged->paramID))
+        {
+            const auto found = values.find (ranged->paramID);
+            ranged->setValueNotifyingHost (found != values.end() ? ranged->convertTo0to1 (ranged->getNormalisableRange().snapToLegalValue (found->second))
+                                                                 : ranged->getDefaultValue());
+        }
+    std::array<std::shared_ptr<const synth::drums::Sample>, ParamIDs::numDrums> samples {};
+    for (const auto* e : xml.getChildWithTagNameIterator ("DrumSample"))
+        if (const auto slot = e->getIntAttribute ("slot") - 1; slot >= 0 && slot < ParamIDs::numDrums)
+            if (auto sample = synth::drums::sampleFiles::decode (e->getStringAttribute ("name"), e->getAllSubText()))
+            {
+                std::const_pointer_cast<synth::drums::Sample> (sample)->path = e->getStringAttribute ("path");
+                samples[(size_t) slot] = std::move (sample);
+            }
+    for (int k = 0; k < ParamIDs::numDrums; ++k)
+        setDrumSample (k, samples[(size_t) k]);
+    auto m = matrix;
+    for (auto& envelope : m.drumEnvelopes)
+        envelope = ModShapeData::flatDrumEnvelope();
+    for (const auto* e : xml.getChildWithTagNameIterator ("DrumEnvelope"))
+        if (const auto index = e->getIntAttribute ("index") - 1; index >= 0 && index < ModMatrix::numDrumSlots)
+            if (auto d = ModShapeData::decode (e->getStringAttribute ("points"), -1, -1, -1, true); d.points.size() >= 2)
+                m.drumEnvelopes[(size_t) index] = d;
+    setModMatrix (m);
+    markModified();
+    requestCheckpoint();
+    return true;
+}
+
+bool ParagonX1AudioProcessor::applyDrumSequence (const juce::XmlElement& xml)
+{
+    if (! xml.hasTagName ("DrumSequence"))
+        return false;
+    for (const auto* e : xml.getChildWithTagNameIterator ("Param"))
+        if (const auto id = e->getStringAttribute ("id"); sequenceParameters.contains (id))
+            if (auto* ranged = parameters.getParameter (id))
+                ranged->setValueNotifyingHost (ranged->convertTo0to1 (ranged->getNormalisableRange().snapToLegalValue ((float) e->getDoubleAttribute ("value"))));
+    auto m = matrix;
+    for (auto& pattern : m.drumPatterns)
+        pattern = {};
+    for (const auto* e : xml.getChildWithTagNameIterator ("DrumPattern"))
+        if (const auto p = synth::drumseq::patternNames.indexOf (e->getStringAttribute ("pattern")); p >= 0)
+            m.drumPatterns[(size_t) p] = synth::drumseq::Pattern::decode (e->getStringAttribute ("notes"));
+    setModMatrix (m);
+    markModified();
+    requestCheckpoint();
+    return true;
+}
+
+bool ParagonX1AudioProcessor::saveDrumKit (const juce::String& name)
+{
+    const auto clean = cleanName (name);
+    if (clean.isEmpty())
+        return false;
+    drumKitsFolder().createDirectory();
+    if (! captureDrumKit()->writeTo (drumKitsFolder().getChildFile (clean + ".pr7kit")))
+        return false;
+    drumKitName = clean;
+    if (drumLink && ! saveDrumSequenceOnly (clean))
+        return false;
+    return true;
+}
+
+bool ParagonX1AudioProcessor::saveDrumSequence (const juce::String& name)
+{
+    const auto clean = cleanName (name);
+    if (clean.isEmpty() || ! saveDrumSequenceOnly (clean))
+        return false;
+    if (drumLink)
+    {
+        drumKitsFolder().createDirectory();
+        if (! captureDrumKit()->writeTo (drumKitsFolder().getChildFile (clean + ".pr7kit")))
+            return false;
+        drumKitName = clean;
+    }
+    return true;
+}
+
+bool ParagonX1AudioProcessor::saveDrumSequenceOnly (const juce::String& clean)
+{
+    drumSequencesFolder().createDirectory();
+    if (! captureDrumSequence()->writeTo (drumSequencesFolder().getChildFile (clean + ".pr7seq")))
+        return false;
+    drumSequenceName = clean;
+    return true;
+}
+
+bool ParagonX1AudioProcessor::loadDrumKit (const juce::File& file)
+{
+    const auto xml = juce::XmlDocument::parse (file);
+    if (xml == nullptr || ! applyDrumKit (*xml))
+        return false;
+    drumKitName = file.getFileNameWithoutExtension();
+    if (drumLink)
+        if (const auto partner = drumSequencesFolder().getChildFile (drumKitName + ".pr7seq"); partner.existsAsFile())
+            if (const auto seq = juce::XmlDocument::parse (partner); seq != nullptr && applyDrumSequence (*seq))
+                drumSequenceName = drumKitName;
+    return true;
+}
+
+bool ParagonX1AudioProcessor::loadDrumSequence (const juce::File& file)
+{
+    const auto xml = juce::XmlDocument::parse (file);
+    if (xml == nullptr || ! applyDrumSequence (*xml))
+        return false;
+    drumSequenceName = file.getFileNameWithoutExtension();
+    if (drumLink)
+        if (const auto partner = drumKitsFolder().getChildFile (drumSequenceName + ".pr7kit"); partner.existsAsFile())
+            if (const auto kit = juce::XmlDocument::parse (partner); kit != nullptr && applyDrumKit (*kit))
+                drumKitName = drumSequenceName;
+    return true;
+}
+
+bool ParagonX1AudioProcessor::loadNeighbourSample (int slot, int direction)
+{
+    slot = juce::jlimit (0, ParamIDs::numDrums - 1, slot);
+    const auto& sample = drumSamples[(size_t) slot];
+    if (sample == nullptr || sample->path.isEmpty())
+        return false;
+    const juce::File current (sample->path);
+    auto files = current.getParentDirectory().findChildFiles (juce::File::findFiles, false, "*.wav;*.aif;*.aiff;*.flac;*.ogg;*.mp3");
+    if (files.isEmpty())
+        return false;
+    // In natural order ("Kick 2" before "Kick 10"), as sample packs number their files.
+    std::sort (files.begin(), files.end(), [] (const juce::File& a, const juce::File& b)
+    {
+        return a.getFileName().compareNatural (b.getFileName()) < 0;
+    });
+    auto at = files.indexOf (current);
+    if (at < 0)
+    {
+        // The file's gone or renamed: the first by name after where it was.
+        at = 0;
+        while (at < files.size() && files[at].getFileName().compareNatural (current.getFileName()) < 0)
+            ++at;
+        at -= direction > 0 ? 1 : 0;
+    }
+    const auto next = ((at + (direction > 0 ? 1 : -1)) % files.size() + files.size()) % files.size();
+    return loadDrumSample (slot, files[next]);
+}
+
 juce::MidiFile ParagonX1AudioProcessor::drumPatternToMidi (int pattern) const
 {
     const auto p = (size_t) juce::jlimit (0, synth::drumseq::numPatterns - 1, pattern);
@@ -1998,7 +2232,7 @@ void ParagonX1AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     juce::ValueTree kitSamples (drumSamplesKey);
     for (int k = 0; k < ParamIDs::numDrums; ++k)
         if (const auto& sample = drumSamples[(size_t) k])
-            kitSamples.appendChild (juce::ValueTree (drumSampleKey, { { "slot", k + 1 }, { "name", sample->name },
+            kitSamples.appendChild (juce::ValueTree (drumSampleKey, { { "slot", k + 1 }, { "name", sample->name }, { "path", sample->path },
                                                                     { "data", synth::drums::sampleFiles::encode (*sample) } }), nullptr);
     state.appendChild (kitSamples, nullptr);
 
@@ -2049,7 +2283,11 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
         {
             const auto slot = (int) sample["slot"] - 1;
             if (slot >= 0 && slot < ParamIDs::numDrums)
+            {
                 kitSamples[(size_t) slot] = synth::drums::sampleFiles::decode (sample["name"].toString(), sample["data"].toString());
+                if (kitSamples[(size_t) slot] != nullptr)
+                    std::const_pointer_cast<synth::drums::Sample> (kitSamples[(size_t) slot])->path = sample["path"].toString();
+            }
         }
         state.removeChild (saved, nullptr);
     }

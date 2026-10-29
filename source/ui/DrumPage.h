@@ -26,9 +26,12 @@ class DrumRow final : public juce::Component,
 {
 public:
     DrumRow (ParagonX1AudioProcessor&, int slot);
-    std::function<void (int slot)> onSelect;
+    std::function<void (int slot, juce::ModifierKeys)> onSelect;
 
     void setSelected (bool);
+    void setChosen (bool);              // one of several drums chosen together (SHIFT / CTRL), 6c part 2
+    bool isChosen() const noexcept { return chosen; }
+    void setPlayhead (float seconds);   // where its last hit is now (-1: none), drawn across the picture
     void setPicture (HitPicture);
     void setLit (float amount);        // 0 to 1: the hit's flash
     int getSlot() const noexcept { return slot; }
@@ -42,8 +45,8 @@ public:
 private:
     ParagonX1AudioProcessor& processor;
     int slot;
-    bool selected = false;
-    float lit = 0.0f;
+    bool selected = false, chosen = false;
+    float lit = 0.0f, playhead = -1.0f;
     HitPicture picture;
     ParamControl mute, solo;
 };
@@ -92,7 +95,8 @@ private:
 };
 
 class DrumPage final : public juce::Component,
-                       private juce::Timer
+                       private juce::Timer,
+                       private juce::AudioProcessorParameter::Listener
 {
 public:
     explicit DrumPage (ParagonX1AudioProcessor&);
@@ -100,6 +104,11 @@ public:
 
     void select (int slot);
     int getSelected() const noexcept { return selected; }
+    // Several drums at once (6c part 2): a click chooses one, SHIFT a run from the last chosen, CTRL adds or takes
+    // one away. A change to the routing row (CHOKE, INSERT, sends, MONO, DELAY, LP, HP) from the page then goes to
+    // every chosen drum.
+    void clickRow (int slot, juce::ModifierKeys);
+    std::vector<int> getChosen() const;
     DrumRow& getRow (int slot) noexcept { return *rows[(size_t) slot]; }
     DrumHitDisplay& getDisplay() noexcept { return display; }
     MultiPointEditor& getEnvelopeEditor() noexcept { return envelope; }   // THE SAMPLE EDITOR's envelope (6c)
@@ -122,6 +131,10 @@ public:
 
 private:
     void timerCallback() override;
+    void parameterValueChanged (int, float) override;
+    void parameterGestureChanged (int, bool) override;
+    void listenToRouting();
+    void showKitMenu (bool sequences);
     void chooseSample();
     juce::String keyFor (int slot) const;   // what a slot's picture was made from
     void placeEnvelope();                   // over the part of the picture it shapes (a sample's START to END)
@@ -135,6 +148,11 @@ private:
     DrumHitDisplay display;
     MultiPointEditor envelope;
     juce::TextButton play { "PLAY" }, load { "LOAD SAMPLE..." }, clear { "CLEAR" }, wholeFile { "WHOLE FILE" };
+    juce::TextButton previous { "<" }, next { ">" };                                    // the folder's other samples
+    juce::TextButton kitsButton { "KITS" }, sequencesButton { "SEQUENCES" }, linkButton { "LINK" };
+    std::vector<juce::AudioProcessorParameter*> listened;   // the chosen drum's routing, while several are chosen
+    bool routingGesture = false, copying = false;
+    int anchor = 0;                                         // where a SHIFT run starts
     std::unique_ptr<juce::FileChooser> chooser;
     juce::Rectangle<int> kitArea, drumArea;
     int tick = 0;

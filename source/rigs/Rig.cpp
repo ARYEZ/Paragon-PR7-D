@@ -65,6 +65,8 @@ std::unique_ptr<juce::XmlElement> Rig::toXml() const
         auto* element = xml->createNewChildElement (drumSampleTag);
         element->setAttribute ("slot", slot + 1);
         element->setAttribute ("name", sample->name);
+        if (sample->path.isNotEmpty())
+            element->setAttribute ("path", sample->path);
         element->addTextElement (synth::drums::sampleFiles::encode (*sample));
     }
     for (const auto& [oscillator, edit] : spectra)
@@ -124,7 +126,10 @@ std::optional<Rig> Rig::fromXml (const juce::XmlElement& xml)
         const auto slot = element->getIntAttribute ("slot") - 1;
         if (slot >= 0 && slot < synth::drums::numSlots)
             if (auto sample = synth::drums::sampleFiles::decode (element->getStringAttribute ("name"), element->getAllSubText()))
+            {
+                std::const_pointer_cast<synth::drums::Sample> (sample)->path = element->getStringAttribute ("path");
                 rig.drumSamples[slot] = std::move (sample);
+            }
     }
     for (const auto* element : xml.getChildWithTagNameIterator (spectrumTag))
     {

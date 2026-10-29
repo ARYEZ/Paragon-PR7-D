@@ -64,6 +64,7 @@ namespace synth::drums
     struct Sample
     {
         juce::String name;
+        juce::String path;                          // the file it came from, if known (6c: < > step through its folder)
         double sampleRate = 48000.0;
         std::vector<std::vector<float>> channels;   // 1 or 2, all the same length
 
