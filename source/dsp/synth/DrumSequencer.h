@@ -187,7 +187,7 @@ namespace synth::drumseq
         const auto lead = [&] (const Note& n) { return leadSeconds[(size_t) juce::jlimit (0, numRows - 1, n.row)] * stepsPerSecond; };
         forEachHit (pattern, s, 0.0, s.lengthSteps(), [] (const Note&) { return 0.0; }, lead, [&] (double t, const Note& n, int)
         {
-            const auto at = t * ticksPerStep;
+            const auto at = std::round (t * ticksPerStep);   // a MIDI file keeps whole ticks (and a hair off isn't a tick early)
             const auto lasts = n.gate < 1.0f ? n.gate * ticksPerBeat : ticksPerStep / n.rollCount();
             const auto velocity = (juce::uint8) juce::jlimit (1, 127, juce::roundToInt (n.velocity * 127.0f));
             track.addEvent (juce::MidiMessage::noteOn (10, rootKey + n.row, velocity), at);
