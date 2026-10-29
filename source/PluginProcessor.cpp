@@ -18,6 +18,7 @@ namespace
     const juce::Identifier parameterVersionKey { "parameterVersion" };
     // Wavetables loaded from files, kept in the project as presets keep them.
     const juce::Identifier wavetablesKey { "Wavetables" };
+    const juce::Identifier drumSamplesKey { "DrumSamples" }, drumSampleKey { "DrumSample" };
     const juce::Identifier wavetableKey { "Wavetable" };
     constexpr double retiredTableMs = 2000.0;   // how long a replaced table is kept, in case a block is still playing it
     const juce::Identifier spectraKey { "Spectra" };
@@ -160,6 +161,12 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
             arpParameters[(size_t) k].values[s] = parameters.getRawParameterValue (ParamIDs::arp (k, ParamIDs::arpSettings[s]));
             jassert (arpParameters[(size_t) k].values[s] != nullptr);
         }
+    for (int k = 0; k < ParamIDs::numDrums; ++k)
+        for (size_t s = 0; s < std::size (ParamIDs::drumSettings); ++s)
+        {
+            drumParameters[(size_t) k].values[s] = parameters.getRawParameterValue (ParamIDs::drum (k, ParamIDs::drumSettings[s]));
+            jassert (drumParameters[(size_t) k].values[s] != nullptr);
+        }
     for (int k = 0; k < ParamIDs::numEnvelopes; ++k)
         for (size_t s = 0; s < std::size (ParamIDs::envelopeSettings); ++s)
         {
@@ -242,7 +249,10 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     if (juce::MessageManager::existsAndIsCurrentThread())
         updateWavetables();
     keyboardMidi.ensureSize (2048);
+    synthMidi.ensureSize (2048);
+    drumMidi.ensureSize (1024);
     keyboardState.reset();
+    drumKit.prepare (sampleRate, 512);   // the pieces processChunk renders in
 
     outputGain.reset (sampleRate, gainRampSeconds);
     outputGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (param (ParamIDs::outputGain) + param (ParamIDs::patchLevel)));
@@ -1024,16 +1034,34 @@ void ParagonX1AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     if (const auto wheel = pendingModWheel.exchange (-1.0f); wheel >= 0.0f)
         keyboardMidi.addEvent (juce::MidiMessage::controllerEvent (1, 1, juce::roundToInt (wheel * 127.0f)), 0);
 
+    // THE DRUMS: while they're on, a note-on in the kit's 12 keys plays the kit, not the synth. Note-offs go to the
+    // synth either way (the kit's hits are one-shots), so a note held as DRUMS was switched on still ends.
+    const auto kit = getKitSettings();
+    synthMidi.clear();
+    drumMidi.clear();
+    for (const auto metadata : keyboardMidi)
+    {
+        const auto message = metadata.getMessage();
+        if (kit.on && message.isNoteOn() && kit.slotFor (message.getNoteNumber()) >= 0)
+            drumMidi.addEvent (message, metadata.samplePosition);
+        else
+            synthMidi.addEvent (message, metadata.samplePosition);
+    }
+    for (int slot = 0; slot < ParamIDs::numDrums; ++slot)
+        if (pendingPreview[(size_t) slot].exchange (false))
+            drumKit.trigger (slot, 0.8f, kit);
+
     // Some hosts occasionally send more samples than they promised in
     // prepareToPlay; work through an oversized block in promised-size pieces.
     for (int start = 0; start < numSamples; start += preparedBlockSize)
-        processChunk (buffer, keyboardMidi, start, juce::jmin (preparedBlockSize, numSamples - start));
+        processChunk (buffer, synthMidi, drumMidi, kit, start, juce::jmin (preparedBlockSize, numSamples - start));
 
     activeVoices = engine.getNumActiveVoices();
     midi.clear();   // an instrument: nothing goes on down the MIDI chain
 }
 
-void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& midi, int start, int numSamples)
+void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& midi, const juce::MidiBuffer& drums,
+                                            const synth::drums::KitSettings& kit, int start, int numSamples)
 {
     const auto numChannels = buffer.getNumChannels();
     auto* left = buffer.getWritePointer (0, start);
@@ -1049,6 +1077,10 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
         if (osc.values[(size_t) ParamIDs::oscSetting ("On")]->load() > 0.5f)
             if (const auto b = juce::roundToInt (osc.values[(size_t) ParamIDs::oscSetting ("Insert")]->load()); b >= 1 && b <= synth::numInsertBuses)
                 rack->buses[(size_t) b - 1].used = true;
+    if (kit.on)
+        for (const auto& slot : kit.slots)
+            if (slot.insertBus >= 1 && slot.insertBus <= synth::numInsertBuses)
+                rack->buses[(size_t) slot.insertBus - 1].used = true;
     if (sendsReady)
         for (auto& send : rack->sends)
             send.clear (0, numSamples);
@@ -1112,6 +1144,28 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
         }
         settings.modulation.ppq = hostPpq >= 0.0 ? hostPpq + (start + done) / getSampleRate() * settings.modulation.bpm / 60.0 : -1.0;
         engine.process (left + done, right, n, midi, start + done, settings);
+        // THE DRUMS, added after the synth (which fills the mix, sends and buses afresh).
+        if (kit.on || drumKit.getNumActiveVoices() > 0)
+        {
+            synth::drums::Outputs out;
+            out.left = left + done;
+            out.right = right;
+            if (sendsReady)
+            {
+                for (size_t s = 0; s < out.sendLeft.size(); ++s)
+                {
+                    out.sendLeft[s] = rack->sends[s].getWritePointer (0, done);
+                    out.sendRight[s] = rack->sends[s].getWritePointer (1, done);
+                }
+                for (size_t b = 0; b < rack->buses.size(); ++b)
+                    if (rack->buses[b].used)
+                    {
+                        out.busLeft[b] = rack->buses[b].buffer.getWritePointer (0, done);
+                        out.busRight[b] = rack->buses[b].buffer.getWritePointer (1, done);
+                    }
+            }
+            drumKit.process (out, n, drums, start + done, kit);
+        }
         if (numChannels == 1)
             for (int i = 0; i < n; ++i)
                 left[done + i] = 0.5f * (left[done + i] + scratchRight[i]);
@@ -1197,6 +1251,7 @@ void ParagonX1AudioProcessor::updateWavetables()
     updateSpectra();
     std::erase_if (retiredTables, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
     std::erase_if (retiredMatrices, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
+    std::erase_if (retiredSamples, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
 }
 
 void ParagonX1AudioProcessor::compileMatrix()
@@ -1417,6 +1472,91 @@ void ParagonX1AudioProcessor::chooseFactoryWavetable (int osc, int index)
     requestCheckpoint();
 }
 
+//==============================================================================
+// THE DRUMS (stage 6a).
+void ParagonX1AudioProcessor::setDrumSample (int slot, std::shared_ptr<const synth::drums::Sample> sample)
+{
+    slot = juce::jlimit (0, ParamIDs::numDrums - 1, slot);
+    if (drumSamples[(size_t) slot] == sample)
+        return;
+    if (drumSamples[(size_t) slot] != nullptr)
+        retiredSamples.emplace_back (drumSamples[(size_t) slot], juce::Time::getMillisecondCounterHiRes());
+    drumSamples[(size_t) slot] = std::move (sample);
+    samplesForAudio[(size_t) slot] = drumSamples[(size_t) slot].get();
+}
+
+bool ParagonX1AudioProcessor::loadDrumSample (int slot, const juce::File& file)
+{
+    auto sample = synth::drums::sampleFiles::load (file);
+    if (sample == nullptr)
+        return false;
+    slot = juce::jlimit (0, ParamIDs::numDrums - 1, slot);
+    setDrumSample (slot, std::move (sample));
+    // A slot that becomes SAMPLE plays it as recorded: its shaping goes to neutral (a drum synth's DECAY, TONE and SNAP
+    // would cut or tilt it). A slot already on SAMPLE keeps the shaping the player gave it.
+    auto* model = parameters.getParameter (ParamIDs::drum (slot, "Model"));
+    if (model != nullptr && juce::roundToInt (model->convertFrom0to1 (model->getValue())) != (int) synth::drums::Model::sample)
+    {
+        for (const auto& [what, value] : { std::pair { "Pitch", 0.0f }, std::pair { "Decay", 0.5f }, std::pair { "Tone", 0.5f }, std::pair { "Snap", 0.5f } })
+            if (auto* parameter = parameters.getParameter (ParamIDs::drum (slot, what)))
+                parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        model->setValueNotifyingHost (model->convertTo0to1 ((float) synth::drums::Model::sample));
+    }
+    markModified();
+    requestCheckpoint();
+    return true;
+}
+
+void ParagonX1AudioProcessor::clearDrumSample (int slot)
+{
+    setDrumSample (slot, nullptr);
+    markModified();
+    requestCheckpoint();
+}
+
+std::shared_ptr<const synth::drums::Sample> ParagonX1AudioProcessor::getDrumSample (int slot) const
+{
+    return drumSamples[(size_t) juce::jlimit (0, ParamIDs::numDrums - 1, slot)];
+}
+
+void ParagonX1AudioProcessor::previewDrum (int slot) noexcept
+{
+    if (slot >= 0 && slot < ParamIDs::numDrums)
+        pendingPreview[(size_t) slot] = true;
+}
+
+synth::drums::KitSettings ParagonX1AudioProcessor::getKitSettings() const noexcept
+{
+    synth::drums::KitSettings kit;
+    kit.on = isOn (ParamIDs::drumsOn);
+    kit.rootKey = juce::roundToInt (param (ParamIDs::drumsRoot));
+    kit.velocity = param (ParamIDs::drumsVelocity);
+    kit.gain = juce::Decibels::decibelsToGain (param (ParamIDs::drumsLevel));
+    kit.sendOn = { isOn (ParamIDs::delayOn), isOn (ParamIDs::reverbOn) };
+    for (size_t k = 0; k < kit.slots.size(); ++k)
+    {
+        const auto& v = drumParameters[k].values;
+        const auto get = [&v] (int index) { return v[(size_t) index]->load(); };
+        using ParamIDs::drumSetting;
+        auto& s = kit.slots[k];
+        s.model = (synth::drums::Model) juce::jlimit (0, synth::drums::modelNames.size() - 1, juce::roundToInt (get (drumSetting ("Model"))));
+        const auto level = get (drumSetting ("Level"));
+        s.gain = level <= -47.95f ? 0.0f : juce::Decibels::decibelsToGain (level);
+        s.pan = get (drumSetting ("Pan"));
+        s.pitch = get (drumSetting ("Pitch"));
+        s.decay = get (drumSetting ("Decay"));
+        s.tone = get (drumSetting ("Tone"));
+        s.snap = get (drumSetting ("Snap"));
+        s.mute = get (drumSetting ("Mute")) > 0.5f;
+        s.solo = get (drumSetting ("Solo")) > 0.5f;
+        s.choke = juce::roundToInt (get (drumSetting ("Choke")));
+        s.insertBus = juce::roundToInt (get (drumSetting ("Insert")));
+        s.send = { get (drumSetting ("SendDelay")), get (drumSetting ("SendReverb")) };
+        s.sample = samplesForAudio[k].load();
+    }
+    return kit;
+}
+
 void ParagonX1AudioProcessor::parameterGestureChanged (int, bool gestureIsStarting)
 {
     if (gestureIsStarting)
@@ -1507,6 +1647,9 @@ Rig ParagonX1AudioProcessor::captureRig() const
         if (! (drawings[(size_t) i] == synth::FreeformDrawing {}))
             rig.drawings[i] = drawings[(size_t) i];
     }
+    for (int k = 0; k < ParamIDs::numDrums; ++k)
+        if (drumSamples[(size_t) k] != nullptr)
+            rig.drumSamples[k] = drumSamples[(size_t) k];
     rig.modulation = matrix;
     return rig;
 }
@@ -1529,6 +1672,11 @@ void ParagonX1AudioProcessor::applyRig (const Rig& rig)
         ranged->setValueNotifyingHost (normalised);
     }
 
+    for (int k = 0; k < ParamIDs::numDrums; ++k)
+    {
+        const auto found = rig.drumSamples.find (k);
+        setDrumSample (k, found != rig.drumSamples.end() ? found->second : nullptr);
+    }
     for (int i = 0; i < ParamIDs::numOscillators; ++i)
     {
         const auto found = rig.wavetables.find (i);
@@ -1701,6 +1849,13 @@ void ParagonX1AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
         }
     state.appendChild (tables, nullptr);
 
+    juce::ValueTree kitSamples (drumSamplesKey);
+    for (int k = 0; k < ParamIDs::numDrums; ++k)
+        if (const auto& sample = drumSamples[(size_t) k])
+            kitSamples.appendChild (juce::ValueTree (drumSampleKey, { { "slot", k + 1 }, { "name", sample->name },
+                                                                    { "data", synth::drums::sampleFiles::encode (*sample) } }), nullptr);
+    state.appendChild (kitSamples, nullptr);
+
     juce::ValueTree curves (spectraKey);
     for (int i = 0; i < ParamIDs::numOscillators; ++i)
         if (! spectra[(size_t) i].isFlat())
@@ -1738,6 +1893,17 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
             const auto osc = (int) table["osc"] - 1;
             if (osc >= 0 && osc < ParamIDs::numOscillators)
                 tables[(size_t) osc] = tableFor (synth::wavetableFiles::decode (table["name"].toString(), table["frameSize"], table["data"].toString()));
+        }
+        state.removeChild (saved, nullptr);
+    }
+    std::array<std::shared_ptr<const synth::drums::Sample>, ParamIDs::numDrums> kitSamples {};
+    if (auto saved = state.getChildWithName (drumSamplesKey); saved.isValid())
+    {
+        for (const auto& sample : saved)
+        {
+            const auto slot = (int) sample["slot"] - 1;
+            if (slot >= 0 && slot < ParamIDs::numDrums)
+                kitSamples[(size_t) slot] = synth::drums::sampleFiles::decode (sample["name"].toString(), sample["data"].toString());
         }
         state.removeChild (saved, nullptr);
     }
@@ -1786,6 +1952,8 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
         buildFreeform (i);
     loadedTables = tables;
     updateWavetables();
+    for (int k = 0; k < ParamIDs::numDrums; ++k)
+        setDrumSample (k, kitSamples[(size_t) k]);
 
     // Restoring the project changed parameters, which marked the preset as
     // modified; put back what was saved instead.

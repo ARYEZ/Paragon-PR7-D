@@ -198,6 +198,23 @@ namespace ParamIDs
     // ARPS TOGETHER (stage 5b, 0.16.0): every arp's steps counted from the first key held, so they stay in step.
     inline constexpr auto arpsTogether = "arpsTogether";
 
+    // THE DRUMS (stage 6a, version hint 20): the kit's own settings, then each slot's, "drum1".."drum12" plus a setting.
+    inline constexpr auto drumsOn       = "drumsOn";
+    inline constexpr auto drumsRoot     = "drumsRoot";       // the kit's C: a MIDI note
+    inline constexpr auto drumsLevel    = "drumsLevel";      // dB
+    inline constexpr auto drumsVelocity = "drumsVelocity";   // 0 to 1
+    inline constexpr int numDrums = 12;
+    inline juce::String drum (int slot, const char* what) { return "drum" + juce::String (slot + 1) + what; }
+    inline constexpr const char* drumSettings[] = { "Model", "Level", "Pan", "Pitch", "Decay", "Tone", "Snap", "Mute", "Solo",
+                                                    "Choke", "Insert", "SendDelay", "SendReverb" };
+    consteval int drumSetting (std::string_view what)
+    {
+        for (int i = 0; i < (int) std::size (drumSettings); ++i)
+            if (std::string_view (drumSettings[i]) == what)
+                return i;
+        throw "not a drum setting";
+    }
+
     // CONTROLLER TO MOD WHEEL (stage 4f, 0.14.0): these controllers drive the mod wheel too (the "mw" switches).
     inline constexpr auto mwBreath     = "mwBreath";
     inline constexpr auto mwExpression = "mwExpression";

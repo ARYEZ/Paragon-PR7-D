@@ -193,7 +193,25 @@ public:
     bool importMidiLinks (const juce::File&);
     void controllerForTest (int controller, float value);   // a controller, played through a short block
     // Tests: the synth's random choices (start phases...) the same on every run, for sample-for-sample comparisons.
-    void seedRandomForTest (juce::int64 seed) noexcept { engine.seedRandom (seed); rack->loFi.seedRandom (seed); }
+    void seedRandomForTest (juce::int64 seed) noexcept
+    {
+        engine.seedRandom (seed);
+        rack->loFi.seedRandom (seed);
+        drumKit.seedRandom ((std::uint32_t) seed);
+    }
+
+    //==========================================================================
+    // THE DRUMS (stage 6a). While DRUMS is on, the 12 keys from its ROOT play the kit instead of the synth.
+    // Samples (message thread): a slot's loaded file, kept in the preset; loading one sets the slot to SAMPLE.
+    bool loadDrumSample (int slot, const juce::File&);
+    void setDrumSample (int slot, std::shared_ptr<const synth::drums::Sample>);
+    void clearDrumSample (int slot);
+    std::shared_ptr<const synth::drums::Sample> getDrumSample (int slot) const;
+    // The kit's settings now (any thread; the samples as the audio thread plays them).
+    synth::drums::KitSettings getKitSettings() const noexcept;
+    // The page's preview: a hit in the next block (whether DRUMS is on or not).
+    void previewDrum (int slot) noexcept;
+    const synth::drums::Kit& getDrumKit() const noexcept { return drumKit; }
     // How many routes the audio thread is playing (on, with a source and a known destination). For tests and the display.
     int getNumPlayingRoutes() const noexcept;
 
@@ -281,7 +299,8 @@ public:
     }
 
 private:
-    void processChunk (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& midi, int start, int numSamples);
+    void processChunk (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& midi, const juce::MidiBuffer& drums,
+                       const synth::drums::KitSettings& kit, int start, int numSamples);
     void processModFx (juce::dsp::AudioBlock<float> block);
     void processInsertBuses (juce::dsp::AudioBlock<float> block, bool sendsReady);
     effects::Modulation::Settings modSettingsFor (const ParamIDs::ModIds&) const noexcept;
@@ -311,6 +330,7 @@ private:
         bool operator== (const Snapshot& other) const
         {
             return rig.parameters == other.rig.parameters && rig.wavetables == other.rig.wavetables && rig.spectra == other.rig.spectra
+                && rig.drumSamples == other.rig.drumSamples
                 && rig.drawings == other.rig.drawings && rig.modulation == other.rig.modulation && current == other.current;
         }
     };
@@ -338,6 +358,17 @@ private:
     std::array<EnvelopeParameters, ParamIDs::numEnvelopes> envelopeParameters {};
     struct ArpParameters { std::atomic<float>* values[std::size (ParamIDs::arpSettings)] {}; };
     std::array<ArpParameters, ParamIDs::numArps> arpParameters {};
+    struct DrumParameters { std::atomic<float>* values[std::size (ParamIDs::drumSettings)] {}; };
+    std::array<DrumParameters, ParamIDs::numDrums> drumParameters {};
+
+    // THE DRUMS: the kit, the samples (the audio thread gets plain pointers; replaced ones are kept a while, as the
+    // wavetables are), the page's preview hits, and the block's MIDI split between the synth and the kit.
+    synth::drums::Kit drumKit;
+    std::array<std::shared_ptr<const synth::drums::Sample>, ParamIDs::numDrums> drumSamples;
+    std::array<std::atomic<const synth::drums::Sample*>, ParamIDs::numDrums> samplesForAudio {};
+    std::vector<std::pair<std::shared_ptr<const synth::drums::Sample>, double>> retiredSamples;
+    std::array<std::atomic<bool>, ParamIDs::numDrums> pendingPreview {};
+    juce::MidiBuffer synthMidi, drumMidi;
 
     // WAVETABLES: tables loaded from files (null: the factory's), what each
     // oscillator plays now, the same for the audio thread (a plain pointer it

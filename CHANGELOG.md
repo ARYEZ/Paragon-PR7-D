@@ -2,6 +2,45 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.21.0
+
+Stage 6, part 1: **THE DRUMS**, a kit of 12 drums on 12 keys, each one of our own drum synths or a sample you load, with its own page. (The drum sequencer is part 2, the sample editor part 3: the order you chose.)
+
+- **How it plays:**
+  - **DRUMS ON** (on the new **DRUMS** page) gives the 12 keys from **ROOT** (C2 to B2 at first) to the kit, in the General MIDI order Avenger uses: C the kick, C# the rim, D the snare, D# the clap, the toms on F, G and A, the hats on F#, G# and A#, the cymbal on B. Every other key still plays the synth, so a kit and a bass or lead share one preset.
+  - The kit's keys are tinted on the on-screen keyboard while it's on.
+  - **Off by default:** nothing changes until you switch it on. With the kit on, the notes outside its keys sound exactly as before (tested, sample for sample).
+  - The hits are one-shots: letting go of the key doesn't cut them (as on a drum machine).
+  - **VELOCITY** sets how much your playing changes the level: at 100%, a half-velocity hit is 12 dB softer; at 0 every hit is the same.
+- **Each slot: one of nine drum synths, or SAMPLE.** The synths are our own designs from the classic analog ideas, not copies of any drum machine's circuit:
+  - KICK: a sine whose pitch falls to 52 Hz, with a beater click;
+  - SNARE: two drumhead tones and the wires (filtered noise);
+  - CLAP: noise in three quick slaps and a ring;
+  - CLOSED HAT, OPEN HAT and CYMBAL: six square waves at clashing pitches (that's the metal) plus noise, high-passed;
+  - TOM: a falling sine with a stick click;
+  - RIM: a short high and low ring;
+  - COWBELL: two square waves through a band-pass.
+- **Each slot's knobs:**
+  - **PITCH** in semitones (and hundredths), **VOLUME**, **PAN**.
+  - **DECAY:** how long it rings.
+  - **TONE:** its brightness. On KICK and TOM, how far the pitch drops at the hit.
+  - **SNAP:** its attack: the beater, the wires, the slaps, the sizzle.
+  - **MUTE** and **SOLO** on each row.
+  - **CHOKE:** a hit stops the other drums in its group. The closed and pedal hats stop the open hat, as on a real hi-hat.
+- **SAMPLE: your own sounds.** Click LOAD SAMPLE, or drop a WAV, AIFF or FLAC on a drum's row or on its picture.
+  - Mono or stereo, any sample rate, up to 30 seconds. It's saved inside the preset (and the project), so it plays on another computer.
+  - DECAY, TONE and SNAP sit neutral at the middle on a sample. Below the middle, DECAY cuts it shorter, TONE darkens it and SNAP softens its attack; above, TONE thins it and SNAP adds a spike.
+  - Loading into a drum-synth slot sets those to neutral, so the sample plays as recorded.
+  - Samples from your Avenger folder work like any WAV. None ship with PR7-K: they're Vengeance's.
+- **Routing, like the oscillators:** each drum goes straight into the mix (with its own TO DELAY and TO REVERB sends) or through insert bus A to D. So you could run the snare through a bus with a DRIVE and leave the kick clean.
+- **The DRUMS page** (a new tab between ARP and FX):
+  - **On the left, the KIT:** ON, ROOT, LEVEL, VELOCITY, then a row per drum: its key, its name, a picture of its hit, MUTE and SOLO. A row lights when its drum plays; click it to choose that drum and hear it.
+  - **On the right, the chosen DRUM:** what it is, PLAY, LOAD SAMPLE and CLEAR, a large picture of its hit (drawn from a copy of it, as DRIVE's page does, with its length in seconds), its knobs, then CHOKE, INSERT and its sends.
+- **A new factory preset: Kit And Bass** (A40). The kit on C2 to B2, a saw bass above. A small room on everything but the kick and the bass. Our own settings, not tuned by ear.
+- **Levels and CPU, measured:** every drum peaks at about -3 dBFS at its default settings. The whole kit hit on every sixteenth note at 120 BPM costs about 4% of a core.
+  - On the way I found and fixed a slowdown: fading envelopes were sinking into "denormal" numbers, which most processors handle very slowly. Fixed before release.
+- I can't listen here. The drum synths' character is the part most worth your ears: tell me which drums sound wrong and how, and I'll reshape them.
+
 ## 0.20.2
 
 **COSMONAUT runs at 4x instead of 8x: about 40% less CPU** (your choice, after 0.20.1).

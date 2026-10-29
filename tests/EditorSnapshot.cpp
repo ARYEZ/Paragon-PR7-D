@@ -20,6 +20,7 @@
 //   PARAGON_SNAPSHOT_FILTERPAGE=n     the FILTER panel's SHP n tab (shaper n's page)
 //   PARAGON_SNAPSHOT_FFT=band:dB,...  a curve drawn for oscillator 1; PARAGON_SNAPSHOT_FFT_VIEW=harmonic|bins
 //   PARAGON_SNAPSHOT_PARAMS=id=value,...   parameters set (real units)
+//   PARAGON_SNAPSHOT_PAGE=drums      THE DRUMS (PARAGON_SNAPSHOT_DRUM=n: slot n chosen; PARAGON_SNAPSHOT_DRUMS=1: a beat just played, its rows lit)
 //   PARAGON_SNAPSHOT_PAGE=fx         THE RACK (PARAGON_SNAPSHOT_RACK=1: at work on a chord, the sends too; PARAGON_SNAPSHOT_FX=eq|dominion|comp|limiter|sends|delay|reverb|modfx|mod|mod2|lofi|inserts|insdrive|insglitch|insmod|inslofi: that view, the inserts' on bus PARAGON_SNAPSHOT_BUS=1-4)
 //   PARAGON_SNAPSHOT_NOTES=1         a chord held on the keyboard (so the PLAY panel counts notes, and keys light)
 TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
@@ -337,6 +338,28 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         view->getOscillatorPanel().getSpectrumEditor().setView (SpectrumEditor::View::harmonic);
     if (env ("PARAGON_SNAPSHOT_FFT_VIEW") == "bins")
         view->getOscillatorPanel().getSpectrumEditor().setView (SpectrumEditor::View::bins);
+    if (page == "drums")
+    {
+        // THE DRUMS (stage 6a): the kit on, slot PARAGON_SNAPSHOT_DRUM (1-12) chosen; PARAGON_SNAPSHOT_DRUMS=1 plays a
+        // beat into it first (kick, snare and closed hat just hit: their rows lit).
+        if (auto* on = processor.getParameters().getParameter (ParamIDs::drumsOn))
+            on->setValueNotifyingHost (1.0f);
+        view->showPage (MainView::Page::drums);
+        auto& drums = view->getDrumPage();
+        drums.select (juce::jmax (1, env ("PARAGON_SNAPSHOT_DRUM").getIntValue()) - 1);
+        if (env ("PARAGON_SNAPSHOT_DRUMS") == "1")
+        {
+            juce::AudioBuffer<float> buffer (2, 512);
+            juce::MidiBuffer midi;
+            for (const auto note : { 36, 38, 42 })
+                midi.addEvent (juce::MidiMessage::noteOn (1, note, 1.0f), 0);
+            processor.processBlock (buffer, midi);
+            midi.clear();
+            for (int b = 0; b < 6; ++b)
+                processor.processBlock (buffer, midi);
+            drums.updateLights();
+        }
+    }
     if (page == "presets")
         view->showPage (MainView::Page::presets);
     else if (page == "settings")

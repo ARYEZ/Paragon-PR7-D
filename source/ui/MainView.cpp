@@ -21,8 +21,8 @@ namespace
         return mockF (left, top, right, bottom).toNearestInt();
     }
 
-    const auto tabsGroup = mockF (336, 10, 975, 55);   // (wider in PR7-K 0.15 for ARP, 0.17 for FX)
-    const auto rigGroup = mockF (990, 10, 1287, 55);
+    const auto tabsGroup = mockF (336, 10, 1087, 55);   // (wider in PR7-K 0.15 for ARP, 0.17 for FX, 0.21 for DRUMS)
+    const auto rigGroup = mockF (1102, 10, 1399, 55);
 
     // The synth page, in canvas pixels.
     const juce::Rectangle<int> oscillatorArea { 12, 68, 888, 372 };
@@ -35,6 +35,55 @@ namespace
     const juce::Rectangle<int> outputArea { 1496, 68, 92, 672 };
     const juce::Rectangle<int> keyboardArea { 12, 750, 1576, 138 };
     const juce::Rectangle<int> pageArea { 12, 68, 1476, 672 };   // PRESETS and SETTINGS, beside the OUTPUT strip
+}
+
+//==============================================================================
+KitKeyboard::KitKeyboard (ParagonX1AudioProcessor& p, juce::MidiKeyboardState& state, Orientation orientation)
+    : juce::MidiKeyboardComponent (state, orientation), processor (p)
+{
+    followKit();
+    poll.callback = [this] { followKit(); };
+    poll.startTimerHz (4);
+}
+
+void KitKeyboard::followKit()
+{
+    const auto kit = processor.getKitSettings();
+    if (kit.on != kitOn || kit.rootKey != kitRoot)
+    {
+        kitOn = kit.on;
+        kitRoot = kit.rootKey;
+        repaint();
+    }
+}
+
+void KitKeyboard::paint (juce::Graphics& g)
+{
+    const auto kit = processor.getKitSettings();   // as it is now (the timer only notices changes to repaint)
+    kitOn = kit.on;
+    kitRoot = kit.rootKey;
+    juce::MidiKeyboardComponent::paint (g);
+}
+
+void KitKeyboard::drawWhiteNote (int note, juce::Graphics& g, juce::Rectangle<float> area, bool isDown, bool isOver,
+                                 juce::Colour lineColour, juce::Colour textColour)
+{
+    juce::MidiKeyboardComponent::drawWhiteNote (note, g, area, isDown, isOver, lineColour, textColour);
+    if (isKitKey (note) && ! isDown)
+    {
+        g.setColour (ParagonColours::accent.withAlpha (0.28f));
+        g.fillRect (area.withTrimmedTop (area.getHeight() * 0.62f).reduced (1.0f, 0.0f));
+    }
+}
+
+void KitKeyboard::drawBlackNote (int note, juce::Graphics& g, juce::Rectangle<float> area, bool isDown, bool isOver, juce::Colour noteFillColour)
+{
+    juce::MidiKeyboardComponent::drawBlackNote (note, g, area, isDown, isOver, noteFillColour);
+    if (isKitKey (note) && ! isDown)
+    {
+        g.setColour (ParagonColours::accent.withAlpha (0.55f));
+        g.fillRect (area.withTrimmedTop (area.getHeight() * 0.7f).reduced (area.getWidth() * 0.2f, 2.0f));
+    }
 }
 
 //==============================================================================
@@ -88,15 +137,16 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
       play (processorToShow),
       outputColumn ("OUTPUT", processorToShow.getParameters(), ParamIDs::outputGain, processorToShow.getOutputMeter()),
       sources (processorToShow),
-      keyboard (processorToShow.getKeyboardState(), juce::MidiKeyboardComponent::horizontalKeyboard),
+      keyboard (processorToShow, processorToShow.getKeyboardState(), juce::MidiKeyboardComponent::horizontalKeyboard),
       modPage (processorToShow),
       arpPage (processorToShow),
       fxPage (processorToShow),
+      drumPage (processorToShow),
       rigBrowser (processorToShow),
       settingsPage (processorToShow)
 {
     // Header
-    for (auto* tab : { &synthTab, &modTab, &arpTab, &fxTab, &presetsTab, &settingsTab })
+    for (auto* tab : { &synthTab, &modTab, &arpTab, &drumsTab, &fxTab, &presetsTab, &settingsTab })
     {
         tab->setClickingTogglesState (true);
         tab->setRadioGroupId (100);
@@ -110,7 +160,9 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     modTab.setComponentID ("modTab");
     modTab.onClick = [this] { showPage (Page::modulation); };
     arpTab.setComponentID ("arpTab");
+    drumsTab.setComponentID ("drumsTab");
     arpTab.onClick = [this] { showPage (Page::arp); };
+    drumsTab.onClick = [this] { showPage (Page::drums); };
     fxTab.setComponentID ("fxTab");
     fxTab.onClick = [this] { showPage (Page::fx); };
     presetsTab.onClick = [this] { showPage (Page::presets); };
@@ -157,6 +209,7 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     addChildComponent (modPage);
     addChildComponent (arpPage);
     addChildComponent (fxPage);
+    addChildComponent (drumPage);
     addChildComponent (rigBrowser);
     addChildComponent (settingsPage);
 
@@ -175,13 +228,14 @@ void MainView::showPage (Page newPage)
 {
     page = newPage;
     auto& tab = newPage == Page::presets ? presetsTab : newPage == Page::settings ? settingsTab : newPage == Page::modulation ? modTab
-              : newPage == Page::arp ? arpTab : newPage == Page::fx ? fxTab : synthTab;
+              : newPage == Page::arp ? arpTab : newPage == Page::fx ? fxTab : newPage == Page::drums ? drumsTab : synthTab;
     tab.setToggleState (true, juce::dontSendNotification);
     for (auto* component : synthPage)
         component->setVisible (newPage == Page::synth);
     modPage.setVisible (newPage == Page::modulation);
     arpPage.setVisible (newPage == Page::arp);
     fxPage.setVisible (newPage == Page::fx);
+    drumPage.setVisible (newPage == Page::drums);
     rigBrowser.setVisible (newPage == Page::presets);
     settingsPage.setVisible (newPage == Page::settings);
 }
@@ -358,7 +412,7 @@ void MainView::paint (juce::Graphics& g)
         g.setColour (ParagonColours::panelEdge);
         g.drawRoundedRectangle (group.reduced (0.5f), 5.0f, 1.0f);
     }
-    for (auto x : { 450.0f, 563.0f, 653.0f, 743.0f, 858.0f })
+    for (auto x : { 450.0f, 563.0f, 653.0f, 765.0f, 855.0f, 970.0f })
         g.drawVerticalLine (juce::roundToInt (x * mockScale), tabsGroup.getY() + 8.0f, tabsGroup.getBottom() - 8.0f);
 
     g.setColour (ParagonColours::panelEdge);
@@ -374,12 +428,13 @@ void MainView::resized()
     synthTab.setBounds (mock (338, 12, 449, 53));
     modTab.setBounds (mock (451, 12, 562, 53));
     arpTab.setBounds (mock (564, 12, 652, 53));
-    fxTab.setBounds (mock (654, 12, 742, 53));
-    presetsTab.setBounds (mock (744, 12, 857, 53));
-    settingsTab.setBounds (mock (859, 12, 973, 53));
-    previousRig.setBounds (mock (998, 14, 1038, 51));
-    nextRig.setBounds (mock (1239, 14, 1279, 51));
-    rigNameButton.setBounds (mock (1040, 14, 1237, 51));
+    drumsTab.setBounds (mock (654, 12, 764, 53));
+    fxTab.setBounds (mock (766, 12, 854, 53));
+    presetsTab.setBounds (mock (856, 12, 969, 53));
+    settingsTab.setBounds (mock (971, 12, 1085, 53));
+    previousRig.setBounds (mock (1110, 14, 1150, 51));
+    nextRig.setBounds (mock (1351, 14, 1391, 51));
+    rigNameButton.setBounds (mock (1152, 14, 1349, 51));
     undoButton.setBounds (mock (1444, 14, 1482, 50));
     redoButton.setBounds (mock (1496, 14, 1534, 50));
     saveButton.setBounds (mock (1551, 14, 1589, 50));
@@ -404,6 +459,7 @@ void MainView::resized()
     modPage.setBounds (pageArea);
     arpPage.setBounds (pageArea);
     fxPage.setBounds (pageArea);
+    drumPage.setBounds (pageArea);
     rigBrowser.setBounds (pageArea);
     settingsPage.setBounds (pageArea);
 }

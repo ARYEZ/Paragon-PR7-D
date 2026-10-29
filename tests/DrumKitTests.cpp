@@ -1,0 +1,254 @@
+// THE DRUMS (stage 6a) in the plugin: the kit's keys taken from the synth, its sound in the mix, a bus and the
+// sends, samples kept through presets, the project and undo, and the page's preview. (The kit itself: DrumTests.cpp.)
+#include "SynthTestUtils.h"
+
+#include "PluginProcessor.h"
+#include "ui/DrumPage.h"
+#include "dsp/effects/Drive.h"
+
+namespace
+{
+    struct Plugin
+    {
+        ParagonX1AudioProcessor processor;
+        Plugin()
+        {
+            processor.setPlayConfigDetails (0, 2, sampleRate, blockSize);
+            processor.prepareToPlay (sampleRate, blockSize);
+            processor.seedRandomForTest (1);
+            set (ParamIDs::osc (0, "Wave"), (float) (int) synth::OscWave::sine);
+            set (ParamIDs::osc (0, "PhaseRand"), 0.0f);
+        }
+        void set (const juce::String& id, float value)
+        {
+            auto* parameter = processor.getParameters().getParameter (id);
+            REQUIRE (parameter != nullptr);
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        }
+        // Plays these notes (note, at seconds; each held 0.1 s) for `seconds`, returning both sides.
+        std::array<std::vector<float>, 2> play (std::vector<std::pair<int, double>> notes, double seconds)
+        {
+            std::array<std::vector<float>, 2> out;
+            juce::AudioBuffer<float> buffer (2, blockSize);
+            const auto blocks = (int) (seconds * sampleRate) / blockSize;
+            for (int b = 0; b < blocks; ++b)
+            {
+                juce::MidiBuffer midi;
+                for (const auto& [note, at] : notes)
+                {
+                    const auto on = (int) (at * sampleRate) - b * blockSize, off = on + (int) (0.1 * sampleRate);
+                    if (on >= 0 && on < blockSize)
+                        midi.addEvent (juce::MidiMessage::noteOn (1, note, 1.0f), on);
+                    if (off >= 0 && off < blockSize)
+                        midi.addEvent (juce::MidiMessage::noteOff (1, note), off);
+                }
+                buffer.clear();
+                processor.processBlock (buffer, midi);
+                for (int c = 0; c < 2; ++c)
+                    out[(size_t) c].insert (out[(size_t) c].end(), buffer.getReadPointer (c), buffer.getReadPointer (c) + blockSize);
+            }
+            return out;
+        }
+    };
+
+    double peakOf (const std::vector<float>& x, double from = 0.0, double to = 1.0e9)
+    {
+        auto peak = 0.0f;
+        for (auto i = (size_t) (from * sampleRate); i < std::min (x.size(), (size_t) (to * sampleRate)); ++i)
+            peak = std::max (peak, std::abs (x[i]));
+        return peak;
+    }
+
+    juce::File writeSineWav (double hz, double seconds)
+    {
+        const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("pr7k-drum-test.wav");
+        file.deleteFile();
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (new juce::FileOutputStream (file), 44100.0, 1, 24, {}, 0));
+        REQUIRE (writer != nullptr);
+        juce::AudioBuffer<float> buffer (1, (int) (seconds * 44100.0));
+        for (int i = 0; i < buffer.getNumSamples(); ++i)
+            buffer.setSample (0, i, 0.5f * (float) std::sin (juce::MathConstants<double>::twoPi * hz * i / 44100.0));
+        writer->writeFromAudioSampleBuffer (buffer, 0, buffer.getNumSamples());
+        return file;
+    }
+}
+
+TEST_CASE ("DRUMS in the plugin: off, the keys play the synth; on, the kit's 12 keys play the drums instead", "[drumkit]")
+{
+    // Off (the default): C2 plays the synth.
+    Plugin off;
+    CHECK (peakOf (off.play ({ { 36, 0.0 } }, 0.3)[0]) > 0.05);
+
+    // On, with the kick muted: C2 is silent (not the synth any more).
+    Plugin on;
+    on.set (ParamIDs::drumsOn, 1.0f);
+    on.set (ParamIDs::drum (0, "Mute"), 1.0f);
+    CHECK (peakOf (on.play ({ { 36, 0.0 } }, 0.3)[0]) == 0.0);
+
+    // Notes outside the kit play the synth exactly as with the drums off.
+    Plugin a, b;
+    b.set (ParamIDs::drumsOn, 1.0f);
+    const auto withoutKit = a.play ({ { 60, 0.0 } }, 0.5), withKit = b.play ({ { 60, 0.0 } }, 0.5);
+    CHECK (withoutKit[0] == withKit[0]);
+    CHECK (withoutKit[1] == withKit[1]);
+}
+
+TEST_CASE ("DRUMS in the plugin: the kit plays at its level through OUTPUT, and ROOT moves its keys", "[drumkit]")
+{
+    Plugin p;
+    p.set (ParamIDs::drumsOn, 1.0f);
+    p.set (ParamIDs::outputGain, 0.0f);
+    p.set (ParamIDs::drumsRoot, 48.0f);
+    p.play ({}, 0.2);   // OUTPUT glides to its new setting first
+    const auto hit = p.play ({ { 48 + 5, 0.0 } }, 1.0);   // F: the low tom
+    // Exactly the kit's own hit (the rack is neutral by default): the same peak as the slot rendered alone.
+    const auto alone = synth::drums::Kit::renderHit (p.processor.getKitSettings().slots[5], 1.0f, sampleRate, 1.0);
+    const auto alonePeak = db (alone.getMagnitude (0, 0, alone.getNumSamples()));
+    CHECK_THAT (db (peakOf (hit[0])), WithinAbs (alonePeak, 0.5));
+    CHECK_THAT (frequencyOf (hit[0], (size_t) (0.3 * sampleRate), (size_t) (0.6 * sampleRate)), WithinAbs (100.0 * std::exp2 (-5.0 / 12.0), 3.0));
+
+    p.set (ParamIDs::drumsLevel, -12.0f);
+    p.play ({}, 1.0);
+    CHECK_THAT (db (peakOf (p.play ({ { 48 + 5, 0.0 } }, 1.0)[0])), WithinAbs (alonePeak - 12.0, 0.5));
+}
+
+TEST_CASE ("DRUMS in the plugin: a drum on a bus goes through its effects; the sends take the rest", "[drumkit]")
+{
+    Plugin plain, bused;
+    for (auto* p : { &plain, &bused })
+    {
+        p->set (ParamIDs::drumsOn, 1.0f);
+        p->set (ParamIDs::outputGain, 0.0f);
+    }
+    bused.set (ParamIDs::drum (5, "Insert"), 1.0f);   // the low tom on bus A
+    // With nothing switched on in the bus, it comes out exactly as straight into the mix.
+    CHECK (plain.play ({ { 41, 0.0 } }, 0.6)[0] == bused.play ({ { 41, 0.0 } }, 0.6)[0]);
+    // Through a DRIVE (RABID: a full-range fuzz; BANSHEE cuts the lows before it clips).
+    bused.set (ParamIDs::ins (0, "DriveOn"), 1.0f);
+    bused.set (ParamIDs::ins (0, "DriveModel"), (float) (int) effects::Drive::Model::rabid);
+    bused.set (ParamIDs::ins (0, "DriveGain"), 8.0f);
+    // The tom rings at about 84 Hz; the drive adds its 3rd harmonic (not one of the tom's own partials).
+    const auto hz = 100.0 * std::exp2 (-5.0 / 12.0);
+    const auto third = [hz] (const std::vector<float>& x)
+    {
+        return db (levelAt (x, 3.0 * hz, (size_t) (0.2 * sampleRate), (size_t) (0.3 * sampleRate)) / levelAt (x, hz, (size_t) (0.2 * sampleRate), (size_t) (0.3 * sampleRate)));
+    };
+    const auto clean = third (plain.play ({ { 41, 0.0 } }, 0.6)[0]);
+    const auto driven = third (bused.play ({ { 41, 0.0 } }, 0.6)[0]);
+    CHECK (driven > clean + 20.0);
+
+    // REVERB on: the rim's send fills the room; with its send at 0, nothing rings on after it.
+    Plugin wet, dry;
+    for (auto* p : { &wet, &dry })
+    {
+        p->set (ParamIDs::drumsOn, 1.0f);
+        p->set (ParamIDs::reverbOn, 1.0f);
+    }
+    dry.set (ParamIDs::drum (1, "SendReverb"), 0.0f);
+    CHECK (peakOf (wet.play ({ { 37, 0.0 } }, 1.0)[0], 0.5) > 1.0e-4);
+    CHECK (peakOf (dry.play ({ { 37, 0.0 } }, 1.0)[0], 0.5) < 1.0e-6);
+}
+
+TEST_CASE ("DRUMS in the plugin: a loaded sample plays, and is kept by presets, the project and undo", "[drumkit]")
+{
+    const auto file = writeSineWav (1000.0, 0.4);
+    Plugin p;
+    p.set (ParamIDs::drumsOn, 1.0f);
+    p.processor.flushUndoStep();
+    REQUIRE (p.processor.loadDrumSample (2, file));
+    p.processor.flushUndoStep();
+    CHECK (juce::roundToInt (p.processor.getParameters().getParameter (ParamIDs::drum (2, "Model"))->convertFrom0to1 (
+               p.processor.getParameters().getParameter (ParamIDs::drum (2, "Model"))->getValue())) == (int) synth::drums::Model::sample);
+    const auto played = p.play ({ { 38, 0.0 } }, 0.6);
+    CHECK_THAT (frequencyOf (played[0], (size_t) (0.1 * sampleRate), (size_t) (0.3 * sampleRate)), WithinAbs (1000.0, 2.0));
+    CHECK (peakOf (played[0], 0.45) < 1.0e-6);   // it ends with the sample
+
+    // Loaded into a drum synth's slot (the snare, PITCH 0 DECAY 50%...): its shaping went to neutral, to play it as recorded.
+    CHECK (p.processor.getKitSettings().slots[2].decay == 0.5f);
+    CHECK (p.processor.getKitSettings().slots[2].pitch == 0.0f);
+
+    // The preset carries it (written out and read back).
+    const auto rig = p.processor.captureRig();
+    REQUIRE (rig.drumSamples.count (2) == 1);
+    const auto reread = Rig::fromXml (*rig.toXml());
+    REQUIRE (reread.has_value());
+    REQUIRE (reread->drumSamples.count (2) == 1);
+    CHECK (reread->drumSamples.at (2)->length() == rig.drumSamples.at (2)->length());
+    CHECK (reread->drumSamples.at (2)->sampleRate == 44100.0);
+
+    // The project carries it.
+    juce::MemoryBlock state;
+    p.processor.getStateInformation (state);
+    Plugin other;
+    other.processor.setStateInformation (state.getData(), (int) state.getSize());
+    REQUIRE (other.processor.getDrumSample (2) != nullptr);
+    const auto& a = p.processor.getDrumSample (2)->channels[0];
+    const auto& b = other.processor.getDrumSample (2)->channels[0];
+    REQUIRE (a.size() == b.size());
+    auto worst = 0.0f;
+    for (size_t i = 0; i < a.size(); ++i)
+        worst = std::max (worst, std::abs (a[i] - b[i]));
+    CHECK (worst < 1.0e-4f);   // 16-bit
+
+    // Undo brings it back after it's cleared.
+    p.processor.clearDrumSample (2);
+    p.processor.flushUndoStep();
+    CHECK (p.processor.getDrumSample (2) == nullptr);
+    p.processor.undo();
+    CHECK (p.processor.getDrumSample (2) != nullptr);
+    file.deleteFile();
+}
+
+TEST_CASE ("DRUMS in the plugin: the page's preview plays a slot even with DRUMS off", "[drumkit]")
+{
+    Plugin p;
+    p.processor.previewDrum (2);
+    CHECK (peakOf (p.play ({}, 0.2)[0]) > 0.05);
+}
+
+TEST_CASE ("DRUMS in the plugin: a synth note held as DRUMS is switched on still ends", "[drumkit]")
+{
+    Plugin p;
+    p.set (ParamIDs::ampRelease, 0.01f);
+    juce::AudioBuffer<float> buffer (2, blockSize);
+    juce::MidiBuffer midi;
+    midi.addEvent (juce::MidiMessage::noteOn (1, 36, 1.0f), 0);
+    p.processor.processBlock (buffer, midi);
+    CHECK (p.processor.getActiveVoices() == 1);
+    p.set (ParamIDs::drumsOn, 1.0f);
+    midi.clear();
+    midi.addEvent (juce::MidiMessage::noteOff (1, 36), 0);
+    for (int b = 0; b < 40; ++b)
+    {
+        p.processor.processBlock (buffer, midi);
+        midi.clear();
+    }
+    CHECK (p.processor.getActiveVoices() == 0);
+}
+
+TEST_CASE ("DRUMS page: choosing a row points the drum's controls at it; every row has its hit's picture", "[drumkit][ui]")
+{
+    Plugin p;
+    DrumPage page (p.processor);
+    page.setSize (1476, 672);
+    page.select (3);
+    CHECK (page.getSelected() == 3);
+    for (auto* control : page.getSlotControls())
+        CHECK (control->getParameterId().startsWith ("drum4"));
+    page.select (11);
+    for (auto* control : page.getSlotControls())
+        CHECK (control->getParameterId().startsWith ("drum12"));
+    CHECK (page.getDisplay().getPicture().seconds > 2.0);   // the cymbal rings long
+    page.select (6);
+    CHECK (page.getDisplay().getPicture().seconds < 0.3);   // the closed hat doesn't
+
+    // A changed setting redraws the picture.
+    p.set (ParamIDs::drum (6, "Decay"), 1.0f);
+    page.refreshPictures();
+    CHECK (page.getDisplay().getPicture().seconds > 0.3);
+
+    CHECK (DrumPage::isAudioFile ("kick.wav"));
+    CHECK (DrumPage::isAudioFile ("Snare.AIFF"));
+    CHECK_FALSE (DrumPage::isAudioFile ("notes.txt"));
+}

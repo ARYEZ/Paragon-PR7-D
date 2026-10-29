@@ -2,6 +2,7 @@
 
 #include <juce_core/juce_core.h>
 
+#include "dsp/synth/Drums.h"
 #include "dsp/synth/Freeform.h"
 #include "dsp/synth/Spectrum.h"
 #include "dsp/synth/Wavetable.h"
@@ -44,6 +45,10 @@ struct Rig
 
     // FREEFORM drawings, by oscillator (only the ones drawn on).
     std::map<int, synth::FreeformDrawing> drawings;
+
+    // THE DRUMS' samples, by slot (0 to 11), saved inside the preset (stage 6a). Shared, not copied: a preset copied
+    // for undo keeps pointing at the same audio, and two presets are the same kit if they point at the same samples.
+    std::map<int, std::shared_ptr<const synth::drums::Sample>> drumSamples;
 
     // The MOD MATRIX's routes and the macros' names (stage 4a).
     ModMatrix modulation;

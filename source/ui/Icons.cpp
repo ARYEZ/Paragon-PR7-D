@@ -372,6 +372,21 @@ namespace Icons
                 break;
             }
 
+            case Type::drums:
+            {
+                // A drum from the side (its head an ellipse, its shell below) and two sticks crossed above it.
+                p.addEllipse (0.12f, 0.42f, 0.76f, 0.2f);
+                p.startNewSubPath (0.12f, 0.52f);
+                p.lineTo (0.12f, 0.82f);
+                p.quadraticTo (0.5f, 1.0f, 0.88f, 0.82f);
+                p.lineTo (0.88f, 0.52f);
+                p.startNewSubPath (0.2f, 0.06f);
+                p.lineTo (0.62f, 0.44f);
+                p.startNewSubPath (0.8f, 0.06f);
+                p.lineTo (0.38f, 0.44f);
+                break;
+            }
+
             case Type::flame:
                 // The mockup's "All Rigs" icon.
                 p.startNewSubPath (0.5f, 0.05f);

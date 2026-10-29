@@ -620,5 +620,27 @@ std::vector<Rig> makeFactoryRigs()
         .set (ParamIDs::reverbSize, 0.5f).set (ParamIDs::reverbMix, 0.18f);
     add (driven);
 
+    // THE DRUMS (stage 6a).
+    Builder kit ("Kit And Bass", 40, { "Drums", "Bass", "Split" },
+                 "The drum kit on C2 to B2 (kick, rim, snare, clap, toms, hats, cymbal: our own drum synths), and a saw bass "
+                 "on every key above. A small room on the snare, clap, toms, hats and cymbal; the kick and the bass stay dry. "
+                 "Our own settings, not tuned by ear.");
+    kit.osc (0, "Transpose", -12.0f).osc (0, "SendReverb", 0.0f)
+        .filter (FilterType::lp24, 900.0f, 0.25f, 0.35f).filterEnvelope (0.0f, 220.0f, 0.3f, 150.0f)
+        .ampEnvelope (2.0f, 400.0f, 0.8f, 120.0f)
+        .set (ParamIDs::drumsOn, 1.0f)
+        .set (ParamIDs::drum (0, "Decay"), 0.4f).set (ParamIDs::drum (0, "Tone"), 0.6f).set (ParamIDs::drum (0, "SendReverb"), 0.0f)
+        .set (ParamIDs::drum (2, "Tone"), 0.6f).set (ParamIDs::drum (2, "SendReverb"), 0.6f)
+        .set (ParamIDs::drum (3, "SendReverb"), 0.6f).set (ParamIDs::drum (4, "SendReverb"), 0.5f)
+        .set (ParamIDs::drum (1, "SendReverb"), 0.3f)
+        .set (ParamIDs::drum (6, "SendReverb"), 0.2f).set (ParamIDs::drum (8, "SendReverb"), 0.2f).set (ParamIDs::drum (10, "SendReverb"), 0.25f)
+        .set (ParamIDs::drum (11, "SendReverb"), 0.4f).set (ParamIDs::drum (6, "Pan"), 0.25f).set (ParamIDs::drum (10, "Pan"), 0.25f)
+        .set (ParamIDs::drum (5, "SendReverb"), 0.3f).set (ParamIDs::drum (5, "Pan"), -0.3f)
+        .set (ParamIDs::drum (7, "SendReverb"), 0.3f)
+        .set (ParamIDs::drum (9, "SendReverb"), 0.3f).set (ParamIDs::drum (9, "Pan"), 0.3f)
+        .set (ParamIDs::reverbOn, 1.0f).set (ParamIDs::reverbType, (float) (int) effects::Reverb::Type::room)
+        .set (ParamIDs::reverbSize, 0.35f).set (ParamIDs::reverbMix, 0.25f);
+    add (kit);
+
     return rigs;
 }
