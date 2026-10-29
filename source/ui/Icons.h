@@ -26,7 +26,9 @@ namespace Icons
                       // PR7-K 0.17: the rack (FX)
                       rack,
                       // PR7-K 0.21: the drums
-                      drums };
+                      drums,
+                      // PR7-D 0.4.0: the grooves
+                      grooves };
 
     juce::Path get (Type type);
 

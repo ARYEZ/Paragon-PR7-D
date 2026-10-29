@@ -20,6 +20,7 @@ add_executable(ParagonX1Tests
     NoteMapTests.cpp
     OutputTests.cpp
     GrooveTests.cpp
+    GroovePlayerTests.cpp
     UndoTests.cpp
     EffectTests.cpp
     EqTests.cpp

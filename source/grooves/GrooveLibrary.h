@@ -43,7 +43,8 @@ namespace grooves
     class Library final : public juce::ChangeBroadcaster
     {
     public:
-        // `settings`: where the folders, favourites and the preview's settings are kept; `index`: what was read.
+        // `settings`: where the folders, favourites and the preview's settings are kept; `index`: what was read (listed
+        // by loadIndex, not here: every PR7-D in a song makes a Library, most never open GROOVES).
         Library (juce::File settings, juce::File index);
         ~Library() override;
 
@@ -56,6 +57,9 @@ namespace grooves
         void setSubfolders (bool);
         // How a folder's files' notes become drums: its map (CUSTOM: the plugin's own, `custom`; ROOT from `root`).
         synth::drums::notemap::Map layoutFor (int folder, const synth::drums::notemap::Map& custom, int root) const;
+
+        // What was read last time, listed at once (once; a scan brings it up to date). The page calls it on opening.
+        void loadIndex();
 
         // READING. scan() starts reading in the background (listeners hear when it's done, and as it goes);
         // scanNow() reads on this thread (tests).
@@ -104,6 +108,7 @@ namespace grooves
         juce::StringArray favourites;   // full paths, sorted
         Preview preview;
 
+        std::atomic<bool> indexLoaded { false };   // set by a scan too
         mutable std::mutex lock;        // guards entries
         std::vector<Entry> entries;
         std::atomic<bool> scanning { false };

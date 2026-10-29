@@ -2,6 +2,29 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.4.0
+
+**The groove player, part 1: your MIDI grooves, browsed, played through the kit and dragged into your DAW.** A new **GROOVES** tab (after DRUMS). Our own design, inspired by the groove browsers of commercial drum software. It reads only your own MIDI files, from where they are on your computer: no grooves, sounds or tags from anyone else ship with it.
+
+- **Your folders:** ADD FOLDER... links a folder of MIDI grooves (and everything in its subfolders); REMOVE unlinks it (the files stay). The folders are listed on the left, opening as you go: choose one and the list shows only its grooves (with SUBFOLDERS on, its subfolders' too; off, just the files right in it). ALL GROOVES lists everything.
+  - **FILES' MAP**, for each linked folder: which drum each note in its files is. GROOVE LIBRARY (the layout most commercial groove packs use: the map from 0.2.0), GENERAL MIDI, CUSTOM (your own map from SETTINGS), or ROOT (files made for this kit's keys).
+  - The folders are read in the background the first time you open the page; what was read is remembered, so a big library comes up at once next time (only new or changed files are read again).
+- **The list:** each groove's name, its folder, time signature, bars, tempo, **power hand** (what the riding hand plays most: closed hat, open hat, ride, crash or percussion) and **intensity** (how hard and how busy it's played).
+  - These come from the file alone: its tempo (or "... 102 BPM" in its name or its folder's), its time signature, its notes. Power hand and intensity are our own measures, worked out from the notes through the folder's map.
+  - **SEARCH**: words in a groove's name or its folder's (all of them). **ONLY**: just your favourites (click a groove's star). **SORT**: by name, nearest your song's tempo first, or your song's time signature first.
+- **Preview:** click a groove to play it through the kit, round and round; double-click to play it once. **STOP** stops it. It plays your kit as it is (your sounds, effects and outputs), on the beat to the sample.
+  - **TEMPO:** your song's, or the groove's own. Then **1/2x, 1x, 2x, 2/3x** (a 4/4 groove felt in 6/8) or **3/2x** (6/8 to 4/4): only how fast it plays, the playing stays as it was.
+  - **VELOCITY:** every hit's velocity scaled together (25% to 175%), so the accents stay.
+- **Drag a groove** onto a MIDI track in your DAW, or to a folder. The dragged file has the TEMPO factor and VELOCITY in it (at 2x the notes are twice as close, since your DAW places it at the song's tempo; at 2/3x a 4/4 groove is marked 6/8).
+  - **DRAG: FOR THIS KIT** puts each note on this kit's note for that drum in its map (SETTINGS), so the groove plays right back through PR7-D; if the folder's map is already the kit's, the notes stay exactly as written. **AS WRITTEN** keeps the file's own notes (for other drum software).
+- **Where they're kept:** your folders, favourites and these settings are in the presets folder (Grooves.xml, Groove Index.xml), shared by every PR7-D you open.
+- **Grooves from other drum software:** PR7-D reads standard MIDI files. Grooves inside another program's own library: drag them out of that program into a folder first, then link the folder.
+- **Tests:** reading a groove (notes, tempo from the file or a name, time signature, bars, a closing crash ending the last bar, power hand, intensity, files that aren't grooves); the library (folders as filters with and without subfolders, words, favourites, the three sorts, what's kept, a changed file read again, the background read); the preview (each hit on its sample at the song's tempo and its own, all five factors, looping and once, the velocity scale measured at -12 dB for half, STOP, a folder's map deciding which drum a note plays); the dragged file (this kit's notes, as written, velocity and factor in it); the page (the folder tree, filtering, search, playing).
+
+What can't be checked here: how real groove packs' files read (none are here: only MIDI files made in the tests), and how the preview sounds. If a pack's tempo, bars or power hand look wrong in the list, send one or two of its files and we'll check them.
+
+Next, part 2 (your choice): the filter columns (type: beat / fill / intro... from the names; time signature; power hand; tempo; each can be excluded) and dropping a groove into the drum sequencer, or Tap-to-find (tap a rhythm, get the closest grooves).
+
 ## 0.3.0
 
 **Multiple outputs.** Stage 4 of the plan: each drum (or group of drums) can play out of its own stereo output, so your DAW mixes the kit like a recorded one, each drum on its own channel with its own plugins.

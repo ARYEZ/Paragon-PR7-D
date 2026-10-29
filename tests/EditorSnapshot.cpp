@@ -45,6 +45,52 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         processor.saveCurrentRigAs ("Live Funk Kit");
     }
 
+    // THE GROOVES page: a demo pack of our own (made here, as a pack's files are written), linked and read.
+    const auto groovePack = rigFolder.getChildFile ("My Grooves");
+    if (page == "grooves")
+    {
+        const auto write = [&] (const juce::String& path, double bpm, int hat, int bars, int busy, int softness)
+        {
+            juce::MidiMessageSequence track;
+            track.addEvent (juce::MidiMessage::tempoMetaEvent (juce::roundToInt (60.0e6 / bpm)));
+            track.addEvent (juce::MidiMessage::timeSignatureMetaEvent (4, 4));
+            const auto add = [&] (double beat, int note, int velocity)
+            {
+                track.addEvent (juce::MidiMessage::noteOn (10, note, (juce::uint8) juce::jlimit (1, 127, velocity - softness)).withTimeStamp (beat * 480));
+                track.addEvent (juce::MidiMessage::noteOff (10, note).withTimeStamp (beat * 480 + 60));
+            };
+            for (int bar = 0; bar < bars; ++bar)
+            {
+                const auto b = bar * 4.0;
+                add (b, 36, 120);
+                add (b + 2.5, 36, 100);
+                add (b + 1.0, 38, 115);
+                add (b + 3.0, 38, 118);
+                for (int e = 0; e < 8 * busy; ++e)
+                    add (b + e * 0.5 / busy, hat, e % 2 == 0 ? 100 : 70);
+            }
+            juce::MidiFile file;
+            file.setTicksPerQuarterNote (480);
+            track.updateMatchedPairs();
+            file.addTrack (track);
+            const auto f = groovePack.getChildFile (path);
+            f.getParentDirectory().createDirectory();
+            juce::FileOutputStream out (f);
+            file.writeTo (out);
+        };
+        write ("Rock 96 BPM/Verse 01.mid", 96.0, 42, 4, 1, 0);
+        write ("Rock 96 BPM/Verse 02.mid", 96.0, 42, 4, 1, 20);
+        write ("Rock 96 BPM/Chorus 01.mid", 96.0, 46, 4, 1, 0);
+        write ("Rock 96 BPM/Bridge 01.mid", 96.0, 51, 8, 1, 10);
+        write ("Rock 96 BPM/Fill 01.mid", 96.0, 49, 1, 2, 0);
+        write ("Funk 104 BPM/Verse 01.mid", 104.0, 42, 2, 2, 10);
+        write ("Funk 104 BPM/Chorus 01.mid", 104.0, 22, 2, 2, 0);
+        write ("Ballads/Slow 68 BPM/Verse 01.mid", 68.0, 51, 4, 1, 40);
+        REQUIRE (processor.getGrooveLibrary().addFolder (groovePack));
+        processor.getGrooveLibrary().scanNow();
+        processor.getGrooveLibrary().setFavourite (groovePack.getChildFile ("Rock 96 BPM/Chorus 01.mid"), true);
+    }
+
     if (const auto name = env ("PARAGON_SNAPSHOT_PRESET"); name.isNotEmpty())
     {
         const auto* entry = processor.getRigLibrary().findFactory (name);
@@ -369,6 +415,22 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             drums.getSequencer().getGrid().setSelection ({ 4, 5 });
             drums.updateLights();
         }
+    }
+    if (page == "grooves")
+    {
+        // The rock folder chosen, its second groove playing a moment in.
+        view->showPage (MainView::Page::grooves);
+        auto& grooves = view->getGroovesPage();
+        grooves.refresh();
+        grooves.chooseFolder (groovePack.getChildFile ("Rock 96 BPM"));
+        grooves.refresh();
+        grooves.playRow (1, true);
+        grooves.getTable().selectRow (1);
+        juce::AudioBuffer<float> buffer (2, 256);
+        juce::MidiBuffer midi;
+        for (int b = 0; b < 300; ++b)
+            processor.processBlock (buffer, midi);
+        grooves.refresh();
     }
     if (page == "presets")
         view->showPage (MainView::Page::presets);

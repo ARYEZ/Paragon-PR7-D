@@ -23,7 +23,7 @@ PR7-D is built in stages, each one released:
 | **2** | The bigger kit: 20 drums, with ride, ride bell, second crash, china, splash, half-open hat, tambourine, shaker | **Works (0.2.0)** |
 | **3** | Note maps: Root, a groove-library layout, General MIDI, and your own | **Works (0.2.0)** |
 | **4** | Multiple outputs: 16 stereo outputs; each drum, insert bus and send return chooses one | **Works (0.3.0)** |
-| 5 | The groove player: browse, filter, preview and drag MIDI grooves from your own folders | Planned |
+| **5** | The groove player: browse, filter, preview and drag MIDI grooves from your own folders | **Part 1 works (0.4.0)**: folders, list, search, preview, drag out |
 
 ## Using it
 
@@ -44,6 +44,10 @@ PR7-D is built in stages, each one released:
     insert bus; its DELAY and REVERB sends); MONO / POLY, DELAY (with an anchor for the sequencer), LP, HP; and a
     drawn **ENVELOPE** across its hit. A sample file shows its hits: click one to play just it, or drag S and E.
   - **KITS** and **SEQUENCES** save and load kits and beats (PR7-K's `.pr7kit` and `.pr7seq` files load here too).
+- **GROOVES:** your own MIDI grooves. ADD FOLDER... links a folder (and its subfolders); choose a folder on the left
+  to list its grooves, with their time signature, bars, tempo, power hand (what the riding hand plays) and intensity.
+  Click one to play it through the kit (double-click: once), at your song's tempo or its own, 1/2x to 2x, its velocity
+  scaled; drag it onto a DAW track or to a folder. Each folder's FILES' MAP says which drum each note is.
 - **SEQUENCER** (beside DRUM): four patterns, **A** to **D**, drawn on a grid level with the kit's rows. Each note
   has its own velocity, pan, pitch, gate, roll and reverse. **SONG** plays with your DAW; **KEY** plays a pattern while
   one of the four keys under the kit is held (with the Root map). **EXPORT MIDI**: click to save, or drag onto a track.
@@ -114,6 +118,6 @@ It uses:
 - [JUCE](https://github.com/juce-framework/JUCE): AGPLv3
 - The Inter typeface (in `resources/fonts`) by Rasmus Andersson, under the SIL Open Font License
 
-PR7-D's drums, sequencer and effects are our own designs and code. Its groove player (planned) is inspired by the
-groove browsers of commercial drum software, and will read only your own MIDI files from your computer: no third-party
-grooves, sounds or tags ship with it.
+PR7-D's drums, sequencer and effects are our own designs and code. Its groove player is inspired by the groove
+browsers of commercial drum software, and reads only your own MIDI files from your computer: no third-party grooves,
+sounds or tags ship with it.

@@ -1758,7 +1758,9 @@ int ParagonX1AudioProcessor::collectGrooveHits (int numSamples) noexcept
     if (g != grooveNow)
     {
         grooveNow = g;
-        grooveBeat = 0.0;
+        grooveBaseBeat = 0.0;
+        grooveSamples = 0;
+        groovePerSample = 0.0;
         grooveDone = false;
     }
     if (g == nullptr || grooveDone)
@@ -1767,7 +1769,14 @@ int ParagonX1AudioProcessor::collectGrooveHits (int numSamples) noexcept
         return 0;
     }
     const auto perSample = grooveTempo (g->bpm) / 60.0 / getSampleRate();
-    const auto from = grooveBeat, to = grooveBeat + numSamples * perSample;
+    if (perSample != groovePerSample)
+    {
+        grooveBaseBeat += (double) grooveSamples * groovePerSample;   // the tempo changed: carry on from here
+        grooveSamples = 0;
+        groovePerSample = perSample;
+    }
+    const auto from = grooveBaseBeat + (double) grooveSamples * perSample;
+    const auto to = grooveBaseBeat + (double) (grooveSamples + numSamples) * perSample;
     auto count = 0;
     const auto addCycle = [&] (double cycleStart, double limit)
     {
@@ -1775,7 +1784,9 @@ int ParagonX1AudioProcessor::collectGrooveHits (int numSamples) noexcept
         auto it = std::lower_bound (g->hits.begin(), g->hits.end(), from - cycleStart, [] (const auto& h, double b) { return h.beat < b; });
         for (; it != g->hits.end() && it->beat < limit && cycleStart + it->beat < to && count < (int) grooveHits.size(); ++it)
         {
-            const auto offset = juce::jlimit (0, numSamples - 1, (int) std::floor ((cycleStart + it->beat - from) / perSample));
+            // To the sample it falls in (a hollow millionth of a sample under: a hit right on a sample, worked out in
+            // floating point, isn't put one early).
+            const auto offset = juce::jlimit (0, numSamples - 1, (int) std::floor ((cycleStart + it->beat - from) / perSample + 1.0e-6));
             grooveHits[(size_t) count++] = { offset, it->slot, juce::jlimit (0.0f, 1.0f, it->velocity * grooveVelocity.load()) };
         }
     };
@@ -1791,7 +1802,7 @@ int ParagonX1AudioProcessor::collectGrooveHits (int numSamples) noexcept
         grooveDone = to >= g->endBeat;
         groovePosition = grooveDone ? -1.0 : to;
     }
-    grooveBeat = to;
+    grooveSamples += numSamples;
     return count;
 }
 

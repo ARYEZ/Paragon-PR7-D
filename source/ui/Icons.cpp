@@ -387,6 +387,18 @@ namespace Icons
                 break;
             }
 
+            case Type::grooves:
+            {
+                // A MIDI clip: its frame, and four notes in a rhythm across it.
+                p.addRoundedRectangle (0.06f, 0.18f, 0.88f, 0.64f, 0.08f);
+                for (const auto [x, y] : { std::pair { 0.2f, 0.66f }, std::pair { 0.4f, 0.4f }, std::pair { 0.58f, 0.66f }, std::pair { 0.76f, 0.34f } })
+                {
+                    p.startNewSubPath (x - 0.06f, y);
+                    p.lineTo (x + 0.06f, y);
+                }
+                break;
+            }
+
             case Type::flame:
                 // The mockup's "All Rigs" icon.
                 p.startNewSubPath (0.5f, 0.05f);

@@ -294,7 +294,9 @@ TEST_CASE ("GROOVE LIBRARY: folders, maps, favourites and the preview's settings
     CHECK (again.getPreview().factor == grooves::TempoFactor::twoThirds);
     CHECK_THAT (again.getPreview().velocity, WithinAbs (0.5, 1e-6));
     CHECK_FALSE (again.getPreview().songTempo);
-    CHECK (again.getNumEntries() == 4);   // listed from the index before any scan
+    CHECK (again.getNumEntries() == 0);   // nothing read when made (most PR7-Ds never open GROOVES)...
+    again.loadIndex();
+    CHECK (again.getNumEntries() == 4);   // ...listed from the index on opening, before any scan
 
     // A file changed on disk (its size or date) is read again; the others come from the index. (Dates count to the
     // second on some systems: a real edit comes later than a minute after the last scan.)

@@ -21,8 +21,8 @@ namespace
 
     const auto tabsGroup = mockF (336, 10, 1087, 55);   // PR7-K's group, for four tabs here
     const auto rigGroup = mockF (1102, 10, 1399, 55);
-    // The tabs' edges in the group, in the mockup's pixels: DRUMS | FX | PRESETS | SETTINGS.
-    constexpr float tabEdges[] = { 338.0f, 524.0f, 711.0f, 898.0f, 1085.0f };
+    // The tabs' edges in the group, in the mockup's pixels: DRUMS | GROOVES | FX | PRESETS | SETTINGS (five alike).
+    constexpr float tabEdges[] = { 338.0f, 487.4f, 636.8f, 786.2f, 935.6f, 1085.0f };
 
     // In canvas pixels.
     const juce::Rectangle<int> outputArea { 1496, 68, 92, 672 };
@@ -124,12 +124,13 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
       outputColumn ("OUTPUT", processorToShow.getParameters(), ParamIDs::outputGain, processorToShow.getOutputMeter()),
       keyboard (processorToShow, processorToShow.getKeyboardState(), juce::MidiKeyboardComponent::horizontalKeyboard),
       drumPage (processorToShow),
+      groovesPage (processorToShow),
       fxPage (processorToShow),
       rigBrowser (processorToShow),
       settingsPage (processorToShow)
 {
     // Header
-    for (auto* tab : { &drumsTab, &fxTab, &presetsTab, &settingsTab })
+    for (auto* tab : { &drumsTab, &groovesTab, &fxTab, &presetsTab, &settingsTab })
     {
         tab->setClickingTogglesState (true);
         tab->setRadioGroupId (100);
@@ -140,6 +141,8 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     presetsTab.setComponentID ("presetsTab");
     settingsTab.setComponentID ("settingsTab");
     drumsTab.onClick = [this] { showPage (Page::drums); };
+    groovesTab.setComponentID ("groovesTab");
+    groovesTab.onClick = [this] { showPage (Page::grooves); };
     fxTab.setComponentID ("fxTab");
     fxTab.onClick = [this] { showPage (Page::fx); };
     presetsTab.onClick = [this] { showPage (Page::presets); };
@@ -179,6 +182,7 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     addAndMakeVisible (keyboard);
 
     addAndMakeVisible (drumPage);
+    addChildComponent (groovesPage);
     addChildComponent (fxPage);
     addChildComponent (rigBrowser);
     addChildComponent (settingsPage);
@@ -197,10 +201,12 @@ MainView::~MainView()
 void MainView::showPage (Page newPage)
 {
     page = newPage;
-    auto& tab = newPage == Page::presets ? presetsTab : newPage == Page::settings ? settingsTab : newPage == Page::fx ? fxTab : drumsTab;
+    auto& tab = newPage == Page::presets ? presetsTab : newPage == Page::settings ? settingsTab : newPage == Page::fx ? fxTab
+              : newPage == Page::grooves ? groovesTab : drumsTab;
     tab.setToggleState (true, juce::dontSendNotification);
     fxPage.setVisible (newPage == Page::fx);
     drumPage.setVisible (newPage == Page::drums);
+    groovesPage.setVisible (newPage == Page::grooves);
     rigBrowser.setVisible (newPage == Page::presets);
     settingsPage.setVisible (newPage == Page::settings);
 }
@@ -321,7 +327,7 @@ void MainView::paint (juce::Graphics& g)
         g.setColour (ParagonColours::panelEdge);
         g.drawRoundedRectangle (group.reduced (0.5f), 5.0f, 1.0f);
     }
-    for (auto x : { tabEdges[1], tabEdges[2], tabEdges[3] })
+    for (auto x : { tabEdges[1], tabEdges[2], tabEdges[3], tabEdges[4] })
         g.drawVerticalLine (juce::roundToInt (x * mockScale), tabsGroup.getY() + 8.0f, tabsGroup.getBottom() - 8.0f);
 
     g.setColour (ParagonColours::panelEdge);
@@ -335,7 +341,7 @@ void MainView::resized()
 {
     // Header
     {
-        IconButton* tabs[] = { &drumsTab, &fxTab, &presetsTab, &settingsTab };
+        IconButton* tabs[] = { &drumsTab, &groovesTab, &fxTab, &presetsTab, &settingsTab };
         for (size_t i = 0; i < std::size (tabs); ++i)
             tabs[i]->setBounds (mock (tabEdges[i] + (i > 0 ? 1.0f : 0.0f), 12, tabEdges[i + 1] - (i + 1 < std::size (tabs) ? 1.0f : 0.0f), 53));
     }
@@ -357,6 +363,7 @@ void MainView::resized()
 
     fxPage.setBounds (pageArea);
     drumPage.setBounds (pageArea);
+    groovesPage.setBounds (pageArea);
     rigBrowser.setBounds (pageArea);
     settingsPage.setBounds (pageArea);
 }

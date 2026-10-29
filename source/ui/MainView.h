@@ -10,6 +10,7 @@
 #include "ui/ParagonLookAndFeel.h"
 #include "ui/RigBrowser.h"
 #include "ui/DrumPage.h"
+#include "ui/GroovesPage.h"
 #include "ui/FxPage.h"
 
 // A side strip: a title, a gain knob with its value underneath, and a level meter.
@@ -80,13 +81,14 @@ public:
     static constexpr int width = 1600;
     static constexpr int height = 900;
 
-    enum class Page { drums, fx, presets, settings };
+    enum class Page { drums, fx, presets, settings, grooves };
     void showPage (Page);
     Page getPage() const noexcept { return page; }
 
     // For snapshots and tests.
     FxPage& getFxPage() noexcept { return fxPage; }
     DrumPage& getDrumPage() noexcept { return drumPage; }
+    GroovesPage& getGroovesPage() noexcept { return groovesPage; }
     SettingsPage& getSettingsPage() noexcept { return settingsPage; }
     KitKeyboard& getKeyboard() noexcept { return keyboard; }
 
@@ -109,7 +111,8 @@ private:
     ParagonX1AudioProcessor& audioProcessor;
 
     // Header
-    IconButton drumsTab { "The drums: a kit of 12 on 12 keys, and the drum sequencer", Icons::Type::drums, "DRUMS" },
+    IconButton drumsTab { "The drums: a kit of 20, the drum sequencer", Icons::Type::drums, "DRUMS" },
+               groovesTab { "Your own MIDI grooves: browse, play through the kit, drag into your DAW", Icons::Type::grooves, "GROOVES" },
                fxTab { "The effects: insert buses, DELAY and REVERB sends, and the MASTER rack after the kit", Icons::Type::rack, "FX" },
                presetsTab { "Browse, save and organise presets", Icons::Type::presets, "PRESETS" },
                settingsTab { "The keys, presets folder, MIDI links and more", Icons::Type::settings, "SETTINGS" };
@@ -127,6 +130,7 @@ private:
 
     // The pages
     DrumPage drumPage;
+    GroovesPage groovesPage;
     FxPage fxPage;
     RigBrowser rigBrowser;
     SettingsPage settingsPage;

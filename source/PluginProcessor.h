@@ -406,7 +406,10 @@ private:
     std::atomic<const GroovePreview*> grooveForAudio { nullptr };
     std::vector<std::pair<std::shared_ptr<const GroovePreview>, double>> retiredGrooves;
     const GroovePreview* grooveNow = nullptr;   // audio thread: the one it's playing, where, and whether it's done
-    double grooveBeat = 0.0;
+    // Its place: beats at the last tempo change plus whole samples since, times the tempo (summing a beat-per-sample
+    // block by block would drift a sample in a few seconds).
+    double grooveBaseBeat = 0.0, groovePerSample = 0.0;
+    juce::int64 grooveSamples = 0;
     bool grooveDone = false;
     std::atomic<double> groovePosition { -1.0 };
     std::atomic<bool> grooveSongTempo { true };

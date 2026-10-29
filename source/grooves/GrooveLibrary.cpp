@@ -86,7 +86,13 @@ namespace grooves
     Library::Library (juce::File settings, juce::File index) : settingsFile (std::move (settings)), indexFile (std::move (index))
     {
         load();
-        // What was read last time, listed at once (a scan brings it up to date).
+    }
+
+    void Library::loadIndex()
+    {
+        if (indexLoaded)
+            return;
+        indexLoaded = true;
         if (const auto xml = juce::XmlDocument::parse (indexFile))
         {
             std::vector<Entry> known;
@@ -282,6 +288,7 @@ namespace grooves
         {
             std::lock_guard<std::mutex> guard (lock);
             entries = std::move (found);
+            indexLoaded = true;   // what's listed is newer than the index
         }
         indexFile.getParentDirectory().createDirectory();
         index.writeTo (indexFile);

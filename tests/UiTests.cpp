@@ -117,7 +117,7 @@ TEST_CASE ("The window opens as big as fits above the taskbar, up to 1824 x 1026
     CHECK (Editor::openingSize ({ 800, 600 }).x == 960);   // never below the smallest size
 }
 
-TEST_CASE ("The window opens on the DRUMS page; FX, PRESETS and SETTINGS cover it; the keyboard and OUTPUT stay", "[ui]")
+TEST_CASE ("The window opens on the DRUMS page; GROOVES, FX, PRESETS and SETTINGS cover it; the keyboard and OUTPUT stay", "[ui]")
 {
     Window w;
     auto* keyboard = inside<juce::MidiKeyboardComponent> (*w.view);
@@ -126,22 +126,23 @@ TEST_CASE ("The window opens on the DRUMS page; FX, PRESETS and SETTINGS cover i
     CHECK (w.view->getDrumPage().isVisible());
     checkLayout (*w.view, "drums");
 
-    // The four tabs, side by side in the header, the shown page's lit.
+    // The five tabs, side by side in the header, the shown page's lit.
     std::vector<juce::Button*> tabs;
-    for (const auto* id : { "drumsTab", "fxTab", "presetsTab", "settingsTab" })
+    for (const auto* id : { "drumsTab", "groovesTab", "fxTab", "presetsTab", "settingsTab" })
     {
         auto* tab = dynamic_cast<juce::Button*> (w.view->findChildWithID (id));
         INFO (id);
         REQUIRE (tab != nullptr);
         CHECK (tab->getBottom() < 64);
-        CHECK (tab->getWidth() > 150);
+        CHECK (tab->getWidth() > 130);
         if (! tabs.empty())
             CHECK (tab->getX() >= tabs.back()->getRight());
         tabs.push_back (tab);
     }
     CHECK (tabs[0]->getToggleState());
 
-    const std::pair<MainView::Page, int> pages[] = { { MainView::Page::fx, 1 }, { MainView::Page::presets, 2 }, { MainView::Page::settings, 3 } };
+    const std::pair<MainView::Page, int> pages[] = { { MainView::Page::grooves, 1 }, { MainView::Page::fx, 2 }, { MainView::Page::presets, 3 },
+                                                     { MainView::Page::settings, 4 } };
     for (const auto& [page, tab] : pages)
     {
         INFO (tab);
@@ -152,6 +153,7 @@ TEST_CASE ("The window opens on the DRUMS page; FX, PRESETS and SETTINGS cover i
         checkLayout (*w.view, "page");
     }
     CHECK (w.view->getFxPage().isVisible() == false);   // SETTINGS shown last
+    CHECK (w.view->getGroovesPage().isVisible() == false);
     tabs[0]->onClick();   // as clicking DRUMS does
     CHECK (w.view->getDrumPage().isVisible());
 }
