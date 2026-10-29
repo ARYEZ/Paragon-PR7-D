@@ -2,6 +2,32 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.2.0
+
+**A bigger kit and note maps.** Stages 2 and 3 of the plan: 20 drums instead of 12, and a choice of which MIDI notes play which drum, so grooves written for other drum software (and General MIDI files) play on the right drums.
+
+- **Eight new drums**, on the keys after the cymbal (C3 to G3 under ROOT C2):
+  - **RD**, a ride (new RIDE model: a long, washy metal with a ping you set with SNAP);
+  - **RB**, the ride's bell (new BELL model: four bell-like partials; TONE brings in the upper ones);
+  - **CR2**, a second crash; **CHN**, a china (lower, trashier); **SPL**, a splash (higher, shorter): our CYMBAL model, tuned apart;
+  - **HH**, a half-open hat (OPEN HAT, shorter), in the hats' CHOKE group, so the closed and pedal hats stop it;
+  - **TMB**, a tambourine (new TAMBOURINE model: jingles in three quick strikes); **SHK**, a shaker (new SHAKER model: a soft swell; SNAP makes it sharper).
+  - Like every drum, each can be a SAMPLE of your own instead. The sends, the insert bus strip and the sequencer's grid have all 20.
+  - The 12 drums you had are unchanged, on the same keys, so your projects, kits and beats sound as before. Kits and sequences saved with 12 drums load; the new 8 start at their defaults.
+- **Note maps** (SETTINGS, THE KEYS): MAP chooses which notes play which drum.
+  - **Root:** as before, 20 keys from ROOT. With the sequencer on KEY, the four keys below still start the patterns (only in this map: the other maps use those notes for drums).
+  - **Groove Library:** the layout most commercial drum-groove libraries use, so their MIDI grooves play as written: kick on 36 (and 34, 35), snare on 38, sidestick 37, rimshot 40, hats closed on 42 and 22, pedal 44 and 21, open 46 and 24, the toms, crashes on 49 and 57, ride on 51 and 29, bell 53, tambourine 3, shaker 2, and every variant note in between (about 110 notes in all).
+  - **General MIDI:** the standard layout (35-36 kick, 38 snare, 42 / 44 / 46 hats, 49 / 57 crashes, 51 ride, 52 china, 53 bell, 54 tambourine, 55 splash, 69-70 shaker...).
+  - **Custom:** the list below MAP shows every note (0 to 127) and the drum it plays. Change any, and the map you were on is copied into Custom with your change. **SAVE AS DEFAULT** keeps it for new instances; your project keeps it too. Presets don't change the map.
+  - The DRUMS page shows each drum's note in the map you're on ("-" if it has none), and the keyboard tints the notes that play.
+  - **EXPORT MIDI** writes each drum on its note in the map you're on, so the file plays back right in that map.
+- **Not known yet about the Groove Library map** (our guess until we can check a real groove file): which of the ride's notes are its edge and mute hits (all play RD), which hat notes are the in-between openings (they play the closed or open hat), and which crash notes are mutes (they play CY). Note 86 plays a crash: the published tables we found say crash, where the list we started from had it under ride. The china, splash, second crash and half-open hat have no note in it yet. Custom lets you set all of these yourself.
+- **Tests** check, by measurement:
+  - each new drum: the ride's ping frequency and SNAP, the bell's partials and TONE, the tambourine's three strikes at 0, 6 and 14 ms, the shaker's swell time with SNAP, the half-open hat choked by the closed one, each new drum's level;
+  - the maps: every note of the Groove Library list, General MIDI's notes, each map playing the right drum in the plugin, Custom edits kept by the project and the default file and untouched by presets, the KEY pattern keys only under Root, MIDI export on the map's notes, and 12-drum kits loading.
+
+What can't be checked here: how the new drums sound. They're new synth models, set by measurement, not by ear yet.
+
 ## 0.1.0
 
 **The first Paragon PR7-D: the PR7 family's drum instrument.** It starts from PR7-K 0.24.0's drum section (the kit, the drum sequencer, the sample editor, kits and sequences) and its effects, as an instrument of its own. PR7-K keeps its drum tab as it is. PR7-D installs beside PR7-K and the other PR7 plugins, with its own name, plugin ID and presets folder.

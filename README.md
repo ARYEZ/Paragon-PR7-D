@@ -20,17 +20,21 @@ PR7-D is built in stages, each one released:
 | Stage | What | Now |
 |---|---|---|
 | **1** | Its own plugin: PR7-K's kit, drum sequencer, sample editor and effects, without the synth | **Works (0.1.0)** |
-| 2 | The bigger kit: ride (bow, bell, edge), a second crash, china or splash; articulations per drum | Planned |
-| 3 | Note mapping: a groove-library layout, General MIDI, and your own maps | Planned |
+| **2** | The bigger kit: 20 drums, with ride, ride bell, second crash, china, splash, half-open hat, tambourine, shaker | **Works (0.2.0)** |
+| **3** | Note maps: Root, a groove-library layout, General MIDI, and your own | **Works (0.2.0)** |
 | 4 | Multiple outputs: each drum or group on its own stereo output | Planned |
 | 5 | The groove player: browse, filter, preview and drag MIDI grooves from your own folders | Planned |
 
 ## Using it
 
 - **DRUMS** (the page it opens on):
-  - **The kit:** 12 drums, one per key from **ROOT** (C2 at first: kick, rim, snare, clap, a second snare, three
-    toms, closed, pedal and open hat, cymbal; as on General MIDI kits). Each is one of our own drum synths (kick,
-    snare, clap, hats, tom, rim, cowbell, cymbal) or a **SAMPLE** you load (drop an audio file on its row).
+  - **The kit:** 20 drums: kick, rim, snare, clap, a second snare, three toms, closed, pedal and open hat, cymbal,
+    ride, ride bell, second crash, china, splash, half-open hat, tambourine, shaker. Each is one of our own drum synths
+    (kick, snare, clap, hats, tom, rim, cowbell, cymbal, ride, bell, tambourine, shaker) or a **SAMPLE** you load (drop
+    an audio file on its row).
+  - **Which notes play them:** the MAP in SETTINGS. **Root** puts the 20 on the keys from **ROOT** (C2 at first);
+    **Groove Library** and **General MIDI** follow those layouts, so grooves made for them play as written; **Custom**
+    is your own, note by note.
   - Click a row to choose and hear it; CTRL / SHIFT choose several. **MUTE**, **SOLO**, **CHOKE** groups (the
     closed hat stops the open one).
   - **The chosen drum:** PITCH, DECAY, TONE, SNAP, VOLUME, PAN, GAIN; where it goes (straight to the mix, or an
@@ -39,12 +43,12 @@ PR7-D is built in stages, each one released:
   - **KITS** and **SEQUENCES** save and load kits and beats (PR7-K's `.pr7kit` and `.pr7seq` files load here too).
 - **SEQUENCER** (beside DRUM): four patterns, **A** to **D**, drawn on a grid level with the kit's rows. Each note
   has its own velocity, pan, pitch, gate, roll and reverse. **SONG** plays with your DAW; **KEY** plays a pattern while
-  one of the four keys under the kit is held. **EXPORT MIDI**: click to save, or drag onto a track.
+  one of the four keys under the kit is held (with the Root map). **EXPORT MIDI**: click to save, or drag onto a track.
 - **FX:** **INSERTS** (buses A to D: DRIVE, GLITCH, MOD, LO-FI, on the drums you route to them), **SENDS** (DELAY and
   REVERB, fed by each drum's sends), **MOD / LO-FI** on the whole kit, and **MASTER** (ECHELON EQ, DOMINION,
   CONSTRICTOR, the LIMITER).
-- **The keyboard** along the bottom plays the kit with the mouse; its kit keys are tinted. Your DAW's MIDI plays it too.
-  Keys outside the kit do nothing.
+- **The keyboard** along the bottom plays the kit with the mouse; the keys that play a drum are tinted. Your DAW's MIDI
+  plays it too. Notes the map doesn't use do nothing.
 - **Presets:** SAVE in the header; **<** and **>** step through them; a `*` means changed since loading. The
   **PRESETS** tab browses, files (banks A-E), tags and favourites them. **OUTPUT** stays put when you change presets.
 - **MIDI learn:** right-click a knob. The links are listed in SETTINGS.

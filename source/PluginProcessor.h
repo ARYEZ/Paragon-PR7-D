@@ -9,6 +9,7 @@
 #include "Parameters.h"
 #include "Rack.h"
 #include "dsp/synth/Drums.h"
+#include "dsp/synth/NoteMap.h"
 #include "rigs/RigLibrary.h"
 #include "rigs/UndoHistory.h"
 #include "rigs/MidiLinks.h"
@@ -185,7 +186,20 @@ public:
     // < > (6c part 2): the next or previous audio file in the slot's sample's folder (by name), loaded into the slot.
     bool loadNeighbourSample (int slot, int direction);
 
-    // MIDI EXPORT: one pass of a pattern on the kit's keys, at the song's tempo; click saves, drag makes a file.
+    // THE NOTE MAP (0.2.0): the layout chosen (MAP, a global parameter), the notes it plays (any thread), and the
+    // player's CUSTOM map (message thread; kept in the project, and in "Note Map.xml" in the presets folder as the default a
+    // new PR7-D starts with). Editing a note under another layout copies that layout to CUSTOM first and chooses it.
+    synth::drums::notemap::Layout getMapLayout() const noexcept;
+    synth::drums::notemap::Map getNoteMap() const;
+    const synth::drums::notemap::Map& getCustomMap() const noexcept { return customMap; }
+    void setCustomMap (const synth::drums::notemap::Map&);
+    void mapNote (int note, int slot);   // -1: nothing (switches to CUSTOM, as above)
+    int homeNote (int slot) const;       // the note a slot is shown on and exported on, -1: none
+    juce::File noteMapDefaultFile() const;
+    bool saveNoteMapAsDefault() const;
+
+    // MIDI EXPORT: one pass of a pattern on the kit's notes (each drum's home note in the map), at the song's tempo;
+    // click saves, drag makes a file.
     juce::MidiFile drumPatternToMidi (int pattern) const;
     bool exportDrumMidi (int pattern, const juce::File&) const;
     juce::File drumMidiDragFile (int pattern) const;
@@ -336,6 +350,8 @@ private:
     juce::String drumKitName, drumSequenceName;   // the last loaded or saved (shown on the page)
     bool saveDrumSequenceOnly (const juce::String& cleanName);
 
+    synth::drums::notemap::Map customMap = synth::drums::notemap::grooveLibrary();
+    std::array<std::atomic<int>, 128> customForAudio {};   // the audio thread's copy
     juce::MidiKeyboardState keyboardState;
     juce::MidiBuffer keyboardMidi;   // the DAW's MIDI plus the on-screen keyboard's, per block
     std::atomic<int> activeVoices { 0 };

@@ -32,9 +32,94 @@ namespace
 }
 
 //==============================================================================
-SettingsPage::SettingsPage (ParagonX1AudioProcessor& p)
-    : processor (p)
+NoteMapList::NoteMapList (ParagonX1AudioProcessor& p) : processor (p)
 {
+    for (int n = 0; n < 128; ++n)
+    {
+        auto row = std::make_unique<Row>();
+        row->note.setText (juce::String (n).paddedLeft (' ', 3) + "   " + juce::MidiMessage::getMidiNoteName (n, true, true, 4), juce::dontSendNotification);
+        row->note.setFont (juce::FontOptions (13.0f));
+        row->note.setColour (juce::Label::textColourId, ParagonColours::textDim);
+        row->box = std::make_unique<juce::ComboBox>();
+        row->box->addItem ("-", 1);
+        for (int k = 0; k < synth::drums::numSlots; ++k)
+            row->box->addItem (juce::String (synth::drums::slotDefaults[(size_t) k].key) + "   (drum " + juce::String (k + 1) + ")", k + 2);
+        row->box->setTooltip ("The drum note " + juce::String (n) + " plays. Changing it makes the map CUSTOM: a copy of the layout "
+                              "you're on, with your change.");
+        row->box->onChange = [this, n]
+        {
+            const auto slot = rows[(size_t) n]->box->getSelectedId() - 2;
+            if (slot != shown[(size_t) n])
+            {
+                processor.mapNote (n, slot);
+                refresh();
+            }
+        };
+        row->addAndMakeVisible (row->note);
+        row->addAndMakeVisible (*row->box);
+        addAndMakeVisible (*row);
+        rows.push_back (std::move (row));
+    }
+    shown.fill (-2);
+    refresh();
+}
+
+void NoteMapList::refresh()
+{
+    const auto map = processor.getNoteMap();
+    if (map == shown)
+        return;
+    shown = map;
+    for (size_t n = 0; n < rows.size(); ++n)
+    {
+        rows[n]->box->setSelectedId (map[n] + 2, juce::dontSendNotification);
+        rows[n]->mapped = map[n] >= 0;
+        rows[n]->note.setColour (juce::Label::textColourId, map[n] >= 0 ? ParagonColours::text : ParagonColours::textDim);
+        rows[n]->repaint();
+    }
+}
+
+void NoteMapList::resized()
+{
+    for (size_t n = 0; n < rows.size(); ++n)
+        rows[n]->setBounds (0, (int) n * rowHeight, getWidth(), rowHeight - 2);
+}
+
+void NoteMapList::Row::paint (juce::Graphics& g)
+{
+    if (mapped)
+    {
+        g.setColour (ParagonColours::accent.withAlpha (0.08f));
+        g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
+    }
+}
+
+void NoteMapList::Row::resized()
+{
+    auto area = getLocalBounds();
+    note.setBounds (area.removeFromLeft (110));
+    box->setBounds (area.removeFromLeft (220).reduced (0, 1));
+}
+
+//==============================================================================
+SettingsPage::SettingsPage (ParagonX1AudioProcessor& p)
+    : processor (p),
+      mapChoice (p.getParameters(), ParamIDs::drumsMap, "MAP",
+                 "Which notes play which drum. ROOT: the 20 keys from ROOT, in order. GROOVE LIBRARY: the layout popular drum "
+                 "software's groove libraries are written in. GENERAL MIDI: the General MIDI drum map. CUSTOM: your own (change "
+                 "any note in the list). Not part of a preset: it suits your controller and grooves."),
+      mapList (p)
+{
+    addAndMakeVisible (mapChoice);
+    styleButton (saveMap, true);
+    saveMap.setTooltip ("A new PR7-D (in any project) starts with this CUSTOM map");
+    saveMap.onClick = [this] { processor.saveNoteMapAsDefault(); };
+    addAndMakeVisible (saveMap);
+    mapView.setViewedComponent (&mapList, false);
+    mapView.setScrollBarsShown (true, false);
+    addAndMakeVisible (mapView);
+    mapList.setSize (400, 128 * NoteMapList::rowHeight);
+    mapView.setViewPosition (0, 33 * NoteMapList::rowHeight);   // opens on the kick and snare (the busy part of every layout)
     styleButton (openFolder, false);
     openFolder.onClick = [this]
     {
@@ -95,7 +180,10 @@ void SettingsPage::timerCallback()
     if (! (processor.getMidiLinks() == shownLinks))
         rebuildLinks();
     if (isVisible())
+    {
         repaint (keysArea);   // THE KEYS names the notes ROOT gives
+        mapList.refresh();
+    }
 }
 
 void SettingsPage::rebuildLinks()
@@ -146,14 +234,15 @@ void SettingsPage::paint (juce::Graphics& g)
         g.drawText (title, inner.removeFromTop (24), juce::Justification::centredLeft, false);
         g.setColour (ParagonColours::textDim);
         g.setFont (juce::FontOptions (13.0f));
-        g.drawFittedText (body, inner.removeFromTop (60), juce::Justification::topLeft, 4, 1.0f);
+        g.drawFittedText (body, inner.removeFromTop (64), juce::Justification::topLeft, 4, 1.0f);
     };
 
     const auto root = juce::roundToInt (processor.getParameters().getRawParameterValue (ParamIDs::drumsRoot)->load());
     const auto note = [] (int n) { return juce::MidiMessage::getMidiNoteName (n, true, true, 4); };
-    section (keysArea, "THE KEYS", "The 12 keys from the kit's ROOT (now " + note (root) + " to " + note (root + 11)
-                                       + ") play its drums, C to B, as on General MIDI kits. With the sequencer's TRIGGER on KEY, the four "
-                                         "keys below them start its patterns A to D. Other notes do nothing. ROOT is on the DRUMS page.");
+    section (keysArea, "THE KEYS", "Which notes play which drum. ROOT: the 20 keys from ROOT (now " + note (root) + " to "
+                                       + note (root + synth::drums::numSlots - 1) + "; ROOT is on the DRUMS page), and with the "
+                                         "sequencer's TRIGGER on KEY the four keys below them start its patterns. The other layouts use those "
+                                         "notes for drums. Notes that play nothing are left dim.");
     section (rigsArea, "PRESETS", "Your presets are files in this folder, so you can back them up or share them:\n"
                                   + processor.getRigLibrary().getFolder().getFullPathName());
     section (midiArea, "MIDI LINKS", shownLinks.isEmpty()
@@ -171,13 +260,24 @@ void SettingsPage::paint (juce::Graphics& g)
 void SettingsPage::resized()
 {
     auto area = getLocalBounds();
-    auto top = area.removeFromTop (area.getHeight() / 2 - 6);
-    area.removeFromTop (12);
-    keysArea = top.removeFromLeft (top.getWidth() / 2 - 6);
-    rigsArea = top.withTrimmedLeft (12);
-    aboutArea = area.removeFromLeft (area.getWidth() / 2 - 6);
+    // THE KEYS down the left; PRESETS, MIDI LINKS and ABOUT down the right.
+    keysArea = area.removeFromLeft (area.getWidth() / 2 - 6);
     area.removeFromLeft (12);
+    rigsArea = area.removeFromTop (170);
+    area.removeFromTop (12);
+    aboutArea = area.removeFromBottom (150);
+    area.removeFromBottom (12);
     midiArea = area;
+    {
+        auto keys = keysArea.reduced (24, 18).withTrimmedTop (92);
+        auto bar = keys.removeFromTop (ParamControl::knobHeight - 30);
+        mapChoice.setBounds (bar.removeFromLeft (240));
+        bar.removeFromLeft (16);
+        saveMap.setBounds (bar.removeFromLeft (160).withSizeKeepingCentre (160, 30).translated (0, 8));
+        keys.removeFromTop (10);
+        mapView.setBounds (keys);
+        mapList.setSize (juce::jmax (10, keys.getWidth() - mapView.getScrollBarThickness()), 128 * NoteMapList::rowHeight);
+    }
     auto midi = midiArea.reduced (24, 18).withTrimmedTop (84);
     auto buttons = midi.removeFromBottom (30);
     for (auto* button : { &saveDefault, &exportLinks, &importLinks, &clearLinks })
@@ -192,5 +292,5 @@ void SettingsPage::resized()
     for (size_t i = 0; i < linkRows.size(); ++i)
         linkRows[i]->setBounds (0, (int) i * 26, linkList.getWidth(), 24);
 
-    openFolder.setBounds (rigsArea.reduced (24, 18).withTrimmedTop (100).removeFromTop (32).withWidth (220));
+    openFolder.setBounds (rigsArea.reduced (24, 18).withTrimmedTop (98).removeFromTop (32).withWidth (220));
 }

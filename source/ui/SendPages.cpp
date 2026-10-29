@@ -8,8 +8,6 @@
 
 namespace
 {
-    float valueOf (ParagonX1AudioProcessor& p, const char* id) { return p.getParameters().getRawParameterValue (id)->load(); }
-
     // A time axis across `area`: a line each half second, labelled.
     void timeGrid (juce::Graphics& g, juce::Rectangle<float> area, float span)
     {
@@ -281,7 +279,7 @@ void SendPage::resized()
     for (auto& c : sends)
         sendList.push_back (c.get());
     SynthPanel::layoutRow (controlRow, row, 110);
-    SynthPanel::layoutRow (sendRow, sendList, 92);
+    SynthPanel::layoutRow (sendRow, sendList);   // the drums share the row (20 since 0.2.0)
 }
 
 //==============================================================================

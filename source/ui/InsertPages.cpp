@@ -485,7 +485,7 @@ void InsertBusStrip::resized()
     auto drums = area.withSizeKeepingCentre (area.getWidth(), 30).translated (0, 8);
     for (auto& button : drumButtons)
     {
-        button.setBounds (drums.removeFromLeft (46).withSizeKeepingCentre (44, 28));
-        drums.removeFromLeft (3);
+        button.setBounds (drums.removeFromLeft (40).withSizeKeepingCentre (39, 28));
+        drums.removeFromLeft (2);
     }
 }

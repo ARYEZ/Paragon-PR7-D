@@ -104,7 +104,7 @@ TEST_CASE ("Silent until a key plays; a hit starts on its own sample, as the sam
     CHECK_THAT (frequencyOf (out[0]), WithinAbs (440.0, 0.05));
 }
 
-TEST_CASE ("The keyboard maps the kit: the 12 keys from ROOT play it, C to B; other keys do nothing", "[processor]")
+TEST_CASE ("The keyboard maps the kit: the 20 keys from ROOT play it, in order; other keys do nothing", "[processor]")
 {
     const auto peakFor = [] (int root, int key)
     {
@@ -113,10 +113,10 @@ TEST_CASE ("The keyboard maps the kit: the 12 keys from ROOT play it, C to B; ot
         const auto out = play (*processor, 0.3, note (key));
         return std::max (*std::max_element (out[0].begin(), out[0].end()), -*std::min_element (out[0].begin(), out[0].end()));
     };
-    for (int slot = 0; slot < 12; ++slot)
+    for (int slot = 0; slot < synth::drums::numSlots; ++slot)
         CHECK (peakFor (36, 36 + slot) > 0.01f);
     CHECK (peakFor (36, 35) == 0.0f);   // below the kit (no sequencer on KEY)
-    CHECK (peakFor (36, 48) == 0.0f);   // above it
+    CHECK (peakFor (36, 56) == 0.0f);   // above it
     CHECK (peakFor (48, 36) == 0.0f);   // ROOT moved up: the old kick key is silent...
     CHECK (peakFor (48, 48) > 0.01f);   // ...and its new one plays
 

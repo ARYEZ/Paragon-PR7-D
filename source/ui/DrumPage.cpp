@@ -161,7 +161,8 @@ void DrumRow::paint (juce::Graphics& g)
     const auto& s = kit.slots[(size_t) slot];
     g.setFont (juce::FontOptions (12.0f));
     g.setColour (ParagonColours::textDim);
-    g.drawText (noteName (kit.rootKey + slot), juce::Rectangle<int> (28, 0, 36, getHeight()), juce::Justification::centredLeft, false);
+    const auto home = processor.homeNote (slot);   // its note in the map (none: a dash)
+    g.drawText (home >= 0 ? noteName (home) : juce::String ("-"), juce::Rectangle<int> (28, 0, 36, getHeight()), juce::Justification::centredLeft, false);
     g.setFont (juce::FontOptions (14.0f, juce::Font::bold));
     g.setColour (selected ? ParagonColours::text : ParagonColours::text.withAlpha (0.85f));
     g.drawText (synth::drums::slotDefaults[(size_t) slot].key, juce::Rectangle<int> (66, 0, 44, getHeight()), juce::Justification::centredLeft, false);
@@ -963,7 +964,10 @@ void DrumPage::paint (juce::Graphics& g)
     title ("KIT", kitArea.reduced (18, 0).withHeight (40));
     g.setColour (ParagonColours::textDim);
     g.setFont (juce::FontOptions (11.0f));
-    g.drawText ("The keys " + noteName (kit.rootKey) + " to " + noteName (kit.rootKey + 11) + " play the drums",
+    const auto layout = processor.getMapLayout();
+    g.drawText (layout == synth::drums::notemap::Layout::root
+                    ? "The keys " + noteName (kit.rootKey) + " to " + noteName (kit.rootKey + synth::drums::numSlots - 1) + " play the drums"
+                    : "MAP: " + synth::drums::notemap::layoutNames[(int) layout].toUpperCase() + " (SETTINGS)",
                 kitArea.reduced (18, 0).withHeight (40).withTrimmedLeft (60), juce::Justification::centredLeft, false);
 
     if (view == View::sequencer)
@@ -976,7 +980,8 @@ void DrumPage::paint (juce::Graphics& g)
 
     g.setColour (ParagonColours::textDim);
     g.setFont (juce::FontOptions (11.0f));
-    g.drawText (noteName (kit.rootKey + selected) + "  " + synth::drums::slotDefaults[(size_t) selected].key + "  "
+    const auto home = processor.homeNote (selected);
+    g.drawText ((home >= 0 ? noteName (home) : juce::String ("-")) + "  " + synth::drums::slotDefaults[(size_t) selected].key + "  "
                     + drumName (slotKit, processor, selected),
                 drumArea.reduced (18, 0).withHeight (40).withTrimmedLeft (70), juce::Justification::centredLeft, false);
 }

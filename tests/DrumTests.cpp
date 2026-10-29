@@ -86,6 +86,16 @@ namespace
         return s;
     }
 
+    // Every drum synth (SAMPLE plays a file: not one of them), the ones PR7-D 0.2.0 added after SAMPLE too.
+    std::vector<Model> synthModels()
+    {
+        std::vector<Model> models;
+        for (int m = 0; m < modelNames.size(); ++m)
+            if ((Model) m != Model::sample)
+                models.push_back ((Model) m);
+        return models;
+    }
+
     SlotSettings model (Model m)
     {
         SlotSettings s;
@@ -96,19 +106,19 @@ namespace
 
 TEST_CASE ("DRUMS: report each model at its defaults", "[drums][report]")
 {
-    for (int m = 0; m < (int) Model::sample; ++m)
+    for (const auto m : synthModels())
     {
-        auto s = model ((Model) m);
+        auto s = model (m);
         s.decay = 1.0f;
         const auto started = juce::Time::getMillisecondCounterHiRes();
         for (int i = 0; i < 20; ++i)
             Kit::renderHit (s, 1.0f, rate, 1.0);
-        WARN (modelNames[m] << ": " << (juce::Time::getMillisecondCounterHiRes() - started) / 20000.0 * 100.0 << "% of a core per hit sounding");
+        WARN (modelNames[(int) m] << ": " << (juce::Time::getMillisecondCounterHiRes() - started) / 20000.0 * 100.0 << "% of a core per hit sounding");
     }
-    for (int m = 0; m < (int) Model::sample; ++m)
+    for (const auto m : synthModels())
     {
-        const auto hit = Kit::renderHit (model ((Model) m), 1.0f, rate, 4.0);
-        WARN (modelNames[m] << ": peak " << peakDb (hit.getReadPointer (0), hit.getNumSamples()) << " dB, -40 dB after "
+        const auto hit = Kit::renderHit (model (m), 1.0f, rate, 4.0);
+        WARN (modelNames[(int) m] << ": peak " << peakDb (hit.getReadPointer (0), hit.getNumSamples()) << " dB, -40 dB after "
                             << ringSeconds (hit, 40.0f) << " s, centroid " << centroidHz (hit) << " Hz");
     }
 }
@@ -208,10 +218,10 @@ namespace
 
 TEST_CASE ("DRUMS: every model at its defaults peaks near -3 dBFS and dies away", "[drums]")
 {
-    for (int m = 0; m < (int) Model::sample; ++m)
+    for (const auto m : synthModels())
     {
-        INFO (modelNames[m]);
-        const auto hit = Kit::renderHit (model ((Model) m), 1.0f, rate, 8.0);
+        INFO (modelNames[(int) m]);
+        const auto hit = Kit::renderHit (model (m), 1.0f, rate, 8.0);
         const auto peak = peakDb (hit.getReadPointer (0), hit.getNumSamples());
         CHECK (peak > -6.0f);
         CHECK (peak < 0.0f);
@@ -222,13 +232,13 @@ TEST_CASE ("DRUMS: every model at its defaults peaks near -3 dBFS and dies away"
 
 TEST_CASE ("DRUMS: DECAY lengthens every model", "[drums]")
 {
-    for (int m = 0; m < (int) Model::sample; ++m)
+    for (const auto m : synthModels())
     {
-        INFO (modelNames[m]);
+        INFO (modelNames[(int) m]);
         double previous = 0.0;
         for (const auto decay : { 0.1f, 0.5f, 0.9f })
         {
-            auto s = model ((Model) m);
+            auto s = model (m);
             s.decay = decay;
             const auto seconds = ringSeconds (Kit::renderHit (s, 1.0f, rate, 8.0), 40.0f);
             CHECK (seconds > previous);
@@ -305,7 +315,7 @@ TEST_CASE ("DRUMS: the kit's keys: C to B from its root, one-shots, nothing outs
     CHECK_FALSE (rig.kit.isSounding (0));
 
     Rig outside;
-    outside.play (0.2, { { 35, 1.0f, 0.0 }, { 48, 1.0f, 0.0 } });
+    outside.play (0.2, { { 35, 1.0f, 0.0 }, { 56, 1.0f, 0.0 } });   // just under the kit, and just over its 20 keys
     CHECK (outside.kit.getNumActiveVoices() == 0);
     CHECK (Rig::peak (outside.left) == 0.0f);
 
@@ -484,8 +494,8 @@ TEST_CASE ("DRUMS: CPU, the whole kit hit every sixteenth note", "[drums][perfor
     const auto started = juce::Time::getMillisecondCounterHiRes();
     rig.play (8.0, notes);
     const auto percent = (juce::Time::getMillisecondCounterHiRes() - started) / 8000.0 * 100.0;
-    WARN ("12 drums every sixteenth note at 120 BPM: " << percent << "% of one core");
-    CHECK (percent < 8.0);
+    WARN (numSlots << " drums every sixteenth note at 120 BPM: " << percent << "% of one core");
+    CHECK (percent < 14.0);   // (8% for PR7-K's 12)
 }
 
 namespace
@@ -571,4 +581,132 @@ TEST_CASE ("DRUMS: SAMPLE plays only from START to END, fading at a cut END", "[
     CHECK (ringSeconds (hit, 60.0f) < 0.46);
     CHECK (frequencyHz (hit, 0.15, 0.3) > 52.0 * std::exp2 (2.5 / 12.0));   // the 4th kick is 3 semitones up
     CHECK (frequencyHz (hit, 0.15, 0.3) < 52.0 * std::exp2 (3.5 / 12.0));
+}
+
+//==============================================================================
+// THE BIGGER KIT (PR7-D 0.2.0): the four new drum synths, each measured for what makes it that drum.
+namespace
+{
+    // A frequency's level in [from, from + length) seconds (Goertzel over whole cycles), as a share of full scale.
+    double toneLevel (const juce::AudioBuffer<float>& b, double hz, double from, double length)
+    {
+        const auto* x = b.getReadPointer (0);
+        const auto start = (int) (from * rate);
+        const auto n = (int) (std::floor (length * hz) / hz * rate);
+        const auto coefficient = 2.0 * std::cos (juce::MathConstants<double>::twoPi * hz / rate);
+        double s1 = 0.0, s2 = 0.0;
+        for (int i = start; i < start + n && i < b.getNumSamples(); ++i)
+        {
+            const auto s0 = x[i] + coefficient * s1 - s2;
+            s2 = s1;
+            s1 = s0;
+        }
+        return 2.0 * std::sqrt (juce::jmax (0.0, s1 * s1 + s2 * s2 - coefficient * s1 * s2)) / juce::jmax (1, n);
+    }
+
+    // Slot k as a new kit has it (its model, pitch and shaping).
+    SlotSettings kitSlot (int k)
+    {
+        SlotSettings s;
+        const auto& d = synth::drums::slotDefaults[(size_t) k];
+        s.model = d.model;
+        s.pitch = d.pitch;
+        s.decay = d.decay;
+        s.tone = d.tone;
+        s.snap = d.snap;
+        s.choke = d.choke;
+        return s;
+    }
+
+    // The loudest sample in each `ms`-long window, from the start.
+    std::vector<float> envelopeOf (const juce::AudioBuffer<float>& b, double ms)
+    {
+        const auto window = juce::jmax (1, (int) (ms * 0.001 * rate));
+        std::vector<float> peaks;
+        for (int i = 0; i + window <= b.getNumSamples(); i += window)
+            peaks.push_back (b.getMagnitude (0, i, window));
+        return peaks;
+    }
+}
+
+TEST_CASE ("THE BIGGER KIT: the ride rings long and bright, with its stick's ping (SNAP) around 2.6 kHz", "[drums][kit20]")
+{
+    const auto ride = Kit::renderHit (kitSlot (12), 1.0f, rate, 4.0);
+    const auto crash = Kit::renderHit (kitSlot (11), 1.0f, rate, 4.0);
+    CHECK (ringSeconds (ride, 40.0f) > 1.0);   // a ride sustains
+    // The ping: at 2650 Hz in the first 50 ms, far louder with SNAP up than down.
+    auto pinged = kitSlot (12), soft = kitSlot (12);
+    pinged.snap = 1.0f;
+    soft.snap = 0.0f;
+    const auto hard = toneLevel (Kit::renderHit (pinged, 1.0f, rate, 0.2), 2650.0, 0.0, 0.05);
+    const auto quiet = toneLevel (Kit::renderHit (soft, 1.0f, rate, 0.2), 2650.0, 0.0, 0.05);
+    WARN ("the ride's ping at 2650 Hz: SNAP 100% " << juce::Decibels::gainToDecibels (hard) << " dB, 0% "
+                                                     << juce::Decibels::gainToDecibels (quiet) << " dB");
+    CHECK (hard > 3.0 * quiet);
+    // Its wash sits lower than the crash's (a ride is darker and less splashy).
+    CHECK (centroidHz (ride) < centroidHz (crash));
+}
+
+TEST_CASE ("THE BIGGER KIT: the ride bell sounds its partials, 1.1 kHz and inharmonic ones above, TONE raising the upper ones", "[drums][kit20]")
+{
+    const auto bell = Kit::renderHit (kitSlot (13), 1.0f, rate, 1.0);
+    const auto fundamental = toneLevel (bell, 1100.0, 0.05, 0.2);
+    const auto between = toneLevel (bell, 1300.0, 0.05, 0.2);
+    CHECK (fundamental > 10.0 * between);                                    // a pitched ring, not noise
+    CHECK (toneLevel (bell, 1100.0 * 1.51, 0.05, 0.2) > 3.0 * between);   // and its second partial
+    auto dark = kitSlot (13), bright = kitSlot (13);
+    dark.tone = 0.0f;
+    bright.tone = 1.0f;
+    const auto upper = [] (const SlotSettings& s)
+    {
+        const auto hit = Kit::renderHit (s, 1.0f, rate, 0.5);
+        return toneLevel (hit, 1100.0 * 2.24, 0.01, 0.1) / toneLevel (hit, 1100.0, 0.01, 0.1);
+    };
+    CHECK (upper (bright) > 2.0 * upper (dark));
+}
+
+TEST_CASE ("THE BIGGER KIT: the tambourine's jingles strike three times in its first 15 ms", "[drums][kit20]")
+{
+    const auto hit = Kit::renderHit (kitSlot (18), 1.0f, rate, 0.5);
+    const auto env = envelopeOf (hit, 1.0);   // the loudest sample in each millisecond
+    // A strike at 0, 6 and 14 ms: each a peak above the millisecond before it.
+    for (const auto ms : { 6, 14 })
+    {
+        INFO (ms << " ms");
+        CHECK (env[(size_t) ms] > 1.3f * env[(size_t) ms - 1]);
+    }
+    CHECK (centroidHz (hit) > 6000.0);   // bright metal
+}
+
+TEST_CASE ("THE BIGGER KIT: the shaker swells in (SNAP: faster) and is noise high up", "[drums][kit20]")
+{
+    auto soft = kitSlot (19), sharp = kitSlot (19);
+    soft.snap = 0.0f;
+    sharp.snap = 1.0f;
+    const auto peakAt = [] (const SlotSettings& s)
+    {
+        const auto env = envelopeOf (Kit::renderHit (s, 1.0f, rate, 0.5), 1.0);
+        return (int) std::distance (env.begin(), std::max_element (env.begin(), env.end()));
+    };
+    WARN ("the shaker peaks after " << peakAt (soft) << " ms (SNAP 0) and " << peakAt (sharp) << " ms (SNAP 100%)");
+    CHECK (peakAt (soft) > 15);           // a swell, not a strike
+    CHECK (peakAt (sharp) < peakAt (soft));
+    CHECK (peakAt (sharp) >= 2);
+    CHECK (centroidHz (Kit::renderHit (kitSlot (19), 1.0f, rate, 0.5)) > 3000.0);
+}
+
+TEST_CASE ("THE BIGGER KIT: the half-open hat chokes with the hats; the new cymbals each ring", "[drums][kit20]")
+{
+    CHECK (synth::drums::slotDefaults[17].choke == synth::drums::slotDefaults[6].choke);   // HH in the hats' group
+    for (const auto k : { 14, 15, 16 })   // crash 2, china, splash
+    {
+        INFO (synth::drums::slotDefaults[(size_t) k].key);
+        const auto hit = Kit::renderHit (kitSlot (k), 1.0f, rate, 6.0);
+        CHECK (ringSeconds (hit, 40.0f) > 0.3);
+    }
+    // The splash is the shortest of the three, crash 2 the longest; the china the darkest.
+    const auto seconds = [] (int k) { return ringSeconds (Kit::renderHit (kitSlot (k), 1.0f, rate, 6.0), 40.0f); };
+    CHECK (seconds (16) < seconds (15));
+    CHECK (seconds (15) < seconds (14));
+    CHECK (centroidHz (Kit::renderHit (kitSlot (15), 1.0f, rate, 1.0)) < centroidHz (Kit::renderHit (kitSlot (14), 1.0f, rate, 1.0)));
 }

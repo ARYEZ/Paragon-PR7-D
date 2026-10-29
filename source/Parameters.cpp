@@ -1,6 +1,7 @@
 #include "Parameters.h"
 
 #include "dsp/synth/Drums.h"
+#include "dsp/synth/NoteMap.h"
 
 namespace
 {
@@ -16,6 +17,7 @@ namespace
     constexpr int stage6aStart = 21;   // 0.21.1: SAMPLE's START and END
     constexpr int stage6b = 22;  // 0.22.0: the drum sequencer
     constexpr int stage6c = 23;  // 0.23.0: the sample editor
+    constexpr int pr7d020 = 24;  // PR7-D 0.2.0: drums 13 to 20, the note map
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -93,31 +95,35 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         add (layout, drumsRoot, "Drums Root Key", { 0.0f, 116.0f, 1.0f }, 36.0f, asNote, stage6a);
         add (layout, drumsLevel, "Drums Level", { -24.0f, 12.0f, 0.1f }, 0.0f, asDb, stage6a);
         add (layout, drumsVelocity, "Drums Velocity", { 0.0f, 1.0f }, 1.0f, asPercent, stage6a);
+        addChoice (layout, drumsMap, "Drums Note Map", synth::drums::notemap::layoutNames, 0, pr7d020);
         for (int k = 0; k < numDrums; ++k)
         {
+            // PR7-K's 12 drums keep their version hints; the 8 PR7-D added take 0.2.0's.
+            const auto added = k >= 12;
+            const auto hint = added ? pr7d020 : stage6a, hintStart = added ? pr7d020 : stage6aStart, hintEditor = added ? pr7d020 : stage6c;
             const auto& d = synth::drums::slotDefaults[(size_t) k];
             const auto name = "Drum " + juce::String (k + 1) + " ";
-            addChoice (layout, drum (k, "Model"), name + "Model", synth::drums::modelNames, (int) d.model, stage6a);
-            add (layout, drum (k, "Level"), name + "Volume", { -48.0f, 12.0f, 0.1f }, 0.0f, asLevel, stage6a);
-            add (layout, drum (k, "Pan"), name + "Pan", { -1.0f, 1.0f }, 0.0f, asPan, stage6a);
-            add (layout, drum (k, "Pitch"), name + "Pitch", { -24.0f, 24.0f, 0.01f }, d.pitch, asPitch, stage6a);
-            add (layout, drum (k, "Decay"), name + "Decay", { 0.0f, 1.0f }, d.decay, asPercent, stage6a);
-            add (layout, drum (k, "Tone"), name + "Tone", { 0.0f, 1.0f }, d.tone, asPercent, stage6a);
-            add (layout, drum (k, "Snap"), name + "Snap", { 0.0f, 1.0f }, d.snap, asPercent, stage6a);
-            addSwitch (layout, drum (k, "Mute"), name + "Mute", false, stage6a);
-            addSwitch (layout, drum (k, "Solo"), name + "Solo", false, stage6a);
-            addChoice (layout, drum (k, "Choke"), name + "Choke", synth::drums::chokeNames, d.choke, stage6a);
-            addChoice (layout, drum (k, "Insert"), name + "Insert", insertBusNames, 0, stage6a);
-            add (layout, drum (k, "SendDelay"), name + "Send Delay", { 0.0f, 1.0f }, 1.0f, asPercent, stage6a);
-            add (layout, drum (k, "SendReverb"), name + "Send Reverb", { 0.0f, 1.0f }, 1.0f, asPercent, stage6a);
-            add (layout, drum (k, "SampleStart"), name + "Sample Start", { 0.0f, 1.0f }, 0.0f, asShare, stage6aStart);
-            add (layout, drum (k, "SampleEnd"), name + "Sample End", { 0.0f, 1.0f }, 1.0f, asShare, stage6aStart);
+            addChoice (layout, drum (k, "Model"), name + "Model", synth::drums::modelNames, (int) d.model, hint);
+            add (layout, drum (k, "Level"), name + "Volume", { -48.0f, 12.0f, 0.1f }, 0.0f, asLevel, hint);
+            add (layout, drum (k, "Pan"), name + "Pan", { -1.0f, 1.0f }, 0.0f, asPan, hint);
+            add (layout, drum (k, "Pitch"), name + "Pitch", { -24.0f, 24.0f, 0.01f }, d.pitch, asPitch, hint);
+            add (layout, drum (k, "Decay"), name + "Decay", { 0.0f, 1.0f }, d.decay, asPercent, hint);
+            add (layout, drum (k, "Tone"), name + "Tone", { 0.0f, 1.0f }, d.tone, asPercent, hint);
+            add (layout, drum (k, "Snap"), name + "Snap", { 0.0f, 1.0f }, d.snap, asPercent, hint);
+            addSwitch (layout, drum (k, "Mute"), name + "Mute", false, hint);
+            addSwitch (layout, drum (k, "Solo"), name + "Solo", false, hint);
+            addChoice (layout, drum (k, "Choke"), name + "Choke", synth::drums::chokeNames, d.choke, hint);
+            addChoice (layout, drum (k, "Insert"), name + "Insert", insertBusNames, 0, hint);
+            add (layout, drum (k, "SendDelay"), name + "Send Delay", { 0.0f, 1.0f }, 1.0f, asPercent, hint);
+            add (layout, drum (k, "SendReverb"), name + "Send Reverb", { 0.0f, 1.0f }, 1.0f, asPercent, hint);
+            add (layout, drum (k, "SampleStart"), name + "Sample Start", { 0.0f, 1.0f }, 0.0f, asShare, hintStart);
+            add (layout, drum (k, "SampleEnd"), name + "Sample End", { 0.0f, 1.0f }, 1.0f, asShare, hintStart);
             // THE SAMPLE EDITOR (6c).
-            add (layout, drum (k, "Gain"), name + "Gain", { -24.0f, 24.0f, 0.1f }, 0.0f, asDb, stage6c);
-            addSwitch (layout, drum (k, "Mono"), name + "Mono", false, stage6c);
-            add (layout, drum (k, "Delay"), name + "Delay", delayRange, 0.0f, asDrumDelay, stage6c);
-            add (layout, drum (k, "LowPass"), name + "Low Pass", logRange (20.0, 20000.0), 20000.0f, asLowPass, stage6c);
-            add (layout, drum (k, "HighPass"), name + "High Pass", logRange (20.0, 20000.0), 20.0f, asHighPass, stage6c);
+            add (layout, drum (k, "Gain"), name + "Gain", { -24.0f, 24.0f, 0.1f }, 0.0f, asDb, hintEditor);
+            addSwitch (layout, drum (k, "Mono"), name + "Mono", false, hintEditor);
+            add (layout, drum (k, "Delay"), name + "Delay", delayRange, 0.0f, asDrumDelay, hintEditor);
+            add (layout, drum (k, "LowPass"), name + "Low Pass", logRange (20.0, 20000.0), 20000.0f, asLowPass, hintEditor);
+            add (layout, drum (k, "HighPass"), name + "High Pass", logRange (20.0, 20000.0), 20.0f, asHighPass, hintEditor);
         }
 
         // THE DRUM SEQUENCER (stage 6b).

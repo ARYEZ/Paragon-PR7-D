@@ -28,8 +28,9 @@ namespace
         {
             if (! child->isVisible() || dynamic_cast<juce::TooltipWindow*> (child) != nullptr)
                 continue;
-            // A list's rows are placed by JUCE beyond its visible part, for scrolling.
-            if (dynamic_cast<juce::ListBox*> (&parent) != nullptr)
+            // A list's rows are placed by JUCE beyond its visible part, for scrolling; so is a viewport's content.
+            if (dynamic_cast<juce::ListBox*> (&parent) != nullptr
+                || (parent.getParentComponent() != nullptr && dynamic_cast<juce::Viewport*> (parent.getParentComponent()) != nullptr))
                 continue;
 
             const auto name = path + "/" + (child->getName().isNotEmpty() ? child->getName()
@@ -189,8 +190,8 @@ TEST_CASE ("The on-screen keyboard plays the kit; its tinted keys follow ROOT an
     keys.repaint();
     auto image = keys.createComponentSnapshot (keys.getLocalBounds());   // paints: follows the kit
     CHECK (keys.isKitKey (36));
-    CHECK (keys.isKitKey (47));
-    CHECK_FALSE (keys.isKitKey (48));
+    CHECK (keys.isKitKey (55));
+    CHECK_FALSE (keys.isKitKey (56));
     CHECK_FALSE (keys.isPatternKey (35));   // the sequencer isn't on KEY
     set (ParamIDs::drumsRoot, 48.0f);
     set (ParamIDs::dseqOn, 1.0f);
@@ -198,7 +199,7 @@ TEST_CASE ("The on-screen keyboard plays the kit; its tinted keys follow ROOT an
     image = keys.createComponentSnapshot (keys.getLocalBounds());
     CHECK_FALSE (keys.isKitKey (36));
     CHECK (keys.isKitKey (48));
-    CHECK (keys.isKitKey (59));
+    CHECK (keys.isKitKey (67));
     CHECK (keys.isPatternKey (44));
     CHECK (keys.isPatternKey (47));
     CHECK_FALSE (keys.isPatternKey (43));

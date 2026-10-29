@@ -43,11 +43,14 @@ void KitKeyboard::followKit()
 {
     const auto root = juce::roundToInt (processor.getParameters().getRawParameterValue (ParamIDs::drumsRoot)->load());
     const auto sequencer = processor.getDrumSeqSettings();
-    const auto keys = sequencer.on && sequencer.trigger == synth::drumseq::Trigger::key;
-    if (root != kitRoot || keys != patternKeys)
+    const auto keys = sequencer.on && sequencer.trigger == synth::drumseq::Trigger::key
+                   && processor.getMapLayout() == synth::drums::notemap::Layout::root;
+    const auto newMap = processor.getNoteMap();
+    if (root != kitRoot || keys != patternKeys || newMap != map)
     {
         kitRoot = root;
         patternKeys = keys;
+        map = newMap;
         repaint();
     }
 }

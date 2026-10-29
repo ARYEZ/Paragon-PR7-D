@@ -12,7 +12,8 @@ namespace synth::drums
         constexpr double twoPi = juce::MathConstants<double>::twoPi;
 
         // Each model's level, so a hit at the defaults peaks near -3 dBFS (measured in the tests).
-        constexpr std::array<float, 10> modelLevel { 0.651f, 0.716f, 1.373f, 2.314f, 2.006f, 0.550f, 0.824f, 0.770f, 1.119f, 1.0f };
+        constexpr std::array<float, 14> modelLevel { 0.651f, 0.716f, 1.373f, 2.314f, 2.006f, 0.550f, 0.824f, 0.770f, 1.119f, 1.0f,
+                                                     1.097f, 0.549f, 1.017f, 1.099f };
 
         // The six metal oscillators (hats, cymbal): unrelated pitches, so their harmonics clash like metal. The
         // classic analog-machine idea; these are our own numbers.
@@ -20,6 +21,11 @@ namespace synth::drums
         constexpr std::array<double, 6> metalStart { 0.0, 0.37, 0.71, 0.13, 0.52, 0.89 };
         // The clap's bursts (seconds, at PITCH 0): three quick slaps, then the one that rings.
         constexpr std::array<double, 4> clapBursts { 0.0, 0.010, 0.020, 0.031 };
+        // The tambourine's jingles striking one after another as the frame moves (seconds, at PITCH 0).
+        constexpr std::array<double, 3> jingleBursts { 0.0, 0.006, 0.014 };
+        // The ride bell's partials: inharmonic, as a bell's are (our own ratios), each a little quieter.
+        constexpr std::array<double, 4> bellRatio { 1.0, 1.51, 2.24, 2.76 };
+        constexpr std::array<float, 4> bellLevel { 1.0f, 0.6f, 0.45f, 0.3f };
 
         float decayCoefficient (double seconds, double sampleRate) noexcept
         {
@@ -241,6 +247,7 @@ namespace synth::drums
         fadeStep = 0.0f;
         noise = Noise (seed);
         phase = {};
+        pingPhase = {};
         increment = {};
         burst = 0;
         env = env2 = pitchEnv = click = 1.0f;
@@ -342,6 +349,70 @@ namespace synth::drums
                                                          : model == Model::openHat ? 0.05 + 0.4 * d * d : 0.25 + 2.8 * d * d);
                 break;
             }
+
+            case Model::ride:
+            {
+                // Our own: the cymbal's six squares a little higher, high-passed brighter and with less noise (a ride
+                // washes less than a crash), ringing long; and the stick's ping, two inharmonic sines near 2.6 kHz
+                // that die sooner. SNAP: the ping's level; TONE: the wash's brightness.
+                for (size_t i = 0; i < metalHz.size(); ++i)
+                {
+                    increment[i] = juce::jmin (0.45, metalHz[i] * 1.35 * ratio / rate);
+                    phase[i] = metalStart[i];
+                }
+                const auto cutoff = 5000.0 * ratio * (0.7 + 0.6 * tone);
+                f1.set (cutoff, 0.7, rate);
+                f2.set (cutoff, 1.0, rate);
+                f3.set (cutoff * 2.5, 0.7, rate);
+                noiseLevel = 0.05f + 0.3f * (1.0f - snap);
+                envCoef = tau (0.4 + 2.4 * d * d);
+                baseHz = 2650.0 * ratio;
+                env2Coef = tau (0.06 + 0.3 * d);
+                mix = 0.15f + 0.6f * snap;
+                break;
+            }
+
+            case Model::bell:
+                // Our own: four inharmonic sines from 1.1 kHz (bellRatio), the upper two dying sooner; TONE: how loud
+                // the upper ones are; SNAP: the stick's click (high-passed noise, 3 ms).
+                baseHz = 1100.0 * ratio;
+                envCoef = tau (0.3 + 2.0 * d * d);
+                env2Coef = tau ((0.3 + 2.0 * d * d) * 0.35);
+                clickCoef = tau (0.003);
+                mix = (float) (0.3 + 1.0 * tone);
+                noiseLevel = 0.8f * snap;
+                f1.set (4000.0, 0.7, rate);
+                break;
+
+            case Model::tambourine:
+            {
+                // Our own: metal (the six squares, twice as high) high-passed around TONE's 6 kHz, struck three times in
+                // 14 ms as the jingles hit one after another, then ringing for DECAY. SNAP: the noise in the jingles.
+                for (size_t i = 0; i < metalHz.size(); ++i)
+                {
+                    increment[i] = juce::jmin (0.45, metalHz[i] * 2.2 * ratio / rate);
+                    phase[i] = metalStart[i];
+                }
+                const auto cutoff = 6000.0 * ratio * (0.7 + 0.6 * tone);
+                f1.set (cutoff, 0.7, rate);
+                f2.set (cutoff, 1.0, rate);
+                f3.set (juce::jmin (0.45 * rate, cutoff * 2.2), 0.7, rate);
+                baseHz = ratio;
+                env = env2 = 0.0f;
+                envCoef = tau (0.018);
+                env2Coef = tau (0.06 + 0.35 * d * d);
+                noiseLevel = 0.2f + 0.8f * snap;
+                break;
+            }
+
+            case Model::shaker:
+                // Our own: noise band-passed around TONE's 5 kHz, swelling in (SNAP: faster, 25 ms to 4 ms) and dying
+                // away (DECAY): the swish of the beads.
+                f1.set (juce::jmin (0.45 * rate, 5000.0 * ratio * (0.7 + 0.6 * tone)), 1.4, rate);
+                click = 1.0f;
+                clickCoef = tau (0.025 - 0.021 * snap);
+                envCoef = tau (0.03 + 0.2 * d * d);
+                break;
 
             case Model::tom:
                 // A sine falling to its pitch (TONE: from how high), a second mode at 1.5 times that dies sooner, and
@@ -515,6 +586,70 @@ namespace synth::drums
                 env *= envCoef;
                 break;
             }
+            case Model::ride:
+            {
+                auto metal = 0.0f;
+                for (size_t i = 0; i < metalHz.size(); ++i)
+                {
+                    metal += square (phase[i], increment[i]);
+                    advance (phase[i], increment[i]);
+                }
+                f1.process (metal * (1.0f / 6.0f) + noiseLevel * noise.white());
+                f2.process (f1.hp);
+                f3.process (f2.hp);
+                advance (pingPhase[0], baseHz / sampleRate);
+                advance (pingPhase[1], 1.47 * baseHz / sampleRate);
+                out = f3.lp * env + mix * (0.6f * sine (pingPhase[0]) + 0.4f * sine (pingPhase[1])) * env2;
+                env *= envCoef;
+                env2 *= env2Coef;
+                break;
+            }
+            case Model::bell:
+            {
+                float partials[2] {};
+                for (size_t i = 0; i < bellRatio.size(); ++i)
+                {
+                    advance (phase[i], bellRatio[i] * baseHz / sampleRate);
+                    partials[i / 2] += bellLevel[i] * sine (phase[i]);
+                }
+                f1.process (noise.white());
+                out = 0.6f * (partials[0] * env + mix * partials[1] * env2) + f1.hp * click * noiseLevel;
+                env *= envCoef;
+                env2 *= env2Coef;
+                click *= clickCoef;
+                break;
+            }
+            case Model::tambourine:
+            {
+                if (burst < (int) jingleBursts.size() && t >= jingleBursts[(size_t) burst] / baseHz)
+                {
+                    env = 1.0f;
+                    if (burst == 0)
+                        env2 = 1.0f;
+                    ++burst;
+                }
+                auto metal = 0.0f;
+                for (size_t i = 0; i < metalHz.size(); ++i)
+                {
+                    metal += square (phase[i], increment[i]);
+                    advance (phase[i], increment[i]);
+                }
+                f1.process (metal * (1.0f / 6.0f) + noiseLevel * noise.white());
+                f2.process (f1.hp);
+                f3.process (f2.hp);
+                out = f3.lp * (0.7f * env + 0.5f * env2);
+                env *= envCoef;
+                env2 *= env2Coef;
+                break;
+            }
+            case Model::shaker:
+            {
+                f1.process (noise.white());
+                out = f1.bp * (1.0f - click) * env;
+                env *= envCoef;
+                click *= clickCoef;
+                break;
+            }
             case Model::tom:
             {
                 pitchEnv *= pitchCoef;
@@ -570,6 +705,10 @@ namespace synth::drums
             case Model::rim:     return env < quiet && env2 < quiet && click < quiet;
             case Model::cowbell: return env < quiet && env2 < quiet;
             case Model::sample:  return env < quiet;
+            case Model::ride:    return env < quiet && env2 < quiet;
+            case Model::bell:    return env < quiet && env2 < quiet && click < quiet;
+            case Model::tambourine: return burst >= (int) jingleBursts.size() && env < quiet && env2 < quiet;
+            case Model::shaker:  return env < quiet;
             case Model::closedHat:
             case Model::openHat:
             case Model::cymbal:  return env < quiet;
@@ -915,7 +1054,7 @@ namespace synth::drums
                 const auto message = metadata.getMessage();
                 if (! message.isNoteOnOrOff())
                     continue;
-                if (const auto pattern = keyed ? patternForKey (message.getNoteNumber(), settings.rootKey) : -1; pattern >= 0)
+                if (const auto pattern = keyed && ! settings.mapped ? patternForKey (message.getNoteNumber(), settings.rootKey) : -1; pattern >= 0)
                 {
                     renderTo (position);
                     patternKey (pattern, message.isNoteOn(), message.getFloatVelocity());

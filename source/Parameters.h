@@ -23,7 +23,10 @@ namespace ParamIDs
     inline constexpr auto drumsRoot     = "drumsRoot";       // the kit's C: a MIDI note
     inline constexpr auto drumsLevel    = "drumsLevel";      // dB
     inline constexpr auto drumsVelocity = "drumsVelocity";   // 0 to 1
-    inline constexpr int numDrums = 12;
+    // THE NOTE MAP (PR7-D 0.2.0, version hint 24): which notes play which drum (notemap::layoutNames). Global, like
+    // OUTPUT: it suits the player's controller and grooves, not a sound, so presets leave it alone.
+    inline constexpr auto drumsMap      = "drumsMap";
+    inline constexpr int numDrums = 20;   // 12 until PR7-D 0.2.0 (drum13 to drum20: version hint 24)
     inline juce::String drum (int slot, const char* what) { return "drum" + juce::String (slot + 1) + what; }
     inline constexpr const char* drumSettings[] = { "Model", "Level", "Pan", "Pitch", "Decay", "Tone", "Snap", "Mute", "Solo",
                                                     "Choke", "Insert", "SendDelay", "SendReverb",
@@ -239,7 +242,7 @@ namespace ParamIDs
 
     // Global settings: kept when switching presets. Everything else is part of a preset.
     // The LIMITER's UNITY and DELTA are for listening while you set it, not part of a sound.
-    inline const juce::StringArray notInRigs { outputGain, bypass, limitUnity, limitDelta };
+    inline const juce::StringArray notInRigs { outputGain, bypass, limitUnity, limitDelta, drumsMap };
 }
 
 namespace ParamRanges

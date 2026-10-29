@@ -29,13 +29,13 @@ private:
     LevelMeter meter;
 };
 
-// The on-screen keyboard, with THE DRUMS' 12 keys tinted (and, with the sequencer on KEY, the four that start its
-// patterns, more faintly).
+// The on-screen keyboard, with the keys the note map plays a drum on tinted (and, with the ROOT layout and the sequencer
+// on KEY, the four that start its patterns, more faintly).
 class KitKeyboard final : public juce::MidiKeyboardComponent
 {
 public:
     KitKeyboard (ParagonX1AudioProcessor&, juce::MidiKeyboardState&, Orientation);
-    bool isKitKey (int note) const noexcept { return note >= kitRoot && note < kitRoot + 12; }
+    bool isKitKey (int note) const noexcept { return note >= 0 && note < 128 && map[(size_t) note] >= 0; }
     bool isPatternKey (int note) const noexcept { return patternKeys && note >= kitRoot - 4 && note < kitRoot; }
     void paint (juce::Graphics&) override;
 
@@ -55,6 +55,7 @@ private:
     ParagonX1AudioProcessor& processor;
     bool patternKeys = false;
     int kitRoot = 36;
+    synth::drums::notemap::Map map = synth::drums::notemap::rootLayout (36);
     Poll poll;
 };
 

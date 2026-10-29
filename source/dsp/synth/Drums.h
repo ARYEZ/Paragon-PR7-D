@@ -12,8 +12,9 @@
 #include <memory>
 #include <vector>
 
-// THE DRUMS (stage 6a): a kit of 12 slots, one per key of an octave (C the kick, D# the clap, as on Avenger's drum tab
-// and General MIDI). Each slot is one of our own drum synths or a sample the user loads; they play as one-shots (a
+// THE DRUMS (PR7-K's stage 6a): a kit of slots, the first 12 one per key of an octave (C the kick, D# the clap, as on
+// Avenger's drum tab and General MIDI); PR7-D 0.2.0 added 8 more (rides, more cymbals, a half-open hat, tambourine and
+// shaker). Which keys play which slot is the note map's business (NoteMap.h). Each slot is one of our own drum synths or a sample the user loads; they play as one-shots (a
 // note-off doesn't stop them), with VOLUME, PAN, PITCH, and three shaping knobs whose meaning suits the model:
 //
 //   DECAY  how long it rings;
@@ -35,14 +36,16 @@ namespace synth
 
 namespace synth::drums
 {
-    inline constexpr int numSlots = 12;
+    inline constexpr int numSlots = 20;
 
-    // Saved by index (drum{k}Model): only ever append.
-    enum class Model { kick, snare, clap, closedHat, openHat, tom, rim, cowbell, cymbal, sample };
-    inline const juce::StringArray modelNames { "Kick", "Snare", "Clap", "Closed Hat", "Open Hat", "Tom", "Rim", "Cowbell", "Cymbal", "Sample" };
+    // Saved by index (drum{k}Model): only ever append. RIDE, BELL, TAMBOURINE and SHAKER came in PR7-D 0.2.0.
+    enum class Model { kick, snare, clap, closedHat, openHat, tom, rim, cowbell, cymbal, sample, ride, bell, tambourine, shaker };
+    inline const juce::StringArray modelNames { "Kick", "Snare", "Clap", "Closed Hat", "Open Hat", "Tom", "Rim", "Cowbell", "Cymbal", "Sample",
+                                                "Ride", "Bell", "Tambourine", "Shaker" };
     inline const juce::StringArray chokeNames { "None", "1", "2", "3", "4" };   // drum{k}Choke, by index: only append
 
-    // The new kit, slot by slot (C to B): what it starts as, and short names for the keys.
+    // The new kit, slot by slot (the first 12 C to B from ROOT, then the 8 added in 0.2.0): what each starts as, and a
+    // short name for it.
     struct SlotDefault
     {
         Model model;
@@ -63,7 +66,16 @@ namespace synth::drums
         { Model::closedHat, -2.0f, 0.2f, 0.4f, 0.3f, 1, "PH" },    // G#: the pedal hat
         { Model::tom,       5.0f, 0.5f, 0.5f, 0.5f, 0, "HT" },     // A
         { Model::openHat,   0.0f, 0.5f, 0.5f, 0.5f, 1, "OH" },     // A#
-        { Model::cymbal,    0.0f, 0.6f, 0.5f, 0.5f, 0, "CY" },     // B
+        { Model::cymbal,    0.0f, 0.6f, 0.5f, 0.5f, 0, "CY" },     // B: crash 1
+        // PR7-D 0.2.0, ROOT + 12 to + 19 (C to G an octave up):
+        { Model::ride,      0.0f, 0.6f, 0.5f, 0.5f, 0, "RD" },     // the ride's bow
+        { Model::bell,      0.0f, 0.5f, 0.5f, 0.5f, 0, "RB" },     // the ride's bell
+        { Model::cymbal,   -2.0f, 0.65f, 0.45f, 0.5f, 0, "CR2" },  // crash 2: lower and longer
+        { Model::cymbal,   -5.0f, 0.5f, 0.2f, 0.9f, 0, "CHN" },    // china: low, dark and trashy
+        { Model::cymbal,    5.0f, 0.3f, 0.6f, 0.5f, 0, "SPL" },    // splash: high and short
+        { Model::openHat,   0.0f, 0.25f, 0.5f, 0.5f, 1, "HH" },    // the half-open hat
+        { Model::tambourine, 0.0f, 0.5f, 0.5f, 0.5f, 0, "TMB" },
+        { Model::shaker,    0.0f, 0.5f, 0.5f, 0.5f, 0, "SHK" },
     }};
 
     // A loaded sample: one or two channels at its own rate.
@@ -146,13 +158,22 @@ namespace synth::drums
     struct KitSettings
     {
         bool on = false;
-        int rootKey = 36;                  // the kit's C (the keys rootKey to rootKey + 11 play the drums)
+        int rootKey = 36;                  // ROOT: with the ROOT layout, the keys rootKey to rootKey + 19 play the slots
+        // THE NOTE MAP (0.2.0): with a layout other than ROOT, `keys` gives each MIDI note's slot (-1: none), and the
+        // sequencer's KEY pattern keys are off (the layouts use those notes for drums).
+        bool mapped = false;
+        std::array<std::int8_t, 128> keys {};
         float velocity = 1.0f;             // how much the keys' velocity changes the level, 0 to 1
         float gain = 1.0f;                 // the kit's LEVEL
         std::array<bool, 2> sendOn {};     // DELAY, REVERB switched on
         std::array<SlotSettings, numSlots> slots;
 
-        int slotFor (int note) const noexcept { return note >= rootKey && note < rootKey + numSlots ? note - rootKey : -1; }
+        int slotFor (int note) const noexcept
+        {
+            if (mapped)
+                return note >= 0 && note < 128 ? keys[(size_t) note] : -1;
+            return note >= rootKey && note < rootKey + numSlots ? note - rootKey : -1;
+        }
     };
 
     // Where the kit plays into: the mix, each send (null while its effect is off), each insert bus (null if none).
@@ -206,6 +227,7 @@ namespace synth::drums
         int burst = 0;
         Svf f1, f2, f3;
         Noise noise;
+        std::array<double, 2> pingPhase {};   // RIDE's stick ping, beside the metal
 
         // SAMPLE's.
         const Sample* sample = nullptr;

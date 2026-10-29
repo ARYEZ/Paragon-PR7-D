@@ -145,7 +145,7 @@ TEST_CASE ("DRUM SEQUENCER: patterns save and load as text", "[drumseq]")
     CHECK (short_.notes[0].start == 6.0);
     CHECK (short_.notes[0].velocity == 1.0f);
     // Out of range: kept in range.
-    CHECK (drumseq::Pattern::decode ("40:-2:3:5:99:0:9:7").notes[0] .row == 11);
+    CHECK (drumseq::Pattern::decode ("40:-2:3:5:99:0:9:7").notes[0] .row == drumseq::numRows - 1);
 }
 
 TEST_CASE ("DRUM SEQUENCER: hit times: steps, SPEED, SHUFFLE on odd steps, ROLLs across the step, end sync, LENGTH",
@@ -368,7 +368,7 @@ TEST_CASE ("DRUM SEQUENCER: MIDI export writes one pass on the kit's keys", "[dr
     b.gate = 0.5f;
     past.start = 9.0;   // past LENGTH
     p.notes = { a, b, past };
-    const auto file = drumseq::toMidi (p, s, 36, 100.0);
+    const auto file = drumseq::toMidi (p, s, drumseq::rootNotes (36), 100.0);
     REQUIRE (file.getNumTracks() == 1);
     std::vector<std::tuple<int, int, double>> ons;   // note, velocity, tick
     double tempo = 0.0;
@@ -417,7 +417,7 @@ TEST_CASE ("DRUM SEQUENCER: a drum's anchor (DELAY set early) starts it that muc
     std::array<double, drumseq::numRows> lead {};
     lead[0] = 0.0625;
     std::vector<double> ticks;
-    const auto file = drumseq::toMidi (p, s, 36, 120.0, lead);
+    const auto file = drumseq::toMidi (p, s, drumseq::rootNotes (36), 120.0, lead);
     for (const auto* e : *file.getTrack (0))
         if (e->message.isNoteOn())
             ticks.push_back (e->message.getTimeStamp());

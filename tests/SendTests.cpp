@@ -279,7 +279,7 @@ TEST_CASE ("The FX page's SENDS view: DELAY and REVERB units, the matrix, their 
 
     // The matrix: a knob for each drum's REVERB send (the snare's, here); DELAY's power switch is delayOn.
     CHECK (page.getSendMatrix().send (2, 1).getParameterId() == ParamIDs::drum (2, "SendReverb"));
-    for (int k = 0; k < 12; ++k)
+    for (int k = 0; k < synth::drums::numSlots; ++k)
         for (int which = 0; which < 2; ++which)
         {
             INFO (k << " " << which << " " << page.getSendMatrix().send (k, which).getBounds().toString());
@@ -299,7 +299,7 @@ TEST_CASE ("The FX page's SENDS view: DELAY and REVERB units, the matrix, their 
         auto& sendPage = i == 0 ? page.getDelayPage() : page.getReverbPage();
         CHECK (page.getView() == (i == 0 ? FxPage::View::delay : FxPage::View::reverb));
         CHECK (sendPage.isVisible());
-        CHECK (sendPage.getSends().size() == 12);
+        CHECK (sendPage.getSends().size() == (size_t) synth::drums::numSlots);
         for (auto* c : sendPage.getControls())
         {
             INFO (c->getBounds().toString());

@@ -4,6 +4,7 @@
 
 #include "PluginProcessor.h"
 #include "ui/Icons.h"
+#include "ui/SynthControls.h"
 
 // The panels' shared style, and the SETTINGS page.
 
@@ -15,7 +16,34 @@ namespace DockStyle
 }
 
 //==============================================================================
-// SETTINGS: how the keys play the kit, where presets are kept, MIDI links, and what the plugin is built from.
+// THE NOTE MAP's list (0.2.0): every MIDI note, 0 to 127, and the drum it plays (or none). Changing one makes the map
+// CUSTOM (a copy of the layout chosen, with the change).
+class NoteMapList final : public juce::Component
+{
+public:
+    explicit NoteMapList (ParagonX1AudioProcessor&);
+    void refresh();                                         // from the processor's map now
+    juce::ComboBox& getBox (int note) { return *rows[(size_t) note]->box; }
+    static constexpr int rowHeight = 26;
+
+    void resized() override;
+
+private:
+    struct Row final : public juce::Component
+    {
+        juce::Label note;
+        std::unique_ptr<juce::ComboBox> box;
+        bool mapped = false;
+        void paint (juce::Graphics&) override;
+        void resized() override;
+    };
+    ParagonX1AudioProcessor& processor;
+    std::vector<std::unique_ptr<Row>> rows;
+    synth::drums::notemap::Map shown {};
+};
+
+//==============================================================================
+// SETTINGS: THE KEYS (the note map), where presets are kept, MIDI links, and what the plugin is built from.
 class SettingsPage final : public juce::Component,
                            private juce::ChangeListener,
                            private juce::Timer
@@ -53,6 +81,16 @@ private:
     ParagonX1AudioProcessor& processor;
     juce::TextButton openFolder { "OPEN PRESETS FOLDER" };
     juce::Rectangle<int> keysArea, rigsArea, aboutArea;
+    ParamControl mapChoice;
+    juce::TextButton saveMap { "SAVE AS DEFAULT" };
+    NoteMapList mapList;
+    juce::Viewport mapView;
+
+public:
+    NoteMapList& getMapList() noexcept { return mapList; }
+    juce::Viewport& getMapView() noexcept { return mapView; }
+
+private:
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override { repaint(); }
 };

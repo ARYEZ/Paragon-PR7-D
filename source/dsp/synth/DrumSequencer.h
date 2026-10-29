@@ -18,7 +18,7 @@
 // plugin, the MIDI export and the tests alike, so they can't disagree.
 namespace synth::drumseq
 {
-    inline constexpr int numPatterns = 4, numRows = 12, maxBeats = 16, maxNotes = 1024;
+    inline constexpr int numPatterns = 4, numRows = 20, maxBeats = 16, maxNotes = 1024;   // a row per drum slot (12 until PR7-D 0.2.0)
     inline const juce::StringArray patternNames { "A", "B", "C", "D" };
 
     // Saved by index: only ever append.
@@ -32,7 +32,7 @@ namespace synth::drumseq
 
     struct Note
     {
-        int row = 0;                  // the kit's slot, 0 (C, the kick) to 11
+        int row = 0;                  // the kit's slot, 0 (the kick) to numRows - 1
         double start = 0.0;           // in steps from the pattern's start
         float velocity = 1.0f;        // 0 to 1
         float pan = 0.0f;             // -1 to 1, added to the drum's own
@@ -175,7 +175,17 @@ namespace synth::drumseq
     // written out; a note lasts its gate (a ringing one, its slot of the step). Pan, pitch and reverse can't be
     // written as notes, so they aren't. A drum with an anchor (`leadSeconds` by row) is written that much early, so
     // played back from the track its anchor still lands on the beat (one at the very start wraps to the end).
-    inline juce::MidiFile toMidi (const Pattern& pattern, const Settings& s, int rootKey, double bpm,
+    // `notes`: the MIDI note each row is written on (-1: that row's notes are left out).
+    // The notes of the ROOT layout: row k on root + k.
+    inline std::array<int, numRows> rootNotes (int root)
+    {
+        std::array<int, numRows> notes {};
+        for (int k = 0; k < numRows; ++k)
+            notes[(size_t) k] = root + k;
+        return notes;
+    }
+
+    inline juce::MidiFile toMidi (const Pattern& pattern, const Settings& s, const std::array<int, numRows>& notes, double bpm,
                                   const std::array<double, numRows>& leadSeconds = {})
     {
         constexpr int ticksPerBeat = 960;
@@ -190,8 +200,11 @@ namespace synth::drumseq
             const auto at = std::round (t * ticksPerStep);   // a MIDI file keeps whole ticks (and a hair off isn't a tick early)
             const auto lasts = n.gate < 1.0f ? n.gate * ticksPerBeat : ticksPerStep / n.rollCount();
             const auto velocity = (juce::uint8) juce::jlimit (1, 127, juce::roundToInt (n.velocity * 127.0f));
-            track.addEvent (juce::MidiMessage::noteOn (10, rootKey + n.row, velocity), at);
-            track.addEvent (juce::MidiMessage::noteOff (10, rootKey + n.row), juce::jmin (lengthTicks, at + juce::jmax (1.0, lasts - 1.0)));
+            const auto note = notes[(size_t) juce::jlimit (0, numRows - 1, n.row)];
+            if (note < 0 || note > 127)
+                return;
+            track.addEvent (juce::MidiMessage::noteOn (10, note, velocity), at);
+            track.addEvent (juce::MidiMessage::noteOff (10, note), juce::jmin (lengthTicks, at + juce::jmax (1.0, lasts - 1.0)));
         });
         track.updateMatchedPairs();
         track.sort();

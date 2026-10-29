@@ -19,6 +19,7 @@ namespace
     constexpr double retiredTableMs = 2000.0;   // how long a replaced sample or pattern is kept, in case a block is still playing it
     const juce::Identifier modulationKey { "Modulation" };
     const juce::Identifier midiLinksKey { "MidiLinks" };
+    const juce::Identifier noteMapKey { "NoteMap" };
     constexpr int parameterVersion = 1;
 }
 
@@ -65,6 +66,13 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
 
     rigLibrary = std::make_unique<RigLibrary>();
     rack->setFolder (rigLibrary->getFolder());
+    // THE NOTE MAP: a new instance starts with the saved CUSTOM map, if one was saved (else the groove libraries' layout).
+    {
+        auto custom = synth::drums::notemap::grooveLibrary();
+        if (const auto xml = juce::XmlDocument::parse (noteMapDefaultFile()); xml != nullptr && xml->hasTagName (noteMapKey))
+            custom = synth::drums::notemap::decode (xml->getStringAttribute ("keys"));
+        setCustomMap (custom);
+    }
     // MIDI LEARN: a new instance starts with the default links, if some were saved.
     if (midiLinksDefaultFile().existsAsFile())
         importMidiLinks (midiLinksDefaultFile());
@@ -826,6 +834,19 @@ synth::drums::KitSettings ParagonX1AudioProcessor::getKitSettings() const noexce
     synth::drums::KitSettings kit;
     kit.on = true;   // PR7-D: the kit always plays (PR7-K's DRUMS ON switch is gone)
     kit.rootKey = juce::roundToInt (param (ParamIDs::drumsRoot));
+    // THE NOTE MAP: ROOT works it out from rootKey; the others give each note's slot.
+    if (const auto layout = getMapLayout(); layout != synth::drums::notemap::Layout::root)
+    {
+        kit.mapped = true;
+        if (layout == synth::drums::notemap::Layout::custom)
+            for (size_t n = 0; n < kit.keys.size(); ++n)
+                kit.keys[n] = (std::int8_t) customForAudio[n].load();
+        else
+        {
+            static const auto groove = synth::drums::notemap::grooveLibrary(), gm = synth::drums::notemap::generalMidi();
+            kit.keys = layout == synth::drums::notemap::Layout::grooveLibrary ? groove : gm;
+        }
+    }
     kit.velocity = param (ParamIDs::drumsVelocity);
     kit.gain = juce::Decibels::decibelsToGain (param (ParamIDs::drumsLevel));
     kit.sendOn = { isOn (ParamIDs::delayOn), isOn (ParamIDs::reverbOn) };
@@ -1180,13 +1201,17 @@ bool ParagonX1AudioProcessor::loadNeighbourSample (int slot, int direction)
 juce::MidiFile ParagonX1AudioProcessor::drumPatternToMidi (int pattern) const
 {
     const auto p = (size_t) juce::jlimit (0, synth::drumseq::numPatterns - 1, pattern);
-    // Drums with an anchor (6c) written early, as the sequencer plays them.
+    // Drums with an anchor (6c) written early, as the sequencer plays them; each on its home note in the map, so the
+    // file plays back on this kit as it is (a drum the map has no note for is left out).
     const auto kit = getKitSettings();
     std::array<double, synth::drumseq::numRows> lead {};
+    std::array<int, synth::drumseq::numRows> notes {};
     for (size_t k = 0; k < lead.size(); ++k)
+    {
         lead[k] = kit.slots[k].anchorSeconds();
-    return synth::drumseq::toMidi (matrix.drumPatterns[p], getDrumSeqSettings(), juce::roundToInt (param (ParamIDs::drumsRoot)),
-                                   juce::jmax (1.0, getHostBpm()), lead);
+        notes[k] = homeNote ((int) k);
+    }
+    return synth::drumseq::toMidi (matrix.drumPatterns[p], getDrumSeqSettings(), notes, juce::jmax (1.0, getHostBpm()), lead);
 }
 
 bool ParagonX1AudioProcessor::exportDrumMidi (int pattern, const juce::File& file) const
@@ -1477,6 +1502,7 @@ void ParagonX1AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
         state.appendChild (juce::ValueTree::fromXml (*matrix.toXml()), nullptr);
     if (! midiLinks.isEmpty())
         state.appendChild (juce::ValueTree::fromXml (*midiLinks.toXml()), nullptr);
+    state.appendChild (juce::ValueTree (noteMapKey, { { "keys", synth::drums::notemap::encode (customMap) } }), nullptr);
 
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
@@ -1520,6 +1546,12 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
             setMidiLinks (MidiLinks::fromXml (*links));
         state.removeChild (saved, nullptr);
     }
+    // THE NOTE MAP's CUSTOM map: the project's, if it has one (else the one this instance has: its default).
+    if (auto saved = state.getChildWithName (noteMapKey); saved.isValid())
+    {
+        setCustomMap (synth::drums::notemap::decode (saved["keys"].toString()));
+        state.removeChild (saved, nullptr);
+    }
     parameters.replaceState (state);
     matrix = newMatrix;
     compileMatrix();
@@ -1544,6 +1576,62 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new ParagonX1AudioProcessor();
+}
+
+//==============================================================================
+// THE NOTE MAP (0.2.0)
+synth::drums::notemap::Layout ParagonX1AudioProcessor::getMapLayout() const noexcept
+{
+    return (synth::drums::notemap::Layout) juce::jlimit (0, synth::drums::notemap::layoutNames.size() - 1, juce::roundToInt (param (ParamIDs::drumsMap)));
+}
+
+synth::drums::notemap::Map ParagonX1AudioProcessor::getNoteMap() const
+{
+    using namespace synth::drums::notemap;
+    switch (getMapLayout())
+    {
+        case Layout::root: return rootLayout (juce::roundToInt (param (ParamIDs::drumsRoot)));
+        case Layout::grooveLibrary: return grooveLibrary();
+        case Layout::generalMidi: return generalMidi();
+        case Layout::custom: return customMap;
+    }
+    return customMap;
+}
+
+void ParagonX1AudioProcessor::setCustomMap (const synth::drums::notemap::Map& map)
+{
+    customMap = map;
+    for (size_t n = 0; n < map.size(); ++n)
+        customForAudio[n] = map[n];
+}
+
+void ParagonX1AudioProcessor::mapNote (int note, int slot)
+{
+    if (note < 0 || note > 127)
+        return;
+    auto map = getNoteMap();   // under another layout: that layout, copied to CUSTOM
+    map[(size_t) note] = (std::int8_t) (slot >= 0 && slot < synth::drums::numSlots ? slot : -1);
+    setCustomMap (map);
+    if (auto* layout = parameters.getParameter (ParamIDs::drumsMap); layout != nullptr && getMapLayout() != synth::drums::notemap::Layout::custom)
+        layout->setValueNotifyingHost (layout->convertTo0to1 ((float) synth::drums::notemap::Layout::custom));
+}
+
+int ParagonX1AudioProcessor::homeNote (int slot) const
+{
+    return synth::drums::notemap::homeNote (getNoteMap(), getMapLayout(), slot, juce::roundToInt (param (ParamIDs::drumsRoot)));
+}
+
+juce::File ParagonX1AudioProcessor::noteMapDefaultFile() const
+{
+    return rigLibrary->getFolder().getChildFile ("Note Map.xml");
+}
+
+bool ParagonX1AudioProcessor::saveNoteMapAsDefault() const
+{
+    juce::XmlElement xml (noteMapKey);
+    xml.setAttribute ("keys", synth::drums::notemap::encode (customMap));
+    noteMapDefaultFile().getParentDirectory().createDirectory();
+    return xml.writeTo (noteMapDefaultFile());
 }
 
 //==============================================================================
