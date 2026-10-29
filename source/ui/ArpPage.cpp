@@ -494,7 +494,7 @@ void MidiExportButton::mouseDrag (const juce::MouseEvent& e)
     if (dragged || e.getDistanceFromDragStart() < 6)
         return;
     dragged = true;
-    const auto file = processor.arpMidiDragFile (arp);
+    const auto file = makeDragFile ? makeDragFile() : processor.arpMidiDragFile (arp);
     juce::DragAndDropContainer::performExternalDragDropOfFiles ({ file.getFullPathName() }, false, this);
 }
 
@@ -502,17 +502,22 @@ void MidiExportButton::clicked()
 {
     if (std::exchange (dragged, false))
         return;
-    chooser = std::make_unique<juce::FileChooser> ("Save Arp " + juce::String (arp + 1) + "'s notes as MIDI",
-                                                   juce::File::getSpecialLocation (juce::File::userDocumentsDirectory)
-                                                       .getChildFile ("Arp " + juce::String (arp + 1) + ".mid"),
+    const auto name = fileName.isNotEmpty() ? fileName : "Arp " + juce::String (arp + 1);
+    chooser = std::make_unique<juce::FileChooser> ("Save " + name + " as MIDI",
+                                                   juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile (name + ".mid"),
                                                    "*.mid");
     juce::Component::SafePointer<MidiExportButton> self (this);
     chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
                               | juce::FileBrowserComponent::warnAboutOverwriting,
                           [self] (const juce::FileChooser& c)
                           {
-                              if (self != nullptr && c.getResult() != juce::File())
-                                  self->processor.exportArpMidi (self->arp, c.getResult().withFileExtension ("mid"));
+                              if (self == nullptr || c.getResult() == juce::File())
+                                  return;
+                              const auto file = c.getResult().withFileExtension ("mid");
+                              if (self->exportTo)
+                                  self->exportTo (file);
+                              else
+                                  self->processor.exportArpMidi (self->arp, file);
                           });
 }
 

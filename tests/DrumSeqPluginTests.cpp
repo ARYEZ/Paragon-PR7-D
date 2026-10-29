@@ -4,6 +4,7 @@
 #include "SynthTestUtils.h"
 
 #include "PluginProcessor.h"
+#include "ui/DrumPage.h"
 
 namespace
 {
@@ -227,4 +228,107 @@ TEST_CASE ("DRUM SEQUENCER in the plugin: MIDI export puts the pattern on the ki
     const auto drag = p.processor.drumMidiDragFile (2);
     CHECK (drag.existsAsFile());
     CHECK (drag.getFileName() == "Drums C.mid");
+}
+
+TEST_CASE ("DRUMS page, SEQUENCER: the grid adds, moves, chooses and removes notes; the fields set the chosen ones", "[drumseqplugin][ui]")
+{
+    Plugin p;
+    DrumPage page (p.processor);
+    page.setSize (1476, 672);
+    page.showView (DrumPage::View::sequencer);
+    CHECK (page.getSequencer().isVisible());
+    CHECK_FALSE (page.getDisplay().isVisible());
+    auto& grid = page.getSequencer().getGrid();
+    // Its rows line up with the kit's.
+    for (int r = 0; r < 12; ++r)
+    {
+        const auto row = page.getRow (r).getBoundsInParent();
+        const auto cell = page.getLocalArea (&grid, grid.rowArea (r)).toNearestInt();
+        CHECK (std::abs (row.getY() - cell.getY()) <= 1);
+        CHECK (std::abs (row.getBottom() - cell.getBottom()) <= 1);
+    }
+
+    const auto pattern = [&p] (int k = 0) { return p.processor.getModMatrix().drumPatterns[(size_t) k]; };
+    const auto mouse = [&grid] (juce::Point<float> at, juce::ModifierKeys mods = juce::ModifierKeys::leftButtonModifier)
+    {
+        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, mods, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                 &grid, &grid, juce::Time::getCurrentTime(), at, juce::Time::getCurrentTime(), 1, false);
+    };
+    const auto click = [&] (juce::Point<float> at, juce::ModifierKeys mods = juce::ModifierKeys::leftButtonModifier)
+    {
+        grid.mouseDown (mouse (at, mods));
+        grid.mouseUp (mouse (at, mods));
+    };
+
+    // PEN: a click on the snare's row, step 4, adds a note there (and chooses the snare on the left).
+    click (grid.cell (2, 4.0).getCentre());
+    REQUIRE (pattern().notes.size() == 1);
+    CHECK (pattern().notes[0].row == 2);
+    CHECK (pattern().notes[0].start == 4.0);
+    CHECK (page.getSelected() == 2);
+    CHECK (grid.getSelection() == std::vector<int> { 0 });
+
+    // Dragged along the hats' row: a note in each step passed.
+    grid.mouseDown (mouse (grid.cell (6, 0.0).getCentre()));
+    for (int k = 1; k <= 3; ++k)
+        grid.mouseDrag (mouse (grid.cell (6, k).getCentre()));
+    grid.mouseUp (mouse (grid.cell (6, 3.0).getCentre()));
+    CHECK (pattern().notes.size() == 5);
+
+    // The snare dragged a step later and to the clap's row; with ALT, a quarter of a step off the grid.
+    grid.mouseDown (mouse (grid.cell (2, 4.0).getCentre()));
+    grid.mouseDrag (mouse (grid.cell (3, 5.0).getCentre()));
+    grid.mouseUp (mouse (grid.cell (3, 5.0).getCentre()));
+    CHECK (pattern().notes[0].row == 3);
+    CHECK (pattern().notes[0].start == 5.0);
+    const auto alt = juce::ModifierKeys (juce::ModifierKeys::leftButtonModifier | juce::ModifierKeys::altModifier);
+    grid.mouseDown (mouse (grid.cell (3, 5.0).getCentre(), alt));
+    grid.mouseDrag (mouse (grid.cell (3, 5.25).getCentre(), alt));
+    grid.mouseUp (mouse (grid.cell (3, 5.25).getCentre(), alt));
+    CHECK (pattern().notes[0].start == 5.25);
+
+    // SELECT: a frame round the first two hats chooses them; the fields set both.
+    grid.tool = DrumSeqGrid::Tool::select;
+    grid.mouseDown (mouse (grid.cell (5, 0.0).getTopLeft()));
+    grid.mouseDrag (mouse (grid.cell (7, 1.0).getBottomRight()));
+    grid.mouseUp (mouse (grid.cell (7, 1.0).getBottomRight()));
+    CHECK (grid.getSelection() == std::vector<int> { 1, 2 });
+    auto& velocity = page.getSequencer().getField (0);
+    CHECK_THAT (velocity.get(), WithinAbs (1.0, 1e-6));
+    velocity.set (0.5f, true);
+    CHECK (pattern().notes[1].velocity == 0.5f);
+    CHECK (pattern().notes[2].velocity == 0.5f);
+    CHECK (pattern().notes[3].velocity == 1.0f);
+    page.getSequencer().getField (4).set (2.0f, true);   // ROLL 3x
+    CHECK (pattern().notes[1].rollCount() == 3);
+    page.getSequencer().getField (5).set (1.0f, true);   // REVERSE
+    CHECK (pattern().notes[2].reverse == synth::drumseq::Reverse::reverse);
+
+    // DELETE removes them; a right-click removes one; undo brings it back.
+    grid.keyPressed (juce::KeyPress (juce::KeyPress::deleteKey));
+    CHECK (pattern().notes.size() == 3);
+    p.processor.flushUndoStep();
+    click (grid.cell (6, 3.0).getCentre(), juce::ModifierKeys::rightButtonModifier);
+    CHECK (pattern().notes.size() == 2);
+    p.processor.flushUndoStep();
+    p.processor.undo();
+    CHECK (pattern().notes.size() == 3);
+
+    // Nothing chosen: the fields show nothing.
+    grid.setSelection ({});
+    CHECK (std::isnan (velocity.get()));
+
+    // Pattern B: an empty grid; its button sets PATTERN.
+    page.getSequencer().selectPattern (1);   // what its button does
+    CHECK (page.getSequencer().getPatternButton (1).getToggleState());
+    CHECK (grid.getPattern() == 1);
+    CHECK (grid.getShown().isEmpty());
+    grid.tool = DrumSeqGrid::Tool::pen;
+    click (grid.cell (0, 0.0).getCentre());
+    CHECK (pattern (1).notes.size() == 1);
+    CHECK (pattern (0).notes.size() == 3);
+
+    page.showView (DrumPage::View::drum);
+    CHECK_FALSE (page.getSequencer().isVisible());
+    CHECK (page.getDisplay().isVisible());
 }

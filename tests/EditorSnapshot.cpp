@@ -20,7 +20,8 @@
 //   PARAGON_SNAPSHOT_FILTERPAGE=n     the FILTER panel's SHP n tab (shaper n's page)
 //   PARAGON_SNAPSHOT_FFT=band:dB,...  a curve drawn for oscillator 1; PARAGON_SNAPSHOT_FFT_VIEW=harmonic|bins
 //   PARAGON_SNAPSHOT_PARAMS=id=value,...   parameters set (real units)
-//   PARAGON_SNAPSHOT_PAGE=drums      THE DRUMS (PARAGON_SNAPSHOT_DRUM=n: slot n chosen; PARAGON_SNAPSHOT_DRUMS=1: a beat just played, its rows lit)
+//   PARAGON_SNAPSHOT_PAGE=drums      THE DRUMS (PARAGON_SNAPSHOT_DRUM=n: slot n chosen; PARAGON_SNAPSHOT_DRUMS=1: a beat just played, its rows lit;
+//                                    PARAGON_SNAPSHOT_DRUMSEQ=1: the SEQUENCER view, a beat playing with the song)
 //   PARAGON_SNAPSHOT_PAGE=fx         THE RACK (PARAGON_SNAPSHOT_RACK=1: at work on a chord, the sends too; PARAGON_SNAPSHOT_FX=eq|dominion|comp|limiter|sends|delay|reverb|modfx|mod|mod2|lofi|inserts|insdrive|insglitch|insmod|inslofi: that view, the inserts' on bus PARAGON_SNAPSHOT_BUS=1-4)
 //   PARAGON_SNAPSHOT_NOTES=1         a chord held on the keyboard (so the PLAY panel counts notes, and keys light)
 TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
@@ -383,6 +384,70 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             midi.clear();
             for (int b = 0; b < 6; ++b)
                 processor.processBlock (buffer, midi);
+            drums.updateLights();
+        }
+        if (env ("PARAGON_SNAPSHOT_DRUMSEQ") == "1")
+        {
+            // THE DRUM SEQUENCER (stage 6b): a beat in pattern A (accented hats with a roll, a pitched tom fill, a
+            // reversed cymbal swelling into the bar, a short open hat), played with the song to just past beat 2, the
+            // snares chosen.
+            synth::drumseq::Pattern beat;
+            const auto note = [&beat] (int row, double start, float velocity = 1.0f) -> synth::drumseq::Note&
+            {
+                synth::drumseq::Note n;
+                n.row = row;
+                n.start = start;
+                n.velocity = velocity;
+                beat.notes.push_back (n);
+                return beat.notes.back();
+            };
+            for (const auto k : { 0.0, 3.0, 8.0, 10.0 })
+                note (0, k);
+            note (2, 4.0);
+            note (2, 12.0);
+            for (int k = 0; k < 14; k += 2)
+                note (6, k, k % 4 == 0 ? 1.0f : 0.55f);
+            note (6, 14.0, 0.8f).roll = 2;
+            note (10, 7.0, 0.7f).gate = 0.25f;
+            note (9, 13.0).pitch = 2.0f;
+            note (7, 14.0);
+            note (5, 15.0).pitch = -3.0f;
+            note (11, 15.0).reverse = synth::drumseq::Reverse::endSync;
+            note (1, 6.0, 0.6f).pan = -0.5f;
+            auto matrix = processor.getModMatrix();
+            matrix.drumPatterns[0] = beat;
+            processor.setModMatrix (matrix);
+            if (auto* on = processor.getParameters().getParameter (ParamIDs::dseqOn))
+                on->setValueNotifyingHost (1.0f);
+            if (auto* sh = processor.getParameters().getParameter (ParamIDs::shuffle))
+                sh->setValueNotifyingHost (0.2f);
+            processor.updateDrumReverses();
+
+            struct Song final : juce::AudioPlayHead
+            {
+                double ppq = 0.0;
+                juce::Optional<PositionInfo> getPosition() const override
+                {
+                    PositionInfo info;
+                    info.setBpm (120.0);
+                    info.setPpqPosition (ppq);
+                    info.setIsPlaying (true);
+                    return info;
+                }
+            };
+            static Song song;
+            processor.setPlayHead (&song);
+            juce::AudioBuffer<float> buffer (2, 512);
+            juce::MidiBuffer midi;
+            for (int b = 0; b < 58; ++b)   // 1.14 beats: the playhead on step 5
+            {
+                processor.processBlock (buffer, midi);
+                song.ppq += 512.0 / 48000.0 * 2.0;
+            }
+            processor.setPlayHead (nullptr);
+            drums.showView (DrumPage::View::sequencer);
+            drums.select (2);
+            drums.getSequencer().getGrid().setSelection ({ 4, 5 });
             drums.updateLights();
         }
     }

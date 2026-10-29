@@ -2,6 +2,7 @@
 
 #include "PluginProcessor.h"
 #include "dsp/synth/Drums.h"
+#include "ui/DrumSeqPage.h"
 #include "ui/SynthControls.h"
 
 // THE DRUMS page (stage 6a): the kit's 12 slots down the left (a row each: its key, its drum, a picture of its hit,
@@ -105,6 +106,12 @@ public:
     void refreshPictures();   // now, not on the next tick (tests and snapshots)
     void updateLights();      // the rows' hit lights, from the kit (the timer; tests and snapshots)
 
+    // The right-hand panel: the chosen DRUM, or the SEQUENCER (stage 6b).
+    enum class View { drum, sequencer };
+    void showView (View);
+    View getView() const noexcept { return view; }
+    DrumSeqPanel& getSequencer() noexcept { return sequencer; }
+
     void paint (juce::Graphics&) override;
     void resized() override;
 
@@ -126,4 +133,7 @@ private:
     std::unique_ptr<juce::FileChooser> chooser;
     juce::Rectangle<int> kitArea, drumArea;
     int tick = 0;
+    View view = View::drum;
+    DrumSeqPanel sequencer;
+    juce::TextButton drumTab { "DRUM" }, sequencerTab { "SEQUENCER" };
 };

@@ -99,6 +99,7 @@ target_sources(ParagonX1
         source/ui/ModSourceStrip.cpp
         source/ui/ArpPage.cpp
         source/ui/DrumPage.cpp
+        source/ui/DrumSeqPage.cpp
         source/ui/FxPage.cpp
         source/ui/SendPages.cpp
         source/ui/ModFxPages.cpp
