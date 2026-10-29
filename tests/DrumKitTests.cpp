@@ -165,8 +165,8 @@ TEST_CASE ("DRUMS in the plugin: a loaded sample plays, and is kept by presets, 
     CHECK (peakOf (played[0], 0.45) < 1.0e-6);   // it ends with the sample
 
     // Loaded into a drum synth's slot (the snare, PITCH 0 DECAY 50%...): its shaping went to neutral, to play it as recorded.
-    CHECK (p.processor.getKitSettings().slots[2].decay == 0.5f);
-    CHECK (p.processor.getKitSettings().slots[2].pitch == 0.0f);
+    CHECK_THAT (p.processor.getKitSettings().slots[2].decay, WithinAbs (0.5, 1.0e-4));   // (through the parameter's 0-1 range:
+    CHECK_THAT (p.processor.getKitSettings().slots[2].pitch, WithinAbs (0.0, 1.0e-4));   // a hair off on Apple's compiler)
 
     // The preset carries it (written out and read back).
     const auto rig = p.processor.captureRig();

@@ -618,6 +618,8 @@ namespace synth::drums
 
     void Kit::process (const Outputs& outputs, int numSamples, const juce::MidiBuffer& midi, int midiStart, const KitSettings& settings) noexcept
     {
+        if (blockSize <= 0)
+            return;   // not prepared yet
         int done = 0;
         const auto renderTo = [&] (int until)
         {
