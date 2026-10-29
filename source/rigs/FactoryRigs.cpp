@@ -642,5 +642,68 @@ std::vector<Rig> makeFactoryRigs()
         .set (ParamIDs::reverbSize, 0.35f).set (ParamIDs::reverbMix, 0.25f);
     add (kit);
 
+    // THE DRUM SEQUENCER (stage 6b): A40's kit and bass, with a beat in each pattern, played with the song.
+    Builder beat ("Beat And Bass", 41, { "Drums", "Bass", "Sequencer" },
+                  "A40's kit and bass, with the drum sequencer on: A a straight beat, B busier (ghost snares, sixteenth hats), "
+                  "C half time, D a fill (a tom roll, a reversed cymbal swelling into the next bar). It plays while your song does; "
+                  "choose the pattern with PATTERN on the DRUMS page's SEQUENCER. Our own beats, not tuned by ear.");
+    beat.rig.parameters = kit.rig.parameters;
+    beat.set (ParamIDs::dseqOn, 1.0f).set (ParamIDs::shuffle, 0.1f);
+    {
+        using synth::drumseq::Note;
+        auto& patterns = beat.rig.modulation.drumPatterns;
+        const auto note = [] (synth::drumseq::Pattern& p, int row, double start, float velocity = 1.0f) -> Note&
+        {
+            Note n;
+            n.row = row;
+            n.start = start;
+            n.velocity = velocity;
+            p.notes.push_back (n);
+            return p.notes.back();
+        };
+        constexpr int kick = 0, rim = 1, snare = 2, lowTom = 5, closedHat = 6, midTom = 7, highTom = 9, openHat = 10, cymbal = 11;
+        auto& a = patterns[0];
+        for (const auto k : { 0.0, 8.0, 10.0 })
+            note (a, kick, k);
+        note (a, snare, 4.0);
+        note (a, snare, 12.0);
+        for (int k = 0; k < 14; k += 2)
+            note (a, closedHat, k, k % 4 == 0 ? 0.9f : 0.6f);
+        note (a, openHat, 14.0, 0.7f).gate = 0.5f;
+
+        auto& b = patterns[1];
+        for (const auto k : { 0.0, 3.0, 8.0, 10.0, 11.0 })
+            note (b, kick, k, k == 3.0 || k == 11.0 ? 0.7f : 1.0f);
+        note (b, snare, 4.0);
+        note (b, snare, 12.0);
+        note (b, snare, 7.0, 0.35f);
+        note (b, snare, 15.0, 0.4f);
+        for (int k = 0; k < 16; ++k)
+            note (b, closedHat, k, k % 4 == 0 ? 0.9f : k % 2 == 0 ? 0.6f : 0.4f);
+
+        auto& c = patterns[2];
+        note (c, kick, 0.0);
+        note (c, kick, 3.0, 0.6f);
+        note (c, kick, 10.0);
+        note (c, snare, 8.0);
+        note (c, rim, 6.0, 0.6f).pan = -0.4f;
+        for (int k = 0; k < 16; k += 2)
+            note (c, closedHat, k, k % 8 == 0 ? 0.9f : 0.55f);
+
+        auto& d = patterns[3];
+        note (d, kick, 0.0);
+        note (d, kick, 8.0);
+        note (d, snare, 4.0);
+        note (d, snare, 10.0, 0.6f);
+        for (int k = 0; k < 10; k += 2)
+            note (d, closedHat, k, 0.6f);
+        note (d, highTom, 12.0).roll = 1;   // 2x
+        note (d, midTom, 13.0);
+        note (d, lowTom, 14.0);
+        note (d, lowTom, 15.0).pitch = -2.0f;
+        note (d, cymbal, 15.0, 0.8f).reverse = synth::drumseq::Reverse::endSync;
+    }
+    add (beat);
+
     return rigs;
 }

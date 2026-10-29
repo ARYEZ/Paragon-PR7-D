@@ -2,6 +2,35 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.22.0
+
+Stage 6, part 2: **THE DRUM SEQUENCER**, beats for the kit, inspired by Avenger's drum sequencer (its manual's pages 81-82). Our own design and numbers where the manual gives none.
+
+- **Where:** the DRUMS page's right-hand panel now switches between **DRUM** (the chosen drum, as before) and **SEQUENCER**.
+- **The grid:** a row for each of the kit's 12 drums, level with the kit's rows on the left, so you read each row's drum off the kit list. Steps run left to right, lines brighter on each beat and each bar.
+  - **PEN:** click to add a note; drag along a row to add several; drag notes to move them (hold ALT to place them off the grid, in 16ths of a step); right-click a note to remove it.
+  - **SELECT:** drag a frame round notes to choose them. SHIFT adds to the choice; DELETE removes the chosen notes; CTRL+A chooses all.
+  - Adding or clicking a note plays its drum and chooses it on the left.
+  - A line shows where the beat is playing.
+  - Notes are drawn brighter the harder they hit; rolls show as ticks; reversed notes are amber with a backwards arrow; a short gate is a line under the note.
+- **Four patterns, A to D,** each up to 16 beats, polyphonic (any number of drums on one step).
+- **The sequencer's settings:**
+  - **TRIGGER SONG:** the chosen pattern plays while your song plays, in time with its bars (it counts from the song's start, so jumping around the song keeps it in place). Stopped, it's silent.
+  - **TRIGGER KEY** (your choice): the four keys just below the kit play patterns A to D while held (with the kit on C2: G#1 A, A1 B, A#1 C, B1 D). The pattern starts from the key; pressing another while one is held switches to it on the same clock; letting go goes back to the one still held, or stops. Those four keys no longer play the synth while KEY is on. The kit's own 12 keys still play single drums over the beat.
+  - **SPEED** (1/16 is four steps a beat) and **TIMING** (straight, triplet, dotted), **LENGTH** (1 to 16 beats).
+  - **SHUFFLE:** every second step late, up to half a step. It's the synth's one SHUFFLE, shared with the arpeggiator and the step sequencer. The grid shows notes on their steps, not shuffled.
+  - **VEL AMOUNT** (KEY): how much the key's velocity scales the pattern's.
+- **Each note's own settings** (the chosen notes, in the CHOSEN NOTES box: drag up and down, double-click for the default):
+  - **VELOCITY** (the level goes with its square: half is 12 dB down; drawn velocities always count, whatever the kit's VELOCITY knob says), **PAN** (from the drum's own place), **PITCH** (semitones from the drum's).
+  - **GATE:** RING lets the hit ring out; lower cuts it after that much of a beat (an open hat closed early), with a 3 ms fade.
+  - **ROLL:** the hit 2, 3 (a triplet), 4, 6 or 8 times within its step.
+  - **REVERSE:** the hit backwards. **END SYNC** starts it early so that it ends where its step does (a swell into the beat). A SAMPLE slot plays its file (START to END) backwards; a drum synth plays a recording of its hit made when you set the note (with its pitch, decay, tone and snap in it; made again when you change them).
+- **EXPORT MIDI** (your choice): click to save the pattern as a MIDI file, or drag the button onto a track. One time through, on the kit's keys, at the song's tempo. Velocities and rolls are written; pan, pitch and reverse can't be as MIDI notes, so they aren't.
+- **Saved with the preset**, the project and undo, like the arpeggiator's patterns. New parameters: ON, TRIGGER, PATTERN, SPEED, TIMING, LENGTH, VEL AMOUNT (all automatable). Old presets load with the sequencer off and empty.
+- **New preset A41, Beat And Bass:** A40's kit and bass with four beats: A straight, B busier (ghost snares, sixteenth hats), C half time, D a fill with a tom roll and a reversed cymbal into the next bar. Our own beats, not tuned by ear.
+- **Tests** check that each hit lands on the exact sample it should (at 120 and 90 BPM, from any song position, with shuffle, rolls, triplet speed and end-synced reverses), each note setting's effect on the sound (level, left/right, pitch by counting the waveform, where a gate cuts, a reversed hit swelling to its end), the KEY keys starting, switching and stopping patterns without reaching the synth, the patterns kept by presets, the project and undo, the page's editing, and the MIDI file's notes and timing. I can't listen here: how the beats groove is for your ears.
+- **Not built yet:** copying a pattern to another, and clearing one at a stroke (choose all, DELETE does it for now). Next: 6c, the sample editor (drawn envelope, filters, more).
+
 ## 0.21.1
 
 **Choose one hit out of a sample** (your ask): many sample packs put several versions of a drum in one file, such as a kick played nine ways. Now you can play just the one you want.

@@ -5,6 +5,7 @@
 
 #include "PluginProcessor.h"
 #include "ui/DrumPage.h"
+#include "rigs/FactoryRigs.h"
 
 namespace
 {
@@ -331,4 +332,33 @@ TEST_CASE ("DRUMS page, SEQUENCER: the grid adds, moves, chooses and removes not
     page.showView (DrumPage::View::drum);
     CHECK_FALSE (page.getSequencer().isVisible());
     CHECK (page.getDisplay().isVisible());
+}
+
+TEST_CASE ("DRUM SEQUENCER in the plugin: preset A41 plays its beat with the song, and nothing while the song is stopped", "[drumseqplugin]")
+{
+    const auto rigs = makeFactoryRigs();
+    const auto found = std::find_if (rigs.begin(), rigs.end(), [] (const Rig& r) { return r.name == "Beat And Bass"; });
+    REQUIRE (found != rigs.end());
+    CHECK (found->getSlotName() == "A41");
+    for (const auto& pattern : found->modulation.drumPatterns)
+        CHECK (pattern.notes.size() >= 10);
+
+    Plugin p;
+    RigLibrary::Entry entry;
+    entry.rig = *found;
+    entry.isFactory = true;
+    p.processor.loadRig (entry);
+    p.processor.updateDrumReverses();   // D's reversed cymbal
+    CHECK (p.processor.getKitSettings().slots[11].reverseSource != nullptr);
+    for (int pattern = 0; pattern < 4; ++pattern)
+    {
+        p.set (ParamIDs::dseqPattern, (float) pattern);
+        p.song.ppq = 0.0;
+        const auto played = p.play (2.0);
+        CHECK (firstSound (played) == 0);               // each starts on the kick
+        CHECK (peakOf (played, 0.5, 0.6) > 0.05);      // and a snare (or the half-time's hats) on beat 2
+    }
+    p.song.playing = false;
+    p.play (3.0);   // the last hits ring out
+    CHECK (peakOf (p.play (1.0)) < 1.0e-5);
 }
