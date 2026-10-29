@@ -1025,7 +1025,7 @@ namespace synth::drums
     }
 
     void Kit::process (const Outputs& outputs, int numSamples, const juce::MidiBuffer& midi, int midiStart, const KitSettings& settings,
-                       const drumseq::Settings& sequencer, double ppq, double bpm) noexcept
+                       const drumseq::Settings& sequencer, double ppq, double bpm, const SlotHit* hits, int numHits) noexcept
     {
         if (blockSize <= 0)
             return;   // not prepared yet
@@ -1043,6 +1043,19 @@ namespace synth::drums
                 runSequencer (outputs, done, until, settings, sequencer, ppq, bpm);
             done = juce::jmax (done, until);
         };
+        // The given hits up to `until` (a note there comes after them).
+        auto nextHit = 0;
+        const auto playHitsBefore = [&] (int until)
+        {
+            for (; nextHit < numHits && hits[nextHit].offset < until; ++nextHit)
+            {
+                const auto& h = hits[nextHit];
+                if (h.slot < 0 || h.slot >= numSlots || h.offset < 0)
+                    continue;
+                renderTo (h.offset);
+                startHit (h.slot, juce::jlimit (0.0f, 1.0f, h.velocity), settings);
+            }
+        };
         if (settings.on)
             for (const auto metadata : midi)
             {
@@ -1051,6 +1064,7 @@ namespace synth::drums
                     continue;
                 if (position >= numSamples)
                     break;
+                playHitsBefore (position);
                 const auto message = metadata.getMessage();
                 if (! message.isNoteOnOrOff())
                     continue;
@@ -1066,6 +1080,8 @@ namespace synth::drums
                 renderTo (position);
                 startHit (slot, message.getFloatVelocity(), settings);
             }
+        if (settings.on)
+            playHitsBefore (numSamples);
         renderTo (numSamples);
 
         // Where the beat is now, for the page's playhead.

@@ -78,6 +78,10 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
 
     rigLibrary = std::make_unique<RigLibrary>();
     rack->setFolder (rigLibrary->getFolder());
+    // THE GROOVE PLAYER: its folders and what was read from them (the GROOVES page reads them again when it opens).
+    grooveFolders = std::make_unique<grooves::Library> (rigLibrary->getFolder().getChildFile ("Grooves.xml"),
+                                                        rigLibrary->getFolder().getChildFile ("Groove Index.xml"));
+    applyGroovePreview();
     // THE NOTE MAP: a new instance starts with the saved CUSTOM map, if one was saved (else the groove libraries' layout).
     {
         auto custom = synth::drums::notemap::grooveLibrary();
@@ -641,6 +645,11 @@ void ParagonX1AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
                 hostBpm = *bpm;
             const auto ppq = position->getPpqPosition();
             hostPpq = position->getIsPlaying() && ppq.hasValue() ? *ppq : -1.0;
+            if (const auto signature = position->getTimeSignature(); signature.hasValue() && signature->numerator > 0 && signature->denominator > 0)
+            {
+                hostNumerator = signature->numerator;
+                hostDenominator = signature->denominator;
+            }
         }
 
     // MIDI LEARN: the last controller moved (for the strip and for learning), and the knobs linked to controllers.
@@ -747,7 +756,8 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
                 }
         }
         const auto ppq = hostPpq >= 0.0 ? hostPpq + (start + done) / getSampleRate() * bpm / 60.0 : -1.0;
-        drumKit.process (out, n, drums, start + done, kit, sequencer, ppq, bpm);
+        const auto numGrooveHits = collectGrooveHits (n);
+        drumKit.process (out, n, drums, start + done, kit, sequencer, ppq, bpm, grooveHits.data(), numGrooveHits);
         if (numChannels == 1)
             for (int i = 0; i < n; ++i)
                 left[done + i] = 0.5f * (left[done + i] + scratchRight[i]);
@@ -855,6 +865,7 @@ void ParagonX1AudioProcessor::retireOldData()
     const auto now = juce::Time::getMillisecondCounterHiRes();
     std::erase_if (retiredMatrices, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
     std::erase_if (retiredSamples, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
+    std::erase_if (retiredGrooves, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
 }
 
 void ParagonX1AudioProcessor::compileMatrix()
@@ -1414,6 +1425,9 @@ void ParagonX1AudioProcessor::useRigFolder (const juce::File& folder)
 {
     rigLibrary = std::make_unique<RigLibrary> (folder);
     rack->setFolder (folder);
+    stopGroove();
+    grooveFolders = std::make_unique<grooves::Library> (folder.getChildFile ("Grooves.xml"), folder.getChildFile ("Groove Index.xml"));
+    applyGroovePreview();
     rigBroadcaster.sendChangeMessage();
 }
 
@@ -1687,6 +1701,131 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new ParagonX1AudioProcessor();
+}
+
+//==============================================================================
+// THE GROOVE PLAYER (0.4.0)
+synth::drums::notemap::Map ParagonX1AudioProcessor::grooveLayout (int folder) const
+{
+    return grooveFolders->layoutFor (folder, customMap, juce::roundToInt (param (ParamIDs::drumsRoot)));
+}
+
+void ParagonX1AudioProcessor::playGroove (const grooves::Groove& groove, int folder, bool loop)
+{
+    auto preview = std::make_shared<GroovePreview>();
+    const auto map = grooveLayout (folder);
+    for (const auto& h : groove.hits)
+        if (const auto slot = h.note >= 0 && h.note < 128 ? map[(size_t) h.note] : -1; slot >= 0)
+            preview->hits.push_back ({ h.beat, slot, h.velocity });
+    preview->lengthBeats = juce::jmax (0.25, groove.lengthBeats);
+    preview->endBeat = juce::jmax (preview->lengthBeats, groove.hits.empty() ? 0.0 : groove.hits.back().beat + 1.0e-6);
+    preview->bpm = groove.bpm;
+    preview->loop = loop;
+    preview->file = groove.file;
+    if (groovePreview != nullptr)
+        retiredGrooves.emplace_back (groovePreview, juce::Time::getMillisecondCounterHiRes());
+    groovePreview = preview;
+    grooveForAudio = groovePreview.get();
+}
+
+void ParagonX1AudioProcessor::stopGroove()
+{
+    grooveForAudio = nullptr;
+    if (groovePreview != nullptr)
+        retiredGrooves.emplace_back (groovePreview, juce::Time::getMillisecondCounterHiRes());
+    groovePreview = nullptr;
+    groovePosition = -1.0;
+}
+
+void ParagonX1AudioProcessor::applyGroovePreview()
+{
+    const auto p = grooveFolders->getPreview();
+    grooveSongTempo = p.songTempo;
+    grooveFactor = grooves::factorOf (p.factor);
+    grooveVelocity = p.velocity;
+}
+
+double ParagonX1AudioProcessor::grooveTempo (double grooveBpm) const noexcept
+{
+    return (grooveSongTempo.load() ? juce::jmax (1.0, hostBpm.load()) : grooveBpm) * grooveFactor.load();
+}
+
+int ParagonX1AudioProcessor::collectGrooveHits (int numSamples) noexcept
+{
+    // The preview's hits in the next numSamples, at the preview's tempo: from its start when it's new, round and round
+    // its whole bars when looping, once through (to its last hit) when not.
+    const auto* g = grooveForAudio.load();
+    if (g != grooveNow)
+    {
+        grooveNow = g;
+        grooveBeat = 0.0;
+        grooveDone = false;
+    }
+    if (g == nullptr || grooveDone)
+    {
+        groovePosition = -1.0;
+        return 0;
+    }
+    const auto perSample = grooveTempo (g->bpm) / 60.0 / getSampleRate();
+    const auto from = grooveBeat, to = grooveBeat + numSamples * perSample;
+    auto count = 0;
+    const auto addCycle = [&] (double cycleStart, double limit)
+    {
+        // The hits at cycleStart + beat in [from, to), beat below `limit`.
+        auto it = std::lower_bound (g->hits.begin(), g->hits.end(), from - cycleStart, [] (const auto& h, double b) { return h.beat < b; });
+        for (; it != g->hits.end() && it->beat < limit && cycleStart + it->beat < to && count < (int) grooveHits.size(); ++it)
+        {
+            const auto offset = juce::jlimit (0, numSamples - 1, (int) std::floor ((cycleStart + it->beat - from) / perSample));
+            grooveHits[(size_t) count++] = { offset, it->slot, juce::jlimit (0.0f, 1.0f, it->velocity * grooveVelocity.load()) };
+        }
+    };
+    if (g->loop)
+    {
+        for (auto cycle = std::floor (from / g->lengthBeats) * g->lengthBeats; cycle < to; cycle += g->lengthBeats)
+            addCycle (cycle, g->lengthBeats);
+        groovePosition = std::fmod (to, g->lengthBeats);
+    }
+    else
+    {
+        addCycle (0.0, std::numeric_limits<double>::max());
+        grooveDone = to >= g->endBeat;
+        groovePosition = grooveDone ? -1.0 : to;
+    }
+    grooveBeat = to;
+    return count;
+}
+
+std::function<int (int)> ParagonX1AudioProcessor::grooveNoteFor (int folder) const
+{
+    // As written: FOR THIS KIT off, or the folder's map is the one the kit plays (its notes already right, every
+    // articulation kept). Else each note's drum on the kit's note for it (dropped if the kit has none).
+    const auto layout = folder >= 0 && folder < (int) grooveFolders->getFolders().size() ? grooveFolders->getFolders()[(size_t) folder].layout
+                                                                                          : synth::drums::notemap::Layout::grooveLibrary;
+    if (! grooveFolders->getPreview().forThisKit || layout == getMapLayout())
+        return [] (int note) { return note; };
+    const auto map = grooveLayout (folder);
+    std::array<int, synth::drums::numSlots> home {};
+    for (int k = 0; k < synth::drums::numSlots; ++k)
+        home[(size_t) k] = homeNote (k);
+    return [map, home] (int note)
+    {
+        const auto slot = note >= 0 && note < 128 ? map[(size_t) note] : -1;
+        return slot >= 0 ? home[(size_t) slot] : -1;
+    };
+}
+
+juce::File ParagonX1AudioProcessor::grooveDragFile (const grooves::Groove& groove, int folder) const
+{
+    const auto p = grooveFolders->getPreview();
+    const auto midi = grooves::toMidi (groove, grooveTempo (groove.bpm), p.velocity, grooveNoteFor (folder), p.factor);
+    const auto folderOut = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("PR7-D Grooves");
+    folderOut.createDirectory();
+    const auto name = juce::File::createLegalFileName (groove.file.getParentDirectory().getFileName() + " - " + groove.name);
+    const auto file = folderOut.getChildFile (name + ".mid");
+    file.deleteFile();
+    if (juce::FileOutputStream out (file); out.openedOk())
+        midi.writeTo (out);
+    return file;
 }
 
 //==============================================================================

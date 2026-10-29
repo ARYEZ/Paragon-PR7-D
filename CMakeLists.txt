@@ -50,6 +50,8 @@ target_sources(ParagonX1
         source/PluginProcessor.cpp
         source/PluginEditor.cpp
         source/dsp/synth/Drums.cpp
+        source/grooves/Groove.cpp
+        source/grooves/GrooveLibrary.cpp
         # The effects: PR7-E's rack (ECHELON, DOMINION, CONSTRICTOR, the LIMITER) and PR7-G's sends and inserts.
         source/dsp/dominion/Dominion.cpp
         source/dsp/effects/Compressor.cpp

@@ -190,6 +190,14 @@ namespace synth::drums
         std::array<float*, numOutputs - 1> auxLeft {}, auxRight {};
     };
 
+    // A hit on a drum at a sample (THE GROOVE PLAYER's preview: its notes already turned into drums).
+    struct SlotHit
+    {
+        int offset = 0;          // from the first sample of the piece being played
+        int slot = 0;
+        float velocity = 1.0f;   // 0 to 1, as a note's
+    };
+
     // A zero-delay-feedback state-variable filter (Zavalishin's), set once per hit.
     struct Svf
     {
@@ -277,8 +285,10 @@ namespace synth::drums
         // Plays the kit's notes in `midi` (positions from midiStart) over the next numSamples, adding into `outputs`,
         // and THE DRUM SEQUENCER's beat (6b): SONG from the song's position `ppq` at the first sample (below 0: the
         // song isn't playing), KEY while one of the four keys under the kit is held (they choose pattern A-D).
+        // `hits` (in time order, `numHits` of them): drums to play at given samples, as notes would (the groove preview).
         void process (const Outputs&, int numSamples, const juce::MidiBuffer& midi, int midiStart, const KitSettings&,
-                      const drumseq::Settings& sequencer = {}, double ppq = -1.0, double bpm = 120.0) noexcept;
+                      const drumseq::Settings& sequencer = {}, double ppq = -1.0, double bpm = 120.0,
+                      const SlotHit* hits = nullptr, int numHits = 0) noexcept;
 
         // The sequencer now (any thread): where it is in its pattern, in steps (-1: stopped), and which pattern.
         double getSequencerPosition() const noexcept { return sequencerPosition.load(); }

@@ -10,6 +10,7 @@
 #include "Rack.h"
 #include "dsp/synth/Drums.h"
 #include "dsp/synth/NoteMap.h"
+#include "grooves/GrooveLibrary.h"
 #include "rigs/RigLibrary.h"
 #include "rigs/UndoHistory.h"
 #include "rigs/MidiLinks.h"
@@ -206,8 +207,30 @@ public:
     // Hits sounding, as of the last block.
     int getActiveVoices() const noexcept { return activeVoices.load(); }
 
-    // The DAW's tempo, as last seen by the audio thread (120 if it hasn't said).
+    // The DAW's tempo and time signature, as last seen by the audio thread (120, 4/4 if it hasn't said).
     double getHostBpm() const noexcept { return hostBpm.load(); }
+    int getHostNumerator() const noexcept { return hostNumerator.load(); }
+    int getHostDenominator() const noexcept { return hostDenominator.load(); }
+
+    //==========================================================================
+    // THE GROOVE PLAYER (0.4.0): the player's groove folders, and the preview playing one through the kit.
+    grooves::Library& getGrooveLibrary() noexcept { return *grooveFolders; }
+    // How a groove in linked folder `folder` is played: its notes through that folder's map.
+    synth::drums::notemap::Map grooveLayout (int folder) const;
+    // Plays it through the kit from its start, looping or once, at the preview's tempo and velocity (the library's
+    // settings: call applyGroovePreview after changing them).
+    void playGroove (const grooves::Groove&, int folder, bool loop);
+    void stopGroove();
+    void applyGroovePreview();
+    // Beats into the groove playing (its loop), or -1; and which file.
+    double getGroovePosition() const noexcept { return groovePosition.load(); }
+    juce::File getGrooveFile() const { return groovePreview != nullptr ? groovePreview->file : juce::File(); }
+    // The tempo it plays at: the song's or its own, times the factor.
+    double grooveTempo (double grooveBpm) const noexcept;
+    // DRAG OUT: the groove as a MIDI file (in the temporary folder) for a DAW track or the desktop: velocity scaled, notes
+    // moved for the factor, and (FOR THIS KIT) on this kit's notes in its map (as written, if the folder's map is it).
+    juce::File grooveDragFile (const grooves::Groove&, int folder) const;
+    std::function<int (int)> grooveNoteFor (int folder) const;
 
     juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
     LevelMeterSource& getOutputMeter() noexcept { return outputMeter; }
@@ -366,6 +389,30 @@ private:
     std::array<std::shared_ptr<const synth::drums::Sample>, ParamIDs::numDrums> drumSamples;
     std::array<std::atomic<const synth::drums::Sample*>, ParamIDs::numDrums> samplesForAudio {};
     std::vector<std::pair<std::shared_ptr<const synth::drums::Sample>, double>> retiredSamples;
+
+    // THE GROOVE PLAYER: the preview, made on the message thread (its notes already drums), played by the audio
+    // thread through a plain pointer; a replaced one kept a while (as samples are), in case a block is still on it.
+    struct GroovePreview
+    {
+        struct Hit { double beat; int slot; float velocity; };
+        std::vector<Hit> hits;   // in time order
+        double lengthBeats = 4.0, bpm = 120.0, endBeat = 4.0;
+        bool loop = true;
+        juce::File file;
+    };
+    int collectGrooveHits (int numSamples) noexcept;   // audio thread: the preview's hits in the next numSamples
+    std::unique_ptr<grooves::Library> grooveFolders;
+    std::shared_ptr<const GroovePreview> groovePreview;
+    std::atomic<const GroovePreview*> grooveForAudio { nullptr };
+    std::vector<std::pair<std::shared_ptr<const GroovePreview>, double>> retiredGrooves;
+    const GroovePreview* grooveNow = nullptr;   // audio thread: the one it's playing, where, and whether it's done
+    double grooveBeat = 0.0;
+    bool grooveDone = false;
+    std::atomic<double> groovePosition { -1.0 };
+    std::atomic<bool> grooveSongTempo { true };
+    std::atomic<double> grooveFactor { 1.0 };
+    std::atomic<float> grooveVelocity { 1.0f };
+    std::array<synth::drums::SlotHit, 256> grooveHits {};
     std::array<std::atomic<bool>, ParamIDs::numDrums> pendingPreview {};
     juce::MidiBuffer drumMidi;
     // Reversed synth drums' rendered hits (by slot), what each was made from, and the audio thread's pointers.
@@ -401,6 +448,7 @@ private:
 
     int preparedBlockSize = 512;
     std::atomic<double> hostBpm { 120.0 };
+    std::atomic<int> hostNumerator { 4 }, hostDenominator { 4 };
     double hostPpq = -1.0;   // the song position at this block's start (-1: stopped); audio thread
     MidiLinks midiLinks;
     std::array<std::atomic<juce::RangedAudioParameter*>, 128> controllerTargets {};   // the audio thread's copy, by CC

@@ -19,6 +19,7 @@ add_executable(ParagonX1Tests
     UiTests.cpp
     NoteMapTests.cpp
     OutputTests.cpp
+    GrooveTests.cpp
     UndoTests.cpp
     EffectTests.cpp
     EqTests.cpp
