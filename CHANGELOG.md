@@ -2,6 +2,20 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.21.1
+
+**Choose one hit out of a sample** (your ask): many sample packs put several versions of a drum in one file, such as a kick played nine ways. Now you can play just the one you want.
+
+- **The DRUM picture shows the whole file** when a slot is a SAMPLE, with each hit in it found and numbered (1, 2, 3...) along the top.
+- **Click a hit to choose it:** the slot plays from that hit's start to just before the next one. The part that plays is bright, the rest dimmed, and the title says which it is ("0.45 s of 4.0 s (hit 4 of 9)"). You hear it straight away.
+- **Fine-tune with the S (start) and E (end) handles:** drag them anywhere.
+- **WHOLE FILE** plays the whole sample again.
+- **A cut end fades over its last 3 ms**, so it doesn't click; the start isn't faded, so the hit's attack stays sharp (SNAP can still soften it).
+- The choice is two new settings per slot, **SAMPLE START** and **SAMPLE END**. They're saved with the preset, can be undone, and can be automated. Loading a new file resets them to the whole file.
+- **How the hits are found:** where the level jumps well above the quiet just before it, at least 40 ms after the last hit, moved back to where the hit's rise begins. In a test file of nine kicks, each was found within a millisecond of where it really starts.
+  - Hits that run into each other with no gap may not all be found. Then drag S and E by hand.
+- This is the START / END part of the sample editor (6c), brought forward because you need it now.
+
 ## 0.21.0
 
 Stage 6, part 1: **THE DRUMS**, a kit of 12 drums on 12 keys, each one of our own drum synths or a sample you load, with its own page. (The drum sequencer is part 2, the sample editor part 3: the order you chose.)

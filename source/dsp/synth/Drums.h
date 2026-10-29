@@ -74,6 +74,11 @@ namespace synth::drums
         std::shared_ptr<const Sample> load (const juce::File&);
         juce::String encode (const Sample&);
         std::shared_ptr<const Sample> decode (const juce::String& name, const juce::String& text);
+
+        // Where each hit in a file starts (in samples), for a file holding several (a kick played nine ways, say):
+        // a jump in level well above the quiet just before it, at least 40 ms after the last, moved back to where the
+        // hit's rise begins. A single hit gives one start; a file with nothing loud gives none.
+        std::vector<int> findHits (const Sample&);
     }
 
     struct SlotSettings
@@ -88,6 +93,7 @@ namespace synth::drums
         int insertBus = 0;                 // 0 the mix, 1-4 bus A-D
         std::array<float, 2> send { 1.0f, 1.0f };   // DELAY, REVERB (only while that effect is on)
         const Sample* sample = nullptr;    // SAMPLE's, or nothing
+        float start = 0.0f, end = 1.0f;    // SAMPLE: the part played, as shares of the file (0.21.1)
     };
 
     struct KitSettings
@@ -156,7 +162,7 @@ namespace synth::drums
 
         // SAMPLE's.
         const Sample* sample = nullptr;
-        double position = 0.0, step = 1.0;
+        double position = 0.0, step = 1.0, endPosition = 0.0, endFade = 0.0;   // END: where it stops, fading over endFade
         float lowPole = 0.0f, highPole = 0.0f;
         std::array<float, 2> lowState {}, highState {};
         float attackTime = 0.0f, spike = 0.0f;

@@ -203,12 +203,219 @@ void DrumHitDisplay::setPicture (HitPicture p)
     repaint();
 }
 
+juce::Rectangle<float> DrumHitDisplay::waveArea() const
+{
+    auto area = getLocalBounds().toFloat().reduced (20.0f, 16.0f);
+    area.removeFromTop (18.0f);
+    area.removeFromBottom (20.0f);
+    return area.withTrimmedTop (16.0f);   // room for the hits' numbers
+}
+
+bool DrumHitDisplay::showsFile() const
+{
+    const auto kit = processor.getKitSettings();
+    return kit.slots[(size_t) slot].model == Model::sample && processor.getDrumSample (slot) != nullptr;
+}
+
+void DrumHitDisplay::updateFile()
+{
+    const auto sample = processor.getDrumSample (slot);
+    const auto columns = juce::jmax (2, (int) waveArea().getWidth());
+    if (sample == file && (int) filePeaks.size() == columns)
+        return;
+    file = sample;
+    filePeaks.assign ((size_t) columns, 0.0f);
+    hits.clear();
+    if (file == nullptr || file->length() < 2)
+        return;
+    const auto length = file->length();
+    for (const auto& channel : file->channels)
+        for (int i = 0; i < length; ++i)
+        {
+            auto& column = filePeaks[(size_t) juce::jmin (columns - 1, (int) ((juce::int64) i * columns / length))];
+            column = juce::jmax (column, std::abs (channel[(size_t) i]));
+        }
+    auto peak = *std::max_element (filePeaks.begin(), filePeaks.end());
+    if (peak > 0.0f)
+        for (auto& p : filePeaks)
+            p /= peak;
+    hits = synth::drums::sampleFiles::findHits (*file);
+}
+
+const std::vector<int>& DrumHitDisplay::getHits()
+{
+    updateFile();
+    return hits;
+}
+
+float DrumHitDisplay::share (const char* what) const
+{
+    const auto* parameter = processor.getParameters().getParameter (ParamIDs::drum (slot, what));
+    return parameter != nullptr ? parameter->convertFrom0to1 (parameter->getValue()) : 0.0f;
+}
+
+void DrumHitDisplay::setShare (const char* what, float value, bool gesture)
+{
+    if (auto* parameter = processor.getParameters().getParameter (ParamIDs::drum (slot, what)))
+    {
+        if (gesture)
+            parameter->beginChangeGesture();
+        parameter->setValueNotifyingHost (parameter->convertTo0to1 (juce::jlimit (0.0f, 1.0f, value)));
+        if (gesture)
+            parameter->endChangeGesture();
+    }
+    repaint();
+}
+
+void DrumHitDisplay::pickHit (int index)
+{
+    updateFile();
+    if (file == nullptr || index < 0 || index >= (int) hits.size())
+        return;
+    // From this hit's start to just before the next one's (1 ms short), or to the end of the file.
+    const auto length = (float) file->length();
+    const auto next = index + 1 < (int) hits.size() ? (float) hits[(size_t) index + 1] - (float) (0.001 * file->sampleRate) : length;
+    setShare ("SampleStart", (float) hits[(size_t) index] / length, true);
+    setShare ("SampleEnd", juce::jmax ((float) hits[(size_t) index] + 1.0f, next) / length, true);
+    processor.previewDrum (slot);
+}
+
+void DrumHitDisplay::playWholeFile()
+{
+    setShare ("SampleStart", 0.0f, true);
+    setShare ("SampleEnd", 1.0f, true);
+    processor.previewDrum (slot);
+}
+
+DrumHitDisplay::Handle DrumHitDisplay::handleAt (float x) const
+{
+    const auto area = waveArea();
+    const auto startX = area.getX() + area.getWidth() * share ("SampleStart");
+    const auto endX = area.getX() + area.getWidth() * share ("SampleEnd");
+    if (std::abs (x - endX) <= 7.0f && std::abs (x - endX) <= std::abs (x - startX))
+        return Handle::end;
+    if (std::abs (x - startX) <= 7.0f)
+        return Handle::start;
+    return Handle::none;
+}
+
+void DrumHitDisplay::mouseMove (const juce::MouseEvent& e)
+{
+    setMouseCursor (showsFile() && handleAt ((float) e.x) != Handle::none ? juce::MouseCursor::LeftRightResizeCursor
+                                                                          : juce::MouseCursor::NormalCursor);
+}
+
+void DrumHitDisplay::mouseDown (const juce::MouseEvent& e)
+{
+    if (! showsFile())
+        return;
+    updateFile();
+    dragging = handleAt ((float) e.x);
+    if (dragging != Handle::none)
+    {
+        if (auto* parameter = processor.getParameters().getParameter (ParamIDs::drum (slot, dragging == Handle::start ? "SampleStart" : "SampleEnd")))
+            parameter->beginChangeGesture();
+        return;
+    }
+    // A click elsewhere chooses the hit under it (the last one starting at or before it).
+    const auto area = waveArea();
+    const auto at = (double) (e.x - area.getX()) / area.getWidth() * file->length();
+    auto index = 0;
+    for (int i = 0; i < (int) hits.size(); ++i)
+        if (hits[(size_t) i] <= at)
+            index = i;
+    pickHit (index);
+}
+
+void DrumHitDisplay::mouseDrag (const juce::MouseEvent& e)
+{
+    if (dragging == Handle::none)
+        return;
+    const auto area = waveArea();
+    const auto value = juce::jlimit (0.0f, 1.0f, ((float) e.x - area.getX()) / area.getWidth());
+    const auto least = 0.002f;   // START stays before END
+    if (dragging == Handle::start)
+        setShare ("SampleStart", juce::jmin (value, share ("SampleEnd") - least), false);
+    else
+        setShare ("SampleEnd", juce::jmax (value, share ("SampleStart") + least), false);
+}
+
+void DrumHitDisplay::mouseUp (const juce::MouseEvent&)
+{
+    if (dragging == Handle::none)
+        return;
+    if (auto* parameter = processor.getParameters().getParameter (ParamIDs::drum (slot, dragging == Handle::start ? "SampleStart" : "SampleEnd")))
+        parameter->endChangeGesture();
+    dragging = Handle::none;
+    processor.previewDrum (slot);
+}
+
 void DrumHitDisplay::paint (juce::Graphics& g)
 {
     DisplayStyle::drawScreen (g, getLocalBounds().toFloat());
     auto area = getLocalBounds().toFloat().reduced (20.0f, 16.0f);
     const auto kit = processor.getKitSettings();
     const auto& s = kit.slots[(size_t) slot];
+
+    if (showsFile())
+    {
+        // The whole file: the part played bright, the rest dim; its hits numbered along the top.
+        updateFile();
+        const auto wave = waveArea();
+        const auto seconds = file->length() / file->sampleRate;
+        const auto startShare = juce::jlimit (0.0f, 1.0f, s.start), endShare = juce::jlimit (startShare, 1.0f, s.end);
+        const auto startX = wave.getX() + wave.getWidth() * startShare, endX = wave.getX() + wave.getWidth() * endShare;
+        auto chosen = -1;
+        for (int i = 0; i < (int) hits.size(); ++i)
+            if (std::abs ((float) hits[(size_t) i] / (float) file->length() - startShare) < 0.0005f)
+                chosen = i;
+
+        g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+        g.setColour (ParagonColours::accent);
+        auto title = file->name + "   " + juce::String ((endShare - startShare) * seconds, 2) + " s of " + juce::String (seconds, 1) + " s";
+        if (chosen >= 0)
+            title << "   (hit " << (chosen + 1) << " of " << (int) hits.size() << ")";
+        g.drawText (title, area.removeFromTop (18.0f), juce::Justification::topLeft, false);
+
+        g.setColour (ParagonColours::panelEdge);
+        g.drawHorizontalLine (juce::roundToInt (wave.getCentreY()), wave.getX(), wave.getRight());
+        drawPeaks (g, filePeaks, wave, false);
+        g.setColour (juce::Colour (0xff060407).withAlpha (0.55f));   // the part not played, dimmed further
+        g.fillRect (wave.withRight (startX));
+        g.fillRect (wave.withLeft (endX));
+        {
+            juce::Graphics::ScopedSaveState state (g);
+            g.reduceClipRegion (wave.withLeft (startX).withRight (endX).toNearestInt());
+            drawPeaks (g, filePeaks, wave, ! s.mute);
+        }
+
+        // The hits' numbers.
+        g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        for (int i = 0; i < (int) hits.size(); ++i)
+        {
+            const auto x = wave.getX() + wave.getWidth() * (float) hits[(size_t) i] / (float) file->length();
+            g.setColour (i == chosen ? ParagonColours::accent : ParagonColours::textDim);
+            g.drawVerticalLine (juce::roundToInt (x), wave.getY() - 14.0f, wave.getY() - 2.0f);
+            g.drawText (juce::String (i + 1), juce::Rectangle<float> (x + 2.0f, wave.getY() - 16.0f, 24.0f, 14.0f),
+                        juce::Justification::centredLeft, false);
+        }
+        // START and END.
+        for (const auto& [x, label] : { std::pair { startX, "S" }, std::pair { endX, "E" } })
+        {
+            g.setColour (ParagonColours::text);
+            g.drawLine (x, wave.getY(), x, wave.getBottom(), 1.5f);
+            const auto flag = juce::Rectangle<float> (label[0] == 'S' ? x : x - 14.0f, wave.getBottom() - 16.0f, 14.0f, 16.0f);
+            g.fillRect (flag);
+            g.setColour (juce::Colours::black);
+            g.drawText (label, flag, juce::Justification::centred, false);
+        }
+        g.setColour (ParagonColours::textDim);
+        g.setFont (juce::FontOptions (11.0f));
+        const auto hint = hits.size() > 1 ? "Click a hit to play just that one; drag S and E to fine-tune"
+                                          : "Drag S and E to choose the part played";
+        g.drawText (hint, getLocalBounds().toFloat().reduced (20.0f, 14.0f).removeFromBottom (14.0f), juce::Justification::centredRight, false);
+        return;
+    }
 
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
     g.setColour (ParagonColours::accent);
@@ -314,6 +521,9 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p)
     play.onClick = [this] { processor.previewDrum (selected); };
     load.setTooltip ("Load an audio file (WAV, AIFF, FLAC...) into the chosen slot: it becomes a SAMPLE, kept with the preset.");
     load.onClick = [this] { chooseSample(); };
+    wholeFile.setTooltip ("Play the whole file again (after choosing one hit out of it).");
+    wholeFile.onClick = [this] { display.playWholeFile(); };
+    addChildComponent (wholeFile);
     clear.setTooltip ("Take the chosen slot's sample out.");
     clear.onClick = [this] { processor.clearDrumSample (selected); };
     for (auto* b : { &play, &load, &clear })
@@ -362,11 +572,13 @@ juce::String DrumPage::keyFor (int slot) const
     const auto s = processor.getKitSettings().slots[(size_t) slot];
     return juce::String ((int) s.model) + ":" + juce::String (s.pitch) + ":" + juce::String (s.decay) + ":" + juce::String (s.tone) + ":"
          + juce::String (s.snap) + ":" + juce::String (s.gain) + ":" + juce::String ((juce::pointer_sized_int) s.sample)
-         + ":" + juce::String ((int) s.mute) + ":" + juce::String (processor.getKitSettings().rootKey);
+         + ":" + juce::String ((int) s.mute) + ":" + juce::String (processor.getKitSettings().rootKey) + ":" + juce::String (s.start)
+         + ":" + juce::String (s.end);
 }
 
 void DrumPage::refreshPictures()
 {
+    wholeFile.setVisible (display.showsFile());
     const auto kit = processor.getKitSettings();
     for (int k = 0; k < synth::drums::numSlots; ++k)
     {
@@ -471,6 +683,8 @@ void DrumPage::resized()
     slotControls[0]->setBounds (bar.removeFromLeft (200));
     bar.removeFromLeft (16);
     play.setBounds (bar.removeFromLeft (90).withSizeKeepingCentre (90, 30).translated (0, 8));
+    bar.removeFromLeft (10);
+    wholeFile.setBounds (bar.removeFromLeft (120).withSizeKeepingCentre (120, 30).translated (0, 8));
     clear.setBounds (bar.removeFromRight (90).withSizeKeepingCentre (90, 30).translated (0, 8));
     bar.removeFromRight (10);
     load.setBounds (bar.removeFromRight (150).withSizeKeepingCentre (150, 30).translated (0, 8));

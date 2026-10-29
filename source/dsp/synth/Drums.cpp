@@ -2,6 +2,7 @@
 
 #include <juce_audio_formats/juce_audio_formats.h>
 
+#include <algorithm>
 #include <cmath>
 
 namespace synth::drums
@@ -128,6 +129,53 @@ namespace synth::drums
                         zip.writeShort ((short) juce::roundToInt (juce::jlimit (-1.0f, 1.0f, x / scale) * 32767.0f));
             }
             return juce::Base64::toBase64 (compressed.getData(), compressed.getDataSize());
+        }
+
+        std::vector<int> findHits (const Sample& sample)
+        {
+            std::vector<int> hits;
+            const auto length = sample.length();
+            if (length < 2)
+                return hits;
+            // The level per 2.5 ms window (the louder side).
+            const auto window = juce::jmax (1, juce::roundToInt (0.0025 * sample.sampleRate));
+            std::vector<float> peaks;
+            for (int start = 0; start < length; start += window)
+            {
+                auto peak = 0.0f;
+                for (const auto& channel : sample.channels)
+                    for (int i = start; i < juce::jmin (length, start + window); ++i)
+                        peak = juce::jmax (peak, std::abs (channel[(size_t) i]));
+                peaks.push_back (peak);
+            }
+            const auto loudest = *std::max_element (peaks.begin(), peaks.end());
+            if (loudest <= 1.0e-6f)
+                return hits;
+
+            const auto gap = (int) (0.04 * sample.sampleRate / window);   // hits at least 40 ms apart
+            auto last = -gap;
+            for (int w = 0; w < (int) peaks.size(); ++w)
+            {
+                // The quiet before it: the lowest window in the 20 ms before (silence before the file's start).
+                auto before = w < 8 ? 0.0f : peaks[(size_t) w - 1];
+                for (int k = juce::jmax (0, w - 8); k < w; ++k)
+                    before = juce::jmin (before, peaks[(size_t) k]);
+                if (peaks[(size_t) w] < 0.1f * loudest || peaks[(size_t) w] < 4.0f * before + 1.0e-6f || w - last < gap)
+                    continue;
+                // Back to where the rise begins: the first sample (from the window before) above 5% of this window's
+                // level, then back to the zero crossing just before it (at most 2 ms).
+                const auto threshold = 0.05f * peaks[(size_t) w];
+                auto at = juce::jmax (0, (w - 1) * window);
+                const auto& c = sample.channels[0];
+                while (at < juce::jmin (length - 1, (w + 1) * window) && std::abs (c[(size_t) at]) < threshold)
+                    ++at;
+                const auto limit = juce::jmax (0, at - (int) (0.002 * sample.sampleRate));
+                while (at > limit && (c[(size_t) at] > 0.0f) == (c[(size_t) at - 1] > 0.0f) && std::abs (c[(size_t) at - 1]) > 1.0e-6f)
+                    --at;
+                hits.push_back (at);
+                last = w;
+            }
+            return hits;
         }
 
         std::shared_ptr<const Sample> decode (const juce::String& name, const juce::String& text)
@@ -298,8 +346,14 @@ namespace synth::drums
                     active = false;
                     return;
                 }
-                position = 0.0;
+                // START and END: the part of the file played (a single hit out of a file of several). Cut short of
+                // the file's end, it fades over its last 3 ms so the cut doesn't click.
+                const auto length = sample->length();
+                const auto from = juce::jlimit (0.0, 1.0, (double) s.start), to = juce::jlimit (0.0, 1.0, (double) s.end);
+                position = juce::jlimit (0.0, (double) length - 2.0, std::floor (from * length));
+                endPosition = juce::jlimit (position + 1.0, (double) length - 1.0, std::floor (juce::jmax (from, to) * length));
                 step = ratio * sample->sampleRate / rate;
+                endFade = endPosition < length - 1.0 ? 0.003 * rate * step : 0.0;
                 // DECAY: the whole sample from the middle up; below it, a fade that shortens it.
                 envCoef = d >= 0.5 ? 1.0f : tau (0.005 + 1.5 * std::pow (d / 0.5, 3.0));
                 // TONE: darker (a low-pass down to 500 Hz) or thinner (a high-pass up to 2 kHz), flat at the middle.
@@ -457,13 +511,15 @@ namespace synth::drums
             for (int i = 0; i < numSamples; ++i)
             {
                 const auto index = (int) position;
-                if (index >= length - 1 || env < 1.0e-4f)
+                if (position >= endPosition || index >= length - 1 || env < 1.0e-4f)
                 {
                     active = false;
                     return;
                 }
                 const auto frac = (float) (position - index);
                 auto gain = env * level * fade;
+                if (endFade > 0.0)
+                    gain *= (float) juce::jmin (1.0, (endPosition - position) / endFade);
                 if (attackTime > 0.0f && t < attackTime)
                     gain *= (float) t / attackTime;
                 gain *= 1.0f + spike * click;

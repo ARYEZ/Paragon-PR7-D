@@ -29,6 +29,7 @@ namespace
     constexpr int stage7b = 17;  // 0.18.0 (18, 0.19.0: MOD / LO-FI, in RackParameters.cpp)
     constexpr int stage7d = 19;  // 0.20.0
     constexpr int stage6a = 20;  // 0.21.0
+    constexpr int stage6aStart = 21;   // 0.21.1: SAMPLE's START and END
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -473,6 +474,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
             return (value > 0.004f ? "+" : "") + text + " st";
         };
         const ToText asLevel = [] (float db, int) { return db <= -47.95f ? juce::String ("-inf") : juce::String (db, 1) + " dB"; };
+        const ToText asShare = [] (float value, int) { return juce::String (value * 100.0f, 2) + "%"; };   // of the sample
         addSwitch (layout, drumsOn, "Drums On", false, stage6a);
         add (layout, drumsRoot, "Drums Root Key", { 0.0f, 116.0f, 1.0f }, 36.0f, asNote, stage6a);
         add (layout, drumsLevel, "Drums Level", { -24.0f, 12.0f, 0.1f }, 0.0f, asDb, stage6a);
@@ -494,6 +496,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
             addChoice (layout, drum (k, "Insert"), name + "Insert", insertBusNames, 0, stage6a);
             add (layout, drum (k, "SendDelay"), name + "Send Delay", { 0.0f, 1.0f }, 1.0f, asPercent, stage6a);
             add (layout, drum (k, "SendReverb"), name + "Send Reverb", { 0.0f, 1.0f }, 1.0f, asPercent, stage6a);
+            add (layout, drum (k, "SampleStart"), name + "Sample Start", { 0.0f, 1.0f }, 0.0f, asShare, stage6aStart);
+            add (layout, drum (k, "SampleEnd"), name + "Sample End", { 0.0f, 1.0f }, 1.0f, asShare, stage6aStart);
         }
     }
 

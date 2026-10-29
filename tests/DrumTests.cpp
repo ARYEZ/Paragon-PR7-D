@@ -487,3 +487,88 @@ TEST_CASE ("DRUMS: CPU, the whole kit hit every sixteenth note", "[drums][perfor
     WARN ("12 drums every sixteenth note at 120 BPM: " << percent << "% of one core");
     CHECK (percent < 8.0);
 }
+
+namespace
+{
+    // A file like a sample pack's "kick, nine ways": nine kicks 0.45 s apart, each a bit higher, 4 s in all.
+    std::shared_ptr<Sample> nineKicks (std::vector<int>* starts = nullptr)
+    {
+        auto file = std::make_shared<Sample>();
+        file->name = "Kit_Kick";
+        file->sampleRate = 44100.0;
+        file->channels.assign (1, std::vector<float> ((size_t) (4.0 * 44100.0), 0.0f));
+        for (int k = 0; k < 9; ++k)
+        {
+            auto s = model (Model::kick);
+            s.pitch = (float) k;
+            s.decay = 0.3f;
+            const auto hit = Kit::renderHit (s, 1.0f, 44100.0, 0.4);
+            const auto at = (int) (0.05 * 44100.0) + (int) (k * 0.45 * 44100.0);
+            if (starts != nullptr)
+                starts->push_back (at);
+            for (int i = 0; i < hit.getNumSamples() && at + i < file->length(); ++i)
+                file->channels[0][(size_t) (at + i)] = hit.getSample (0, i);
+        }
+        return file;
+    }
+}
+
+TEST_CASE ("DRUMS: SAMPLE finds each hit in a file of several", "[drums]")
+{
+    std::vector<int> starts;
+    const auto file = nineKicks (&starts);
+    const auto hits = sampleFiles::findHits (*file);
+    REQUIRE (hits.size() == 9);
+    for (size_t k = 0; k < hits.size(); ++k)
+    {
+        INFO ("hit " << k + 1);
+        CHECK (std::abs (hits[k] - starts[k]) <= (int) (0.001 * 44100.0));   // within 1 ms of where it really starts
+        CHECK (hits[k] <= starts[k] + 5);                                    // and not after its first moment
+    }
+
+    // One hit is one; silence is none.
+    const auto single = sineSample (200.0, 48000.0, 0.5);
+    CHECK (sampleFiles::findHits (*single).size() == 1);
+    Sample quiet;
+    quiet.channels.assign (1, std::vector<float> (48000, 0.0f));
+    CHECK (sampleFiles::findHits (quiet).empty());
+}
+
+TEST_CASE ("DRUMS: SAMPLE plays only from START to END, fading at a cut END", "[drums]")
+{
+    // 500 Hz for the first half second, 2 kHz for the second.
+    auto file = std::make_shared<Sample>();
+    file->sampleRate = 48000.0;
+    file->channels.assign (1, std::vector<float> (48000));
+    for (int i = 0; i < 48000; ++i)
+        file->channels[0][(size_t) i] = 0.5f * (float) std::sin (juce::MathConstants<double>::twoPi * (i < 24000 ? 500.0 : 2000.0) * i / 48000.0);
+    auto s = model (Model::sample);
+    s.sample = file.get();
+
+    s.start = 0.5f;   // the second half only
+    auto hit = Kit::renderHit (s, 1.0f, rate, 1.0);
+    CHECK_THAT (frequencyHz (hit, 0.05, 0.4), Catch::Matchers::WithinAbs (2000.0, 2.0));
+    CHECK_THAT (ringSeconds (hit, 20.0f), Catch::Matchers::WithinAbs (0.5, 0.006));
+
+    s.start = 0.0f;
+    s.end = 0.5f;     // the first half only
+    hit = Kit::renderHit (s, 1.0f, rate, 1.0);
+    CHECK_THAT (frequencyHz (hit, 0.05, 0.4), Catch::Matchers::WithinAbs (500.0, 1.0));
+    CHECK_THAT (ringSeconds (hit, 20.0f), Catch::Matchers::WithinAbs (0.5, 0.006));
+    // Its last millisecond is fading out (no click), and nothing plays after it.
+    CHECK (peakDb (hit.getReadPointer (0, 24000 - 48), 48) < -12.0f);
+    CHECK (peakDb (hit.getReadPointer (0, 24010), 4800) <= -200.0f);   // silence (the measure's floor)
+
+    // One kick out of nine: just that kick (the 4th), as long as it is.
+    std::vector<int> starts;
+    const auto kicks = nineKicks (&starts);
+    const auto hits = sampleFiles::findHits (*kicks);
+    REQUIRE (hits.size() == 9);
+    s.sample = kicks.get();
+    s.start = (float) hits[3] / (float) kicks->length();
+    s.end = (float) (hits[4] - 44) / (float) kicks->length();
+    hit = Kit::renderHit (s, 1.0f, rate, 1.0);
+    CHECK (ringSeconds (hit, 60.0f) < 0.46);
+    CHECK (frequencyHz (hit, 0.15, 0.3) > 52.0 * std::exp2 (2.5 / 12.0));   // the 4th kick is 3 semitones up
+    CHECK (frequencyHz (hit, 0.15, 0.3) < 52.0 * std::exp2 (3.5 / 12.0));
+}

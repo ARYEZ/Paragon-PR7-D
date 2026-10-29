@@ -60,10 +60,33 @@ public:
     bool isInterestedInFileDrag (const juce::StringArray&) override;
     void filesDropped (const juce::StringArray&, int, int) override;
 
+    // SAMPLE (0.21.1): the whole file, its hits found and numbered; click one to play just it, or drag START (S) and
+    // END (E). For tests: the hits found (in samples), and choosing one as a click would.
+    bool showsFile() const;
+    const std::vector<int>& getHits();
+    void pickHit (int index);
+    void playWholeFile();
+
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseMove (const juce::MouseEvent&) override;
+
 private:
+    enum class Handle { none, start, end };
+    void updateFile();
+    juce::Rectangle<float> waveArea() const;
+    Handle handleAt (float x) const;
+    void setShare (const char* what, float value, bool gesture);
+    float share (const char* what) const;
+
     ParagonX1AudioProcessor& processor;
     int slot = 0;
     HitPicture picture;
+    std::shared_ptr<const synth::drums::Sample> file;   // the file shown, its picture and hits
+    std::vector<float> filePeaks;
+    std::vector<int> hits;
+    Handle dragging = Handle::none;
 };
 
 class DrumPage final : public juce::Component,
@@ -99,7 +122,7 @@ private:
     std::array<juce::String, synth::drums::numSlots> pictureKeys;
     std::vector<std::unique_ptr<ParamControl>> kitControls, slotControls, routingControls;
     DrumHitDisplay display;
-    juce::TextButton play { "PLAY" }, load { "LOAD SAMPLE..." }, clear { "CLEAR" };
+    juce::TextButton play { "PLAY" }, load { "LOAD SAMPLE..." }, clear { "CLEAR" }, wholeFile { "WHOLE FILE" };
     std::unique_ptr<juce::FileChooser> chooser;
     juce::Rectangle<int> kitArea, drumArea;
     int tick = 0;

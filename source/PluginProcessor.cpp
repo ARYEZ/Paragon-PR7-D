@@ -1492,6 +1492,10 @@ bool ParagonX1AudioProcessor::loadDrumSample (int slot, const juce::File& file)
         return false;
     slot = juce::jlimit (0, ParamIDs::numDrums - 1, slot);
     setDrumSample (slot, std::move (sample));
+    // A new file plays whole: START and END go back to its ends.
+    for (const auto& [what, value] : { std::pair { "SampleStart", 0.0f }, std::pair { "SampleEnd", 1.0f } })
+        if (auto* parameter = parameters.getParameter (ParamIDs::drum (slot, what)))
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
     // A slot that becomes SAMPLE plays it as recorded: its shaping goes to neutral (a drum synth's DECAY, TONE and SNAP
     // would cut or tilt it). A slot already on SAMPLE keeps the shaping the player gave it.
     auto* model = parameters.getParameter (ParamIDs::drum (slot, "Model"));
@@ -1553,6 +1557,8 @@ synth::drums::KitSettings ParagonX1AudioProcessor::getKitSettings() const noexce
         s.insertBus = juce::roundToInt (get (drumSetting ("Insert")));
         s.send = { get (drumSetting ("SendDelay")), get (drumSetting ("SendReverb")) };
         s.sample = samplesForAudio[k].load();
+        s.start = get (drumSetting ("SampleStart"));
+        s.end = get (drumSetting ("SampleEnd"));
     }
     return kit;
 }

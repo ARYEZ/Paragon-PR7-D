@@ -346,7 +346,33 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             on->setValueNotifyingHost (1.0f);
         view->showPage (MainView::Page::drums);
         auto& drums = view->getDrumPage();
-        drums.select (juce::jmax (1, env ("PARAGON_SNAPSHOT_DRUM").getIntValue()) - 1);
+        if (env ("PARAGON_SNAPSHOT_DRUMS") == "2")
+        {
+            // A file of nine kicks (each a semitone higher) in the kick's slot, its 4th kick chosen.
+            auto file = std::make_shared<synth::drums::Sample>();
+            file->name = "Kit_1_Kick";
+            file->sampleRate = 44100.0;
+            file->channels.assign (1, std::vector<float> ((size_t) (4.0 * 44100.0), 0.0f));
+            for (int k = 0; k < 9; ++k)
+            {
+                synth::drums::SlotSettings kick;
+                kick.pitch = (float) k;
+                kick.decay = 0.3f;
+                const auto hit = synth::drums::Kit::renderHit (kick, 1.0f, 44100.0, 0.4);
+                const auto at = (int) (0.05 * 44100.0) + (int) (k * 0.45 * 44100.0);
+                for (int i = 0; i < hit.getNumSamples() && at + i < file->length(); ++i)
+                    file->channels[0][(size_t) (at + i)] = hit.getSample (0, i);
+            }
+            processor.setDrumSample (0, file);
+            if (auto* m = processor.getParameters().getParameter (ParamIDs::drum (0, "Model")))
+                m->setValueNotifyingHost (m->convertTo0to1 ((float) (int) synth::drums::Model::sample));
+            drums.select (0);
+            drums.setSize (1476, 672);
+            drums.getDisplay().pickHit (3);
+            drums.refreshPictures();
+        }
+        if (env ("PARAGON_SNAPSHOT_DRUMS") != "2")
+            drums.select (juce::jmax (1, env ("PARAGON_SNAPSHOT_DRUM").getIntValue()) - 1);
         if (env ("PARAGON_SNAPSHOT_DRUMS") == "1")
         {
             juce::AudioBuffer<float> buffer (2, 512);

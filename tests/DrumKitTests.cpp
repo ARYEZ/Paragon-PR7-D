@@ -252,3 +252,49 @@ TEST_CASE ("DRUMS page: choosing a row points the drum's controls at it; every r
     CHECK (DrumPage::isAudioFile ("Snare.AIFF"));
     CHECK_FALSE (DrumPage::isAudioFile ("notes.txt"));
 }
+
+TEST_CASE ("DRUMS page: a file of several hits is shown whole; clicking one plays just it", "[drumkit][ui]")
+{
+    Plugin p;
+    auto file = std::make_shared<synth::drums::Sample>();
+    file->name = "Kit_Kick";
+    file->sampleRate = 44100.0;
+    file->channels.assign (1, std::vector<float> ((size_t) (2.0 * 44100.0), 0.0f));
+    for (int k = 0; k < 4; ++k)   // four bursts of a decaying 100 Hz tone, half a second apart
+        for (int i = 0; i < 15000; ++i)
+            file->channels[0][(size_t) (k * 22050 + 1000 + i)] = (float) (std::exp (-i / 2000.0) * std::sin (juce::MathConstants<double>::twoPi * 100.0 * i / 44100.0));
+    p.processor.setDrumSample (0, file);
+    p.set (ParamIDs::drum (0, "Model"), (float) (int) synth::drums::Model::sample);
+
+    DrumPage page (p.processor);
+    page.setSize (1476, 672);
+    page.select (0);
+    auto& display = page.getDisplay();
+    CHECK (display.showsFile());
+    REQUIRE (display.getHits().size() == 4);
+
+    display.pickHit (2);   // the third
+    const auto kit = p.processor.getKitSettings();
+    CHECK_THAT (kit.slots[0].start, WithinAbs ((double) display.getHits()[2] / file->length(), 1.0e-4));
+    CHECK_THAT (kit.slots[0].end, WithinAbs ((double) (display.getHits()[3] - 44) / file->length(), 1.0e-4));
+
+    display.playWholeFile();
+    CHECK_THAT (p.processor.getKitSettings().slots[0].start, WithinAbs (0.0, 1.0e-6));
+    CHECK_THAT (p.processor.getKitSettings().slots[0].end, WithinAbs (1.0, 1.0e-6));
+
+    // A drum synth's slot shows its hit, not a file.
+    page.select (2);
+    CHECK_FALSE (page.getDisplay().showsFile());
+}
+
+TEST_CASE ("DRUMS in the plugin: a newly loaded file plays whole (START and END reset)", "[drumkit]")
+{
+    const auto file = writeSineWav (500.0, 0.3);
+    Plugin p;
+    p.set (ParamIDs::drum (2, "SampleStart"), 0.4f);
+    p.set (ParamIDs::drum (2, "SampleEnd"), 0.6f);
+    REQUIRE (p.processor.loadDrumSample (2, file));
+    CHECK_THAT (p.processor.getKitSettings().slots[2].start, WithinAbs (0.0, 1.0e-6));
+    CHECK_THAT (p.processor.getKitSettings().slots[2].end, WithinAbs (1.0, 1.0e-6));
+    file.deleteFile();
+}
