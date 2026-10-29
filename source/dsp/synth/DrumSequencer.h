@@ -105,7 +105,7 @@ namespace synth::drumseq
         seq::Timing timing = seq::Timing::straight;
         int lengthBeats = 4;          // 1 to 16
         float shuffle = 0.0f;         // the synth's SHUFFLE: odd steps up to half a step late
-        float velocityAmount = 0.0f;  // how much the key's velocity scales the pattern (KEY)
+        float velocityAmount = 1.0f;  // how much the key's velocity scales the pattern (KEY)
         const Patterns* patterns = nullptr;
 
         double beatsPerStep() const noexcept

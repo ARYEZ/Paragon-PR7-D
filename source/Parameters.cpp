@@ -30,6 +30,7 @@ namespace
     constexpr int stage7d = 19;  // 0.20.0
     constexpr int stage6a = 20;  // 0.21.0
     constexpr int stage6aStart = 21;   // 0.21.1: SAMPLE's START and END
+    constexpr int stage6b = 22;  // 0.22.0
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -499,6 +500,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
             add (layout, drum (k, "SampleStart"), name + "Sample Start", { 0.0f, 1.0f }, 0.0f, asShare, stage6aStart);
             add (layout, drum (k, "SampleEnd"), name + "Sample End", { 0.0f, 1.0f }, 1.0f, asShare, stage6aStart);
         }
+
+        // THE DRUM SEQUENCER (stage 6b).
+        const synth::drumseq::Settings sequencer;
+        addSwitch (layout, dseqOn, "Drum Seq On", sequencer.on, stage6b);
+        addChoice (layout, dseqTrigger, "Drum Seq Trigger", synth::drumseq::triggerNames, (int) sequencer.trigger, stage6b);
+        addChoice (layout, dseqPattern, "Drum Seq Pattern", synth::drumseq::patternNames, sequencer.pattern, stage6b);
+        addChoice (layout, dseqDivision, "Drum Seq Speed", synth::seq::divisionNames, sequencer.division, stage6b);
+        addChoice (layout, dseqTiming, "Drum Seq Timing", synth::seq::timingNames, (int) sequencer.timing, stage6b);
+        add (layout, dseqLength, "Drum Seq Length", { 1.0f, (float) synth::drumseq::maxBeats, 1.0f }, (float) sequencer.lengthBeats,
+             [] (float value, int) { return juce::String (juce::roundToInt (value)) + (juce::roundToInt (value) == 1 ? " beat" : " beats"); },
+             stage6b);
+        add (layout, dseqVelocity, "Drum Seq Velocity Amount", { 0.0f, 1.0f }, sequencer.velocityAmount, asPercent, stage6b);
     }
 
     // CONTROLLER TO MOD WHEEL (stage 4f): global, like OUTPUT.

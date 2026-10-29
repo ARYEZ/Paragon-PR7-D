@@ -3,6 +3,7 @@
 #include <juce_core/juce_core.h>
 
 #include "dsp/synth/SynthSettings.h"
+#include "dsp/synth/DrumSequencer.h"
 
 #include <vector>
 
@@ -187,6 +188,8 @@ struct ModMatrix
     std::vector<synth::arp::Patterns> arps = filledArps();
     // Each arp's note RANDOMIZER (stage 5b).
     std::array<synth::arp::Randomizer, synth::arp::numArps> arpRandomizers {};
+    // THE DRUM SEQUENCER's patterns A to D (stage 6b); each pattern's notes on the heap.
+    std::vector<synth::drumseq::Pattern> drumPatterns = std::vector<synth::drumseq::Pattern> ((size_t) synth::drumseq::numPatterns);
     static std::vector<synth::arp::Patterns> filledArps()
     {
         return std::vector<synth::arp::Patterns> ((size_t) synth::arp::numArps, synth::arp::Patterns::makeDefault());
@@ -204,7 +207,7 @@ struct ModMatrix
     {
         return routes == o.routes && macroNames == o.macroNames && envelopes == o.envelopes && lfoShapes == o.lfoShapes
             && pitchEnvelope == o.pitchEnvelope && stepPattern == o.stepPattern && travel == o.travel && arps == o.arps
-            && arpRandomizers == o.arpRandomizers;
+            && arpRandomizers == o.arpRandomizers && drumPatterns == o.drumPatterns;
     }
     bool isEmpty() const noexcept { return *this == ModMatrix {}; }
 
@@ -314,6 +317,14 @@ struct ModMatrix
             e->setAttribute ("autoDice", r.autoDice);
             e->setAttribute ("seed", r.seed);
         }
+        // The drum patterns with notes.
+        for (int p = 0; p < (int) drumPatterns.size(); ++p)
+            if (! drumPatterns[(size_t) p].isEmpty())
+            {
+                auto* e = xml->createNewChildElement ("DrumPattern");
+                e->setAttribute ("pattern", synth::drumseq::patternNames[p]);
+                e->setAttribute ("notes", drumPatterns[(size_t) p].encode());
+            }
         return xml;
     }
 
@@ -395,6 +406,9 @@ struct ModMatrix
                 }
             }
         }
+        for (const auto* e : xml.getChildWithTagNameIterator ("DrumPattern"))
+            if (const auto p = synth::drumseq::patternNames.indexOf (e->getStringAttribute ("pattern")); p >= 0)
+                m.drumPatterns[(size_t) p] = synth::drumseq::Pattern::decode (e->getStringAttribute ("notes"));
         for (const auto* e : xml.getChildWithTagNameIterator ("ArpRandom"))
         {
             const auto a = e->getIntAttribute ("arp") - 1;

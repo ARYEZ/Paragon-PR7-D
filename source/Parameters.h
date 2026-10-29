@@ -216,6 +216,15 @@ namespace ParamIDs
         throw "not a drum setting";
     }
 
+    // THE DRUM SEQUENCER (stage 6b, version hint 22): the kit's beat. Its notes are preset data (ModMatrix::drumPatterns).
+    inline constexpr auto dseqOn       = "dseqOn";
+    inline constexpr auto dseqTrigger  = "dseqTrigger";    // choice: Song, Key (drumseq::triggerNames)
+    inline constexpr auto dseqPattern  = "dseqPattern";    // choice: A-D (SONG plays it; KEY: the key held chooses)
+    inline constexpr auto dseqDivision = "dseqDivision";   // SPEED: seq::divisionNames
+    inline constexpr auto dseqTiming   = "dseqTiming";     // seq::timingNames
+    inline constexpr auto dseqLength   = "dseqLength";     // beats, 1 to 16
+    inline constexpr auto dseqVelocity = "dseqVelocity";   // VELOCITY AMOUNT: how much the key's velocity counts (KEY)
+
     // CONTROLLER TO MOD WHEEL (stage 4f, 0.14.0): these controllers drive the mod wheel too (the "mw" switches).
     inline constexpr auto mwBreath     = "mwBreath";
     inline constexpr auto mwExpression = "mwExpression";

@@ -212,6 +212,16 @@ public:
     // The page's preview: a hit in the next block (whether DRUMS is on or not).
     void previewDrum (int slot) noexcept;
     const synth::drums::Kit& getDrumKit() const noexcept { return drumKit; }
+
+    // THE DRUM SEQUENCER (stage 6b). Its settings now (without the patterns, which the audio thread takes from the
+    // compiled matrix). Reversed synth drums play a rendered copy of their hit, made here when a reversed note needs
+    // one or the drum's sound changes (the timer; tests call it).
+    synth::drumseq::Settings getDrumSeqSettings() const noexcept;
+    void updateDrumReverses();
+    // MIDI EXPORT: one pass of a pattern on the kit's keys, at the song's tempo; click saves, drag makes a file.
+    juce::MidiFile drumPatternToMidi (int pattern) const;
+    bool exportDrumMidi (int pattern, const juce::File&) const;
+    juce::File drumMidiDragFile (int pattern) const;
     // How many routes the audio thread is playing (on, with a source and a known destination). For tests and the display.
     int getNumPlayingRoutes() const noexcept;
 
@@ -369,6 +379,10 @@ private:
     std::vector<std::pair<std::shared_ptr<const synth::drums::Sample>, double>> retiredSamples;
     std::array<std::atomic<bool>, ParamIDs::numDrums> pendingPreview {};
     juce::MidiBuffer synthMidi, drumMidi;
+    // Reversed synth drums' rendered hits (by slot), what each was made from, and the audio thread's pointers.
+    std::array<std::shared_ptr<const synth::drums::Sample>, ParamIDs::numDrums> reverseHits;
+    std::array<juce::String, ParamIDs::numDrums> reverseKeys;
+    std::array<std::atomic<const synth::drums::Sample*>, ParamIDs::numDrums> reversesForAudio {};
 
     // WAVETABLES: tables loaded from files (null: the factory's), what each
     // oscillator plays now, the same for the audio thread (a plain pointer it
@@ -460,6 +474,7 @@ private:
         std::array<synth::travel::Pattern, synth::numOscillators> travelPatterns {};
         std::array<synth::arp::Patterns, synth::arp::numArps> arpPatterns {};
         std::array<synth::arp::Randomizer, synth::arp::numArps> arpRandomizers {};
+        synth::drumseq::Patterns drumPatterns {};
         std::uint32_t usedSources = 0;
     };
     std::shared_ptr<const CompiledMatrix> compiledMatrix;

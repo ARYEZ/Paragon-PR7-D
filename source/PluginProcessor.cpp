@@ -1035,14 +1035,26 @@ void ParagonX1AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         keyboardMidi.addEvent (juce::MidiMessage::controllerEvent (1, 1, juce::roundToInt (wheel * 127.0f)), 0);
 
     // THE DRUMS: while they're on, a note-on in the kit's 12 keys plays the kit, not the synth. Note-offs go to the
-    // synth either way (the kit's hits are one-shots), so a note held as DRUMS was switched on still ends.
+    // synth either way (the kit's hits are one-shots), so a note held as DRUMS was switched on still ends. With the
+    // DRUM SEQUENCER on KEY, the four keys under the kit start its patterns: their note-ons go to the kit only, their
+    // note-offs to both (the kit stops the pattern on them).
     const auto kit = getKitSettings();
+    const auto sequencer = getDrumSeqSettings();
+    const auto patternKeys = kit.on && sequencer.on && sequencer.trigger == synth::drumseq::Trigger::key;
     synthMidi.clear();
     drumMidi.clear();
     for (const auto metadata : keyboardMidi)
     {
         const auto message = metadata.getMessage();
-        if (kit.on && message.isNoteOn() && kit.slotFor (message.getNoteNumber()) >= 0)
+        const auto patternKey = patternKeys && message.isNoteOnOrOff()
+                             && synth::drums::Kit::patternForKey (message.getNoteNumber(), kit.rootKey) >= 0;
+        if (patternKey)
+        {
+            drumMidi.addEvent (message, metadata.samplePosition);
+            if (message.isNoteOff())
+                synthMidi.addEvent (message, metadata.samplePosition);
+        }
+        else if (kit.on && message.isNoteOn() && kit.slotFor (message.getNoteNumber()) >= 0)
             drumMidi.addEvent (message, metadata.samplePosition);
         else
             synthMidi.addEvent (message, metadata.samplePosition);
@@ -1164,7 +1176,10 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
                         out.busRight[b] = rack->buses[b].buffer.getWritePointer (1, done);
                     }
             }
-            drumKit.process (out, n, drums, start + done, kit);
+            auto sequencer = getDrumSeqSettings();
+            if (const auto* compiled = matrixForAudio.load())
+                sequencer.patterns = &compiled->drumPatterns;
+            drumKit.process (out, n, drums, start + done, kit, sequencer, settings.modulation.ppq, juce::jmax (1.0, settings.modulation.bpm));
         }
         if (numChannels == 1)
             for (int i = 0; i < n; ++i)
@@ -1212,6 +1227,7 @@ void ParagonX1AudioProcessor::timerCallback()
 {
     finishMidiLearn();
     updateWavetables();
+    updateDrumReverses();
     updateLatency();
     rack->eqMatch.update (rack->eqInputTap);   // EQ Match listens with its window closed too
     recordCheckpointIfReady();
@@ -1284,6 +1300,8 @@ void ParagonX1AudioProcessor::compileMatrix()
     }
     std::copy (matrix.arps.begin(), matrix.arps.end(), compiled->arpPatterns.begin());
     compiled->arpRandomizers = matrix.arpRandomizers;
+    for (size_t p = 0; p < compiled->drumPatterns.size() && p < matrix.drumPatterns.size(); ++p)
+        compiled->drumPatterns[p] = matrix.drumPatterns[p];
     std::stable_sort (compiled->routes.begin(), compiled->routes.end(), [] (const CompiledRoute& a, const CompiledRoute& b)
     {
         return std::pair ((int) a.target.field, a.target.index) < std::pair ((int) b.target.field, b.target.index);
@@ -1559,8 +1577,95 @@ synth::drums::KitSettings ParagonX1AudioProcessor::getKitSettings() const noexce
         s.sample = samplesForAudio[k].load();
         s.start = get (drumSetting ("SampleStart"));
         s.end = get (drumSetting ("SampleEnd"));
+        // REVERSE: a SAMPLE slot plays its own file backwards; a synth drum its rendered hit.
+        s.reverseBaked = s.model != synth::drums::Model::sample;
+        s.reverseSource = s.reverseBaked ? reversesForAudio[k].load() : s.sample;
     }
     return kit;
+}
+
+synth::drumseq::Settings ParagonX1AudioProcessor::getDrumSeqSettings() const noexcept
+{
+    synth::drumseq::Settings s;
+    s.on = isOn (ParamIDs::dseqOn);
+    s.trigger = (synth::drumseq::Trigger) juce::jlimit (0, 1, juce::roundToInt (param (ParamIDs::dseqTrigger)));
+    s.pattern = juce::jlimit (0, synth::drumseq::numPatterns - 1, juce::roundToInt (param (ParamIDs::dseqPattern)));
+    s.division = juce::jlimit (0, synth::seq::divisionNames.size() - 1, juce::roundToInt (param (ParamIDs::dseqDivision)));
+    s.timing = (synth::seq::Timing) juce::jlimit (0, synth::seq::timingNames.size() - 1, juce::roundToInt (param (ParamIDs::dseqTiming)));
+    s.lengthBeats = juce::jlimit (1, synth::drumseq::maxBeats, juce::roundToInt (param (ParamIDs::dseqLength)));
+    s.shuffle = param (ParamIDs::shuffle);
+    s.velocityAmount = param (ParamIDs::dseqVelocity);
+    return s;
+}
+
+void ParagonX1AudioProcessor::updateDrumReverses()
+{
+    // Which synth drums a reversed note plays.
+    std::array<bool, ParamIDs::numDrums> wanted {};
+    for (const auto& pattern : matrix.drumPatterns)
+        for (const auto& n : pattern.notes)
+            if (n.reverse != synth::drumseq::Reverse::off)
+                wanted[(size_t) juce::jlimit (0, ParamIDs::numDrums - 1, n.row)] = true;
+    const auto kit = getKitSettings();
+    const auto rate = getSampleRate() > 0.0 ? getSampleRate() : 48000.0;
+    const auto now = juce::Time::getMillisecondCounterHiRes();
+    for (size_t k = 0; k < (size_t) ParamIDs::numDrums; ++k)
+    {
+        const auto& s = kit.slots[k];
+        juce::String key;
+        if (wanted[k] && s.model != synth::drums::Model::sample)
+            key << (int) s.model << ":" << s.pitch << ":" << s.decay << ":" << s.tone << ":" << s.snap << ":" << rate;
+        if (key == reverseKeys[k])
+            continue;
+        reverseKeys[k] = key;
+        std::shared_ptr<synth::drums::Sample> hit;
+        if (key.isNotEmpty())
+        {
+            // The hit at full velocity (its level, pitch and shaping in it), to where it has died away (-60 dB).
+            const auto rendered = synth::drums::Kit::renderHit (s, 1.0f, rate, 4.0);
+            const auto* x = rendered.getReadPointer (0);
+            auto peak = 0.0f;
+            for (int i = 0; i < rendered.getNumSamples(); ++i)
+                peak = juce::jmax (peak, std::abs (x[i]));
+            auto length = rendered.getNumSamples();
+            while (length > 3 && std::abs (x[length - 1]) < peak * 0.001f)
+                --length;
+            hit = std::make_shared<synth::drums::Sample>();
+            hit->name = "reversed";
+            hit->sampleRate = rate;
+            hit->channels = { std::vector<float> (x, x + juce::jmax (3, length)) };
+        }
+        if (reverseHits[k] != nullptr)
+            retiredSamples.emplace_back (reverseHits[k], now);
+        reverseHits[k] = hit;
+        reversesForAudio[k] = hit.get();
+    }
+}
+
+juce::MidiFile ParagonX1AudioProcessor::drumPatternToMidi (int pattern) const
+{
+    const auto p = (size_t) juce::jlimit (0, synth::drumseq::numPatterns - 1, pattern);
+    return synth::drumseq::toMidi (matrix.drumPatterns[p], getDrumSeqSettings(), juce::roundToInt (param (ParamIDs::drumsRoot)),
+                                   juce::jmax (1.0, getHostBpm()));
+}
+
+bool ParagonX1AudioProcessor::exportDrumMidi (int pattern, const juce::File& file) const
+{
+    file.getParentDirectory().createDirectory();
+    juce::FileOutputStream out (file);
+    if (! out.openedOk())
+        return false;
+    out.setPosition (0);
+    out.truncate();
+    return drumPatternToMidi (pattern).writeTo (out);
+}
+
+juce::File ParagonX1AudioProcessor::drumMidiDragFile (int pattern) const
+{
+    auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("Paragon PR7-K")
+                    .getChildFile ("Drums " + synth::drumseq::patternNames[juce::jlimit (0, 3, pattern)] + ".mid");
+    exportDrumMidi (pattern, file);
+    return file;
 }
 
 void ParagonX1AudioProcessor::parameterGestureChanged (int, bool gestureIsStarting)
