@@ -2,9 +2,11 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 
+#include "dsp/synth/DrumSequencer.h"
 #include "dsp/synth/Noise.h"
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -94,6 +96,20 @@ namespace synth::drums
         std::array<float, 2> send { 1.0f, 1.0f };   // DELAY, REVERB (only while that effect is on)
         const Sample* sample = nullptr;    // SAMPLE's, or nothing
         float start = 0.0f, end = 1.0f;    // SAMPLE: the part played, as shares of the file (0.21.1)
+        // REVERSE (the sequencer, 6b): what a reversed hit plays backwards. A SAMPLE slot's own sample; a drum synth's
+        // hit rendered ahead at these settings ("baked": its pitch and shaping already in it), or nothing yet.
+        const Sample* reverseSource = nullptr;
+        bool reverseBaked = false;
+    };
+
+    // A hit's own touches (the sequencer's notes): added to the slot's pan and pitch, cut after a gate, played
+    // backwards; velocityGain, if set (0 or more), replaces the keys' velocity curve.
+    struct HitOptions
+    {
+        float pan = 0.0f, pitch = 0.0f;
+        int gateSamples = -1;             // -1: it rings out
+        drumseq::Reverse reverse = drumseq::Reverse::off;
+        float velocityGain = -1.0f;
     };
 
     struct KitSettings
@@ -166,13 +182,20 @@ namespace synth::drums
         float lowPole = 0.0f, highPole = 0.0f;
         std::array<float, 2> lowState {}, highState {};
         float attackTime = 0.0f, spike = 0.0f;
+        bool reversed = false;
+        double startPosition = 0.0;
+        // The note's own pan (a balance on top of the slot's) and gate.
+        float panLeft = 1.0f, panRight = 1.0f;
+        int gateLeft = -1;
 
-        void start (const SlotSettings&, int slotIndex, float velocityGain, double sampleRate, std::uint32_t seed) noexcept;
+        void start (const SlotSettings&, int slotIndex, float velocityGain, double sampleRate, std::uint32_t seed,
+                    const HitOptions& = {}) noexcept;
         // Adds this hit's next `numSamples` into left / right (the same for the mono models).
         void render (float* left, float* right, int numSamples) noexcept;
         void fadeOut (double seconds) noexcept;
 
     private:
+        void setTone (double tone, double rate) noexcept;   // SAMPLE's TONE: a low-pass below the middle, a high-pass above
         float next() noexcept;             // the mono models
         bool finished() const noexcept;
     };
@@ -185,8 +208,23 @@ namespace synth::drums
         void prepare (double sampleRate, int maxBlockSize);
         void reset() noexcept;
 
-        // Plays the kit's notes in `midi` (positions from midiStart) over the next numSamples, adding into `outputs`.
-        void process (const Outputs&, int numSamples, const juce::MidiBuffer& midi, int midiStart, const KitSettings&) noexcept;
+        // Plays the kit's notes in `midi` (positions from midiStart) over the next numSamples, adding into `outputs`,
+        // and THE DRUM SEQUENCER's beat (6b): SONG from the song's position `ppq` at the first sample (below 0: the
+        // song isn't playing), KEY while one of the four keys under the kit is held (they choose pattern A-D).
+        void process (const Outputs&, int numSamples, const juce::MidiBuffer& midi, int midiStart, const KitSettings&,
+                      const drumseq::Settings& sequencer = {}, double ppq = -1.0, double bpm = 120.0) noexcept;
+
+        // The sequencer now (any thread): where it is in its pattern, in steps (-1: stopped), and which pattern.
+        double getSequencerPosition() const noexcept { return sequencerPosition.load(); }
+        int getSequencerPattern() const noexcept { return sequencerPattern.load(); }
+        // KEY: the four keys under ROOT start pattern A to D (lowest A).
+        static int patternForKey (int note, int rootKey) noexcept
+        {
+            const auto k = note - (rootKey - drumseq::numPatterns);
+            return k >= 0 && k < drumseq::numPatterns ? k : -1;
+        }
+        // A reversed hit's length, in seconds (0: nothing to reverse).
+        static double reverseSeconds (const SlotSettings&, float notePitch, double sampleRate) noexcept;
         // A hit straight away (for tests and the page's preview): velocity 0 to 1.
         void trigger (int slot, float velocity, const KitSettings&) noexcept;
 
@@ -203,7 +241,24 @@ namespace synth::drums
 
     private:
         void render (const Outputs&, int offset, int numSamples, const KitSettings&) noexcept;
-        void startHit (int slot, float velocity, const KitSettings&) noexcept;
+        void startHit (int slot, float velocity, const KitSettings&, const HitOptions& = {}) noexcept;
+        void runSequencer (const Outputs&, int from, int to, const KitSettings&, const drumseq::Settings&, double ppq, double bpm) noexcept;
+        void patternKey (int pattern, bool down, float velocity) noexcept;
+
+        struct SequencedHit
+        {
+            int offset = 0;
+            drumseq::Note note;
+        };
+        std::vector<SequencedHit> sequenced = std::vector<SequencedHit> (512);
+        bool keyRunning = false;
+        double keyClock = 0.0;                       // KEY: steps since the key went down
+        int keyPattern = 0;
+        float keyVelocity = 1.0f;
+        std::vector<int> heldPatterns = std::vector<int> (8);
+        int numHeld = 0;
+        std::atomic<double> sequencerPosition { -1.0 };
+        std::atomic<int> sequencerPattern { 0 };
         static bool audible (const KitSettings&, int slot) noexcept;   // MUTE / SOLO
 
         double sampleRate = 48000.0;

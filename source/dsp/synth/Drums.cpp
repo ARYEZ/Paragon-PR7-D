@@ -217,9 +217,20 @@ namespace synth::drums
     }
 
     //==============================================================================
-    void Voice::start (const SlotSettings& s, int slotIndex, float velocityGain, double rate, std::uint32_t seed) noexcept
+    void Voice::start (const SlotSettings& slotSettings, int slotIndex, float velocityGain, double rate, std::uint32_t seed,
+                       const HitOptions& options) noexcept
     {
+        auto s = slotSettings;
+        s.pitch += options.pitch;
         active = true;
+        reversed = false;
+        gateLeft = options.gateSamples;
+        {
+            // The note's own pan: a balance, centre unchanged.
+            const auto pan = juce::jlimit (-1.0f, 1.0f, options.pan);
+            panLeft = pan > 0.0f ? 1.0f - pan : 1.0f;
+            panRight = pan < 0.0f ? 1.0f + pan : 1.0f;
+        }
         slot = slotIndex;
         model = s.model;
         choke = s.choke;
@@ -235,6 +246,30 @@ namespace synth::drums
         envCoef = env2Coef = pitchCoef = clickCoef = 0.0f;
         sample = nullptr;
         level = velocityGain * modelLevel[(size_t) model];
+
+        // REVERSE: the slot's sample (its START to END) or its baked hit, played backwards; a baked hit has its
+        // pitch and shaping in it already, so only the note's own pitch moves it.
+        if (options.reverse != drumseq::Reverse::off && s.reverseSource != nullptr && s.reverseSource->length() >= 3)
+        {
+            model = Model::sample;
+            sample = s.reverseSource;
+            reversed = true;
+            level = velocityGain;
+            const auto length = sample->length();
+            const auto from = s.reverseBaked ? 0.0 : juce::jlimit (0.0, 1.0, (double) s.start);
+            const auto to = s.reverseBaked ? 1.0 : juce::jlimit (from, 1.0, (double) s.end);
+            startPosition = juce::jlimit (0.0, (double) length - 2.0, std::floor (from * length));
+            // From one sample short of the end (playing reads one ahead).
+            endPosition = juce::jlimit (startPosition + 1.0, (double) length - 2.0, std::floor (to * length));
+            position = endPosition;
+            step = std::exp2 ((s.reverseBaked ? options.pitch : s.pitch) / 12.0) * sample->sampleRate / rate;
+            endFade = 0.001 * rate * step;   // its end (the hit's attack, backwards) eased over 1 ms
+            envCoef = 1.0f;
+            setTone (s.reverseBaked ? 0.5 : (double) s.tone, rate);   // a baked hit has its TONE in it already
+            attackTime = 0.0f;
+            spike = 0.0f;
+            return;
+        }
 
         const auto ratio = std::exp2 (s.pitch / 12.0);
         const auto d = (double) juce::jlimit (0.0f, 1.0f, s.decay);
@@ -357,12 +392,7 @@ namespace synth::drums
                 // DECAY: the whole sample from the middle up; below it, a fade that shortens it.
                 envCoef = d >= 0.5 ? 1.0f : tau (0.005 + 1.5 * std::pow (d / 0.5, 3.0));
                 // TONE: darker (a low-pass down to 500 Hz) or thinner (a high-pass up to 2 kHz), flat at the middle.
-                lowPole = highPole = 0.0f;
-                lowState = highState = {};
-                if (tone < 0.499)
-                    lowPole = (float) (1.0 - std::exp (-twoPi * 20000.0 * std::pow (40.0, -(0.5 - tone) * 2.0) / rate));
-                else if (tone > 0.501)
-                    highPole = (float) (1.0 - std::exp (-twoPi * 20.0 * std::pow (100.0, (tone - 0.5) * 2.0) / rate));
+                setTone (tone, rate);
                 // SNAP: a softer attack (up to a 10 ms fade-in) or a spike (up to +9.5 dB, gone in a few ms).
                 attackTime = snap < 0.5f ? (0.5f - snap) * 2.0f * 0.01f : 0.0f;
                 spike = snap > 0.5f ? (snap - 0.5f) * 2.0f * 2.0f : 0.0f;
@@ -496,6 +526,17 @@ namespace synth::drums
         return true;
     }
 
+    void Voice::setTone (double tone, double rate) noexcept
+    {
+        lowPole = highPole = 0.0f;
+        lowState = highState = {};
+        tone = juce::jlimit (0.0, 1.0, tone);
+        if (tone < 0.499)
+            lowPole = (float) (1.0 - std::exp (-twoPi * 20000.0 * std::pow (40.0, -(0.5 - tone) * 2.0) / rate));
+        else if (tone > 0.501)
+            highPole = (float) (1.0 - std::exp (-twoPi * 20.0 * std::pow (100.0, (tone - 0.5) * 2.0) / rate));
+    }
+
     void Voice::fadeOut (double seconds) noexcept
     {
         if (active)
@@ -511,7 +552,7 @@ namespace synth::drums
             for (int i = 0; i < numSamples; ++i)
             {
                 const auto index = (int) position;
-                if (position >= endPosition || index >= length - 1 || env < 1.0e-4f)
+                if ((reversed ? position <= startPosition : position >= endPosition) || index >= length - 1 || env < 1.0e-4f)
                 {
                     active = false;
                     return;
@@ -519,7 +560,7 @@ namespace synth::drums
                 const auto frac = (float) (position - index);
                 auto gain = env * level * fade;
                 if (endFade > 0.0)
-                    gain *= (float) juce::jmin (1.0, (endPosition - position) / endFade);
+                    gain *= (float) juce::jmin (1.0, (reversed ? position - startPosition : endPosition - position) / endFade);
                 if (attackTime > 0.0f && t < attackTime)
                     gain *= (float) t / attackTime;
                 gain *= 1.0f + spike * click;
@@ -537,10 +578,12 @@ namespace synth::drums
                         y -= (highState[(size_t) c] += highPole * (y - highState[(size_t) c]));
                     out[(size_t) c] = y * gain;
                 }
-                left[i] += out[0];
-                right[i] += channels > 1 ? out[1] : out[0];
-                position += step;
+                left[i] += out[0] * panLeft;
+                right[i] += (channels > 1 ? out[1] : out[0]) * panRight;
+                position += reversed ? -step : step;
                 t += 1.0 / sampleRate;
+                if (gateLeft > 0 && --gateLeft == 0)
+                    fadeOut (0.003);
                 if (fadeStep > 0.0f && (fade -= fadeStep) <= 0.0f)
                 {
                     active = false;
@@ -553,8 +596,10 @@ namespace synth::drums
         for (int i = 0; i < numSamples; ++i)
         {
             const auto x = next() * fade;
-            left[i] += x;
-            right[i] += x;
+            left[i] += x * panLeft;
+            right[i] += x * panRight;
+            if (gateLeft > 0 && --gateLeft == 0)
+                fadeOut (0.003);
             if (fadeStep > 0.0f && (fade -= fadeStep) <= 0.0f)
             {
                 active = false;
@@ -623,14 +668,15 @@ namespace synth::drums
             startHit (slot, velocity, settings);
     }
 
-    void Kit::startHit (int slot, float velocity, const KitSettings& settings) noexcept
+    void Kit::startHit (int slot, float velocity, const KitSettings& settings, const HitOptions& options) noexcept
     {
         const auto& s = settings.slots[(size_t) slot];
         lastHit[(size_t) slot] = 0.0;
         // A slot that's silent starts at its MUTE / SOLO level (it glides only while it sounds).
         if (! isSounding (slot))
             slotGain[(size_t) slot] = audible (settings, slot) ? 1.0f : 0.0f;
-        if (s.model == Model::sample && (s.sample == nullptr || s.sample->length() < 2))
+        const auto reversing = options.reverse != drumseq::Reverse::off && s.reverseSource != nullptr;
+        if (s.model == Model::sample && ! reversing && (s.sample == nullptr || s.sample->length() < 2))
             return;
 
         // CHOKE: this hit stops the other slots in its group, quickly but without a click.
@@ -666,25 +712,117 @@ namespace synth::drums
                     chosen = &v;
 
         const auto v = juce::jlimit (0.0f, 1.0f, velocity);
-        const auto velocityGain = 1.0f - settings.velocity + settings.velocity * v * v;
+        const auto velocityGain = options.velocityGain >= 0.0f ? options.velocityGain : 1.0f - settings.velocity + settings.velocity * v * v;
         noiseSeed = noiseSeed * 1664525u + 1013904223u;
-        chosen->start (s, slot, velocityGain, sampleRate, noiseSeed);
+        chosen->start (s, slot, velocityGain, sampleRate, noiseSeed, options);
         chosen->age = ++ages;
     }
 
-    void Kit::process (const Outputs& outputs, int numSamples, const juce::MidiBuffer& midi, int midiStart, const KitSettings& settings) noexcept
+    double Kit::reverseSeconds (const SlotSettings& s, float notePitch, double) noexcept
+    {
+        if (s.reverseSource == nullptr || s.reverseSource->length() < 2)
+            return 0.0;
+        const auto share = s.reverseBaked ? 1.0 : juce::jmax (0.0, (double) s.end - (double) s.start);
+        const auto ratio = std::exp2 ((s.reverseBaked ? notePitch : s.pitch + notePitch) / 12.0);
+        return share * s.reverseSource->length() / (s.reverseSource->sampleRate * ratio);
+    }
+
+    void Kit::patternKey (int pattern, bool down, float velocity) noexcept
+    {
+        // The latest key held wins; letting it go returns to the one held before, or stops.
+        auto* held = heldPatterns.data();
+        numHeld = (int) (std::remove (held, held + numHeld, pattern) - held);
+        if (down && numHeld < (int) heldPatterns.size())
+        {
+            held[numHeld++] = pattern;
+            if (! keyRunning)
+            {
+                keyRunning = true;
+                keyClock = 0.0;
+                keyVelocity = velocity;
+            }
+        }
+        if (numHeld == 0)
+            keyRunning = false;
+        else
+            keyPattern = held[numHeld - 1];
+    }
+
+    void Kit::runSequencer (const Outputs& outputs, int from, int to, const KitSettings& settings, const drumseq::Settings& sequencer,
+                            double ppq, double bpm) noexcept
+    {
+        const auto renderRange = [&] (int a, int b)
+        {
+            while (a < b)
+            {
+                const auto n = juce::jmin (blockSize, b - a);
+                render (outputs, a, n, settings);
+                a += n;
+            }
+        };
+        const auto active = settings.on && sequencer.on && sequencer.patterns != nullptr;
+        const auto stepsPerSecond = bpm / 60.0 / sequencer.beatsPerStep();
+        const auto stepsPerSample = stepsPerSecond / sampleRate;
+        const auto song = sequencer.trigger == drumseq::Trigger::song;
+        const auto running = active && (song ? ppq >= 0.0 : keyRunning);
+        if (! running)
+        {
+            renderRange (from, to);
+            return;
+        }
+        const auto startSteps = song ? (ppq + from * bpm / 60.0 / sampleRate) / sequencer.beatsPerStep() : keyClock;
+        const auto pattern = juce::jlimit (0, drumseq::numPatterns - 1, song ? sequencer.pattern : keyPattern);
+
+        // The hits due in [from, to), in time order.
+        auto count = 0;
+        drumseq::forEachHit ((*sequencer.patterns)[(size_t) pattern], sequencer, startSteps, startSteps + (to - from) * stepsPerSample,
+                             [&] (const drumseq::Note& n) { return reverseSeconds (settings.slots[(size_t) n.row], n.pitch, sampleRate) * stepsPerSecond; },
+                             [&] (double t, const drumseq::Note& n, int)
+                             {
+                                 if (count < (int) sequenced.size())
+                                     sequenced[(size_t) count++] = { juce::jlimit (from, to - 1, from + juce::roundToInt ((t - startSteps) / stepsPerSample)), n };
+                             });
+        std::sort (sequenced.begin(), sequenced.begin() + count, [] (const auto& a, const auto& b) { return a.offset < b.offset; });
+
+        const auto keyScale = song ? 1.0f : 1.0f - sequencer.velocityAmount + sequencer.velocityAmount * keyVelocity;
+        auto at = from;
+        for (int i = 0; i < count; ++i)
+        {
+            const auto& hit = sequenced[(size_t) i];
+            renderRange (at, hit.offset);
+            at = hit.offset;
+            HitOptions options;
+            options.pan = hit.note.pan;
+            options.pitch = hit.note.pitch;
+            options.reverse = hit.note.reverse;
+            options.gateSamples = hit.note.gate < 1.0f ? juce::jmax (1, juce::roundToInt (hit.note.gate * 60.0 / bpm * sampleRate)) : -1;
+            const auto v = juce::jlimit (0.0f, 1.0f, hit.note.velocity * keyScale);
+            options.velocityGain = v * v;
+            startHit (hit.note.row, v, settings, options);
+        }
+        renderRange (at, to);
+        if (! song)
+            keyClock += (to - from) * stepsPerSample;
+    }
+
+    void Kit::process (const Outputs& outputs, int numSamples, const juce::MidiBuffer& midi, int midiStart, const KitSettings& settings,
+                       const drumseq::Settings& sequencer, double ppq, double bpm) noexcept
     {
         if (blockSize <= 0)
             return;   // not prepared yet
+        const auto sequencing = settings.on && sequencer.on && sequencer.patterns != nullptr;
+        const auto keyed = sequencing && sequencer.trigger == drumseq::Trigger::key;
+        if (! keyed)
+        {
+            keyRunning = false;
+            numHeld = 0;
+        }
         int done = 0;
         const auto renderTo = [&] (int until)
         {
-            while (done < until)
-            {
-                const auto n = juce::jmin (blockSize, until - done);
-                render (outputs, done, n, settings);
-                done += n;
-            }
+            if (until > done)
+                runSequencer (outputs, done, until, settings, sequencer, ppq, bpm);
+            done = juce::jmax (done, until);
         };
         if (settings.on)
             for (const auto metadata : midi)
@@ -695,15 +833,34 @@ namespace synth::drums
                 if (position >= numSamples)
                     break;
                 const auto message = metadata.getMessage();
-                if (! message.isNoteOn())
+                if (! message.isNoteOnOrOff())
                     continue;
+                if (const auto pattern = keyed ? patternForKey (message.getNoteNumber(), settings.rootKey) : -1; pattern >= 0)
+                {
+                    renderTo (position);
+                    patternKey (pattern, message.isNoteOn(), message.getFloatVelocity());
+                    continue;
+                }
                 const auto slot = settings.slotFor (message.getNoteNumber());
-                if (slot < 0)
+                if (slot < 0 || ! message.isNoteOn())
                     continue;
                 renderTo (position);
                 startHit (slot, message.getFloatVelocity(), settings);
             }
         renderTo (numSamples);
+
+        // Where the beat is now, for the page's playhead.
+        auto position = -1.0;
+        if (sequencing)
+        {
+            const auto length = sequencer.lengthSteps();
+            if (sequencer.trigger == drumseq::Trigger::song && ppq >= 0.0)
+                position = std::fmod ((ppq + numSamples * bpm / 60.0 / sampleRate) / sequencer.beatsPerStep(), length);
+            else if (keyed && keyRunning)
+                position = std::fmod (keyClock, length);
+        }
+        sequencerPosition = position;
+        sequencerPattern = sequencer.trigger == drumseq::Trigger::key ? keyPattern : sequencer.pattern;
     }
 
     bool Kit::audible (const KitSettings& settings, int slot) noexcept
