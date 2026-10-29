@@ -289,11 +289,39 @@ public:
         return peak > 1.0e-5f ? juce::Decibels::gainToDecibels (peak) : -100.0f;
     }
 
+    // THE OUTPUTS (0.3.0): the latency of MAIN's chain, which OUT 2 to 16 are held back by (and the DAW is told).
+    int mainLatencySamples() const noexcept;
+
 private:
+    static BusesProperties makeOutputBuses();
+    // OUT 2 to 16 in the block being played (from a piece's first sample): null while the DAW has that output off.
+    struct AuxOutputs
+    {
+        std::array<float*, synth::numOutputs - 1> left {}, right {};
+        AuxOutputs from (int offset) const noexcept
+        {
+            auto moved = *this;
+            for (size_t o = 0; o < left.size(); ++o)
+                if (left[o] != nullptr)
+                {
+                    moved.left[o] += offset;
+                    moved.right[o] += offset;
+                }
+            return moved;
+        }
+        // Where something set to `output` (0 MAIN) plays: its pair, or null for MAIN (also when that output is off).
+        std::pair<float*, float*> at (int output) const noexcept
+        {
+            const auto o = output - 1;
+            return o >= 0 && o < (int) left.size() && left[(size_t) o] != nullptr ? std::pair { left[(size_t) o], right[(size_t) o] }
+                                                                                   : std::pair<float*, float*> { nullptr, nullptr };
+        }
+    };
     void processChunk (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& drums, const synth::drums::KitSettings& kit,
-                       int start, int numSamples);
+                       int start, int numSamples, const AuxOutputs& aux);
+    void delayAuxOutputs (const AuxOutputs& aux, int numSamples) noexcept;
     void processModFx (juce::dsp::AudioBlock<float> block);
-    void processInsertBuses (juce::dsp::AudioBlock<float> block, bool sendsReady);
+    void processInsertBuses (juce::dsp::AudioBlock<float> block, bool sendsReady, const AuxOutputs& aux);
     effects::Modulation::Settings modSettingsFor (const ParamIDs::ModIds&) const noexcept;
     effects::LoFi::Settings loFiSettingsFor (int bus) const noexcept;   // -1: the whole sound's
     float param (const char* id) const;
@@ -396,7 +424,7 @@ private:
 
     LevelMeterSource outputMeter;
     void processRack (juce::dsp::AudioBlock<float> block);   // the rack's effects before OUTPUT
-    void processSends (juce::dsp::AudioBlock<float> block);  // DELAY and REVERB on their sends, their returns added in
+    void processSends (juce::dsp::AudioBlock<float> block, const AuxOutputs& aux);  // DELAY and REVERB on their sends, their returns added in
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ParagonX1AudioProcessor)
 };

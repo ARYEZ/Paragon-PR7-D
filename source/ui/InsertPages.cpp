@@ -436,6 +436,10 @@ InsertBusStrip::InsertBusStrip (ParagonX1AudioProcessor& p) : processor (p)
                                                                 + ", after its effects (its drums' own sends aren't used)");
         addAndMakeVisible (*sends[(size_t) s]);
     }
+    output = std::make_unique<ParamControl> (p.getParameters(), ParamIDs::ins (0, "Output"), "OUTPUT",
+                                             "Which of the plugin's outputs this bus plays into, after its effects: MAIN, or OUT 2 to 16 "
+                                             "(switched on in your DAW; until then MAIN). Its drums' own OUTPUT isn't used.");
+    addAndMakeVisible (*output);
     busButtons[0].setToggleState (true, juce::dontSendNotification);
     timerCallback();
     startTimerHz (10);
@@ -447,6 +451,7 @@ void InsertBusStrip::setBus (int b)
     busButtons[(size_t) bus].setToggleState (true, juce::dontSendNotification);
     sends[0]->attach (ParamIDs::ins (bus, "SendDelay"));
     sends[1]->attach (ParamIDs::ins (bus, "SendReverb"));
+    output->attach (ParamIDs::ins (bus, "Output"));
     timerCallback();
     if (onBusChanged)
         onBusChanged (bus);
@@ -474,14 +479,16 @@ void InsertBusStrip::resized()
     auto area = getLocalBounds().reduced (10, 4);
     for (auto& button : busButtons)
     {
-        button.setBounds (area.removeFromLeft (70).withSizeKeepingCentre (70, 30));
+        button.setBounds (area.removeFromLeft (58).withSizeKeepingCentre (58, 30));
         area.removeFromLeft (4);
     }
-    area.removeFromLeft (24);
-    auto right = area.removeFromRight (230);
-    sends[0]->setBounds (right.removeFromLeft (110));
-    right.removeFromLeft (10);
-    sends[1]->setBounds (right.removeFromLeft (110));
+    area.removeFromLeft (14);
+    auto right = area.removeFromRight (316);
+    sends[0]->setBounds (right.removeFromLeft (100));
+    right.removeFromLeft (6);
+    sends[1]->setBounds (right.removeFromLeft (100));
+    right.removeFromLeft (6);
+    output->setBounds (right);
     auto drums = area.withSizeKeepingCentre (area.getWidth(), 30).translated (0, 8);
     for (auto& button : drumButtons)
     {

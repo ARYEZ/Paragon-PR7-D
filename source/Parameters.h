@@ -28,10 +28,17 @@ namespace ParamIDs
     inline constexpr auto drumsMap      = "drumsMap";
     inline constexpr int numDrums = 20;   // 12 until PR7-D 0.2.0 (drum13 to drum20: version hint 24)
     inline juce::String drum (int slot, const char* what) { return "drum" + juce::String (slot + 1) + what; }
+    // THE OUTPUTS (PR7-D 0.3.0, version hint 25): the plugin's stereo outputs, MAIN first. Each drum, insert bus and
+    // send return chooses one ("drum<n>Output", "ins<n>Output", delayOutput, reverbOutput), by index: only append.
+    // Global, like the note map: they suit the DAW project's mixer, not a sound, so presets and kits leave them alone.
+    inline constexpr int numOutputs = 16;
+    inline const juce::StringArray outputNames { "Main", "Out 2", "Out 3", "Out 4", "Out 5", "Out 6", "Out 7", "Out 8",
+                                                 "Out 9", "Out 10", "Out 11", "Out 12", "Out 13", "Out 14", "Out 15", "Out 16" };
     inline constexpr const char* drumSettings[] = { "Model", "Level", "Pan", "Pitch", "Decay", "Tone", "Snap", "Mute", "Solo",
                                                     "Choke", "Insert", "SendDelay", "SendReverb",
                                                     "SampleStart", "SampleEnd",     // 0.21.1 (version hint 21): appended
-                                                    "Gain", "Mono", "Delay", "LowPass", "HighPass" };   // 6c (hint 23)
+                                                    "Gain", "Mono", "Delay", "LowPass", "HighPass",     // 6c (hint 23)
+                                                    "Output" };   // PR7-D 0.3.0 (hint 25): outputNames' index
     consteval int drumSetting (std::string_view what)
     {
         for (int i = 0; i < (int) std::size (drumSettings); ++i)
@@ -160,6 +167,8 @@ namespace ParamIDs
     inline constexpr auto reverbPreDelay = "reverbPreDelay";  // ms
     inline constexpr auto reverbDuck     = "reverbDuck";      // 0 to 1
     inline constexpr auto delayToReverb  = "delayToReverb";   // PR7-K's own: how much of DELAY's echoes go on into REVERB
+    inline constexpr auto delayOutput    = "delayOutput";     // PR7-D 0.3.0: where the return goes (outputNames)
+    inline constexpr auto reverbOutput   = "reverbOutput";
 
     // MOD, MOD 2 and LO-FI (stage 7c, version hint 18): PR7-G 0.52.0's IDs, ranges and defaults, so the same names
     // mean the same knobs across the family. Not PR7-G's MOD POSITION: there's no amp to put them before.
@@ -242,7 +251,17 @@ namespace ParamIDs
 
     // Global settings: kept when switching presets. Everything else is part of a preset.
     // The LIMITER's UNITY and DELTA are for listening while you set it, not part of a sound.
-    inline const juce::StringArray notInRigs { outputGain, bypass, limitUnity, limitDelta, drumsMap };
+    // THE OUTPUTS too (0.3.0): switching presets mustn't move drums between the DAW's channels.
+    inline const juce::StringArray notInRigs = []
+    {
+        juce::StringArray ids { outputGain, bypass, limitUnity, limitDelta, drumsMap, delayOutput, reverbOutput };
+        for (int k = 0; k < numDrums; ++k)
+            ids.add (drum (k, "Output"));
+        for (int b = 0; b < numInsertBuses; ++b)
+            ids.add (ins (b, "Output"));
+        return ids;
+    }();
+    inline bool isOutputChoice (const juce::String& id) { return id.endsWith ("Output"); }   // drum<n>, ins<n>, delay, reverb
 }
 
 namespace ParamRanges

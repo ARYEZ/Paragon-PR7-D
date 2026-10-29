@@ -557,7 +557,8 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), en
     {
         kitControls.push_back (std::make_unique<ParamControl> (state, id, label, tip));
     };
-    kitControl (ParamIDs::drumsRoot, "ROOT", "The kit's lowest key (its kick); the 11 keys above it play the rest, C to B as on General MIDI kits.");
+    kitControl (ParamIDs::drumsRoot, "ROOT", "With the ROOT note map (SETTINGS): the kit's lowest key (its kick); the 19 keys above it play "
+                                             "the rest, the first 12 C to B as on General MIDI kits.");
     kitControl (ParamIDs::drumsLevel, "LEVEL", "The whole kit's level.");
     kitControl (ParamIDs::drumsVelocity, "VELOCITY", "How much the keys' velocity changes the level: 0 every hit the same, 100% a soft hit "
                                                      "(half velocity) 12 dB down.");
@@ -580,6 +581,10 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), en
     slotControl (routingControls, "Choke", "CHOKE", "A hit stops the other drums in its group: the closed and pedal hats stop the open hat (group 1).");
     slotControl (routingControls, "Insert", "INSERT", "NONE: straight into the mix, through the sends. A to D: through that insert bus "
                                                       "(its DRIVE, GLITCH, MOD, LO-FI), whose own sends then feed DELAY and REVERB.");
+    slotControl (routingControls, "Output", "OUTPUT", "Which of the plugin's outputs it plays into: MAIN (with the FX page's MASTER "
+                                                      "effects and the LIMITER), or OUT 2 to 16, to mix it on its own channel in your DAW "
+                                                      "(switch that output on there first; until then it plays in MAIN). On an insert bus: "
+                                                      "the bus's OUTPUT instead. Several drums chosen: all of them.");
     slotControl (routingControls, "SendDelay", "TO DELAY", "How much goes to DELAY (while DELAY is on, and the drum isn't on a bus).");
     slotControl (routingControls, "SendReverb", "TO REVERB", "How much goes to REVERB (while REVERB is on, and the drum isn't on a bus).");
     slotControl (routingControls, "Mono", "MONO", "On: a new hit cuts this drum's last one short (a quick fade). Off (POLY): fast hits, "
@@ -1055,7 +1060,7 @@ void DrumPage::resized()
     for (auto& c : routingControls)
         routes.push_back (c.get());
     SynthPanel::layoutRow (knobs, shaping, 110);
-    SynthPanel::layoutRow (routing, routes);   // eight: shared out across the row
+    SynthPanel::layoutRow (routing, routes);   // nine: shared out across the row
 
     std::fill (pictureKeys.begin(), pictureKeys.end(), juce::String());   // sized afresh
     refreshPictures();

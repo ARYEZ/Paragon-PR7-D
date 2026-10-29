@@ -298,6 +298,15 @@ SendMatrix::SendMatrix (ParagonX1AudioProcessor& p)
     delayToReverb = std::make_unique<ParamControl> (state, ParamIDs::delayToReverb, "DELAY > REVERB",
                                                     "How much of the DELAY's echoes go on into the REVERB");
     addAndMakeVisible (*delayToReverb);
+    for (int which = 0; which < synth::numSends; ++which)
+    {
+        outputs[(size_t) which] = std::make_unique<ParamControl> (state, which == 0 ? ParamIDs::delayOutput : ParamIDs::reverbOutput,
+                                                                  which == 0 ? "DELAY OUT" : "REVERB OUT",
+                                                                  juce::String ("Which of the plugin's outputs the ") + (which == 0 ? "DELAY's echoes" : "REVERB's room")
+                                                                      + " play into: MAIN, or OUT 2 to 16, to mix on its own channel in your DAW "
+                                                                        "(switched on there; until then MAIN).");
+        addAndMakeVisible (*outputs[(size_t) which]);
+    }
 }
 
 void SendMatrix::paint (juce::Graphics& g)
@@ -320,17 +329,20 @@ void SendMatrix::resized()
 {
     auto area = getLocalBounds().reduced (14, 6);
     area.removeFromTop (20);
-    auto right = area.removeFromRight (140);
-    delayToReverb->setBounds (right.withSizeKeepingCentre (120, ParamControl::knobHeight));
+    // At the right: DELAY > REVERB, and each return's OUTPUT at the end of its row.
+    auto right = area.removeFromRight (240);
+    delayToReverb->setBounds (right.removeFromLeft (120).withSizeKeepingCentre (120, ParamControl::knobHeight));
     area.removeFromLeft (100);
     const auto h = ParamControl::knobHeight;
     const auto gap = juce::jmax (0, (area.getHeight() - 2 * h) / 3);
     for (int which = 0; which < synth::numSends; ++which)
     {
         area.removeFromTop (gap);
+        right.removeFromTop (gap);
         std::vector<juce::Component*> row;
         for (int i = 0; i < synth::drums::numSlots; ++i)
             row.push_back (knobs[(size_t) (which * synth::drums::numSlots + i)].get());
         SynthPanel::layoutRow (area.removeFromTop (h), row);
+        outputs[(size_t) which]->setBounds (right.removeFromTop (h).reduced (6, 0));
     }
 }

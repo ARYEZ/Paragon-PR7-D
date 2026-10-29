@@ -103,6 +103,7 @@ public:
     juce::TextButton& getBusButton (int b) noexcept { return busButtons[(size_t) b]; }
     juce::TextButton& getDrumButton (int i) noexcept { return drumButtons[(size_t) i]; }
     ParamControl& getSend (int s) noexcept { return *sends[(size_t) s]; }
+    ParamControl& getOutput() noexcept { return *output; }
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -114,4 +115,5 @@ private:
     std::array<juce::TextButton, ParamIDs::numInsertBuses> busButtons;
     std::array<juce::TextButton, ParamIDs::numDrums> drumButtons;
     std::array<std::unique_ptr<ParamControl>, 2> sends;
+    std::unique_ptr<ParamControl> output;
 };

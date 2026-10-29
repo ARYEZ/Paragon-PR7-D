@@ -1126,14 +1126,17 @@ namespace synth::drums
                     v.render (left, right, numSamples);
             filterSlot (s, left, right, numSamples, lowState[(size_t) slot], highState[(size_t) slot], sampleRate);
 
-            // Into the slot's bus, or the mix and (while each effect is on) the sends.
+            // Into the slot's bus, or its output (the mix, or another the DAW has on), and (while each effect is on)
+            // the sends.
             const auto gain = settings.gain * s.gain * s.trim;
             const auto panLeft = s.pan > 0.0f ? 1.0f - s.pan : 1.0f;
             const auto panRight = s.pan < 0.0f ? 1.0f + s.pan : 1.0f;
             const auto bus = s.insertBus - 1;
             const auto toBus = bus >= 0 && bus < (int) outputs.busLeft.size() && outputs.busLeft[(size_t) bus] != nullptr;
-            auto* outLeft = (toBus ? outputs.busLeft[(size_t) bus] : outputs.left) + offset;
-            auto* outRight = (toBus ? outputs.busRight[(size_t) bus] : outputs.right) + offset;
+            const auto aux = s.output - 1;
+            const auto toAux = ! toBus && aux >= 0 && aux < (int) outputs.auxLeft.size() && outputs.auxLeft[(size_t) aux] != nullptr;
+            auto* outLeft = (toBus ? outputs.busLeft[(size_t) bus] : toAux ? outputs.auxLeft[(size_t) aux] : outputs.left) + offset;
+            auto* outRight = (toBus ? outputs.busRight[(size_t) bus] : toAux ? outputs.auxRight[(size_t) aux] : outputs.right) + offset;
             std::array<float*, 2> sendLeft {}, sendRight {};
             for (size_t k = 0; k < sendLeft.size(); ++k)
                 if (! toBus && settings.sendOn[k] && outputs.sendLeft[k] != nullptr && s.send[k] > 0.0f)

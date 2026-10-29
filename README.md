@@ -22,7 +22,7 @@ PR7-D is built in stages, each one released:
 | **1** | Its own plugin: PR7-K's kit, drum sequencer, sample editor and effects, without the synth | **Works (0.1.0)** |
 | **2** | The bigger kit: 20 drums, with ride, ride bell, second crash, china, splash, half-open hat, tambourine, shaker | **Works (0.2.0)** |
 | **3** | Note maps: Root, a groove-library layout, General MIDI, and your own | **Works (0.2.0)** |
-| 4 | Multiple outputs: each drum or group on its own stereo output | Planned |
+| **4** | Multiple outputs: 16 stereo outputs; each drum, insert bus and send return chooses one | **Works (0.3.0)** |
 | 5 | The groove player: browse, filter, preview and drag MIDI grooves from your own folders | Planned |
 
 ## Using it
@@ -35,6 +35,9 @@ PR7-D is built in stages, each one released:
   - **Which notes play them:** the MAP in SETTINGS. **Root** puts the 20 on the keys from **ROOT** (C2 at first);
     **Groove Library** and **General MIDI** follow those layouts, so grooves made for them play as written; **Custom**
     is your own, note by note.
+  - **OUTPUT** sends a drum to one of the plugin's 16 stereo outputs (MAIN, OUT 2 to 16), to mix it on its own
+    channel in your DAW (switch the output on there; until then it plays in MAIN). Insert buses and the DELAY and
+    REVERB returns have their own OUTPUT. The routing is kept in your project, not in presets.
   - Click a row to choose and hear it; CTRL / SHIFT choose several. **MUTE**, **SOLO**, **CHOKE** groups (the
     closed hat stops the open one).
   - **The chosen drum:** PITCH, DECAY, TONE, SNAP, VOLUME, PAN, GAIN; where it goes (straight to the mix, or an

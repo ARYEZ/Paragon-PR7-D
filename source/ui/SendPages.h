@@ -80,4 +80,5 @@ public:
 private:
     std::vector<std::unique_ptr<ParamControl>> knobs;
     std::unique_ptr<ParamControl> delayToReverb;
+    std::array<std::unique_ptr<ParamControl>, synth::numSends> outputs;   // where each return plays (0.3.0)
 };

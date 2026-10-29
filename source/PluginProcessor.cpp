@@ -24,8 +24,19 @@ namespace
 }
 
 //==============================================================================
+// THE OUTPUTS (0.3.0): MAIN, on from the start; OUT 2 to 16 off until the DAW switches them on (as hosts expect of a
+// multi-output instrument: Cubase, for one, makes a mixer channel for each output that starts on).
+juce::AudioProcessor::BusesProperties ParagonX1AudioProcessor::makeOutputBuses()
+{
+    static_assert (synth::numOutputs == ParamIDs::numOutputs);
+    auto buses = BusesProperties().withOutput ("Main", juce::AudioChannelSet::stereo(), true);
+    for (int o = 1; o < synth::numOutputs; ++o)
+        buses = buses.withOutput (ParamIDs::outputNames[o], juce::AudioChannelSet::stereo(), false);
+    return buses;
+}
+
 ParagonX1AudioProcessor::ParagonX1AudioProcessor()
-    : AudioProcessor (BusesProperties().withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+    : AudioProcessor (makeOutputBuses()),
       parameters (*this, nullptr, "ParagonX1", createParameterLayout())
 {
     for (int b = 0; b < ParamIDs::numInsertBuses; ++b)
@@ -41,6 +52,7 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
         for (size_t s = 0; s < bus.glitch_.size(); ++s) bus.glitch_[s] = find (ParamIDs::insGlitchSettings[s]);
         for (size_t s = 0; s < bus.lofi_.size(); ++s) bus.lofi_[s] = find (ParamIDs::insLofiSettings[s]);
         bus.sends_ = { find ("SendDelay"), find ("SendReverb") };
+        bus.output_ = find ("Output");
     }
     for (int k = 0; k < ParamIDs::numDrums; ++k)
         for (size_t s = 0; s < std::size (ParamIDs::drumSettings); ++s)
@@ -151,6 +163,12 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     for (auto& send : rack->sends)
         send.setSize (2, preparedBlockSize);
     rack->eqOutputTap.setSampleRate (sampleRate);
+    // OUT 2 to 16's hold-back: room for the most MAIN's chain can add (CONSTRICTOR's 20 ms look-ahead, the LIMITER's
+    // longest, its oversampling filters and last stage), with time to spare.
+    const auto mostLatency = (int) std::ceil ((effects::multiband::lookaheadSeconds + effects::limiter::maxLookaheadMs * 0.001 + 0.02) * sampleRate);
+    rack->auxDelay.setSize (2 * (synth::numOutputs - 1), mostLatency + 1);
+    rack->auxDelay.clear();
+    rack->auxDelayWrite = 0;
     updateLatency();
 }
 
@@ -181,9 +199,7 @@ effects::MasterLimiter::Settings ParagonX1AudioProcessor::getLimiterSettings() c
 
 void ParagonX1AudioProcessor::updateLatency()
 {
-    // CONSTRICTOR's LOOK-AHEAD, and the LIMITER's (with its oversampling and true peak): the kit itself adds none.
-    const auto latency = (isOn (ParamIDs::mbLookahead) ? (int) std::lround (effects::multiband::lookaheadSeconds * rack->sampleRate) : 0)
-                         + rack->limiter.getLatencySamples (getLimiterSettings());
+    const auto latency = mainLatencySamples();
     if (latency != getLatencySamples())
         setLatencySamples (latency);
 }
@@ -319,7 +335,7 @@ effects::Reverb::Settings ParagonX1AudioProcessor::getReverbSettings() const noe
     return s;
 }
 
-void ParagonX1AudioProcessor::processSends (juce::dsp::AudioBlock<float> block)
+void ParagonX1AudioProcessor::processSends (juce::dsp::AudioBlock<float> block, const AuxOutputs& aux)
 {
     // DELAY on its send (giving back just its echoes), then REVERB on its own send plus DELAY > REVERB's share of
     // those echoes; both returns join the kit before ECHELON. Each does nothing once it's off and its tail is gone.
@@ -334,13 +350,24 @@ void ParagonX1AudioProcessor::processSends (juce::dsp::AudioBlock<float> block)
     r.reverb.process (reverbReturn, getReverbSettings());
     for (int s = 0; s < synth::numSends; ++s)
         r.returnPeak[(size_t) s] = juce::jmax (r.sends[(size_t) s].getMagnitude (0, 0, numSamples), r.sends[(size_t) s].getMagnitude (1, 0, numSamples));
+    // Each return into its output: MAIN, or another the DAW has on.
     const auto numChannels = (int) block.getNumChannels();
-    for (int c = 0; c < numChannels; ++c)
+    const auto outputs = std::array { ParamIDs::delayOutput, ParamIDs::reverbOutput };
+    for (int s = 0; s < synth::numSends; ++s)
     {
-        auto* out = block.getChannelPointer ((size_t) c);
-        for (int i = 0; i < numSamples; ++i)
-            out[i] += numChannels == 1 ? 0.5f * (r.sends[0].getSample (0, i) + r.sends[0].getSample (1, i) + r.sends[1].getSample (0, i) + r.sends[1].getSample (1, i))
-                                       : r.sends[0].getSample (c, i) + r.sends[1].getSample (c, i);
+        const auto& send = r.sends[(size_t) s];
+        if (const auto [auxLeft, auxRight] = aux.at (juce::roundToInt (param (outputs[(size_t) s]))); auxLeft != nullptr)
+        {
+            juce::FloatVectorOperations::add (auxLeft, send.getReadPointer (0), numSamples);
+            juce::FloatVectorOperations::add (auxRight, send.getReadPointer (1), numSamples);
+        }
+        else
+            for (int c = 0; c < numChannels; ++c)
+            {
+                auto* out = block.getChannelPointer ((size_t) c);
+                for (int i = 0; i < numSamples; ++i)
+                    out[i] += numChannels == 1 ? 0.5f * (send.getSample (0, i) + send.getSample (1, i)) : send.getSample (c, i);
+            }
     }
 }
 
@@ -433,7 +460,7 @@ std::array<float, synth::numSends> ParagonX1AudioProcessor::getInsertSends (int 
     return { v[0]->load(), v[1]->load() };
 }
 
-void ParagonX1AudioProcessor::processInsertBuses (juce::dsp::AudioBlock<float> block, bool sendsReady)
+void ParagonX1AudioProcessor::processInsertBuses (juce::dsp::AudioBlock<float> block, bool sendsReady, const AuxOutputs& aux)
 {
     // Each bus a drum plays into: DRIVE and GLITCH (one a side: PR7-G's are mono), MOD, LO-FI, as on PR7-G's
     // chain (GLITCH POST, after the drive); then into the mix, and into the sends at the bus's amounts.
@@ -482,16 +509,23 @@ void ParagonX1AudioProcessor::processInsertBuses (juce::dsp::AudioBlock<float> b
         bus.loFi.process (busBlock, getInsertLoFiSettings (b));
         bus.peak = juce::jmax (bus.buffer.getMagnitude (0, 0, numSamples), bus.buffer.getMagnitude (1, 0, numSamples));
 
+        // Into its output: MAIN, or another the DAW has on.
         const auto numChannels = (int) block.getNumChannels();
-        for (int c = 0; c < numChannels; ++c)
+        if (const auto [auxLeft, auxRight] = aux.at (juce::roundToInt (bus.output_->load())); auxLeft != nullptr)
         {
-            auto* out = block.getChannelPointer ((size_t) c);
-            if (numChannels == 1)
-                for (int i = 0; i < numSamples; ++i)
-                    out[i] += 0.5f * (bus.buffer.getSample (0, i) + bus.buffer.getSample (1, i));
-            else
-                juce::FloatVectorOperations::add (out, bus.buffer.getReadPointer (c), numSamples);
+            juce::FloatVectorOperations::add (auxLeft, bus.buffer.getReadPointer (0), numSamples);
+            juce::FloatVectorOperations::add (auxRight, bus.buffer.getReadPointer (1), numSamples);
         }
+        else
+            for (int c = 0; c < numChannels; ++c)
+            {
+                auto* out = block.getChannelPointer ((size_t) c);
+                if (numChannels == 1)
+                    for (int i = 0; i < numSamples; ++i)
+                        out[i] += 0.5f * (bus.buffer.getSample (0, i) + bus.buffer.getSample (1, i));
+                else
+                    juce::FloatVectorOperations::add (out, bus.buffer.getReadPointer (c), numSamples);
+            }
         if (sendsReady)
         {
             const auto sends = getInsertSends (b);
@@ -572,12 +606,24 @@ float ParagonX1AudioProcessor::param (const char* id) const
     return parameters.getRawParameterValue (id)->load();
 }
 
+int ParagonX1AudioProcessor::mainLatencySamples() const noexcept
+{
+    // CONSTRICTOR's LOOK-AHEAD, and the LIMITER's (with its oversampling and true peak): the kit itself adds none.
+    return (isOn (ParamIDs::mbLookahead) ? (int) std::lround (effects::multiband::lookaheadSeconds * rack->sampleRate) : 0)
+           + rack->limiter.getLatencySamples (getLimiterSettings());
+}
+
 bool ParagonX1AudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-    // An instrument: no audio in, mono or stereo out.
+    // An instrument: no audio in; MAIN mono or stereo; OUT 2 to 16 each stereo or off.
     const auto output = layouts.getMainOutputChannelSet();
-    return layouts.getMainInputChannelSet().isDisabled()
-        && (output == juce::AudioChannelSet::mono() || output == juce::AudioChannelSet::stereo());
+    if (! layouts.getMainInputChannelSet().isDisabled()
+        || ! (output == juce::AudioChannelSet::mono() || output == juce::AudioChannelSet::stereo()))
+        return false;
+    for (int o = 1; o < layouts.outputBuses.size(); ++o)
+        if (const auto& set = layouts.outputBuses.getReference (o); ! set.isDisabled() && set != juce::AudioChannelSet::stereo())
+            return false;
+    return true;
 }
 
 void ParagonX1AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
@@ -624,22 +670,34 @@ void ParagonX1AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         if (pendingPreview[(size_t) slot].exchange (false))
             drumKit.trigger (slot, 0.8f, kit);
 
+    // OUT 2 to 16: the ones the DAW has switched on (the others' drums play in MAIN).
+    AuxOutputs aux;
+    for (int o = 1; o < synth::numOutputs; ++o)
+        if (const auto* bus = getBus (false, o); bus != nullptr && bus->isEnabled() && bus->getNumberOfChannels() == 2)
+            if (const auto first = bus->getChannelIndexInProcessBlockBuffer (0); first >= 0 && first + 1 < buffer.getNumChannels())
+            {
+                aux.left[(size_t) o - 1] = buffer.getWritePointer (first);
+                aux.right[(size_t) o - 1] = buffer.getWritePointer (first + 1);
+            }
+
     // Some hosts occasionally send more samples than they promised in
     // prepareToPlay; work through an oversized block in promised-size pieces.
     for (int start = 0; start < numSamples; start += preparedBlockSize)
-        processChunk (buffer, keyboardMidi, kit, start, juce::jmin (preparedBlockSize, numSamples - start));
+        processChunk (buffer, keyboardMidi, kit, start, juce::jmin (preparedBlockSize, numSamples - start), aux.from (start));
 
     activeVoices = drumKit.getNumActiveVoices();
     midi.clear();   // an instrument: nothing goes on down the MIDI chain
 }
 
 void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& drums,
-                                            const synth::drums::KitSettings& kit, int start, int numSamples)
+                                            const synth::drums::KitSettings& kit, int start, int numSamples, const AuxOutputs& aux)
 {
-    const auto numChannels = buffer.getNumChannels();
-    // The kit adds into its outputs: the mix, the sends (while their effect is on) and the insert buses a drum is
-    // routed to, so each starts the piece silent. Mono out: the right side goes into a scratch buffer, folded in after.
-    for (int channel = 0; channel < numChannels; ++channel)
+    // MAIN's channels (the buffer's first; OUT 2 to 16's follow, while on).
+    const auto numChannels = juce::jmin (buffer.getNumChannels(), getMainBusNumOutputChannels());
+    // The kit adds into its outputs: the mix, the other outputs, the sends (while their effect is on) and the insert
+    // buses a drum is routed to, so each starts the piece silent. Mono out: the right side goes into a scratch buffer,
+    // folded in after.
+    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
         buffer.clear (channel, start, numSamples);
     float scratchRight[512];
     const auto sendsReady = rack->sends[0].getNumSamples() >= numSamples;
@@ -671,6 +729,9 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
         synth::drums::Outputs out;
         out.left = left + done;
         out.right = right;
+        const auto auxHere = aux.from (done);
+        out.auxLeft = auxHere.left;
+        out.auxRight = auxHere.right;
         if (sendsReady)
         {
             for (size_t s = 0; s < out.sendLeft.size(); ++s)
@@ -700,20 +761,30 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
                                                             .getSubsetChannelBlock (0, (size_t) juce::jmin (numChannels, 2));
     if (sendsReady)
     {
-        processInsertBuses (block, true);
-        processSends (block);
+        processInsertBuses (block, true, aux);
+        processSends (block, aux);
         processModFx (block);   // after the returns, so the echoes and reverb are part of what they shape
     }
     processRack (block);
+    // The preset's level and OUTPUT: the whole plugin's volume, so on OUT 2 to 16 too (a drum moved off MAIN keeps its
+    // level). MAIN's effects and the LIMITER are MAIN's alone: the other outputs are for the DAW to mix.
     outputGain.setTargetValue (juce::Decibels::decibelsToGain (param (ParamIDs::outputGain) + param (ParamIDs::patchLevel)));
     for (int i = 0; i < numSamples; ++i)
     {
         const auto gain = outputGain.getNextValue();
         for (int channel = 0; channel < juce::jmin (numChannels, 2); ++channel)
             buffer.getWritePointer (channel, start)[i] *= gain;
+        for (size_t o = 0; o < aux.left.size(); ++o)
+            if (aux.left[o] != nullptr)
+            {
+                aux.left[o][i] *= gain;
+                aux.right[o][i] *= gain;
+            }
     }
     if (rack->compSidechain.getNumSamples() >= numSamples)
         rack->limiter.process (block, getLimiterSettings());
+    delayAuxOutputs (aux, numSamples);   // OUT 2 to 16 in time with MAIN
+    // BYPASS silences every output.
     bypassAmount.setTargetValue (isOn (ParamIDs::bypass) ? 1.0f : 0.0f);
     if (bypassAmount.isSmoothing() || bypassAmount.getTargetValue() > 0.5f)
         for (int i = 0; i < numSamples; ++i)
@@ -721,12 +792,50 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
             const auto gain = 1.0f - bypassAmount.getNextValue();
             for (int channel = 0; channel < juce::jmin (numChannels, 2); ++channel)
                 buffer.getWritePointer (channel, start)[i] *= gain;
+            for (size_t o = 0; o < aux.left.size(); ++o)
+                if (aux.left[o] != nullptr)
+                {
+                    aux.left[o][i] *= gain;
+                    aux.right[o][i] *= gain;
+                }
         }
-    for (int channel = 2; channel < numChannels; ++channel)
-        buffer.clear (channel, start, numSamples);
 
     for (int channel = 0; channel < juce::jmin (numChannels, 2); ++channel)
         outputMeter.pushSamples (buffer.getReadPointer (channel, start), numSamples);
+}
+
+void ParagonX1AudioProcessor::delayAuxOutputs (const AuxOutputs& aux, int numSamples) noexcept
+{
+    // Each of OUT 2 to 16 through its ring, read MAIN's latency behind (the rings run for the outputs that are off too,
+    // with silence, so one switched on mid-song doesn't first play what was left in its ring).
+    auto& ring = rack->auxDelay;
+    const auto size = ring.getNumSamples();
+    if (size == 0)
+        return;
+    const auto latency = juce::jlimit (0, size - 1, mainLatencySamples());
+    auto write = rack->auxDelayWrite;
+    for (size_t o = 0; o < aux.left.size(); ++o)
+    {
+        auto* ringLeft = ring.getWritePointer (2 * (int) o);
+        auto* ringRight = ring.getWritePointer (2 * (int) o + 1);
+        auto* left = aux.left[o];
+        auto* right = aux.right[o];
+        auto w = write;
+        for (int i = 0; i < numSamples; ++i)
+        {
+            ringLeft[w] = left != nullptr ? left[i] : 0.0f;
+            ringRight[w] = right != nullptr ? right[i] : 0.0f;
+            const auto r = w >= latency ? w - latency : w - latency + size;
+            if (left != nullptr)
+            {
+                left[i] = ringLeft[r];
+                right[i] = ringRight[r];
+            }
+            if (++w == size)
+                w = 0;
+        }
+    }
+    rack->auxDelayWrite = (write + numSamples) % size;
 }
 
 //==============================================================================
@@ -868,6 +977,7 @@ synth::drums::KitSettings ParagonX1AudioProcessor::getKitSettings() const noexce
         s.solo = get (drumSetting ("Solo")) > 0.5f;
         s.choke = juce::roundToInt (get (drumSetting ("Choke")));
         s.insertBus = juce::roundToInt (get (drumSetting ("Insert")));
+        s.output = juce::jlimit (0, synth::numOutputs - 1, juce::roundToInt (get (drumSetting ("Output"))));
         s.send = { get (drumSetting ("SendDelay")), get (drumSetting ("SendReverb")) };
         s.sample = samplesForAudio[k].load();
         s.start = get (drumSetting ("SampleStart"));
@@ -972,8 +1082,9 @@ namespace
     bool isKitParameter (const juce::String& id)
     {
         // The kit's LEVEL and VELOCITY, and every slot's "drum<n>..." setting (not DRUMS ON or ROOT: how it's played).
+        // Not each drum's OUTPUT (0.3.0): that's the DAW project's mixer, as for presets.
         return id == ParamIDs::drumsLevel || id == ParamIDs::drumsVelocity
-            || (id.startsWith ("drum") && juce::CharacterFunctions::isDigit (id[4]));
+            || (id.startsWith ("drum") && juce::CharacterFunctions::isDigit (id[4]) && ! ParamIDs::isOutputChoice (id));
     }
     const juce::StringArray sequenceParameters { ParamIDs::dseqDivision, ParamIDs::dseqTiming, ParamIDs::dseqLength, ParamIDs::dseqVelocity };
 

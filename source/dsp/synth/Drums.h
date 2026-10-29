@@ -32,6 +32,7 @@ namespace synth
 {
     // The effects the kit plays into: DELAY and REVERB's sends, and the insert buses A to D (PR7-K's numbers).
     inline constexpr int numSends = 2, numInsertBuses = 4;
+    inline constexpr int numOutputs = 16;   // the plugin's stereo outputs: MAIN, then 15 more (PR7-D 0.3.0)
 }
 
 namespace synth::drums
@@ -113,6 +114,7 @@ namespace synth::drums
         bool mute = false, solo = false;
         int choke = 0;                     // 0 none, 1-4
         int insertBus = 0;                 // 0 the mix, 1-4 bus A-D
+        int output = 0;                    // 0 MAIN, 1-15 the other outputs (on a bus: the bus's instead)
         std::array<float, 2> send { 1.0f, 1.0f };   // DELAY, REVERB (only while that effect is on)
         const Sample* sample = nullptr;    // SAMPLE's, or nothing
         float start = 0.0f, end = 1.0f;    // SAMPLE: the part played, as shares of the file (0.21.1)
@@ -183,6 +185,9 @@ namespace synth::drums
         float* right = nullptr;
         std::array<float*, numSends> sendLeft {}, sendRight {};
         std::array<float*, numInsertBuses> busLeft {}, busRight {};
+        // The other outputs (OUT 2 to 16): null while the DAW hasn't switched that output on, and a drum sent there
+        // plays in the mix instead, so nothing goes silent.
+        std::array<float*, numOutputs - 1> auxLeft {}, auxRight {};
     };
 
     // A zero-delay-feedback state-variable filter (Zavalishin's), set once per hit.

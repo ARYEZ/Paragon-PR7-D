@@ -73,17 +73,30 @@ namespace
     }
 }
 
-TEST_CASE ("PR7-D is an instrument: no audio in, MIDI in, mono or stereo out", "[processor]")
+TEST_CASE ("PR7-D is an instrument: no audio in, MIDI in, mono or stereo out; 15 more stereo outputs, off at first", "[processor]")
 {
     ParagonX1AudioProcessor processor;
     CHECK (processor.acceptsMidi());
     CHECK_FALSE (processor.producesMidi());
     CHECK (processor.getBusCount (true) == 0);
     CHECK (processor.getMainBusNumOutputChannels() == 2);
+    REQUIRE (processor.getBusCount (false) == 16);
+    CHECK (processor.getTotalNumOutputChannels() == 2);   // the DAW switches the others on
+    CHECK (processor.getBus (false, 0)->getName() == "Main");
+    CHECK (processor.getBus (false, 15)->getName() == "Out 16");
+    for (int o = 1; o < 16; ++o)
+        CHECK_FALSE (processor.getBus (false, o)->isEnabled());
 
     juce::AudioProcessor::BusesLayout layout;
     layout.outputBuses.add (juce::AudioChannelSet::stereo());
+    for (int o = 1; o < 16; ++o)
+        layout.outputBuses.add (juce::AudioChannelSet::disabled());
     CHECK (processor.checkBusesLayoutSupported (layout));
+    layout.outputBuses.getReference (3) = juce::AudioChannelSet::stereo();   // OUT 4 on
+    CHECK (processor.checkBusesLayoutSupported (layout));
+    layout.outputBuses.getReference (3) = juce::AudioChannelSet::mono();     // the others: stereo or off
+    CHECK_FALSE (processor.checkBusesLayoutSupported (layout));
+    layout.outputBuses.getReference (3) = juce::AudioChannelSet::disabled();
     layout.outputBuses.getReference (0) = juce::AudioChannelSet::mono();
     CHECK (processor.checkBusesLayoutSupported (layout));
     layout.outputBuses.getReference (0) = juce::AudioChannelSet::create5point1();

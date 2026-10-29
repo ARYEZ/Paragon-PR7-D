@@ -80,8 +80,14 @@ struct Rack
         std::array<std::atomic<float>*, std::size (ParamIDs::insGlitchSettings)> glitch_ {};
         std::array<std::atomic<float>*, std::size (ParamIDs::insLofiSettings)> lofi_ {};
         std::array<std::atomic<float>*, synth::numSends> sends_ {};
+        std::atomic<float>* output_ = nullptr;   // which output it plays into (0.3.0)
     };
     std::array<InsertBus, synth::numInsertBuses> buses;
+
+    // THE OUTPUTS (0.3.0): OUT 2 to 16 skip the master chain, so they're held back by its latency (CONSTRICTOR's and
+    // the LIMITER's look-ahead) to stay in time with MAIN. A ring per side of each, written every block.
+    juce::AudioBuffer<float> auxDelay;   // 2 x (numOutputs - 1) channels
+    int auxDelayWrite = 0;
 
     void setFolder (const juce::File& presetsFolder)
     {

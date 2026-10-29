@@ -2,6 +2,23 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.3.0
+
+**Multiple outputs.** Stage 4 of the plan: each drum (or group of drums) can play out of its own stereo output, so your DAW mixes the kit like a recorded one, each drum on its own channel with its own plugins.
+
+- **16 stereo outputs:** MAIN, then OUT 2 to OUT 16. Your DAW shows OUT 2 to 16 once you switch them on there (they start off, as most DAWs expect of multi-output instruments: Cubase, for one, would otherwise make 15 empty mixer channels the moment you load it).
+- **OUTPUT on each drum** (DRUMS page, beside INSERT): MAIN or OUT 2 to 16. Choose several drums first (CTRL / SHIFT) to set them all at once: the three toms to OUT 5, say.
+- **An insert bus has its own OUTPUT** (FX, INSERTS, beside its sends): a drum on a bus plays where the bus does, after its effects.
+- **DELAY's and REVERB's returns have their own OUTPUT** too (FX, SENDS, at the end of each row): put the room on a channel of its own. The drums still feed DELAY and REVERB with their sends wherever they play.
+- **What reaches OUT 2 to 16:** each drum as you've shaped it on the DRUMS page (VOLUME, PAN, the sample editor), its insert bus if it has one, and **OUTPUT** (the big knob: it's the whole plugin's volume, so a drum moved off MAIN keeps its level). Not MAIN's effects (MOD / LO-FI, the MASTER page's ECHELON, DOMINION, CONSTRICTOR) and not the LIMITER: those are MAIN's, and the other outputs are for your DAW to mix. BYPASS silences them all.
+- **Nothing goes silent by mistake:** a drum, bus or return set to an output your DAW hasn't switched on plays in MAIN instead, so the kit always sounds whole.
+- **In time:** CONSTRICTOR's LOOK-AHEAD and the LIMITER delay MAIN (your DAW makes up for it). OUT 2 to 16 are held back by the same amount, so a kick on OUT 2 and its room on MAIN stay together to the sample.
+- **Presets and kits leave the outputs alone:** the routing belongs to your DAW project (it's kept there), so changing preset or loading a kit never moves drums between your mixer's channels.
+- **Also:** ROOT's tip now says 19 keys above it (it still said 11).
+- **Tests:** a drum on OUT 2 coming out there at its level and nowhere else; an output that's off sending its drum to MAIN, identical to MAIN; a bus's and the reverb's outputs; OUT 2 lined up with MAIN to the sample with CONSTRICTOR's and the LIMITER's look-ahead on (1149 samples of latency); OUTPUT turning every output down together; BYPASS; a mono MAIN with a stereo OUT 2; presets, kits and projects and the routing; the layouts the plugin accepts (MAIN mono or stereo, the others stereo or off).
+
+What can't be checked here: how each Windows DAW shows the extra outputs (no DAW runs here). In Cubase you switch them on with the instrument's "Activate Outputs"; Reaper lists every output's channels. For Ableton Live and FL Studio we found no clear documentation of how they treat outputs that start off. Tell us which DAW you use, and whether OUT 2 to 16 show up: if one doesn't, the outputs can be made to start on.
+
 ## 0.2.0
 
 **A bigger kit and note maps.** Stages 2 and 3 of the plan: 20 drums instead of 12, and a choice of which MIDI notes play which drum, so grooves written for other drum software (and General MIDI files) play on the right drums.

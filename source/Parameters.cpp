@@ -18,6 +18,7 @@ namespace
     constexpr int stage6b = 22;  // 0.22.0: the drum sequencer
     constexpr int stage6c = 23;  // 0.23.0: the sample editor
     constexpr int pr7d020 = 24;  // PR7-D 0.2.0: drums 13 to 20, the note map
+    constexpr int pr7d030 = 25;  // PR7-D 0.3.0: the outputs (also in RackParameters.cpp)
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -124,6 +125,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
             add (layout, drum (k, "Delay"), name + "Delay", delayRange, 0.0f, asDrumDelay, hintEditor);
             add (layout, drum (k, "LowPass"), name + "Low Pass", logRange (20.0, 20000.0), 20000.0f, asLowPass, hintEditor);
             add (layout, drum (k, "HighPass"), name + "High Pass", logRange (20.0, 20000.0), 20.0f, asHighPass, hintEditor);
+            addChoice (layout, drum (k, "Output"), name + "Output", outputNames, 0, pr7d030);
         }
 
         // THE DRUM SEQUENCER (stage 6b).
