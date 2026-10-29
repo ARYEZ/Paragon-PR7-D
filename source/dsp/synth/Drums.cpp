@@ -246,6 +246,10 @@ namespace synth::drums
         envCoef = env2Coef = pitchCoef = clickCoef = 0.0f;
         sample = nullptr;
         level = velocityGain * modelLevel[(size_t) model];
+        shape = nullptr;
+        shapeGain = 1.0f;
+        // DELAY (6c): a hit set later waits; one set early is the sequencer's business (it starts it early).
+        waitLeft = s.delay > 0.0f ? juce::roundToInt (s.delay * rate) : 0;
 
         // REVERSE: the slot's sample (its START to END) or its baked hit, played backwards; a baked hit has its
         // pitch and shaping in it already, so only the note's own pitch moves it.
@@ -268,6 +272,7 @@ namespace synth::drums
             setTone (s.reverseBaked ? 0.5 : (double) s.tone, rate);   // a baked hit has its TONE in it already
             attackTime = 0.0f;
             spike = 0.0f;
+            startShape (s, endPosition - startPosition);
             return;
         }
 
@@ -386,6 +391,7 @@ namespace synth::drums
                 const auto length = sample->length();
                 const auto from = juce::jlimit (0.0, 1.0, (double) s.start), to = juce::jlimit (0.0, 1.0, (double) s.end);
                 position = juce::jlimit (0.0, (double) length - 2.0, std::floor (from * length));
+                startPosition = position;
                 endPosition = juce::jlimit (position + 1.0, (double) length - 1.0, std::floor (juce::jmax (from, to) * length));
                 step = ratio * sample->sampleRate / rate;
                 endFade = endPosition < length - 1.0 ? 0.003 * rate * step : 0.0;
@@ -400,6 +406,50 @@ namespace synth::drums
                 break;
             }
         }
+        if (active)
+            startShape (s, model == Model::sample ? endPosition - startPosition : 0.0);
+    }
+
+    void Voice::startShape (const SlotSettings& s, double regionSamples) noexcept
+    {
+        // The envelope runs across the hit from 0 to 1: a sample's own content (START to END, whatever its pitch,
+        // and backwards when it's reversed); a drum synth's hit by time, over the length the slot gives.
+        shape = envelopeShapes (s.envelope) ? s.envelope : nullptr;
+        shapeCountdown = 0;
+        shapeStep = 0.0f;
+        if (shape == nullptr)
+            return;
+        if (model == Model::sample)
+        {
+            shapeDx = step / juce::jmax (1.0, regionSamples);
+            shapeX = reversed ? 1.0 : 0.0;
+            if (reversed)
+                shapeDx = -shapeDx;
+        }
+        else
+        {
+            shapeDx = 1.0 / ((s.envelopeSeconds > 0.0f ? (double) s.envelopeSeconds : 1.0) * sampleRate);
+            shapeX = 0.0;
+        }
+        shapeGain = shape->valueAt (shapeX);
+    }
+
+    bool Voice::advanceShape() noexcept
+    {
+        if (shape == nullptr)
+            return true;
+        if (--shapeCountdown <= 0)
+        {
+            shapeCountdown = 8;
+            const auto target = shape->valueAt (shapeX + 8.0 * shapeDx);
+            const auto past = shapeDx > 0.0 ? shapeX >= 1.0 : shapeX <= 0.0;
+            if (past && shapeGain < 1.0e-4f && target < 1.0e-4f)
+                return false;   // drawn down to nothing at its end: the hit is over
+            shapeStep = (target - shapeGain) / 8.0f;
+        }
+        shapeGain += shapeStep;
+        shapeX += shapeDx;
+        return true;
     }
 
     float Voice::next() noexcept
@@ -551,6 +601,16 @@ namespace synth::drums
             const auto channels = (int) sample->channels.size();
             for (int i = 0; i < numSamples; ++i)
             {
+                if (waitLeft > 0)
+                {
+                    --waitLeft;
+                    continue;
+                }
+                if (! advanceShape())
+                {
+                    active = false;
+                    return;
+                }
                 const auto index = (int) position;
                 if ((reversed ? position <= startPosition : position >= endPosition) || index >= length - 1 || env < 1.0e-4f)
                 {
@@ -558,7 +618,7 @@ namespace synth::drums
                     return;
                 }
                 const auto frac = (float) (position - index);
-                auto gain = env * level * fade;
+                auto gain = env * level * fade * shapeGain;
                 if (endFade > 0.0)
                     gain *= (float) juce::jmin (1.0, (reversed ? position - startPosition : endPosition - position) / endFade);
                 if (attackTime > 0.0f && t < attackTime)
@@ -595,7 +655,17 @@ namespace synth::drums
 
         for (int i = 0; i < numSamples; ++i)
         {
-            const auto x = next() * fade;
+            if (waitLeft > 0)
+            {
+                --waitLeft;
+                continue;
+            }
+            if (! advanceShape())
+            {
+                active = false;
+                return;
+            }
+            const auto x = next() * fade * shapeGain;
             left[i] += x * panLeft;
             right[i] += x * panRight;
             if (gateLeft > 0 && --gateLeft == 0)
@@ -638,6 +708,8 @@ namespace synth::drums
             v.active = false;
         slotGain.fill (1.0f);
         lastHit.fill (-1.0);
+        lowState = {};
+        highState = {};
     }
 
     int Kit::getNumActiveVoices() const noexcept
@@ -684,6 +756,12 @@ namespace synth::drums
             for (auto& v : voices)
                 if (v.active && v.choke == s.choke && v.slot != slot)
                     v.fadeOut (0.005);
+
+        // MONO (6c): this hit takes over from the slot's earlier ones, which fade quickly but without a click.
+        if (s.mono)
+            for (auto& v : voices)
+                if (v.active && v.slot == slot)
+                    v.fadeOut (0.002);
 
         // Up to maxPerSlot hits of one slot overlap (a roll); past that, the oldest fades.
         Voice* oldestOfSlot = nullptr;
@@ -777,6 +855,7 @@ namespace synth::drums
         auto count = 0;
         drumseq::forEachHit ((*sequencer.patterns)[(size_t) pattern], sequencer, startSteps, startSteps + (to - from) * stepsPerSample,
                              [&] (const drumseq::Note& n) { return reverseSeconds (settings.slots[(size_t) n.row], n.pitch, sampleRate) * stepsPerSecond; },
+                             [&] (const drumseq::Note& n) { return settings.slots[(size_t) n.row].anchorSeconds() * stepsPerSecond; },
                              [&] (double t, const drumseq::Note& n, int)
                              {
                                  if (count < (int) sequenced.size())
@@ -903,9 +982,10 @@ namespace synth::drums
             for (auto& v : voices)
                 if (v.active && v.slot == slot)
                     v.render (left, right, numSamples);
+            filterSlot (s, left, right, numSamples, lowState[(size_t) slot], highState[(size_t) slot], sampleRate);
 
             // Into the slot's bus, or the mix and (while each effect is on) the sends.
-            const auto gain = settings.gain * s.gain;
+            const auto gain = settings.gain * s.gain * s.trim;
             const auto panLeft = s.pan > 0.0f ? 1.0f - s.pan : 1.0f;
             const auto panRight = s.pan < 0.0f ? 1.0f + s.pan : 1.0f;
             const auto bus = s.insertBus - 1;
@@ -941,16 +1021,101 @@ namespace synth::drums
         }
     }
 
+    void Kit::filterSlot (const SlotSettings& s, float* left, float* right, int numSamples, std::array<float, 2>& low,
+                          std::array<float, 2>& high, double sampleRate) noexcept
+    {
+        // LP / HP (6c): one pole each, 6 dB an octave, on the slot's hits together. Zero-delay ("topology-preserving")
+        // one-poles: exactly -3 dB at the corner wherever it's set (the plain y += a (x - y) form's high-pass is 6 dB
+        // down at a 5 kHz corner).
+        if (! s.filtered())
+        {
+            low = {};
+            high = {};
+            return;
+        }
+        const auto gain = [sampleRate] (float hz)
+        {
+            const auto g = std::tan (juce::MathConstants<double>::pi * juce::jlimit (5.0, 0.45 * sampleRate, (double) hz) / sampleRate);
+            return (float) (g / (1.0 + g));
+        };
+        const auto lowOn = s.lowPass < 19999.0f, highOn = s.highPass > 20.01f;
+        const auto lowG = lowOn ? gain (s.lowPass) : 0.0f;
+        const auto highG = highOn ? gain (s.highPass) : 0.0f;
+        float* sides[] = { left, right };
+        for (size_t c = 0; c < 2; ++c)
+        {
+            auto* x = sides[c];
+            auto& l = low[c];
+            auto& h = high[c];
+            for (int i = 0; i < numSamples; ++i)
+            {
+                auto y = x[i];
+                if (lowOn)
+                {
+                    const auto v = (y - l) * lowG;
+                    y = v + l;
+                    l = y + v;
+                }
+                if (highOn)
+                {
+                    const auto v = (y - h) * highG;
+                    const auto lp = v + h;
+                    h = lp + v;
+                    y -= lp;
+                }
+                x[i] = y;
+            }
+            if (std::abs (l) < 1.0e-15f)
+                l = 0.0f;
+            if (std::abs (h) < 1.0e-15f)
+                h = 0.0f;
+        }
+    }
+
     juce::AudioBuffer<float> Kit::renderHit (const SlotSettings& settings, float velocity, double sampleRate, double seconds)
     {
         juce::AudioBuffer<float> buffer (2, juce::jmax (1, (int) (seconds * sampleRate)));
         buffer.clear();
+        auto s = settings;
+        s.delay = 0.0f;   // the hit itself, wherever it falls
         Voice voice;
-        voice.start (settings, 0, velocity * velocity, sampleRate, 0x2545f491u);
+        voice.start (s, 0, velocity * velocity, sampleRate, 0x2545f491u);
         for (int done = 0; done < buffer.getNumSamples() && voice.active; done += 256)
             voice.render (buffer.getWritePointer (0, done), buffer.getWritePointer (1, done),
                           juce::jmin (256, buffer.getNumSamples() - done));
-        buffer.applyGain (settings.gain);
+        std::array<float, 2> low {}, high {};
+        filterSlot (s, buffer.getWritePointer (0), buffer.getWritePointer (1), buffer.getNumSamples(), low, high, sampleRate);
+        buffer.applyGain (settings.gain * settings.trim);
         return buffer;
+    }
+
+    double Kit::hitSeconds (const SlotSettings& settings)
+    {
+        if (settings.model == Model::sample)
+        {
+            if (settings.sample == nullptr || settings.sample->length() < 2)
+                return 0.0;
+            const auto share = juce::jmax (0.0, (double) settings.end - (double) settings.start);
+            return share * settings.sample->length() / (settings.sample->sampleRate * std::exp2 (settings.pitch / 12.0));
+        }
+        auto s = settings;
+        s.envelope = nullptr;
+        s.trim = s.gain = 1.0f;
+        s.lowPass = 20000.0f;
+        s.highPass = 20.0f;
+        constexpr double rate = 24000.0;   // plenty to measure by
+        const auto hit = renderHit (s, 1.0f, rate, 4.0);
+        const auto* x = hit.getReadPointer (0);
+        auto peak = 0.0f;
+        for (int i = 0; i < hit.getNumSamples(); ++i)
+            peak = juce::jmax (peak, std::abs (x[i]));
+        auto last = 0;
+        for (int i = hit.getNumSamples(); --i > 0;)
+            if (std::abs (x[i]) > peak * 0.001f)
+            {
+                last = i;
+                break;
+            }
+        return (last + 1) / rate;
     }
 }

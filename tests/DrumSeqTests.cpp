@@ -387,3 +387,39 @@ TEST_CASE ("DRUM SEQUENCER: MIDI export writes one pass on the kit's keys", "[dr
     CHECK (ons[1] == std::tuple<int, int, double> { 38, 64, 120.0 });   // the roll's second, half a step on
     CHECK (ons[2] == std::tuple<int, int, double> { 36, 127, 960.0 });
 }
+
+TEST_CASE ("DRUM SEQUENCER: a drum's anchor (DELAY set early) starts it that much before its step; MIDI export too", "[drumseq]")
+{
+    Rig rig;
+    for (auto& s : rig.settings.slots)
+        s.delay = -0.0625f;   // half a step at 120 BPM in 1/16s
+    rig.add (0, 4.0);
+    rig.add (0, 0.0);
+    rig.play (2.1);
+    // Step 4 starts 3000 samples early; step 0 can't start before the song does, so the first is the next bar's.
+    CHECK (rig.clicks() == std::vector<int> { 21000, 93000 });
+
+    // Set late, both play late (the kit holds them back).
+    Rig late;
+    for (auto& s : late.settings.slots)
+        s.delay = 0.0625f;
+    late.add (0, 4.0);
+    late.play (0.6);
+    CHECK (late.clicks() == std::vector<int> { 27000 });
+
+    // Exported, a drum with an anchor is written early by its lead (the first note wraps to the end of the bar).
+    drumseq::Settings s;
+    drumseq::Pattern p;
+    drumseq::Note n;
+    p.notes = { n };
+    n.start = 4.0;
+    p.notes.push_back (n);
+    std::array<double, drumseq::numRows> lead {};
+    lead[0] = 0.0625;
+    std::vector<double> ticks;
+    const auto file = drumseq::toMidi (p, s, 36, 120.0, lead);
+    for (const auto* e : *file.getTrack (0))
+        if (e->message.isNoteOn())
+            ticks.push_back (e->message.getTimeStamp());
+    CHECK (ticks == std::vector<double> { 840.0, 3720.0 });
+}

@@ -123,10 +123,11 @@ namespace synth::drumseq
 
     // When a note's hits sound, in steps from the pattern's start (loop 0): its start, an odd step moved late by
     // SHUFFLE (up to half a step), each roll hit spread across the step; "end sync" reversed hits placed so they end
-    // at their slot's end (`reverseSteps`: the reversed hit's length in steps).
-    inline double hitTime (const Note& n, const Settings& s, int rollIndex, double reverseSteps) noexcept
+    // at their slot's end (`reverseSteps`: the reversed hit's length in steps); and all of it `leadSteps` early for a
+    // drum whose DELAY sets an anchor (6c: that point in the hit lands on the step).
+    inline double hitTime (const Note& n, const Settings& s, int rollIndex, double reverseSteps, double leadSteps = 0.0) noexcept
     {
-        auto t = n.start;
+        auto t = n.start - leadSteps;
         if (((int) std::floor (n.start + 1.0e-9)) % 2 == 1)
             t += 0.5 * juce::jlimit (0.0f, 1.0f, s.shuffle);
         const auto count = n.rollCount();
@@ -136,17 +137,18 @@ namespace synth::drumseq
     }
 
     // Calls onHit (time in steps, note, roll index) for every hit of `pattern`, looped, whose time falls in
-    // [from, to) steps, loop 0 starting at 0 (nothing before it). `reverseSteps (note)` gives its reversed hit's length.
-    template <typename ReverseSteps, typename OnHit>
-    void forEachHit (const Pattern& pattern, const Settings& s, double from, double to, ReverseSteps&& reverseSteps, OnHit&& onHit)
+    // [from, to) steps, loop 0 starting at 0 (nothing before it). `reverseSteps (note)` gives its reversed hit's length,
+    // `leadSteps (note)` how early its drum's anchor starts it.
+    template <typename ReverseSteps, typename LeadSteps, typename OnHit>
+    void forEachHit (const Pattern& pattern, const Settings& s, double from, double to, ReverseSteps&& reverseSteps,
+                     LeadSteps&& leadSteps, OnHit&& onHit)
     {
         if (pattern.notes.empty() || to <= from)
             return;
         const auto length = s.lengthSteps();
-        auto earliest = 0.0;   // how far before its own start a hit can sound (end-synced reverses)
+        auto earliest = 0.0;   // how far before its own start a hit can sound (end-synced reverses, anchors)
         for (const auto& n : pattern.notes)
-            if (n.reverse == Reverse::endSync)
-                earliest = juce::jmax (earliest, reverseSteps (n));
+            earliest = juce::jmax (earliest, (n.reverse == Reverse::endSync ? reverseSteps (n) : 0.0) + leadSteps (n));
         const auto firstLoop = juce::jmax (0, (int) std::floor ((from - 1.0) / length) - 1);
         const auto lastLoop = (int) std::floor ((to + earliest + 1.0) / length) + 1;
         for (int loop = firstLoop; loop <= lastLoop; ++loop)
@@ -156,24 +158,34 @@ namespace synth::drumseq
                     continue;   // beyond LENGTH: kept, but not played
                 for (int r = 0; r < n.rollCount(); ++r)
                 {
-                    const auto t = loop * length + hitTime (n, s, r, n.reverse == Reverse::endSync ? reverseSteps (n) : 0.0);
+                    const auto t = loop * length + hitTime (n, s, r, n.reverse == Reverse::endSync ? reverseSteps (n) : 0.0, leadSteps (n));
                     if (t >= from && t < to && t >= 0.0)
                         onHit (t, n, r);
                 }
             }
     }
 
+    template <typename ReverseSteps, typename OnHit>
+    void forEachHit (const Pattern& pattern, const Settings& s, double from, double to, ReverseSteps&& reverseSteps, OnHit&& onHit)
+    {
+        forEachHit (pattern, s, from, to, reverseSteps, [] (const Note&) { return 0.0; }, onHit);
+    }
+
     // MIDI EXPORT: one pass of the pattern, the drums on the kit's keys (ROOT up), 960 ticks a beat; a roll's hits
     // written out; a note lasts its gate (a ringing one, its slot of the step). Pan, pitch and reverse can't be
-    // written as notes, so they aren't.
-    inline juce::MidiFile toMidi (const Pattern& pattern, const Settings& s, int rootKey, double bpm)
+    // written as notes, so they aren't. A drum with an anchor (`leadSeconds` by row) is written that much early, so
+    // played back from the track its anchor still lands on the beat (one at the very start wraps to the end).
+    inline juce::MidiFile toMidi (const Pattern& pattern, const Settings& s, int rootKey, double bpm,
+                                  const std::array<double, numRows>& leadSeconds = {})
     {
         constexpr int ticksPerBeat = 960;
         juce::MidiMessageSequence track;
         track.addEvent (juce::MidiMessage::tempoMetaEvent (juce::roundToInt (60.0e6 / juce::jmax (1.0, bpm))), 0.0);
         const auto ticksPerStep = s.beatsPerStep() * ticksPerBeat;
         const auto lengthTicks = s.lengthSteps() * ticksPerStep;
-        forEachHit (pattern, s, 0.0, s.lengthSteps(), [] (const Note&) { return 0.0; }, [&] (double t, const Note& n, int)
+        const auto stepsPerSecond = juce::jmax (1.0, bpm) / 60.0 / s.beatsPerStep();
+        const auto lead = [&] (const Note& n) { return leadSeconds[(size_t) juce::jlimit (0, numRows - 1, n.row)] * stepsPerSecond; };
+        forEachHit (pattern, s, 0.0, s.lengthSteps(), [] (const Note&) { return 0.0; }, lead, [&] (double t, const Note& n, int)
         {
             const auto at = t * ticksPerStep;
             const auto lasts = n.gate < 1.0f ? n.gate * ticksPerBeat : ticksPerStep / n.rollCount();

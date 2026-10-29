@@ -3,6 +3,7 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 
 #include "dsp/synth/DrumSequencer.h"
+#include "dsp/synth/MultiPoint.h"
 #include "dsp/synth/Noise.h"
 
 #include <array>
@@ -100,7 +101,30 @@ namespace synth::drums
         // hit rendered ahead at these settings ("baked": its pitch and shaping already in it), or nothing yet.
         const Sample* reverseSource = nullptr;
         bool reverseBaked = false;
+        // THE SAMPLE EDITOR (6c), for every slot:
+        float trim = 1.0f;                 // GAIN, as a gain (for samples recorded too loud or too quiet)
+        bool mono = false;                 // a hit fades the slot's earlier ones (POLY: they overlap)
+        float delay = 0.0f;                // seconds: above 0 the hit comes later; below, the sequencer starts it
+                                           // that much early so that point in it (its anchor) lands on the step
+        float lowPass = 20000.0f, highPass = 20.0f;   // 6 dB/oct, Hz (20 kHz / 20 Hz: off)
+        const mod::Shape* envelope = nullptr;         // the drawn envelope across the hit (null: none)
+        float envelopeSeconds = 0.0f;      // a drum synth's hit length, which its envelope spans (SAMPLE: START to END)
+
+        bool filtered() const noexcept { return lowPass < 19999.0f || highPass > 20.01f; }
+        // The sequencer's lead for the anchor (seconds early).
+        double anchorSeconds() const noexcept { return delay < 0.0f ? -(double) delay : 0.0; }
     };
+
+    // An envelope that changes nothing (none, or flat at the top) isn't worked out at all.
+    inline bool envelopeShapes (const mod::Shape* shape) noexcept
+    {
+        if (shape == nullptr || shape->count <= 0)
+            return false;
+        for (int i = 0; i < shape->count; ++i)
+            if (shape->points[(size_t) i].y < 0.9999f)
+                return true;
+        return false;
+    }
 
     // A hit's own touches (the sequencer's notes): added to the slot's pan and pitch, cut after a gate, played
     // backwards; velocityGain, if set (0 or more), replaces the keys' velocity curve.
@@ -187,6 +211,12 @@ namespace synth::drums
         // The note's own pan (a balance on top of the slot's) and gate.
         float panLeft = 1.0f, panRight = 1.0f;
         int gateLeft = -1;
+        // The drawn envelope (6c): where it is across the hit (0 to 1), gliding between points worked out every
+        // 8 samples; DELAY's wait before the hit starts.
+        const mod::Shape* shape = nullptr;
+        double shapeX = 0.0, shapeDx = 0.0;
+        float shapeGain = 1.0f, shapeStep = 0.0f;
+        int shapeCountdown = 0, waitLeft = 0;
 
         void start (const SlotSettings&, int slotIndex, float velocityGain, double sampleRate, std::uint32_t seed,
                     const HitOptions& = {}) noexcept;
@@ -196,6 +226,8 @@ namespace synth::drums
 
     private:
         void setTone (double tone, double rate) noexcept;   // SAMPLE's TONE: a low-pass below the middle, a high-pass above
+        void startShape (const SlotSettings&, double regionSamples) noexcept;
+        bool advanceShape() noexcept;      // the envelope's next sample; false once it has ended at nothing
         float next() noexcept;             // the mono models
         bool finished() const noexcept;
     };
@@ -233,14 +265,20 @@ namespace synth::drums
         // Where a slot's last hit is, 0 to 1 of its first second (for the page), or -1.
         float getHitAge (int slot) const noexcept;
 
-        // One hit rendered alone, `seconds` long (for the page's display and tests).
+        // One hit rendered alone, `seconds` long (for the page's display and tests): its envelope, GAIN and LP / HP
+        // in it, not DELAY.
         static juce::AudioBuffer<float> renderHit (const SlotSettings&, float velocity, double sampleRate, double seconds);
+        // How long a slot's hit lasts as it is (to -60 dB under its peak, at most 4 s), without its envelope: what a
+        // drum synth's envelope spans (SAMPLE: exactly START to END at its pitch).
+        static double hitSeconds (const SlotSettings&);
 
         // Seeds the hits' noise (tests), so a hit sounds the same each run.
         void seedRandom (std::uint32_t seed) noexcept { noiseSeed = seed == 0 ? 1u : seed; }
 
     private:
         void render (const Outputs&, int offset, int numSamples, const KitSettings&) noexcept;
+        static void filterSlot (const SlotSettings&, float* left, float* right, int numSamples, std::array<float, 2>& low,
+                                std::array<float, 2>& high, double sampleRate) noexcept;
         void startHit (int slot, float velocity, const KitSettings&, const HitOptions& = {}) noexcept;
         void runSequencer (const Outputs&, int from, int to, const KitSettings&, const drumseq::Settings&, double ppq, double bpm) noexcept;
         void patternKey (int pattern, bool down, float velocity) noexcept;
@@ -265,6 +303,7 @@ namespace synth::drums
         std::vector<Voice> voices = std::vector<Voice> (maxVoices);
         std::vector<float> scratch;                     // 2 x numSlots x the block
         std::array<float, numSlots> slotGain {};        // MUTE / SOLO, glided
+        std::array<std::array<float, 2>, numSlots> lowState {}, highState {};   // LP / HP (6c)
         std::array<double, numSlots> lastHit {};        // seconds since each slot's last hit (-1: none)
         std::uint64_t ages = 0;
         std::uint32_t noiseSeed = 0x2545f491u;
