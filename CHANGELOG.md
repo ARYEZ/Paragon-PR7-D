@@ -4,6 +4,8 @@ Each version's notes appear on its GitHub Release page.
 
 ## 0.24.0
 
+**This release also brings everything in 0.23.0** (the sample editor: drawn envelopes, GAIN, MONO / POLY, DELAY with the anchor, LP / HP; preset A42 Tight Kit; and MIDI export on whole ticks). 0.23.0 was never published: its build passed every test, but GitHub's Linux plugin check (pluginval) crashed twice in a row while shutting down after its last test. It passed 12 out of 12 runs here under a debugger, and the crash is in pluginval's own Linux host, so it was released as part of this one instead. Its notes are below.
+
 Stage 6, part 3 (second half): the rest of the drum section from Avenger's manual (page 67), as you chose. **Stage 6 is now complete.** Next come the bigger kit (your option 2: ride, a second crash, a china and more) and then the groove player.
 
 - **Save and load kits and sequences:**
