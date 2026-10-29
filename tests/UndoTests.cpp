@@ -71,8 +71,8 @@ TEST_CASE ("Undo history steps back and forward and forgets redo after a new edi
 
 namespace
 {
-    const juce::String someTime = ParamIDs::glide;               // ms, 0 by default
-    const juce::String someFine = ParamIDs::osc (0, "Fine");     // cents, 0 by default
+    const juce::String someTime = ParamIDs::drum (2, "Delay");   // ms, 0 by default
+    const juce::String someFine = ParamIDs::drum (2, "Pitch");   // semitones, 0 by default
 }
 
 TEST_CASE ("Undo and redo take back whole knob moves", "[undo]")
@@ -102,12 +102,12 @@ TEST_CASE ("Undo doesn't take back the global settings", "[undo]")
     TestRig rig;
     rig.turn (someTime, 7.0f);
     rig.turn (ParamIDs::outputGain, -9.0f);
-    rig.turn (ParamIDs::tune, 12.0f);
+    rig.turn (ParamIDs::limitUnity, 1.0f);
 
     rig.processor.undo();
     CHECK_THAT (rig.value (someTime), WithinAbs (0.0, 1.0e-4));
     CHECK_THAT (rig.value (ParamIDs::outputGain), WithinAbs (-9.0, 1.0e-4));
-    CHECK_THAT (rig.value (ParamIDs::tune), WithinAbs (12.0, 1.0e-3));
+    CHECK (rig.value (ParamIDs::limitUnity) > 0.5f);
 }
 
 TEST_CASE ("Undoing a preset change brings back the previous sound", "[undo][rigs]")
@@ -115,11 +115,11 @@ TEST_CASE ("Undoing a preset change brings back the previous sound", "[undo][rig
     TestRig rig;
     rig.turn (someFine, 5.0f);
 
-    const auto* bass = rig.processor.getRigLibrary().findFactory ("Classic Bass");
-    REQUIRE (bass != nullptr);
-    rig.processor.loadRig (*bass);
+    const auto* kit = rig.processor.getRigLibrary().findFactory ("Room Kit");
+    REQUIRE (kit != nullptr);
+    rig.processor.loadRig (*kit);
     rig.processor.flushUndoStep();
-    CHECK (rig.processor.getCurrentRig().name == "Classic Bass");
+    CHECK (rig.processor.getCurrentRig().name == "Room Kit");
     CHECK_FALSE (rig.processor.isRigModified());
 
     rig.processor.undo();
@@ -128,11 +128,11 @@ TEST_CASE ("Undoing a preset change brings back the previous sound", "[undo][rig
     CHECK (rig.processor.isRigModified());   // it was edited before the preset change
 
     rig.processor.redo();
-    CHECK (rig.processor.getCurrentRig().name == "Classic Bass");
+    CHECK (rig.processor.getCurrentRig().name == "Room Kit");
     CHECK_FALSE (rig.processor.isRigModified());
 }
 
-TEST_CASE ("A new PR7-K starts on the Init preset", "[undo][rigs]")
+TEST_CASE ("A new PR7-D starts on the Init preset", "[undo][rigs]")
 {
     ParagonX1AudioProcessor processor;
     CHECK (processor.getCurrentRig().name == "Init");

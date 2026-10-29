@@ -18,7 +18,7 @@ namespace
 
     juce::String noteText (double hz)
     {
-        // The nearest note and the cents from it, A4 = 440 Hz (PR7-E's PitchDetector::toNote: PR7-K has no tuner).
+        // The nearest note and the cents from it, A4 = 440 Hz (PR7-E's PitchDetector::toNote: PR7-D has no tuner).
         static const char* names[] = { "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B" };
         const auto midi = 69.0 + 12.0 * std::log2 (hz / 440.0);
         const auto nearest = (int) std::round (midi);

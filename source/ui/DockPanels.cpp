@@ -33,17 +33,8 @@ namespace
 
 //==============================================================================
 SettingsPage::SettingsPage (ParagonX1AudioProcessor& p)
-    : processor (p),
-      tuneAttachment (p.getParameters(), ParamIDs::tune, tune)
+    : processor (p)
 {
-    tune.setColour (juce::Slider::textBoxOutlineColourId, juce::Colours::transparentBlack);
-    tune.setColour (juce::Slider::textBoxTextColourId, ParagonColours::accent);
-    tune.setColour (juce::Slider::trackColourId, ParagonColours::accent);
-    tune.setColour (juce::Slider::thumbColourId, ParagonColours::accent);
-    tune.setDoubleClickReturnValue (true, 0.0);
-    tune.setTooltip ("Tunes the whole synth up or down, in cents (hundredths of a semitone). "
-                     "Not saved with presets: it suits your band, not the sound. Double-click for 0.");
-
     styleButton (openFolder, false);
     openFolder.onClick = [this]
     {
@@ -51,7 +42,7 @@ SettingsPage::SettingsPage (ParagonX1AudioProcessor& p)
         processor.getRigLibrary().getFolder().startAsProcess();
     };
 
-    for (auto* component : std::initializer_list<juce::Component*> { &tune, &openFolder })
+    for (auto* component : std::initializer_list<juce::Component*> { &openFolder })
         addAndMakeVisible (component);
     processor.rigBroadcaster.addChangeListener (this);
 
@@ -61,7 +52,7 @@ SettingsPage::SettingsPage (ParagonX1AudioProcessor& p)
         styleButton (*button, button == &saveDefault);
         addAndMakeVisible (*button);
     }
-    saveDefault.setTooltip ("A new PR7-K (in any project) starts with these links");
+    saveDefault.setTooltip ("A new PR7-D (in any project) starts with these links");
     exportLinks.setTooltip ("Save these links to a file, to back them up or use on another computer");
     importLinks.setTooltip ("Load links from a file saved with EXPORT");
     clearLinks.setTooltip ("Forget every link (undo isn't kept for links: EXPORT first if you might want them back)");
@@ -103,6 +94,8 @@ void SettingsPage::timerCallback()
 {
     if (! (processor.getMidiLinks() == shownLinks))
         rebuildLinks();
+    if (isVisible())
+        repaint (keysArea);   // THE KEYS names the notes ROOT gives
 }
 
 void SettingsPage::rebuildLinks()
@@ -156,18 +149,21 @@ void SettingsPage::paint (juce::Graphics& g)
         g.drawFittedText (body, inner.removeFromTop (60), juce::Justification::topLeft, 4, 1.0f);
     };
 
-    section (tuneArea, "TUNE", "Tunes the whole synth, in cents: 0 is concert pitch (A = 440 Hz). "
-                               "It stays as it is when you change presets.");
+    const auto root = juce::roundToInt (processor.getParameters().getRawParameterValue (ParamIDs::drumsRoot)->load());
+    const auto note = [] (int n) { return juce::MidiMessage::getMidiNoteName (n, true, true, 4); };
+    section (keysArea, "THE KEYS", "The 12 keys from the kit's ROOT (now " + note (root) + " to " + note (root + 11)
+                                       + ") play its drums, C to B, as on General MIDI kits. With the sequencer's TRIGGER on KEY, the four "
+                                         "keys below them start its patterns A to D. Other notes do nothing. ROOT is on the DRUMS page.");
     section (rigsArea, "PRESETS", "Your presets are files in this folder, so you can back them up or share them:\n"
                                   + processor.getRigLibrary().getFolder().getFullPathName());
     section (midiArea, "MIDI LINKS", shownLinks.isEmpty()
-                 ? juce::String ("None yet. Right-click a knob and choose MIDI learn, then move a knob or fader on your controller; "
-                                 "or drag the CC chip (right of the strip above the keyboard) onto a knob.")
+                 ? juce::String ("None yet. Right-click a knob and choose MIDI learn, then move a knob or fader on your controller.")
                  : juce::String ("Your controller's knobs and faders, and the knobs they turn. Kept with the project; "
-                                 "SAVE AS DEFAULT for every new PR7-K."));
+                                 "SAVE AS DEFAULT for every new PR7-D."));
     section (aboutArea, "ABOUT",
-             juce::String ("Paragon PR7-K v") + JucePlugin_VersionString
-                 + ". The PR7 family's synthesizer, inspired by VPS Avenger (our own design and code). "
+             juce::String ("Paragon PR7-D v") + JucePlugin_VersionString
+                 + ". The PR7 family's drum instrument: drum synths and your own samples, a drum sequencer and effects, "
+                   "grown from PR7-K's drum section (our own design and code). "
                    "Free and open source under the GNU AGPLv3.\n"
                    "Built with JUCE (AGPLv3) and the Inter typeface (SIL OFL).");
 }
@@ -177,7 +173,7 @@ void SettingsPage::resized()
     auto area = getLocalBounds();
     auto top = area.removeFromTop (area.getHeight() / 2 - 6);
     area.removeFromTop (12);
-    tuneArea = top.removeFromLeft (top.getWidth() / 2 - 6);
+    keysArea = top.removeFromLeft (top.getWidth() / 2 - 6);
     rigsArea = top.withTrimmedLeft (12);
     aboutArea = area.removeFromLeft (area.getWidth() / 2 - 6);
     area.removeFromLeft (12);
@@ -196,7 +192,5 @@ void SettingsPage::resized()
     for (size_t i = 0; i < linkRows.size(); ++i)
         linkRows[i]->setBounds (0, (int) i * 26, linkList.getWidth(), 24);
 
-    auto tuneControls = tuneArea.reduced (24, 18).withTrimmedTop (90);
-    tune.setBounds (tuneControls.removeFromTop (32).withWidth (juce::jmin (420, tuneControls.getWidth())));
     openFolder.setBounds (rigsArea.reduced (24, 18).withTrimmedTop (100).removeFromTop (32).withWidth (220));
 }

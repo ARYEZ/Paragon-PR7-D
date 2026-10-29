@@ -1,4 +1,4 @@
-// Shared by the synth's tests: an engine to play, and ways to measure what comes out.
+// Shared by the tests: ways to measure what comes out.
 #pragma once
 
 #include <catch2/catch_test_macros.hpp>
@@ -6,52 +6,12 @@
 
 #include <juce_dsp/juce_dsp.h>
 
-#include "dsp/synth/Engine.h"
-
 using Catch::Matchers::WithinAbs;
 
 namespace
 {
     constexpr double sampleRate = 48000.0;
     constexpr int blockSize = 256;
-
-    // The engine with its settings, played a block at a time.
-    struct Player
-    {
-        Player()
-        {
-            engine.prepare (sampleRate);
-            engine.seedRandom (1);   // the same random choices every run, on every computer
-            settings.oscillators[0].randomPhase = false;   // the same start every time, for repeatable tests
-        }
-
-        synth::OscSettings& osc (int index = 0) { return settings.oscillators[(size_t) index]; }
-
-        void on (int note, float velocity = 1.0f) { engine.noteOn (note, velocity, settings); }
-        void off (int note) { engine.noteOff (note, settings); }
-        // A MIDI message, played at the start of the next render.
-        void midi (const juce::MidiMessage& message) { pending.addEvent (message, 0); }
-
-        // Renders `seconds`; returns left and right.
-        std::array<std::vector<float>, 2> render (double seconds)
-        {
-            std::array<std::vector<float>, 2> out;
-            const auto total = (int) (seconds * sampleRate);
-            for (auto& channel : out)
-                channel.resize ((size_t) total);
-            for (int start = 0; start < total; start += blockSize)
-            {
-                const auto n = juce::jmin (blockSize, total - start);
-                engine.process (out[0].data() + start, out[1].data() + start, n, pending, 0, settings);
-                pending.clear();
-            }
-            return out;
-        }
-
-        synth::Engine engine;
-        synth::Settings settings;
-        juce::MidiBuffer pending;
-    };
 
     inline double rms (const std::vector<float>& x, size_t from, size_t to)
     {

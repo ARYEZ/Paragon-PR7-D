@@ -402,23 +402,23 @@ InsertBusStrip::InsertBusStrip (ParagonX1AudioProcessor& p) : processor (p)
         button.setColour (juce::TextButton::buttonOnColourId, ParagonColours::accentDim.withAlpha (0.6f));
         button.setColour (juce::TextButton::textColourOffId, ParagonColours::textDim);
         button.setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
-        button.setTooltip ("Insert bus " + ParamIDs::insertBusNames[b + 1] + ": its DRIVE, GLITCH, MOD and LO-FI, on the oscillators routed to it");
+        button.setTooltip ("Insert bus " + ParamIDs::insertBusNames[b + 1] + ": its DRIVE, GLITCH, MOD and LO-FI, on the drums routed to it");
         button.onClick = [this, b] { setBus (b); };
         addAndMakeVisible (button);
     }
-    for (int i = 0; i < ParamIDs::numOscillators; ++i)
+    for (int i = 0; i < ParamIDs::numDrums; ++i)
     {
-        auto& button = oscButtons[(size_t) i];
-        button.setButtonText (juce::String (i + 1));
+        auto& button = drumButtons[(size_t) i];
+        button.setButtonText (synth::drums::slotDefaults[(size_t) i].key);
         button.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff0d0a0e));
         button.setColour (juce::TextButton::buttonOnColourId, ParagonColours::accentDim.withAlpha (0.6f));
         button.setColour (juce::TextButton::textColourOffId, ParagonColours::textDim);
         button.setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
-        button.setTooltip ("Oscillator " + juce::String (i + 1) + " into this bus (lit), or click to route it here; click again for NONE "
-                           "(also its INSERT on the WAVE page)");
+        button.setTooltip ("Drum " + juce::String (i + 1) + " (" + synth::drums::slotDefaults[(size_t) i].key + ") into this bus (lit), "
+                           "or click to route it here; click again for NONE (also its INSERT on the DRUMS page)");
         button.onClick = [this, i]
         {
-            auto* parameter = processor.getParameters().getParameter (ParamIDs::osc (i, "Insert"));
+            auto* parameter = processor.getParameters().getParameter (ParamIDs::drum (i, "Insert"));
             const auto here = juce::roundToInt (parameter->convertFrom0to1 (parameter->getValue())) == bus + 1;
             parameter->beginChangeGesture();
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (here ? 0.0f : (float) (bus + 1)));
@@ -433,7 +433,7 @@ InsertBusStrip::InsertBusStrip (ParagonX1AudioProcessor& p) : processor (p)
     {
         sends[(size_t) s] = std::make_unique<ParamControl> (p.getParameters(), ParamIDs::ins (0, names[s]), labels[s],
                                                             juce::String ("How much of this bus goes to the ") + (s == 0 ? "DELAY" : "REVERB")
-                                                                + ", after its effects (its oscillators' own sends aren't used)");
+                                                                + ", after its effects (its drums' own sends aren't used)");
         addAndMakeVisible (*sends[(size_t) s]);
     }
     busButtons[0].setToggleState (true, juce::dontSendNotification);
@@ -454,10 +454,10 @@ void InsertBusStrip::setBus (int b)
 
 void InsertBusStrip::timerCallback()
 {
-    for (int i = 0; i < ParamIDs::numOscillators; ++i)
+    for (int i = 0; i < ParamIDs::numDrums; ++i)
     {
-        const auto routed = juce::roundToInt (processor.getParameters().getRawParameterValue (ParamIDs::osc (i, "Insert"))->load()) == bus + 1;
-        oscButtons[(size_t) i].setToggleState (routed, juce::dontSendNotification);
+        const auto routed = juce::roundToInt (processor.getParameters().getRawParameterValue (ParamIDs::drum (i, "Insert"))->load()) == bus + 1;
+        drumButtons[(size_t) i].setToggleState (routed, juce::dontSendNotification);
     }
 }
 
@@ -466,7 +466,7 @@ void InsertBusStrip::paint (juce::Graphics& g)
     DockStyle::drawPanel (g, getLocalBounds().toFloat());
     g.setColour (ParagonColours::textDim);
     g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
-    g.drawText ("OSCILLATORS ON THIS BUS", oscButtons[0].getBounds().translated (0, -20).withHeight (14).withWidth (200), juce::Justification::centredLeft, false);
+    g.drawText ("DRUMS ON THIS BUS", drumButtons[0].getBounds().translated (0, -20).withHeight (14).withWidth (200), juce::Justification::centredLeft, false);
 }
 
 void InsertBusStrip::resized()
@@ -482,10 +482,10 @@ void InsertBusStrip::resized()
     sends[0]->setBounds (right.removeFromLeft (110));
     right.removeFromLeft (10);
     sends[1]->setBounds (right.removeFromLeft (110));
-    auto oscillators = area.withSizeKeepingCentre (area.getWidth(), 30).translated (0, 8);
-    for (auto& button : oscButtons)
+    auto drums = area.withSizeKeepingCentre (area.getWidth(), 30).translated (0, 8);
+    for (auto& button : drumButtons)
     {
-        button.setBounds (oscillators.removeFromLeft (34).withSizeKeepingCentre (32, 28));
-        oscillators.removeFromLeft (3);
+        button.setBounds (drums.removeFromLeft (46).withSizeKeepingCentre (44, 28));
+        drums.removeFromLeft (3);
     }
 }

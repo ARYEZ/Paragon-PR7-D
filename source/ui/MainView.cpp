@@ -1,7 +1,5 @@
 #include "MainView.h"
 
-#include "ModDestinations.h"
-
 #include "Parameters.h"
 #include "ui/Logo.h"
 
@@ -21,20 +19,15 @@ namespace
         return mockF (left, top, right, bottom).toNearestInt();
     }
 
-    const auto tabsGroup = mockF (336, 10, 1087, 55);   // (wider in PR7-K 0.15 for ARP, 0.17 for FX, 0.21 for DRUMS)
+    const auto tabsGroup = mockF (336, 10, 1087, 55);   // PR7-K's group, for four tabs here
     const auto rigGroup = mockF (1102, 10, 1399, 55);
+    // The tabs' edges in the group, in the mockup's pixels: DRUMS | FX | PRESETS | SETTINGS.
+    constexpr float tabEdges[] = { 338.0f, 524.0f, 711.0f, 898.0f, 1085.0f };
 
-    // The synth page, in canvas pixels.
-    const juce::Rectangle<int> oscillatorArea { 12, 68, 888, 372 };
-    const juce::Rectangle<int> filterArea { 908, 68, 580, 372 };
-    constexpr int lowerTop = 448, lowerHeight = 292;
-    const juce::Rectangle<int> filterEnvelopeArea { 12, lowerTop, 366, lowerHeight };
-    const juce::Rectangle<int> ampEnvelopeArea { 386, lowerTop, 366, lowerHeight };
-    const juce::Rectangle<int> ampArea { 760, lowerTop, 356, lowerHeight };
-    const juce::Rectangle<int> playArea { 1124, lowerTop, 364, lowerHeight };
+    // In canvas pixels.
     const juce::Rectangle<int> outputArea { 1496, 68, 92, 672 };
     const juce::Rectangle<int> keyboardArea { 12, 750, 1576, 138 };
-    const juce::Rectangle<int> pageArea { 12, 68, 1476, 672 };   // PRESETS and SETTINGS, beside the OUTPUT strip
+    const juce::Rectangle<int> pageArea { 12, 68, 1476, 672 };   // the pages, beside the OUTPUT strip
 }
 
 //==============================================================================
@@ -48,20 +41,20 @@ KitKeyboard::KitKeyboard (ParagonX1AudioProcessor& p, juce::MidiKeyboardState& s
 
 void KitKeyboard::followKit()
 {
-    const auto kit = processor.getKitSettings();
-    if (kit.on != kitOn || kit.rootKey != kitRoot)
+    const auto root = juce::roundToInt (processor.getParameters().getRawParameterValue (ParamIDs::drumsRoot)->load());
+    const auto sequencer = processor.getDrumSeqSettings();
+    const auto keys = sequencer.on && sequencer.trigger == synth::drumseq::Trigger::key;
+    if (root != kitRoot || keys != patternKeys)
     {
-        kitOn = kit.on;
-        kitRoot = kit.rootKey;
+        kitRoot = root;
+        patternKeys = keys;
         repaint();
     }
 }
 
 void KitKeyboard::paint (juce::Graphics& g)
 {
-    const auto kit = processor.getKitSettings();   // as it is now (the timer only notices changes to repaint)
-    kitOn = kit.on;
-    kitRoot = kit.rootKey;
+    followKit();   // as it is now (the timer only notices changes to repaint)
     juce::MidiKeyboardComponent::paint (g);
 }
 
@@ -69,9 +62,9 @@ void KitKeyboard::drawWhiteNote (int note, juce::Graphics& g, juce::Rectangle<fl
                                  juce::Colour lineColour, juce::Colour textColour)
 {
     juce::MidiKeyboardComponent::drawWhiteNote (note, g, area, isDown, isOver, lineColour, textColour);
-    if (isKitKey (note) && ! isDown)
+    if ((isKitKey (note) || isPatternKey (note)) && ! isDown)
     {
-        g.setColour (ParagonColours::accent.withAlpha (0.28f));
+        g.setColour (ParagonColours::accent.withAlpha (isKitKey (note) ? 0.28f : 0.12f));
         g.fillRect (area.withTrimmedTop (area.getHeight() * 0.62f).reduced (1.0f, 0.0f));
     }
 }
@@ -79,9 +72,9 @@ void KitKeyboard::drawWhiteNote (int note, juce::Graphics& g, juce::Rectangle<fl
 void KitKeyboard::drawBlackNote (int note, juce::Graphics& g, juce::Rectangle<float> area, bool isDown, bool isOver, juce::Colour noteFillColour)
 {
     juce::MidiKeyboardComponent::drawBlackNote (note, g, area, isDown, isOver, noteFillColour);
-    if (isKitKey (note) && ! isDown)
+    if ((isKitKey (note) || isPatternKey (note)) && ! isDown)
     {
-        g.setColour (ParagonColours::accent.withAlpha (0.55f));
+        g.setColour (ParagonColours::accent.withAlpha (isKitKey (note) ? 0.55f : 0.25f));
         g.fillRect (area.withTrimmedTop (area.getHeight() * 0.7f).reduced (area.getWidth() * 0.2f, 2.0f));
     }
 }
@@ -125,43 +118,24 @@ void GainColumn::resized()
 //==============================================================================
 MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     : audioProcessor (processorToShow),
-      oscillators (processorToShow),
-      filter (processorToShow.getParameters()),
-      filterEnvelope (processorToShow.getParameters(), "FILTER ENVELOPE",
-                      { ParamIDs::fltAttack, ParamIDs::fltHold, ParamIDs::fltDecay, ParamIDs::fltSustain, ParamIDs::fltRelease,
-                        ParamIDs::fltAttackCurve, ParamIDs::fltDecayCurve, ParamIDs::fltReleaseCurve }),
-      ampEnvelope (processorToShow.getParameters(), "AMP ENVELOPE",
-                   { ParamIDs::ampAttack, ParamIDs::ampHold, ParamIDs::ampDecay, ParamIDs::ampSustain, ParamIDs::ampRelease,
-                     ParamIDs::ampAttackCurve, ParamIDs::ampDecayCurve, ParamIDs::ampReleaseCurve }),
-      amp (processorToShow.getParameters()),
-      play (processorToShow),
       outputColumn ("OUTPUT", processorToShow.getParameters(), ParamIDs::outputGain, processorToShow.getOutputMeter()),
-      sources (processorToShow),
       keyboard (processorToShow, processorToShow.getKeyboardState(), juce::MidiKeyboardComponent::horizontalKeyboard),
-      modPage (processorToShow),
-      arpPage (processorToShow),
-      fxPage (processorToShow),
       drumPage (processorToShow),
+      fxPage (processorToShow),
       rigBrowser (processorToShow),
       settingsPage (processorToShow)
 {
     // Header
-    for (auto* tab : { &synthTab, &modTab, &arpTab, &drumsTab, &fxTab, &presetsTab, &settingsTab })
+    for (auto* tab : { &drumsTab, &fxTab, &presetsTab, &settingsTab })
     {
         tab->setClickingTogglesState (true);
         tab->setRadioGroupId (100);
         addAndMakeVisible (*tab);
     }
-    synthTab.setToggleState (true, juce::dontSendNotification);
-    synthTab.setComponentID ("synthTab");
+    drumsTab.setToggleState (true, juce::dontSendNotification);
+    drumsTab.setComponentID ("drumsTab");
     presetsTab.setComponentID ("presetsTab");
     settingsTab.setComponentID ("settingsTab");
-    synthTab.onClick = [this] { showPage (Page::synth); };
-    modTab.setComponentID ("modTab");
-    modTab.onClick = [this] { showPage (Page::modulation); };
-    arpTab.setComponentID ("arpTab");
-    drumsTab.setComponentID ("drumsTab");
-    arpTab.onClick = [this] { showPage (Page::arp); };
     drumsTab.onClick = [this] { showPage (Page::drums); };
     fxTab.setComponentID ("fxTab");
     fxTab.onClick = [this] { showPage (Page::fx); };
@@ -178,15 +152,11 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     undoButton.onClick = [this] { audioProcessor.undo(); };
     redoButton.onClick = [this] { audioProcessor.redo(); };
     saveButton.onClick = [this] { saveRig(); };
-    settingsButton.onClick = [this] { showPage (page == Page::settings ? Page::synth : Page::settings); };
+    settingsButton.onClick = [this] { showPage (page == Page::settings ? Page::drums : Page::settings); };
 
     for (auto* component : std::initializer_list<juce::Component*> { &previousRig, &nextRig, &rigNameButton,
                                                                       &undoButton, &redoButton, &saveButton, &settingsButton,
                                                                       &outputColumn })
-        addAndMakeVisible (component);
-
-    synthPage = { &oscillators, &filter, &filterEnvelope, &ampEnvelope, &amp, &play };
-    for (auto* component : synthPage)
         addAndMakeVisible (component);
 
     // The keyboard, in the plugin's colours: dark keys lit red-orange as they're played.
@@ -199,17 +169,14 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     keyboard.setColour (juce::MidiKeyboardComponent::upDownButtonBackgroundColourId, juce::Colour (0xff151217));
     keyboard.setColour (juce::MidiKeyboardComponent::upDownButtonArrowColourId, ParagonColours::text);
     keyboard.setColour (juce::MidiKeyboardComponent::textLabelColourId, ParagonColours::inkDim);
-    keyboard.setAvailableRange (24, 107);   // C1 to B7 shown (notes outside it from the DAW still play)
+    keyboard.setAvailableRange (24, 107);   // seven octaves shown (notes outside it from the DAW still play, in the kit's keys)
     keyboard.setOctaveForMiddleC (4);
     keyboard.setWantsKeyboardFocus (false);   // computer-key playing would fight the DAW's own shortcuts
     keyboard.setScrollButtonsVisible (false);  // all seven octaves fit
     addAndMakeVisible (keyboard);
-    addAndMakeVisible (sources);
 
-    addChildComponent (modPage);
-    addChildComponent (arpPage);
+    addAndMakeVisible (drumPage);
     addChildComponent (fxPage);
-    addChildComponent (drumPage);
     addChildComponent (rigBrowser);
     addChildComponent (settingsPage);
 
@@ -227,13 +194,8 @@ MainView::~MainView()
 void MainView::showPage (Page newPage)
 {
     page = newPage;
-    auto& tab = newPage == Page::presets ? presetsTab : newPage == Page::settings ? settingsTab : newPage == Page::modulation ? modTab
-              : newPage == Page::arp ? arpTab : newPage == Page::fx ? fxTab : newPage == Page::drums ? drumsTab : synthTab;
+    auto& tab = newPage == Page::presets ? presetsTab : newPage == Page::settings ? settingsTab : newPage == Page::fx ? fxTab : drumsTab;
     tab.setToggleState (true, juce::dontSendNotification);
-    for (auto* component : synthPage)
-        component->setVisible (newPage == Page::synth);
-    modPage.setVisible (newPage == Page::modulation);
-    arpPage.setVisible (newPage == Page::arp);
     fxPage.setVisible (newPage == Page::fx);
     drumPage.setVisible (newPage == Page::drums);
     rigBrowser.setVisible (newPage == Page::presets);
@@ -254,11 +216,9 @@ void MainView::timerCallback()
     undoButton.setEnabled (audioProcessor.canUndo());
     redoButton.setEnabled (audioProcessor.canRedo());
 
-    // The knobs' rings and MIDI marks follow the matrix, the links and learning.
-    const auto& matrix = audioProcessor.getModMatrix();
-    if (matrix.routes != shownRoutes || ! (audioProcessor.getMidiLinks() == shownLinks) || audioProcessor.getMidiLearnTarget() != shownLearning)
+    // The knobs' MIDI marks follow the links and learning.
+    if (! (audioProcessor.getMidiLinks() == shownLinks) || audioProcessor.getMidiLearnTarget() != shownLearning)
     {
-        shownRoutes = matrix.routes;
         shownLinks = audioProcessor.getMidiLinks();
         shownLearning = audioProcessor.getMidiLearnTarget();
         repaint();
@@ -266,52 +226,6 @@ void MainView::timerCallback()
 }
 
 //==============================================================================
-std::vector<ControlHost::RouteInfo> MainView::routesTo (const juce::String& parameterId) const
-{
-    std::vector<RouteInfo> found;
-    const auto& routes = audioProcessor.getModMatrix().routes;
-    for (size_t i = 0; i < routes.size(); ++i)
-    {
-        const auto& r = routes[i];
-        if (! r.on || r.destination != parameterId)
-            continue;
-        const auto source = synth::mod::sourceFromId (r.source);
-        found.push_back ({ (int) i, synth::mod::sourceNames[(size_t) source], r.amount, r.percent });
-    }
-    return found;
-}
-
-bool MainView::canModulate (const juce::String& parameterId) const
-{
-    return ModDestinations::find (parameterId) != nullptr;
-}
-
-void MainView::addRoute (const juce::String& sourceId, const juce::String& parameterId)
-{
-    auto matrix = audioProcessor.getModMatrix();
-    if ((int) matrix.routes.size() >= synth::mod::maxRoutes || ! canModulate (parameterId))
-        return;
-    ModRouteData route;
-    route.source = sourceId;
-    route.destination = parameterId;
-    route.amount = 0.5f;
-    matrix.routes.push_back (route);
-    audioProcessor.setModMatrix (matrix);
-    audioProcessor.modMatrixEditFinished();
-    repaint();
-}
-
-void MainView::removeRoute (int index)
-{
-    auto matrix = audioProcessor.getModMatrix();
-    if (index < 0 || index >= (int) matrix.routes.size())
-        return;
-    matrix.routes.erase (matrix.routes.begin() + index);
-    audioProcessor.setModMatrix (matrix);
-    audioProcessor.modMatrixEditFinished();
-    repaint();
-}
-
 int MainView::linkedController (const juce::String& parameterId) const { return audioProcessor.getMidiLinks().controllerFor (parameterId); }
 bool MainView::isLearning (const juce::String& parameterId) const { return audioProcessor.getMidiLearnTarget() == parameterId; }
 
@@ -328,14 +242,6 @@ void MainView::forget (const juce::String& parameterId)
 {
     auto links = audioProcessor.getMidiLinks();
     links.forget (parameterId);
-    audioProcessor.setMidiLinks (links);
-    repaint();
-}
-
-void MainView::linkController (int controller, const juce::String& parameterId)
-{
-    auto links = audioProcessor.getMidiLinks();
-    links.link (controller, parameterId);
     audioProcessor.setMidiLinks (links);
     repaint();
 }
@@ -377,9 +283,9 @@ bool MainView::keyPressed (const juce::KeyPress& key)
 
 void MainView::paint (juce::Graphics& g)
 {
-    // Background: near black, with a faint red warmth behind the oscillators.
+    // Background: near black, with a faint red warmth behind the kit.
     g.fillAll (ParagonColours::background);
-    const auto centre = oscillatorArea.getCentre().toFloat();
+    const auto centre = juce::Point<float> (450.0f, 254.0f);
     g.setGradientFill (juce::ColourGradient (ParagonColours::glow.withAlpha (0.06f), centre,
                                              ParagonColours::glow.withAlpha (0.0f), centre.translated (900.0f, 0.0f), true));
     g.fillRect (getLocalBounds());
@@ -412,7 +318,7 @@ void MainView::paint (juce::Graphics& g)
         g.setColour (ParagonColours::panelEdge);
         g.drawRoundedRectangle (group.reduced (0.5f), 5.0f, 1.0f);
     }
-    for (auto x : { 450.0f, 563.0f, 653.0f, 765.0f, 855.0f, 970.0f })
+    for (auto x : { tabEdges[1], tabEdges[2], tabEdges[3] })
         g.drawVerticalLine (juce::roundToInt (x * mockScale), tabsGroup.getY() + 8.0f, tabsGroup.getBottom() - 8.0f);
 
     g.setColour (ParagonColours::panelEdge);
@@ -425,13 +331,11 @@ void MainView::paint (juce::Graphics& g)
 void MainView::resized()
 {
     // Header
-    synthTab.setBounds (mock (338, 12, 449, 53));
-    modTab.setBounds (mock (451, 12, 562, 53));
-    arpTab.setBounds (mock (564, 12, 652, 53));
-    drumsTab.setBounds (mock (654, 12, 764, 53));
-    fxTab.setBounds (mock (766, 12, 854, 53));
-    presetsTab.setBounds (mock (856, 12, 969, 53));
-    settingsTab.setBounds (mock (971, 12, 1085, 53));
+    {
+        IconButton* tabs[] = { &drumsTab, &fxTab, &presetsTab, &settingsTab };
+        for (size_t i = 0; i < std::size (tabs); ++i)
+            tabs[i]->setBounds (mock (tabEdges[i] + (i > 0 ? 1.0f : 0.0f), 12, tabEdges[i + 1] - (i + 1 < std::size (tabs) ? 1.0f : 0.0f), 53));
+    }
     previousRig.setBounds (mock (1110, 14, 1150, 51));
     nextRig.setBounds (mock (1351, 14, 1391, 51));
     rigNameButton.setBounds (mock (1152, 14, 1349, 51));
@@ -440,24 +344,14 @@ void MainView::resized()
     saveButton.setBounds (mock (1551, 14, 1589, 50));
     settingsButton.setBounds (mock (1611, 14, 1649, 50));
 
-    oscillators.setBounds (oscillatorArea);
-    filter.setBounds (filterArea);
-    filterEnvelope.setBounds (filterEnvelopeArea);
-    ampEnvelope.setBounds (ampEnvelopeArea);
-    amp.setBounds (ampArea);
-    play.setBounds (playArea);
     outputColumn.setBounds (outputArea);
 
-    // Seven octaves from C1, filling the strip (the width first: changing it moves the view).
+    // Seven octaves from MIDI note 24, filling the strip (the width first: changing it moves the view).
     auto keys = keyboardArea.reduced (8, 6);
-    sources.setBounds (keys.removeFromTop (24));
-    keys.removeFromTop (4);
     keyboard.setBounds (keys);
     keyboard.setKeyWidth ((float) keys.getWidth() / 49.0f);
     keyboard.setLowestVisibleKey (24);
 
-    modPage.setBounds (pageArea);
-    arpPage.setBounds (pageArea);
     fxPage.setBounds (pageArea);
     drumPage.setBounds (pageArea);
     rigBrowser.setBounds (pageArea);

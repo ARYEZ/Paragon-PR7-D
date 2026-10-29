@@ -1,10 +1,10 @@
-// Every parameter ID is the synth's or the rack's alone. A release build doesn't check this (JUCE's check is a debug
+// Every parameter ID is the kit's or the rack's alone. A release build doesn't check this (JUCE's check is a debug
 // assertion), and two parameters sharing an ID would save, load and automate one as the other.
 #include "PluginProcessor.h"
 #include <catch2/catch_test_macros.hpp>
 #include <set>
 
-TEST_CASE ("Parameter IDs: none shared between the synth and the rack", "[processor]")
+TEST_CASE ("Parameter IDs: none shared between the kit and the rack", "[processor]")
 {
     ParagonX1AudioProcessor processor;
     std::set<juce::String> ids;
@@ -14,5 +14,5 @@ TEST_CASE ("Parameter IDs: none shared between the synth and the rack", "[proces
             INFO (withId->paramID);
             CHECK (ids.insert (withId->paramID).second);
         }
-    CHECK (ids.size() > 1700);
+    CHECK (ids.size() > 900);   // the kit's 12 drums (20 settings each), the sequencer, the rack, the sends and the buses
 }

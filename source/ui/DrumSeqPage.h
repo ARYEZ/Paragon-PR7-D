@@ -1,8 +1,24 @@
 #pragma once
 
 #include "PluginProcessor.h"
-#include "ui/ArpPage.h"
 #include "ui/SynthControls.h"
+
+// EXPORT MIDI: click to save the notes as a MIDI file, or drag it onto a track (PR7-K's arp page's, made for one
+// source: what makes the file to drag or save, and the file name offered).
+class MidiExportButton final : public juce::TextButton
+{
+public:
+    MidiExportButton() : juce::TextButton ("EXPORT MIDI") {}
+    juce::String fileName;
+    std::function<juce::File()> makeDragFile;
+    std::function<bool (const juce::File&)> exportTo;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void clicked() override;
+
+private:
+    std::unique_ptr<juce::FileChooser> chooser;
+    bool dragged = false;
+};
 
 // THE DRUM SEQUENCER's view on the DRUMS page (stage 6b): the beat as a grid whose 12 rows line up with the kit's
 // rows on the left (so each row's drum reads off the kit), its pattern A-D, the sequencer's settings, the chosen

@@ -6,21 +6,6 @@ FetchContent_MakeAvailable(catch2)
 
 add_executable(ParagonX1Tests
     TestMain.cpp
-    SynthTests.cpp
-    WavetableTests.cpp
-    ShapeTests.cpp
-    ModulationTests.cpp
-    FftTests.cpp
-    FreeformTests.cpp
-    ShaperTests.cpp
-    MatrixTests.cpp
-    EnvelopeModTests.cpp
-    PitchModuleTests.cpp
-    StepSeqTests.cpp
-    TravelTests.cpp
-    ModRoutingTests.cpp
-    ArpTests.cpp
-    ArpChordTests.cpp
     DrumTests.cpp
     DrumKitTests.cpp
     DrumSeqTests.cpp

@@ -14,11 +14,11 @@
 #include "dsp/effects/Reverb.h"
 #include "dsp/eq/EqMatchSession.h"
 #include "dsp/eq/ParametricEq.h"
-#include "dsp/synth/SynthSettings.h"
+#include "dsp/synth/Drums.h"
 #include "rigs/CompPresets.h"
 #include "rigs/DominionPresets.h"
 
-// THE RACK (stage 7a): PR7-E 0.18.1's four effects after the synth, in PR7-E's order: ECHELON (the EQ), DOMINION,
+// THE RACK (PR7-K's stage 7a): PR7-E 0.18.1's four effects after the drums, in PR7-E's order: ECHELON (the EQ), DOMINION,
 // CONSTRICTOR (its bands, then the full-band compressor), [OUTPUT], the LIMITER. Kept together on the heap: the
 // effects' filter banks and buffers are far bigger than a thread's stack can hold a copy of (Windows: 1 MB), and
 // the tests build the processor on the stack.
@@ -50,7 +50,7 @@ struct Rack
     effects::MasterLimiter limiter;   // with its OUTPUT TRIM and DITHER
     double sampleRate = 48000.0;
 
-    // THE SENDS (stage 7b): PR7-G's DELAY and REVERB, each fed its own mix from the engine (each oscillator at its
+    // THE SENDS (PR7-K's stage 7b): PR7-G's DELAY and REVERB, each fed its own mix from the kit (each drum at its
     // SEND amount), returning only their echoes / reverb into the mix before ECHELON.
     effects::Delay delay;
     effects::Reverb reverb;
@@ -64,16 +64,16 @@ struct Rack
     std::atomic<float> loFiPeak { 0.0f };   // LO-FI's output peak in the last block, while it's on (its unit's meter)
 
     // THE INSERT BUSES (stage 7d): A to D, each PR7-G's DRIVE and GLITCH (mono there: one a side here), MOD and LO-FI,
-    // on the oscillators routed to it, before the sends (the bus sends at its own amounts) and the mix.
+    // on the drums routed to it, before the sends (the bus sends at its own amounts) and the mix.
     struct InsertBus
     {
         std::array<effects::Drive, 2> drive;
         std::array<effects::Glitch, 2> glitch;
         effects::Modulation modulation;
         effects::LoFi loFi;
-        juce::AudioBuffer<float> buffer;   // 2 channels, the prepared block size: what the engine plays into it
+        juce::AudioBuffer<float> buffer;   // 2 channels, the prepared block size: what the kit plays into it
         std::atomic<float> peak { 0.0f };  // its output's peak in the last block (0 while nothing's routed to it)
-        bool used = false;                 // an oscillator that's on is routed to it (only then does it run)
+        bool used = false;                 // a drum is routed to it (only then does it run)
         std::array<float, 2> driveDc {};   // what the DC blocker after the DRIVE takes off each side (see processInsertBuses)
         // Its parameters (ParamIDs::insDriveSettings... order), found once: a bus's IDs are made strings.
         std::array<std::atomic<float>*, std::size (ParamIDs::insDriveSettings)> drive_ {};

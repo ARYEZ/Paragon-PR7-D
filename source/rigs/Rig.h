@@ -3,20 +3,17 @@
 #include <juce_core/juce_core.h>
 
 #include "dsp/synth/Drums.h"
-#include "dsp/synth/Freeform.h"
-#include "dsp/synth/Spectrum.h"
-#include "dsp/synth/Wavetable.h"
 #include "rigs/ModMatrix.h"
 
 #include <map>
 #include <optional>
 
 // A preset ("rig" in the code, as across the PR7 family): one complete
-// sound. Every synth setting, and how it's filed (name, bank, number, tags).
+// sound. The kit, its beats and the effects, and how it's filed (name, bank, number, tags).
 //
-// The OUTPUT knob and TUNE aren't part of a preset: they suit the player's
-// monitoring and band, not a particular sound, so switching presets leaves
-// them alone. Each preset has its own LEVEL for balancing presets instead.
+// The OUTPUT knob isn't part of a preset: it suits the player's monitoring,
+// not a particular sound, so switching presets leaves it alone. Each preset
+// has its own LEVEL for balancing presets instead.
 struct Rig
 {
     static constexpr int numBanks = 5;          // A to E
@@ -35,22 +32,11 @@ struct Rig
     // saved before a parameter existed get that parameter's neutral setting.
     std::map<juce::String, float> parameters;
 
-    // Wavetables loaded from files, by oscillator (0 to 7), saved inside the
-    // preset so it plays the same on another computer. (A factory table needs
-    // nothing here: its oscillator's TABLE parameter names it.)
-    std::map<int, synth::WavetableSource> wavetables;
-
-    // The FFT editor's curves, by oscillator (only the ones drawn on).
-    std::map<int, synth::SpectrumEdit> spectra;
-
-    // FREEFORM drawings, by oscillator (only the ones drawn on).
-    std::map<int, synth::FreeformDrawing> drawings;
-
-    // THE DRUMS' samples, by slot (0 to 11), saved inside the preset (stage 6a). Shared, not copied: a preset copied
+    // THE DRUMS' samples, by slot (0 to 11), saved inside the preset. Shared, not copied: a preset copied
     // for undo keeps pointing at the same audio, and two presets are the same kit if they point at the same samples.
     std::map<int, std::shared_ptr<const synth::drums::Sample>> drumSamples;
 
-    // The MOD MATRIX's routes and the macros' names (stage 4a).
+    // The drum sequencer's patterns and the drums' drawn envelopes (ModMatrix: PR7-K's name).
     ModMatrix modulation;
 
     // Free text shown with the rig: what it's for.

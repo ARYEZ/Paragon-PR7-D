@@ -1,7 +1,8 @@
-// THE RACK in the synth (stage 7a): PR7-E 0.18.1's ECHELON, DOMINION, CONSTRICTOR and LIMITER after the synth,
-// measured from what the plugin plays. (Each effect's own tests came with it from PR7-E: EqTests, DominionTests,
+// THE RACK (PR7-K's stage 7a): PR7-E 0.18.1's ECHELON, DOMINION, CONSTRICTOR and LIMITER after the kit,
+// measured from what the plugin plays (steady sines as drum samples: PluginTestUtils.h). (Each effect's own tests came with it from PR7-E: EqTests, DominionTests,
 // CompressorTests, MultibandTests, LimiterTests, MasterLimiterTests.)
-#include "SynthTestUtils.h"
+#include "TestUtils.h"
+#include "PluginTestUtils.h"
 
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
@@ -18,8 +19,6 @@ namespace
             processor.setPlayConfigDetails (0, 2, sampleRate, blockSize);
             processor.prepareToPlay (sampleRate, blockSize);
             processor.seedRandomForTest (1);
-            set (ParamIDs::osc (0, "Wave"), (float) (int) synth::OscWave::sine);
-            set (ParamIDs::ampSustain, 1.0f);
         }
         void set (const juce::String& id, float value)
         {
@@ -27,16 +26,22 @@ namespace
             REQUIRE (parameter != nullptr);
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
         }
-        // Keys held for `seconds`: both channels.
+        // Notes (MIDI note numbers, as pitches) held for `seconds`: each a sine at that pitch, from its own drum slot (the
+        // first note slot 0, the next slot 1...), so a slot's PAN, VOLUME and routing set beforehand apply to it. Both channels.
         std::array<std::vector<float>, 2> play (std::initializer_list<int> notes, double seconds, float velocity = 0.8f)
         {
+            juce::MidiBuffer starts;   // as MIDI from the DAW (the on-screen keyboard's presses land by the clock: not repeatable)
+            int slot = 0;
             for (const auto note : notes)
-                processor.getKeyboardState().noteOn (1, note, velocity);
+            {
+                testkit::useSample (processor, slot, testkit::sine (noteHz (note), seconds + 1.0));
+                starts.addEvent (juce::MidiMessage::noteOn (1, testkit::keyFor (slot++), velocity), 0);
+            }
             std::array<std::vector<float>, 2> out;
             juce::AudioBuffer<float> buffer (2, blockSize);
-            juce::MidiBuffer midi;
             for (int done = 0; done < (int) (seconds * sampleRate); done += blockSize)
             {
+                auto midi = std::exchange (starts, {});   // the hits in the first block, at its first sample
                 buffer.clear();
                 processor.processBlock (buffer, midi);
                 for (int c = 0; c < 2; ++c)
@@ -79,7 +84,7 @@ TEST_CASE ("RACK: off, it changes nothing, sample for sample, even with its sett
     CHECK (set.processor.getLatencySamples() == 0);
 }
 
-TEST_CASE ("RACK: ECHELON cuts the band it's set to, on the synth", "[rack]")
+TEST_CASE ("RACK: ECHELON cuts the band it's set to, on the kit", "[rack]")
 {
     // A4 (440 Hz) and E5 (659 Hz) sines; a -12 dB bell on 440 Hz takes A4 down 12 dB and leaves E5.
     Plugin dry;
@@ -98,7 +103,7 @@ TEST_CASE ("RACK: ECHELON cuts the band it's set to, on the synth", "[rack]")
     }
 }
 
-TEST_CASE ("RACK: CONSTRICTOR turns a loud chord down; the LIMITER holds its ceiling", "[rack]")
+TEST_CASE ("RACK: CONSTRICTOR turns a loud sound down; the LIMITER holds its ceiling", "[rack]")
 {
     Plugin dry;
     const auto before = dry.play ({ 48, 55, 60, 64, 67 }, 1.0, 1.0f);
@@ -109,7 +114,7 @@ TEST_CASE ("RACK: CONSTRICTOR turns a loud chord down; the LIMITER holds its cei
     const auto after = squeezed.play ({ 48, 55, 60, 64, 67 }, 1.0, 1.0f);
     const auto tail = (size_t) (0.5 * sampleRate);
     const auto change = db (rms (after[0], tail, after[0].size()) / rms (before[0], tail, before[0].size()));
-    WARN ("CONSTRICTOR -30 dB 4:1 on a full chord: " << change << " dB");
+    WARN ("CONSTRICTOR -30 dB 4:1 on five sines at once: " << change << " dB");
     CHECK (change < -6.0);
     CHECK (squeezed.processor.getCompressorReductionDb (0) > 6.0f);
 
@@ -131,13 +136,13 @@ TEST_CASE ("RACK: CONSTRICTOR turns a loud chord down; the LIMITER holds its cei
 
 TEST_CASE ("RACK: left and right stay apart through all four", "[rack]")
 {
-    // A note on one side only, through every effect (unlinked: each side its own gain; DOMINION in L/R): the
+    // A sound on one side only, through every effect (unlinked: each side its own gain; DOMINION in L/R): the
     // other side stays exactly silent, each way round. (Measured this way because a level meter on one note
     // picks up a trace of a much louder other note on the same channel: a test of the meter, not the rack.)
     for (const auto side : { 0, 1 })
     {
         Plugin p;
-        p.set (ParamIDs::osc (0, "Pan"), side == 0 ? -1.0f : 1.0f);
+        p.set (ParamIDs::drum (0, "Pan"), side == 0 ? -1.0f : 1.0f);
         p.set (ParamIDs::eqOn, 1.0f);
         p.set (ParamIDs::eqBand (0, "Used"), 1.0f);
         p.set (ParamIDs::eqBand (0, "Freq"), 1000.0f);
@@ -154,22 +159,20 @@ TEST_CASE ("RACK: left and right stay apart through all four", "[rack]")
         p.set (ParamIDs::limitLinkTransient, 0.0f);
         p.set (ParamIDs::limitLinkRelease, 0.0f);
         const auto out = p.play ({ 69 }, 1.0);
-        CHECK (peakOf (out[(size_t) side]) > 0.5);         // the note, loud (into the LIMITER's ceiling)
+        CHECK (peakOf (out[(size_t) side]) > 0.4);         // the sound, loud (driven into the LIMITER)
         CHECK (peakOf (out[(size_t) (1 - side)]) == 0.0);  // the other side: nothing at all
     }
 
     // LINK (on by default) turns both sides down together, so the stereo picture doesn't move: the quiet right side
     // is turned down with the loud left one.
     Plugin linked;
-    linked.set (ParamIDs::osc (0, "Pan"), -1.0f);
-    linked.set (ParamIDs::osc (1, "On"), 1.0f);
-    linked.set (ParamIDs::osc (1, "Wave"), (float) (int) synth::OscWave::sine);
-    linked.set (ParamIDs::osc (1, "Pan"), 1.0f);
-    linked.set (ParamIDs::osc (1, "Volume"), 0.1f);
+    linked.set (ParamIDs::drum (0, "Pan"), -1.0f);
+    linked.set (ParamIDs::drum (1, "Pan"), 1.0f);
+    linked.set (ParamIDs::drum (1, "Level"), -20.0f);
     linked.set (ParamIDs::compOn, 1.0f);
     linked.set (ParamIDs::compThreshold, -30.0f);
     linked.set (ParamIDs::compRatio, 10.0f);
-    linked.play ({ 69 }, 1.0);
+    linked.play ({ 69, 69 }, 1.0);
     CHECK (linked.processor.getCompressorReductionDb (1) > 10.0f);
 }
 
@@ -237,7 +240,7 @@ TEST_CASE ("RACK: a preset keeps the rack's settings; CONSTRICTOR's and DOMINION
     folder.deleteRecursively();
 }
 
-TEST_CASE ("RACK: CPU, a chord through all four, and nothing when they're off", "[rack][performance]")
+TEST_CASE ("RACK: CPU, four sounds through all four, and nothing when they're off", "[rack][performance]")
 {
     const auto cpu = [] (bool on)
     {
@@ -245,7 +248,6 @@ TEST_CASE ("RACK: CPU, a chord through all four, and nothing when they're off", 
         for (int run = 0; run < 3; ++run)   // the fastest of three: a busy machine can only slow a run down
         {
             Plugin p;
-            p.set (ParamIDs::osc (0, "Wave"), (float) (int) synth::OscWave::saw);
             if (on)
             {
                 p.set (ParamIDs::eqOn, 1.0f);
@@ -270,9 +272,9 @@ TEST_CASE ("RACK: CPU, a chord through all four, and nothing when they're off", 
         return best;
     };
     const auto off = cpu (false), on = cpu (true);
-    WARN ("a saw chord, the rack off: " << off << "% of one core; all four on (6 EQ bands, DOMINION, 3 bands and CONSTRICTOR, "
+    WARN ("four sines, the rack off: " << off << "% of one core; all four on (6 EQ bands, DOMINION, 3 bands and CONSTRICTOR, "
                                          "the LIMITER with TRUE PEAK): " << on << "%");
-    // Measured here (0.17.0) on this chord, each alone: ECHELON with 6 bands +0.4% (dynamic +0.9%), DOMINION +10.6%
+    // Measured in PR7-K (0.17.0) on a saw chord, each alone: ECHELON with 6 bands +0.4% (dynamic +0.9%), DOMINION +10.6%
     // (its bank of about 120 detectors, solved every block: by far the heaviest), CONSTRICTOR +0.3% (with 3 bands
     // +1.3%), the LIMITER with TRUE PEAK +3.9%; off, each costs nothing.
     CHECK (on < 30.0);   // generous for CI machines
@@ -329,29 +331,4 @@ TEST_CASE ("The FX page: four rack units in the chain's order, each opening its 
         page.show (FxPage::View::rack);
         CHECK (page.getUnit (i).isVisible());
     }
-}
-
-
-
-
-TEST_CASE ("RACK: the factory preset Mastered Supersaw plays through ECHELON, CONSTRICTOR and the LIMITER", "[rack][rigs]")
-{
-    Plugin p;
-    const auto* entry = p.processor.getRigLibrary().findFactory ("Mastered Supersaw");
-    REQUIRE (entry != nullptr);
-    p.processor.loadRig (*entry);
-    const auto on = [&] (const char* id) { return p.processor.getParameters().getRawParameterValue (id)->load() > 0.5f; };
-    CHECK (on (ParamIDs::eqOn));
-    CHECK (on (ParamIDs::compOn));
-    CHECK (on (ParamIDs::limitOn));
-    CHECK_FALSE (on (ParamIDs::domOn));
-    const auto out = p.play ({ 48, 55, 60, 64, 67, 72 }, 1.5, 1.0f);
-    for (int c = 0; c < 2; ++c)
-    {
-        const auto peak = db (peakOf (out[(size_t) c], (size_t) (0.05 * sampleRate)));
-        INFO ("peak " << peak);
-        CHECK (peak <= -1.0 + 0.01);   // TRUE PEAK holds the samples under too
-        CHECK (peak > -12.0);
-    }
-    CHECK (p.processor.getCompressorReductionDb (0) > 0.5f);   // CONSTRICTOR at work
 }

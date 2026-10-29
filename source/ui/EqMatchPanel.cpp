@@ -34,9 +34,9 @@ EqMatchPanel::EqMatchPanel (ParagonX1AudioProcessor& p, EqDisplay& d)
     add.setColour (juce::TextButton::buttonColourId, ParagonColours::accentDim.withAlpha (0.7f));
     add.setColour (juce::TextButton::textColourOffId, ParagonColours::accent);
 
-    trackRecord.setTooltip ("Listen to your sound: play the synth as you want to match it (a few seconds at least; longer is better)");
+    trackRecord.setTooltip ("Listen to your sound: play the kit as you want to match it (a few seconds at least; longer is better)");
     trackClear.setTooltip ("Forget what's been heard of your sound and start again");
-    referenceRecord.setTooltip ("Use another sound as the reference: load another preset and play it (the synth's own sound, before ECHELON)");
+    referenceRecord.setTooltip ("Use another sound as the reference: load another preset and play it (the kit's own sound, before ECHELON)");
     loadFile.setTooltip ("Use a song as the reference: pick an audio file (WAV, AIFF, FLAC, Ogg, MP3)");
     saved.setTooltip ("A reference saved before, or save your track or this reference for another time");
     add.setTooltip ("Add the proposed bands to ECHELON, as ordinary bands you can change (undo takes them all back)");
@@ -185,7 +185,7 @@ void EqMatchPanel::updateButtons()
     trackRecord.setToggleState (session.getRecording() == Recording::track, juce::dontSendNotification);
     trackRecord.setButtonText (trackRecord.getToggleState() ? "RECORDING" : "RECORD");
     referenceRecord.setToggleState (session.getRecording() == Recording::reference, juce::dontSendNotification);
-    referenceRecord.setButtonText (referenceRecord.getToggleState() ? "RECORDING" : "RECORD SYNTH");
+    referenceRecord.setButtonText (referenceRecord.getToggleState() ? "RECORDING" : "RECORD KIT");
     loadFile.setEnabled (! session.isLoading());
     add.setEnabled (! proposal.empty());
     add.setButtonText (proposal.empty() ? juce::String ("ADD BANDS")
@@ -352,7 +352,7 @@ void EqMatchPanel::paint (juce::Graphics& g)
         problem = true;
     }
     else if (session.getReferenceName().isEmpty())
-        referenceStatus = "None yet: record another sound (RECORD SYNTH), load a song file, or pick a saved one.";
+        referenceStatus = "None yet: record another sound (RECORD KIT), load a song file, or pick a saved one.";
     else
         referenceStatus = session.getReferenceName() + (reference.seconds > 0.0 ? ", " + secondsText (reference.seconds) + " heard" : juce::String());
     section (referenceArea, "REFERENCE", referenceStatus, problem);

@@ -9,12 +9,8 @@
 #include "ui/LevelMeter.h"
 #include "ui/ParagonLookAndFeel.h"
 #include "ui/RigBrowser.h"
-#include "ui/ModPage.h"
-#include "ui/ArpPage.h"
 #include "ui/DrumPage.h"
 #include "ui/FxPage.h"
-#include "ui/ModSourceStrip.h"
-#include "ui/SynthPanels.h"
 
 // A side strip: a title, a gain knob with its value underneath, and a level meter.
 class GainColumn final : public juce::Component
@@ -33,22 +29,14 @@ private:
     LevelMeter meter;
 };
 
-// Everything in the plugin window, laid out on a fixed 1600 x 900 canvas
-// (the editor scales it to the window, staying sharp: it's all vectors).
-//
-//   header:   logo | SYNTH MOD PRESETS SETTINGS | < preset > | undo redo save settings
-//   SYNTH:    OSCILLATORS            | FILTER          | OUTPUT
-//             FILTER ENV | AMP ENV | AMP | PLAY         |
-//   sources:  the modulation sources, to drag onto knobs (stage 4f), and the last MIDI controller moved
-//   keyboard: the on-screen keyboard, always there (play it with the mouse)
-//
-// MOD, PRESETS and SETTINGS cover the synth panels; the keyboard stays.
-// The on-screen keyboard, with THE DRUMS' 12 keys tinted while the kit is on (stage 6a).
+// The on-screen keyboard, with THE DRUMS' 12 keys tinted (and, with the sequencer on KEY, the four that start its
+// patterns, more faintly).
 class KitKeyboard final : public juce::MidiKeyboardComponent
 {
 public:
     KitKeyboard (ParagonX1AudioProcessor&, juce::MidiKeyboardState&, Orientation);
-    bool isKitKey (int note) const noexcept { return kitOn && note >= kitRoot && note < kitRoot + 12; }
+    bool isKitKey (int note) const noexcept { return note >= kitRoot && note < kitRoot + 12; }
+    bool isPatternKey (int note) const noexcept { return patternKeys && note >= kitRoot - 4 && note < kitRoot; }
     void paint (juce::Graphics&) override;
 
 private:
@@ -65,11 +53,19 @@ private:
         void timerCallback() override { callback(); }
     };
     ParagonX1AudioProcessor& processor;
-    bool kitOn = false;
+    bool patternKeys = false;
     int kitRoot = 36;
     Poll poll;
 };
 
+// Everything in the plugin window, laid out on a fixed 1600 x 900 canvas
+// (the editor scales it to the window, staying sharp: it's all vectors).
+//
+//   header:   logo | DRUMS FX PRESETS SETTINGS | < preset > | undo redo save settings
+//   DRUMS:    the kit and the chosen drum (or the sequencer)       | OUTPUT
+//   keyboard: the on-screen keyboard, always there (play the kit with the mouse)
+//
+// FX, PRESETS and SETTINGS cover the DRUMS page; the keyboard and OUTPUT stay.
 class MainView final : public juce::Component,
                        public juce::DragAndDropContainer,
                        public ControlHost,
@@ -83,29 +79,21 @@ public:
     static constexpr int width = 1600;
     static constexpr int height = 900;
 
-    enum class Page { synth, presets, settings, modulation, arp, fx, drums };
+    enum class Page { drums, fx, presets, settings };
     void showPage (Page);
+    Page getPage() const noexcept { return page; }
 
-    // For snapshots and tests: the oscillator tabs.
-    OscillatorPanel& getOscillatorPanel() noexcept { return oscillators; }
-    FilterPanel& getFilterPanel() noexcept { return filter; }
-    ModPage& getModPage() noexcept { return modPage; }
-    ArpPage& getArpPage() noexcept { return arpPage; }
+    // For snapshots and tests.
     FxPage& getFxPage() noexcept { return fxPage; }
     DrumPage& getDrumPage() noexcept { return drumPage; }
-    ModSourceStrip& getSourceStrip() noexcept { return sources; }
     SettingsPage& getSettingsPage() noexcept { return settingsPage; }
+    KitKeyboard& getKeyboard() noexcept { return keyboard; }
 
-    // ControlHost (stage 4f): the knobs' modulation rings, menus and drops.
-    std::vector<RouteInfo> routesTo (const juce::String& parameterId) const override;
-    bool canModulate (const juce::String& parameterId) const override;
-    void addRoute (const juce::String& sourceId, const juce::String& parameterId) override;
-    void removeRoute (int index) override;
+    // ControlHost: the knobs' MIDI learn.
     int linkedController (const juce::String& parameterId) const override;
     bool isLearning (const juce::String& parameterId) const override;
     void learn (const juce::String& parameterId) override;
     void forget (const juce::String& parameterId) override;
-    void linkController (int controller, const juce::String& parameterId) override;
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -120,43 +108,28 @@ private:
     ParagonX1AudioProcessor& audioProcessor;
 
     // Header
-    IconButton synthTab { "The synth", Icons::Type::processor, "SYNTH" },
-               modTab { "Modulation: LFOs, macros and the mod matrix", Icons::Type::modulation, "MOD" },
-               arpTab { "The arpeggiators", Icons::Type::arpeggio, "ARP" },
-               drumsTab { "The drums: a kit of 12, on 12 keys", Icons::Type::drums, "DRUMS" },
-               fxTab { "The rack: ECHELON, DOMINION, CONSTRICTOR and the LIMITER after the synth", Icons::Type::rack, "FX" },
+    IconButton drumsTab { "The drums: a kit of 12 on 12 keys, and the drum sequencer", Icons::Type::drums, "DRUMS" },
+               fxTab { "The effects: insert buses, DELAY and REVERB sends, and the MASTER rack after the kit", Icons::Type::rack, "FX" },
                presetsTab { "Browse, save and organise presets", Icons::Type::presets, "PRESETS" },
-               settingsTab { "Tuning and other settings", Icons::Type::settings, "SETTINGS" };
+               settingsTab { "The keys, presets folder, MIDI links and more", Icons::Type::settings, "SETTINGS" };
     IconButton previousRig { "Previous preset", Icons::Type::chevronLeft }, nextRig { "Next preset", Icons::Type::chevronRight };
     juce::TextButton rigNameButton;
     IconButton undoButton { "Undo (Ctrl+Z)", Icons::Type::undo }, redoButton { "Redo (Ctrl+Shift+Z)", Icons::Type::redo },
                saveButton { "Save the preset (as a new preset if it's a factory one or not saved yet)", Icons::Type::save },
                settingsButton { "Settings", Icons::Type::settings };
 
-    // The synth page
-    OscillatorPanel oscillators;
-    FilterPanel filter;
-    EnvelopePanel filterEnvelope, ampEnvelope;
-    AmpPanel amp;
-    PlayPanel play;
     GainColumn outputColumn;
-    std::vector<juce::Component*> synthPage;
-
-    ModSourceStrip sources;
     KitKeyboard keyboard;
-    // What the knobs show (routes, links, learning), as last drawn: a change repaints them.
-    std::vector<ModRouteData> shownRoutes;
+    // What the knobs show (links, learning), as last drawn: a change repaints them.
     MidiLinks shownLinks;
     juce::String shownLearning;
 
-    // Other pages
-    ModPage modPage;
-    ArpPage arpPage;
-    FxPage fxPage;
+    // The pages
     DrumPage drumPage;
+    FxPage fxPage;
     RigBrowser rigBrowser;
     SettingsPage settingsPage;
-    Page page = Page::synth;
+    Page page = Page::drums;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainView)
 };

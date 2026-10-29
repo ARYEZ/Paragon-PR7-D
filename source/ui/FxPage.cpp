@@ -98,10 +98,10 @@ FxPage::FxPage (ParagonX1AudioProcessor& processor)
         tab->setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
         addAndMakeVisible (*tab);
     }
-    sendsTab.setTooltip ("The SENDS: DELAY and REVERB, fed by each oscillator's send; they come back in before the MASTER rack");
+    sendsTab.setTooltip ("The SENDS: DELAY and REVERB, fed by each drum's send; they come back in before the MASTER rack");
     masterTab.setTooltip ("The MASTER rack: ECHELON, DOMINION, CONSTRICTOR and the LIMITER, on everything");
     modFxTab.setTooltip ("MOD, MOD 2 and LO-FI: PR7-G's modulation (twice) and lo-fi, on everything, the echoes and reverb too, before the MASTER rack");
-    insertsTab.setTooltip ("The INSERTS: buses A to D, each a DRIVE, GLITCH, MOD and LO-FI on the oscillators routed to it, before the sends");
+    insertsTab.setTooltip ("The INSERTS: buses A to D, each a DRIVE, GLITCH, MOD and LO-FI on the drums routed to it, before the sends");
     insertsTab.onClick = [this] { show (View::inserts); };
     sendsTab.onClick = [this] { show (View::sends); };
     modFxTab.onClick = [this] { show (View::modFx); };

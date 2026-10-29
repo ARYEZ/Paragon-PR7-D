@@ -1,6 +1,6 @@
-// THE DRUMS (stage 6a) in the plugin: the kit's keys taken from the synth, its sound in the mix, a bus and the
-// sends, samples kept through presets, the project and undo, and the page's preview. (The kit itself: DrumTests.cpp.)
-#include "SynthTestUtils.h"
+// THE DRUMS (PR7-K's stage 6a) in the plugin: the kit's keys, its sound in the mix, a bus and the sends, samples kept
+// through presets, the project and undo, and the page's preview. (The kit itself: DrumTests.cpp.)
+#include "TestUtils.h"
 
 #include "PluginProcessor.h"
 #include "ui/DrumPage.h"
@@ -16,8 +16,6 @@ namespace
             processor.setPlayConfigDetails (0, 2, sampleRate, blockSize);
             processor.prepareToPlay (sampleRate, blockSize);
             processor.seedRandomForTest (1);
-            set (ParamIDs::osc (0, "Wave"), (float) (int) synth::OscWave::sine);
-            set (ParamIDs::osc (0, "PhaseRand"), 0.0f);
         }
         void set (const juce::String& id, float value)
         {
@@ -61,7 +59,7 @@ namespace
 
     juce::File writeSineWav (double hz, double seconds)
     {
-        const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("pr7k-drum-test.wav");
+        const auto file = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("pr7d-drum-test.wav");
         file.deleteFile();
         juce::WavAudioFormat wav;
         std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (new juce::FileOutputStream (file), 44100.0, 1, 24, {}, 0));
@@ -74,30 +72,26 @@ namespace
     }
 }
 
-TEST_CASE ("DRUMS in the plugin: off, the keys play the synth; on, the kit's 12 keys play the drums instead", "[drumkit]")
+TEST_CASE ("DRUMS in the plugin: the kit's 12 keys play the drums, each its own; MUTE silences one", "[drumkit]")
 {
-    // Off (the default): C2 plays the synth.
-    Plugin off;
-    CHECK (peakOf (off.play ({ { 36, 0.0 } }, 0.3)[0]) > 0.05);
+    // C2 (MIDI 36) plays the kick; muted, nothing; the snare's key still plays.
+    Plugin p;
+    CHECK (peakOf (p.play ({ { 36, 0.0 } }, 0.3)[0]) > 0.05);
+    Plugin muted;
+    muted.set (ParamIDs::drum (0, "Mute"), 1.0f);
+    CHECK (peakOf (muted.play ({ { 36, 0.0 } }, 0.3)[0]) == 0.0);
+    CHECK (peakOf (muted.play ({ { 38, 0.0 } }, 0.3)[0]) > 0.05);
 
-    // On, with the kick muted: C2 is silent (not the synth any more).
-    Plugin on;
-    on.set (ParamIDs::drumsOn, 1.0f);
-    on.set (ParamIDs::drum (0, "Mute"), 1.0f);
-    CHECK (peakOf (on.play ({ { 36, 0.0 } }, 0.3)[0]) == 0.0);
-
-    // Notes outside the kit play the synth exactly as with the drums off.
-    Plugin a, b;
-    b.set (ParamIDs::drumsOn, 1.0f);
-    const auto withoutKit = a.play ({ { 60, 0.0 } }, 0.5), withKit = b.play ({ { 60, 0.0 } }, 0.5);
-    CHECK (withoutKit[0] == withKit[0]);
-    CHECK (withoutKit[1] == withKit[1]);
+    // A key outside the kit plays nothing at all (PR7-K played its synth there).
+    Plugin outside;
+    const auto out = outside.play ({ { 60, 0.0 }, { 30, 0.1 } }, 0.5);
+    CHECK (peakOf (out[0]) == 0.0);
+    CHECK (peakOf (out[1]) == 0.0);
 }
 
 TEST_CASE ("DRUMS in the plugin: the kit plays at its level through OUTPUT, and ROOT moves its keys", "[drumkit]")
 {
     Plugin p;
-    p.set (ParamIDs::drumsOn, 1.0f);
     p.set (ParamIDs::outputGain, 0.0f);
     p.set (ParamIDs::drumsRoot, 48.0f);
     p.play ({}, 0.2);   // OUTPUT glides to its new setting first
@@ -118,7 +112,6 @@ TEST_CASE ("DRUMS in the plugin: a drum on a bus goes through its effects; the s
     Plugin plain, bused;
     for (auto* p : { &plain, &bused })
     {
-        p->set (ParamIDs::drumsOn, 1.0f);
         p->set (ParamIDs::outputGain, 0.0f);
     }
     bused.set (ParamIDs::drum (5, "Insert"), 1.0f);   // the low tom on bus A
@@ -142,7 +135,6 @@ TEST_CASE ("DRUMS in the plugin: a drum on a bus goes through its effects; the s
     Plugin wet, dry;
     for (auto* p : { &wet, &dry })
     {
-        p->set (ParamIDs::drumsOn, 1.0f);
         p->set (ParamIDs::reverbOn, 1.0f);
     }
     dry.set (ParamIDs::drum (1, "SendReverb"), 0.0f);
@@ -154,7 +146,6 @@ TEST_CASE ("DRUMS in the plugin: a loaded sample plays, and is kept by presets, 
 {
     const auto file = writeSineWav (1000.0, 0.4);
     Plugin p;
-    p.set (ParamIDs::drumsOn, 1.0f);
     p.processor.flushUndoStep();
     REQUIRE (p.processor.loadDrumSample (2, file));
     p.processor.flushUndoStep();
@@ -207,24 +198,21 @@ TEST_CASE ("DRUMS in the plugin: the page's preview plays a slot even with DRUMS
     CHECK (peakOf (p.play ({}, 0.2)[0]) > 0.05);
 }
 
-TEST_CASE ("DRUMS in the plugin: a synth note held as DRUMS is switched on still ends", "[drumkit]")
+TEST_CASE ("DRUMS in the plugin: hits are one-shots: a note-off doesn't stop them; they end by themselves", "[drumkit]")
 {
     Plugin p;
-    p.set (ParamIDs::ampRelease, 0.01f);
     juce::AudioBuffer<float> buffer (2, blockSize);
     juce::MidiBuffer midi;
-    midi.addEvent (juce::MidiMessage::noteOn (1, 36, 1.0f), 0);
+    midi.addEvent (juce::MidiMessage::noteOn (1, 45, 1.0f), 0);   // the high tom: it rings
+    midi.addEvent (juce::MidiMessage::noteOff (1, 45), 10);
     p.processor.processBlock (buffer, midi);
-    CHECK (p.processor.getActiveVoices() == 1);
-    p.set (ParamIDs::drumsOn, 1.0f);
     midi.clear();
-    midi.addEvent (juce::MidiMessage::noteOff (1, 36), 0);
-    for (int b = 0; b < 40; ++b)
-    {
+    for (int b = 0; b < 10; ++b)
         p.processor.processBlock (buffer, midi);
-        midi.clear();
-    }
-    CHECK (p.processor.getActiveVoices() == 0);
+    CHECK (p.processor.getActiveVoices() == 1);   // still ringing after its note-off
+    for (int b = 0; b < (int) (4.5 * sampleRate) / blockSize; ++b)
+        p.processor.processBlock (buffer, midi);
+    CHECK (p.processor.getActiveVoices() == 0);   // and gone by itself
 }
 
 TEST_CASE ("DRUMS page: choosing a row points the drum's controls at it; every row has its hit's picture", "[drumkit][ui]")
@@ -302,7 +290,6 @@ TEST_CASE ("DRUMS in the plugin: a newly loaded file plays whole (START and END 
 TEST_CASE ("DRUMS in the plugin: THE SAMPLE EDITOR's settings and envelope play, and are kept by presets, the project and undo", "[drumkit]")
 {
     Plugin p;
-    p.set (ParamIDs::drumsOn, 1.0f);
     p.set (ParamIDs::drum (2, "Gain"), 6.0f);
     p.set (ParamIDs::drum (2, "Mono"), 1.0f);
     p.set (ParamIDs::drum (2, "Delay"), -30.0f);

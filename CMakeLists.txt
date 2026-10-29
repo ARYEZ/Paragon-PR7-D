@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.24)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "macOS architectures")
 
-project(ParagonX1 VERSION 0.24.0 LANGUAGES C CXX)
+project(ParagonX1 VERSION 0.1.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,17 +20,17 @@ option(PARAGON_BUILD_TESTS "Build the unit tests" ON)
 include(cmake/Dependencies.cmake)
 
 juce_add_plugin(ParagonX1
-    PRODUCT_NAME             "Paragon PR7-K" # the synthesizer of the PR7 family: its own name, bundle ID and plugin code, so it installs beside the others
+    PRODUCT_NAME             "Paragon PR7-D" # the drum instrument of the PR7 family: its own name, bundle ID and plugin code, so it installs beside the others
     COMPANY_NAME             "Paragon"
-    BUNDLE_ID                "com.paragon.paragonpr7k"
+    BUNDLE_ID                "com.paragon.paragonpr7d"
     PLUGIN_MANUFACTURER_CODE Prgn     # four characters, at least one upper case
-    PLUGIN_CODE              Pr7k     # four characters, exactly one upper case; never PR7-G's Px1a, PR7-B's Pr7b, PR7-V's Pr7v, PR7-C's Pr7c or PR7-E's Pr7e
+    PLUGIN_CODE              Pr7d     # four characters, exactly one upper case; never PR7-G's Px1a, PR7-B's Pr7b, PR7-V's Pr7v, PR7-C's Pr7c, PR7-E's Pr7e or PR7-K's Pr7k
     FORMATS                  VST3
     IS_SYNTH                 TRUE     # an instrument: MIDI in, sound out
     NEEDS_MIDI_INPUT         TRUE
     NEEDS_MIDI_OUTPUT        FALSE
     IS_MIDI_EFFECT           FALSE
-    VST3_CATEGORIES          Instrument Synth
+    VST3_CATEGORIES          Instrument Drum
     COPY_PLUGIN_AFTER_BUILD  FALSE)
 
 # Inter (SIL Open Font License, see resources/fonts/OFL-LICENSE.txt), built
@@ -47,14 +47,10 @@ target_sources(ParagonX1
     PRIVATE
         source/Parameters.cpp
         source/RackParameters.cpp
-        source/ModDestinations.cpp
         source/PluginProcessor.cpp
         source/PluginEditor.cpp
-        source/dsp/synth/WaveTables.cpp
-        source/dsp/synth/Engine.cpp
         source/dsp/synth/Drums.cpp
-        source/dsp/synth/Wavetable.cpp
-        # PR7-E's effects, kept for the effects rack (a later stage): built and tested, not yet in the sound.
+        # The effects: PR7-E's rack (ECHELON, DOMINION, CONSTRICTOR, the LIMITER) and PR7-G's sends and inserts.
         source/dsp/dominion/Dominion.cpp
         source/dsp/effects/Compressor.cpp
         source/dsp/effects/MultibandComp.cpp
@@ -90,14 +86,7 @@ target_sources(ParagonX1
         source/ui/DockPanels.cpp
         source/ui/SynthControls.cpp
         source/ui/SynthDisplays.cpp
-        source/ui/SynthPanels.cpp
-        source/ui/FreeformEditor.cpp
-        source/ui/ModPage.cpp
         source/ui/MultiPointEditor.cpp
-        source/ui/StepSeqEditor.cpp
-        source/ui/TravelPatternEditor.cpp
-        source/ui/ModSourceStrip.cpp
-        source/ui/ArpPage.cpp
         source/ui/DrumPage.cpp
         source/ui/DrumSeqPage.cpp
         source/ui/FxPage.cpp
@@ -115,7 +104,6 @@ target_sources(ParagonX1
         source/ui/RackSpecs.cpp
         source/ui/Footswitch.cpp
         source/ui/LedDisplay.cpp
-        source/ui/SpectrumEditor.cpp
         source/ui/MainView.cpp
         source/ui/ParagonLookAndFeel.cpp
         source/ui/Finish.cpp)

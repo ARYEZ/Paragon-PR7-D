@@ -15,7 +15,7 @@ namespace DockStyle
 }
 
 //==============================================================================
-// SETTINGS: the synth's tuning, where presets are kept, and what the plugin is built from.
+// SETTINGS: how the keys play the kit, where presets are kept, MIDI links, and what the plugin is built from.
 class SettingsPage final : public juce::Component,
                            private juce::ChangeListener,
                            private juce::Timer
@@ -28,7 +28,7 @@ public:
     void resized() override;
     void visibilityChanged() override;
 
-    // MIDI LINKS (stage 4f): one row per link, each with a button to remove it. For tests: the rows shown.
+    // MIDI LINKS (PR7-K's stage 4f): one row per link, each with a button to remove it. For tests: the rows shown.
     int getNumLinkRows() const noexcept { return (int) linkRows.size(); }
     juce::TextButton* getRemoveButton (int row) { return row < (int) linkRows.size() ? linkRows[(size_t) row]->remove.get() : nullptr; }
 
@@ -51,10 +51,8 @@ private:
     juce::Rectangle<int> midiArea;
 
     ParagonX1AudioProcessor& processor;
-    juce::Slider tune { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
-    juce::AudioProcessorValueTreeState::SliderAttachment tuneAttachment;
     juce::TextButton openFolder { "OPEN PRESETS FOLDER" };
-    juce::Rectangle<int> tuneArea, rigsArea, aboutArea;
+    juce::Rectangle<int> keysArea, rigsArea, aboutArea;
 
     void changeListenerCallback (juce::ChangeBroadcaster*) override { repaint(); }
 };

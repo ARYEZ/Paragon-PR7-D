@@ -23,9 +23,9 @@ namespace
 
     // Stand-ins for the tests below: a number in the preset (with a default),
     // another (that can go below zero), an on/off that's off by default.
-    const juce::String someTime = ParamIDs::ampAttack;            // ms
-    const juce::String someFine = ParamIDs::osc (0, "Fine");      // cents, -100 to 100
-    const juce::String someSwitch = ParamIDs::osc (0, "Invert");  // off by default
+    const juce::String someTime = ParamIDs::drum (2, "Delay");    // ms, -1000 to 1000 (0 by default)
+    const juce::String someFine = ParamIDs::drum (2, "Pitch");    // semitones, -24 to 24 (0 by default)
+    const juce::String someSwitch = ParamIDs::drum (2, "Mono");   // off by default
 
     struct RigRig   // a processor with its presets in a temporary folder
     {
@@ -66,7 +66,7 @@ TEST_CASE ("A rig survives being written to a file and read back", "[rigs]")
     rig.number = 17;
     rig.favourite = true;
     rig.tags = { "Rock", "High Gain" };
-    rig.parameters = { { "flt1Cutoff", 650.0f }, { "osc1Fine", -4.0f } };
+    rig.parameters = { { "drum3LowPass", 650.0f }, { "drum1Pitch", -4.0f } };
 
     const auto restored = Rig::fromXml (*juce::XmlDocument::parse (rig.toXml()->toString()));
     REQUIRE (restored.has_value());
@@ -110,13 +110,20 @@ TEST_CASE ("Every factory rig is valid", "[rigs]")
     CHECK (slots.size() == (int) makeFactoryRigs().size());   // no two in the same slot
 }
 
-TEST_CASE ("PR7-K's factory presets: Init at A01, then starting points that say what they are; PR7-E's mixing rigs are gone", "[rigs]")
+TEST_CASE ("PR7-D's factory presets: Init at A01, then kits and beats that say what they are; PR7-E's mixing rigs are gone", "[rigs]")
 {
     const auto rigs = makeFactoryRigs();
-    REQUIRE (rigs.size() >= 8);
+    REQUIRE (rigs.size() >= 5);
     CHECK (rigs.front().name == "Init");
     CHECK (rigs.front().getSlotName() == "A01");
-    CHECK (rigs.front().parameters.empty());   // everything at its default: one saw, no filter
+    CHECK (rigs.front().parameters.empty());   // everything at its default: the drum synths, dry, no beat
+    for (const auto& rig : rigs)
+        for (const auto& [id, value] : rig.parameters)
+        {
+            INFO (rig.name << ": " << id);
+            CHECK_FALSE (id.startsWith ("osc"));   // nothing of PR7-K's synth
+            CHECK_FALSE (id.startsWith ("flt"));
+        }
 
     for (const auto& rig : rigs)
     {
@@ -130,9 +137,25 @@ TEST_CASE ("PR7-K's factory presets: Init at A01, then starting points that say 
         CHECK (r.processor.getRigLibrary().findFactory (mixingRig) == nullptr);
 }
 
-TEST_CASE ("Every factory preset plays: a note sounds, stays clean, and fades away after it's let go", "[rigs]")
+TEST_CASE ("Every factory preset plays: its drums sound, stay clean, and fade away; its beat plays with the song", "[rigs]")
 {
+    // A song playing at 120 BPM, for the presets whose sequencer is on.
+    struct Song final : juce::AudioPlayHead
+    {
+        juce::Optional<PositionInfo> getPosition() const override
+        {
+            PositionInfo info;
+            info.setBpm (120.0);
+            info.setIsPlaying (playing);
+            info.setPpqPosition (ppq);
+            return info;
+        }
+        bool playing = false;
+        double ppq = 0.0;
+    };
     RigRig r;
+    Song song;
+    r.processor.setPlayHead (&song);
     for (const auto& rig : makeFactoryRigs())
     {
         INFO (rig.name);
@@ -140,32 +163,44 @@ TEST_CASE ("Every factory preset plays: a note sounds, stays clean, and fades aw
         r.processor.prepareToPlay (48000.0, 256);   // fresh
 
         juce::AudioBuffer<float> buffer (2, 256);
-        juce::MidiBuffer midi;
-        midi.addEvent (juce::MidiMessage::noteOn (1, 48, (juce::uint8) 100), 0);
         float loudest = 0.0f;
         auto finite = true;
-        // Held for 5 seconds (long enough for the slowest, the riser), then let go.
-        for (int block = 0; block < 48000 * 5 / 256; ++block)
+        const auto run = [&] (int blocks, bool hits)
         {
-            r.processor.processBlock (buffer, midi);
-            midi.clear();
-            loudest = juce::jmax (loudest, buffer.getMagnitude (0, 0, 256), buffer.getMagnitude (1, 0, 256));
-            for (int ch = 0; ch < 2; ++ch)
-                for (int i = 0; i < 256; ++i)
-                    finite = finite && std::isfinite (buffer.getSample (ch, i));
-        }
-        midi.addEvent (juce::MidiMessage::noteOff (1, 48), 0);
-        for (int block = 0; block < 48000 * 4 / 256; ++block)
-        {
-            r.processor.processBlock (buffer, midi);
-            midi.clear();
-        }
+            for (int block = 0; block < blocks; ++block)
+            {
+                juce::MidiBuffer midi;   // every drum in turn, one every quarter of a second
+                if (hits && block % 47 == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, 36 + (block / 47) % 12, (juce::uint8) 110), 0);
+                r.processor.processBlock (buffer, midi);
+                if (song.playing)
+                    song.ppq += 256.0 / 48000.0 * 2.0;
+                loudest = juce::jmax (loudest, buffer.getMagnitude (0, 0, 256), buffer.getMagnitude (1, 0, 256));
+                for (int ch = 0; ch < 2; ++ch)
+                    for (int i = 0; i < 256; ++i)
+                        finite = finite && std::isfinite (buffer.getSample (ch, i));
+            }
+        };
+        run (48000 * 3 / 256, true);
         CHECK (finite);
         CHECK (juce::Decibels::gainToDecibels (loudest) > -24.0f);   // it sounds
         CHECK (juce::Decibels::gainToDecibels (loudest) < 3.0f);     // and isn't wildly hot (OUTPUT at its -6 dB)
-        CHECK (buffer.getMagnitude (0, 0, 256) < 1.0e-4f);           // gone 4 seconds after letting go
-        CHECK (r.processor.getActiveVoices() == 0);                  // and so is its note
+        run (48000 * 8 / 256, false);
+        // Quiet 8 seconds after the last hit (the cymbal, hit last, rings longest). Its hit is still running, far
+        // below hearing: the kit ends a hit only once it's down to -240 dB (PR7-K's kit, kept as it is).
+        CHECK (buffer.getMagnitude (0, 0, 256) < 1.0e-3f);
+
+        // With the song playing: a preset with the sequencer on plays its beat by itself; one without stays silent.
+        const auto beat = r.processor.getDrumSeqSettings().on;
+        song.playing = true;
+        song.ppq = 0.0;
+        loudest = 0.0f;
+        run (48000 * 2 / 256, false);
+        song.playing = false;
+        CHECK ((juce::Decibels::gainToDecibels (loudest) > -24.0f) == beat);
+        run (48000 * 8 / 256, false);
     }
+    r.processor.setPlayHead (nullptr);
 }
 
 TEST_CASE ("A rig's notes are saved with it and kept by Save As", "[rigs]")
@@ -271,34 +306,32 @@ TEST_CASE ("Rigs are sorted by bank and number, and < > wrap round", "[rigs]")
     CHECK (library.step (&entries.front(), -1) == &entries.back());
     CHECK (library.step (nullptr, 1) == &entries.front());
 
-    CHECK (library.nextFreeNumber (0) == 43);   // the factory presets fill A01 to A42
+    CHECK (library.nextFreeNumber (0) == 6);   // the factory presets fill A01 to A05
 }
 
 TEST_CASE ("Saving and loading a preset restores the sound but not the global settings", "[rigs]")
 {
     RigRig r;
-    r.set (ParamIDs::fltOn, 1.0f);
+    r.set (ParamIDs::reverbOn, 1.0f);
     r.set (someTime, 7.5f);
     r.set (someFine, 6.0f);
     r.set (ParamIDs::patchLevel, -3.0f);
     REQUIRE (r.processor.saveCurrentRigAs ("My Sound"));
 
-    // Change everything, including the global OUTPUT and TUNE.
-    r.set (ParamIDs::fltOn, 0.0f);
+    // Change everything, including the global OUTPUT.
+    r.set (ParamIDs::reverbOn, 0.0f);
     r.set (someTime, 1.0f);
     r.set (someFine, -2.0f);
     r.set (ParamIDs::patchLevel, 0.0f);
-    r.set (ParamIDs::tune, 5.0f);
     r.set (ParamIDs::outputGain, -4.0f);
 
     r.processor.loadRig (r.entryNamed ("My Sound"));
 
-    CHECK (r.get (ParamIDs::fltOn) > 0.5f);
-    CHECK_THAT (r.get (someTime), WithinAbs (7.5, 0.01));
+    CHECK (r.get (ParamIDs::reverbOn) > 0.5f);
+    CHECK_THAT (r.get (someTime), WithinAbs (7.5, 0.05));
     CHECK_THAT (r.get (someFine), WithinAbs (6.0, 0.01));
     CHECK_THAT (r.get (ParamIDs::patchLevel), WithinAbs (-3.0, 0.01));
     // Global settings are left alone.
-    CHECK_THAT (r.get (ParamIDs::tune), WithinAbs (5.0, 0.01));
     CHECK_THAT (r.get (ParamIDs::outputGain), WithinAbs (-4.0, 0.01));
 }
 
@@ -311,11 +344,11 @@ TEST_CASE ("A preset that doesn't mention a parameter sets it to its default", "
 
     Rig old;
     old.name = "Old Preset";
-    old.parameters = { { ParamIDs::fltOn, 1.0f } };
+    old.parameters = { { ParamIDs::reverbOn, 1.0f } };
     r.processor.getRigLibrary().saveAsNew (old);
     r.processor.loadRig (r.entryNamed ("Old Preset"));
 
-    CHECK (r.get (ParamIDs::fltOn) > 0.5f);
+    CHECK (r.get (ParamIDs::reverbOn) > 0.5f);
     CHECK (r.get (someSwitch) < 0.5f);
     CHECK_THAT (r.get (someFine), WithinAbs (0.0, 0.01));
 }
@@ -334,7 +367,6 @@ TEST_CASE ("The modified marker tracks changes since loading or saving", "[rigs]
 
     SECTION ("The global settings don't count")
     {
-        r.set (ParamIDs::tune, 3.0f);
         r.set (ParamIDs::outputGain, -3.0f);
         CHECK_FALSE (r.processor.isRigModified());
     }
@@ -364,10 +396,10 @@ TEST_CASE ("< and > step through the presets in order", "[rigs]")
 {
     RigRig r;
     r.processor.loadRig (r.entryNamed ("Init"));
-    REQUIRE (r.processor.saveCurrentRigAs ("Second"));   // filed after bank A's factory presets, at A43
-    REQUIRE (r.processor.saveCurrentRigAs ("Third"));    // A44
-    CHECK (r.entryNamed ("Second").rig.getSlotName() == "A43");
-    r.processor.loadRig (r.entryNamed ("Tight Kit"));   // A42
+    REQUIRE (r.processor.saveCurrentRigAs ("Second"));   // filed after bank A's factory presets, at A06
+    REQUIRE (r.processor.saveCurrentRigAs ("Third"));    // A07
+    CHECK (r.entryNamed ("Second").rig.getSlotName() == "A06");
+    r.processor.loadRig (r.entryNamed ("Dirty Beat"));   // A05
     r.processor.stepRig (1);
     CHECK (r.processor.getCurrentRig().name == "Second");
     r.processor.stepRig (1);
@@ -417,10 +449,9 @@ TEST_CASE ("Each preset's LEVEL adds to OUTPUT", "[rigs]")
     {
         RigRig r;
         r.set (ParamIDs::patchLevel, levelDb);
-        r.set (ParamIDs::osc (0, "PhaseRand"), 0.0f);   // the same note both times
         juce::AudioBuffer<float> buffer (2, 256);
         juce::MidiBuffer midi;
-        midi.addEvent (juce::MidiMessage::noteOn (1, 57, (juce::uint8) 127), 0);
+        midi.addEvent (juce::MidiMessage::noteOn (1, 45, (juce::uint8) 127), 0);   // the high tom (no noise: the same both times)
         double sum = 0.0;
         for (int block = 0; block < 40; ++block)
         {
@@ -434,15 +465,16 @@ TEST_CASE ("Each preset's LEVEL adds to OUTPUT", "[rigs]")
     CHECK_THAT (play (6.0f) / play (0.0f), WithinAbs (1.9953, 0.01));
 }
 
-TEST_CASE ("Presets live in their own Paragon PR7-K folder, apart from its siblings' rigs", "[rigs]")
+TEST_CASE ("Presets live in their own Paragon PR7-D folder, apart from its siblings' rigs", "[rigs]")
 {
     const auto folder = RigLibrary::defaultFolder();
     CHECK (folder.getFileName() == "Rigs");
-    CHECK (folder.getParentDirectory().getFileName() == "Paragon PR7-K");
+    CHECK (folder.getParentDirectory().getFileName() == "Paragon PR7-D");
     CHECK (folder.getParentDirectory().getParentDirectory().getFileName() == "Paragon");
 
-    // PR7-E's (mixing), PR7-B's (bass) and PR7-G's (guitar) rigs folders sit next to it, and are different folders.
-    for (const auto* sibling : { "Paragon PR7-E", "Paragon PR7-B", "Paragon PR7-G" })
+    // PR7-E's (mixing), PR7-B's (bass), PR7-G's (guitar) and PR7-K's (synth) rigs folders sit next to it, and are
+    // different folders.
+    for (const auto* sibling : { "Paragon PR7-E", "Paragon PR7-B", "Paragon PR7-G", "Paragon PR7-K" })
     {
         const auto siblingFolder = folder.getParentDirectory().getSiblingFile (sibling).getChildFile ("Rigs");
         CHECK (folder != siblingFolder);

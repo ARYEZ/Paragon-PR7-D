@@ -2,8 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
-#include "Parameters.h"
-#include "PluginProcessor.h"
+#include "PluginTestUtils.h"
 
 using Catch::Matchers::WithinAbs;
 
@@ -12,12 +11,7 @@ namespace
     constexpr double sampleRate = 48000.0;
     constexpr int blockSize = 256;
 
-    void set (ParagonX1AudioProcessor& processor, const juce::String& id, float plainValue)
-    {
-        auto* parameter = processor.getParameters().getParameter (id);
-        REQUIRE (parameter != nullptr);
-        parameter->setValueNotifyingHost (parameter->convertTo0to1 (plainValue));
-    }
+    using testkit::set;
 
     std::unique_ptr<ParagonX1AudioProcessor> makeProcessor (int outputs = 2)
     {
@@ -79,7 +73,7 @@ namespace
     }
 }
 
-TEST_CASE ("PR7-K is an instrument: no audio in, MIDI in, mono or stereo out", "[processor]")
+TEST_CASE ("PR7-D is an instrument: no audio in, MIDI in, mono or stereo out", "[processor]")
 {
     ParagonX1AudioProcessor processor;
     CHECK (processor.acceptsMidi());
@@ -96,27 +90,41 @@ TEST_CASE ("PR7-K is an instrument: no audio in, MIDI in, mono or stereo out", "
     CHECK_FALSE (processor.checkBusesLayoutSupported (layout));
 }
 
-TEST_CASE ("Silent until a note plays; a note plays in tune, starting on its own sample", "[processor]")
+TEST_CASE ("Silent until a key plays; a hit starts on its own sample, as the sample plays it", "[processor]")
 {
     auto processor = makeProcessor();
-    set (*processor, ParamIDs::osc (0, "Wave"), (float) synth::OscWave::sine);
+    testkit::useSample (*processor, 9, testkit::sine (440.0));   // A: the high tom's slot
     const auto silent = play (*processor, 0.2);
     CHECK (*std::max_element (silent[0].begin(), silent[0].end()) == 0.0f);
 
-    const auto out = play (*processor, 1.0, note (69, 100));
+    const auto out = play (*processor, 1.0, note (testkit::keyFor (9), 100));
     for (int i = 0; i < 100; ++i)
         REQUIRE (out[0][(size_t) i] == 0.0f);   // nothing before its sample
     CHECK (std::abs (out[0][101]) + std::abs (out[0][102]) + std::abs (out[0][110]) > 0.0f);
-    CHECK_THAT (frequencyOf (out[0]), WithinAbs (440.0, 0.05));   // A4
+    CHECK_THAT (frequencyOf (out[0]), WithinAbs (440.0, 0.05));
 }
 
-TEST_CASE ("TUNE (global) moves every note by cents", "[processor]")
+TEST_CASE ("The keyboard maps the kit: the 12 keys from ROOT play it, C to B; other keys do nothing", "[processor]")
 {
+    const auto peakFor = [] (int root, int key)
+    {
+        auto processor = makeProcessor();
+        set (*processor, ParamIDs::drumsRoot, (float) root);
+        const auto out = play (*processor, 0.3, note (key));
+        return std::max (*std::max_element (out[0].begin(), out[0].end()), -*std::min_element (out[0].begin(), out[0].end()));
+    };
+    for (int slot = 0; slot < 12; ++slot)
+        CHECK (peakFor (36, 36 + slot) > 0.01f);
+    CHECK (peakFor (36, 35) == 0.0f);   // below the kit (no sequencer on KEY)
+    CHECK (peakFor (36, 48) == 0.0f);   // above it
+    CHECK (peakFor (48, 36) == 0.0f);   // ROOT moved up: the old kick key is silent...
+    CHECK (peakFor (48, 48) > 0.01f);   // ...and its new one plays
+
+    // Each key its own drum: the kick's key plays the kick (a low thump), not the closed hat.
     auto processor = makeProcessor();
-    set (*processor, ParamIDs::osc (0, "Wave"), (float) synth::OscWave::sine);
-    set (*processor, ParamIDs::tune, 50.0f);
-    const auto out = play (*processor, 1.0, note (69));
-    CHECK_THAT (frequencyOf (out[0]), WithinAbs (440.0 * std::pow (2.0, 50.0 / 1200.0), 0.05));
+    testkit::useSample (*processor, 6, testkit::sine (3000.0));
+    const auto hat = play (*processor, 0.3, note (testkit::keyFor (6)));
+    CHECK_THAT (frequencyOf (hat[0]), WithinAbs (3000.0, 0.5));
 }
 
 TEST_CASE ("OUTPUT and the preset's LEVEL apply their dB; BYPASS fades to silence", "[processor]")
@@ -124,11 +132,11 @@ TEST_CASE ("OUTPUT and the preset's LEVEL apply their dB; BYPASS fades to silenc
     const auto level = [] (float outputDb, float levelDb, bool bypass)
     {
         auto processor = makeProcessor();
-        set (*processor, ParamIDs::osc (0, "PhaseRand"), 0.0f);
+        testkit::useSample (*processor, 0, testkit::sine (220.0));
         set (*processor, ParamIDs::outputGain, outputDb);
         set (*processor, ParamIDs::patchLevel, levelDb);
         set (*processor, ParamIDs::bypass, bypass ? 1.0f : 0.0f);
-        const auto out = play (*processor, 0.5, note (57));
+        const auto out = play (*processor, 0.5, note (testkit::keyFor (0)));
         return rms (out[0], 12000, 24000);
     };
     const auto reference = level (0.0f, 0.0f, false);
@@ -138,7 +146,7 @@ TEST_CASE ("OUTPUT and the preset's LEVEL apply their dB; BYPASS fades to silenc
     CHECK (level (0.0f, 0.0f, true) < 1.0e-6);
 }
 
-TEST_CASE ("OUTPUT starts at -6 dB, for headroom when chords stack up", "[processor]")
+TEST_CASE ("OUTPUT starts at -6 dB, for headroom when hits stack up", "[processor]")
 {
     ParagonX1AudioProcessor processor;
     CHECK_THAT (processor.getParameters().getRawParameterValue (ParamIDs::outputGain)->load(), WithinAbs (-6.0, 1.0e-6));
@@ -153,8 +161,8 @@ TEST_CASE ("The DAW's bypass button is our BYPASS", "[processor]")
 TEST_CASE ("A mono output plays both sides folded together", "[processor]")
 {
     auto processor = makeProcessor (1);
-    set (*processor, ParamIDs::osc (0, "Pan"), -1.0f);   // hard left: only the left side has it
-    const auto out = play (*processor, 0.3, note (60), 1);
+    set (*processor, ParamIDs::drum (0, "Pan"), -1.0f);   // hard left: only the left side has it
+    const auto out = play (*processor, 0.3, note (testkit::keyFor (0)), 1);
     CHECK (*std::max_element (out[0].begin(), out[0].end()) > 0.1f);
 }
 
@@ -163,8 +171,8 @@ TEST_CASE ("Oversized blocks (more than the DAW promised) play the same", "[proc
     const auto render = [] (int block)
     {
         auto processor = makeProcessor();
-        set (*processor, ParamIDs::osc (0, "PhaseRand"), 0.0f);
-        return play (*processor, 0.25, note (64, 300, 6000), 2, block)[0];
+        processor->seedRandomForTest (1);   // the snare's noise the same both times
+        return play (*processor, 0.25, note (testkit::keyFor (2), 300, 6000), 2, block)[0];
     };
     const auto normal = render (blockSize);
     const auto big = render (blockSize * 8);
@@ -178,18 +186,18 @@ TEST_CASE ("Settings survive a save and reload, as in a DAW project", "[processo
     juce::MemoryBlock state;
     {
         ParagonX1AudioProcessor processor;
-        set (processor, ParamIDs::osc (2, "Transpose"), -12.0f);
-        set (processor, ParamIDs::fltCutoff, 640.0f);
-        set (processor, ParamIDs::playMode, (float) synth::PlayMode::monoHigh);
+        set (processor, ParamIDs::drum (2, "Pitch"), -12.0f);
+        set (processor, ParamIDs::drum (5, "LowPass"), 640.0f);
+        set (processor, ParamIDs::drum (11, "Model"), (float) synth::drums::Model::cowbell);
         set (processor, ParamIDs::outputGain, -9.0f);
         processor.getStateInformation (state);
     }
     ParagonX1AudioProcessor restored;
     restored.setStateInformation (state.getData(), (int) state.getSize());
     const auto get = [&restored] (const juce::String& id) { return restored.getParameters().getRawParameterValue (id)->load(); };
-    CHECK_THAT (get (ParamIDs::osc (2, "Transpose")), WithinAbs (-12.0, 1.0e-4));
-    CHECK_THAT (get (ParamIDs::fltCutoff), WithinAbs (640.0, 0.5));
-    CHECK (juce::roundToInt (get (ParamIDs::playMode)) == (int) synth::PlayMode::monoHigh);
+    CHECK_THAT (get (ParamIDs::drum (2, "Pitch")), WithinAbs (-12.0, 1.0e-4));
+    CHECK_THAT (get (ParamIDs::drum (5, "LowPass")), WithinAbs (640.0, 0.5));
+    CHECK (juce::roundToInt (get (ParamIDs::drum (11, "Model"))) == (int) synth::drums::Model::cowbell);
     CHECK_THAT (get (ParamIDs::outputGain), WithinAbs (-9.0, 1.0e-4));
 }
 
@@ -231,5 +239,5 @@ TEST_CASE ("Fuzz: any settings, changed as notes play, never crash it or make it
             }
     }
     CHECK (finite);
-    CHECK (loudest < 1000.0f);   // nothing ran away (it can be loud: 8 oscillators at +6 dB through a resonant filter)
+    CHECK (loudest < 1000.0f);   // nothing ran away (it can be loud: 12 drums at +12 dB, GAIN +24, into the effects)
 }

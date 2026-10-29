@@ -556,7 +556,6 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), en
     {
         kitControls.push_back (std::make_unique<ParamControl> (state, id, label, tip));
     };
-    kitControl (ParamIDs::drumsOn, "ON", "The drums on: the 12 keys from ROOT play the kit instead of the synth. Off: every key plays the synth.");
     kitControl (ParamIDs::drumsRoot, "ROOT", "The kit's lowest key (its kick); the 11 keys above it play the rest, C to B as on General MIDI kits.");
     kitControl (ParamIDs::drumsLevel, "LEVEL", "The whole kit's level.");
     kitControl (ParamIDs::drumsVelocity, "VELOCITY", "How much the keys' velocity changes the level: 0 every hit the same, 100% a soft hit "
@@ -964,8 +963,7 @@ void DrumPage::paint (juce::Graphics& g)
     title ("KIT", kitArea.reduced (18, 0).withHeight (40));
     g.setColour (ParagonColours::textDim);
     g.setFont (juce::FontOptions (11.0f));
-    g.drawText (kit.on ? "The keys " + noteName (kit.rootKey) + " to " + noteName (kit.rootKey + 11) + " play the drums"
-                       : "Off: every key plays the synth (the page still plays the drums)",
+    g.drawText ("The keys " + noteName (kit.rootKey) + " to " + noteName (kit.rootKey + 11) + " play the drums",
                 kitArea.reduced (18, 0).withHeight (40).withTrimmedLeft (60), juce::Justification::centredLeft, false);
 
     if (view == View::sequencer)

@@ -27,6 +27,12 @@
 // thinner, SNAP softens the attack or adds a spike.
 //
 // CHOKE: a hit stops the other slots in its group (the closed hat stops the open hat). MUTE and SOLO as on a mixer.
+namespace synth
+{
+    // The effects the kit plays into: DELAY and REVERB's sends, and the insert buses A to D (PR7-K's numbers).
+    inline constexpr int numSends = 2, numInsertBuses = 4;
+}
+
 namespace synth::drums
 {
     inline constexpr int numSlots = 12;
@@ -154,8 +160,8 @@ namespace synth::drums
     {
         float* left = nullptr;
         float* right = nullptr;
-        std::array<float*, 2> sendLeft {}, sendRight {};
-        std::array<float*, 4> busLeft {}, busRight {};
+        std::array<float*, numSends> sendLeft {}, sendRight {};
+        std::array<float*, numInsertBuses> busLeft {}, busRight {};
     };
 
     // A zero-delay-feedback state-variable filter (Zavalishin's), set once per hit.

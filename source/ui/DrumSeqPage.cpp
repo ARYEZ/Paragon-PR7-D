@@ -517,6 +517,36 @@ void NoteField::mouseDoubleClick (const juce::MouseEvent&)
 }
 
 //==============================================================================
+void MidiExportButton::mouseDrag (const juce::MouseEvent& e)
+{
+    juce::TextButton::mouseDrag (e);
+    if (dragged || e.getDistanceFromDragStart() < 6 || ! makeDragFile)
+        return;
+    dragged = true;
+    const auto file = makeDragFile();
+    juce::DragAndDropContainer::performExternalDragDropOfFiles ({ file.getFullPathName() }, false, this);
+}
+
+void MidiExportButton::clicked()
+{
+    if (std::exchange (dragged, false))
+        return;
+    const auto name = fileName.isNotEmpty() ? fileName : juce::String ("Drums");
+    chooser = std::make_unique<juce::FileChooser> ("Save " + name + " as MIDI",
+                                                   juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile (name + ".mid"),
+                                                   "*.mid");
+    juce::Component::SafePointer<MidiExportButton> self (this);
+    chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles
+                              | juce::FileBrowserComponent::warnAboutOverwriting,
+                          [self] (const juce::FileChooser& c)
+                          {
+                              if (self == nullptr || c.getResult() == juce::File() || ! self->exportTo)
+                                  return;
+                              self->exportTo (c.getResult().withFileExtension ("mid"));
+                          });
+}
+
+//==============================================================================
 void DrumSeqPanel::style (juce::TextButton& b)
 {
     b.setColour (juce::TextButton::buttonColourId, juce::Colour (0xff0d0a0e));
@@ -525,7 +555,7 @@ void DrumSeqPanel::style (juce::TextButton& b)
     b.setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
 }
 
-DrumSeqPanel::DrumSeqPanel (ParagonX1AudioProcessor& p) : processor (p), grid (p), exportButton (p)
+DrumSeqPanel::DrumSeqPanel (ParagonX1AudioProcessor& p) : processor (p), grid (p)
 {
     setInterceptsMouseClicks (false, true);   // the page's own buttons show through the gaps
     auto& state = p.getParameters();
@@ -534,14 +564,13 @@ DrumSeqPanel::DrumSeqPanel (ParagonX1AudioProcessor& p) : processor (p), grid (p
         controls.push_back (std::make_unique<ParamControl> (state, id, label, tip));
         addAndMakeVisible (*controls.back());
     };
-    control (ParamIDs::dseqOn, "ON", "The drum sequencer on (with the kit on). It plays the kit's drums, which you set up on the DRUM view.");
+    control (ParamIDs::dseqOn, "ON", "The drum sequencer on. It plays the kit's drums, which you set up on the DRUM view.");
     control (ParamIDs::dseqTrigger, "TRIGGER", "SONG: the pattern chosen plays while your song plays, in time with its bars. "
                                                "KEY: the four keys under the kit's lowest (its root) play patterns A to D while held, from the key.");
     control (ParamIDs::dseqDivision, "SPEED", "How long a step of the grid is: 1/16 is four steps a beat.");
     control (ParamIDs::dseqTiming, "TIMING", "Straight, triplet (three steps in the time of two) or dotted (one and a half times as long).");
     control (ParamIDs::dseqLength, "LENGTH", "How many beats the pattern lasts before it starts again (1 to 16).");
-    control (ParamIDs::shuffle, "SHUFFLE", "Swing: every second step late, up to half a step. The synth's own: shared with the arpeggiator "
-                                           "and the step sequencer.");
+    control (ParamIDs::shuffle, "SHUFFLE", "Swing: every second step late, up to half a step.");
     control (ParamIDs::dseqVelocity, "VEL AMOUNT", "KEY: how much the key's velocity scales the pattern's (0: the pattern as drawn).");
 
     for (int k = 0; k < synth::drumseq::numPatterns; ++k)

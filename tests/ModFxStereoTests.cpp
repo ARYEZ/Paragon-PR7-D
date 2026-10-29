@@ -1,7 +1,8 @@
-// MOD, MOD 2 and LO-FI (stage 7c) in PR7-K: each side kept its own (where PR7-G's mono chain summed them), where
+// MOD, MOD 2 and LO-FI (PR7-K's stage 7c): each side kept its own (where PR7-G's mono chain summed them), where
 // they sit (after the sends' returns, before the LIMITER), off changing nothing, the displays against the sound,
-// CPU, the FX page's view and pages, the new preset. (The effects themselves: ModFxTests.cpp, PR7-G's own tests.)
-#include "SynthTestUtils.h"
+// CPU, the FX page's view and pages. Played with a saw as a drum sample (PluginTestUtils.h). (The effects themselves: ModFxTests.cpp, PR7-G's own tests.)
+#include "TestUtils.h"
+#include "PluginTestUtils.h"
 
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
@@ -23,8 +24,6 @@ namespace
             processor.setPlayConfigDetails (0, 2, sampleRate, blockSize);
             processor.prepareToPlay (sampleRate, blockSize);
             processor.seedRandomForTest (1);
-            set (ParamIDs::ampSustain, 1.0f);
-            set (ParamIDs::ampRelease, 5.0f);
         }
         void set (const juce::String& id, float value)
         {
@@ -32,18 +31,18 @@ namespace
             REQUIRE (parameter != nullptr);
             parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
         }
-        // `note` held for `held` seconds, then let go; `seconds` in all. Both channels.
+        // A saw at `note`'s pitch, `held` seconds long, from slot 0, hit at the start; `seconds` in all. Both channels.
         std::array<std::vector<float>, 2> play (int note, double held, double seconds)
         {
+            juce::MidiBuffer starts;   // as MIDI from the DAW (the on-screen keyboard's presses land by the clock: not repeatable)
             std::array<std::vector<float>, 2> out;
             juce::AudioBuffer<float> buffer (2, blockSize);
-            processor.getKeyboardState().noteOn (1, note, 0.8f);
+            testkit::useSample (processor, 0, testkit::saw (noteHz (note), held));
+            starts.addEvent (juce::MidiMessage::noteOn (1, testkit::keyFor (0), 0.8f), 0);
             const auto blocks = (int) (seconds * sampleRate) / blockSize;
             for (int b = 0; b < blocks; ++b)
             {
-                if (b == (int) (held * sampleRate) / blockSize)
-                    processor.getKeyboardState().noteOff (1, note, 0.0f);
-                juce::MidiBuffer midi;
+                auto midi = std::exchange (starts, {});   // the hits in the first block, at its first sample
                 buffer.clear();
                 processor.processBlock (buffer, midi);
                 for (int c = 0; c < 2; ++c)
@@ -89,7 +88,7 @@ namespace
 
 TEST_CASE ("MOD / LO-FI: every type keeps a sound on the left on the left (PR7-G's mono chain summed them)", "[modfx]")
 {
-    // A note panned hard left through each type: the right stays exactly silent. On PR7-G, AEON, the Rotary, the
+    // A sound panned hard left through each type: the right stays exactly silent. On PR7-G, AEON, the Rotary, the
     // Doubler, the Vortex's STEREO and the speakers summed or crossed the sides.
     for (int type = 0; type < effects::Modulation::typeNames.size(); ++type)
         for (const auto stereo : { false, true })
@@ -98,7 +97,7 @@ TEST_CASE ("MOD / LO-FI: every type keeps a sound on the left on the left (PR7-G
                 continue;
             INFO (effects::Modulation::typeNames[type] << (stereo ? " STEREO" : ""));
             Plugin p;
-            p.set (ParamIDs::osc (0, "Pan"), -1.0f);
+            p.set (ParamIDs::drum (0, "Pan"), -1.0f);
             p.set (ParamIDs::modOn, 1.0f);
             p.set (ParamIDs::modType, (float) type);
             p.set (ParamIDs::modStereo, stereo ? 1.0f : 0.0f);
@@ -112,7 +111,7 @@ TEST_CASE ("MOD / LO-FI: every type keeps a sound on the left on the left (PR7-G
     {
         INFO (effects::LoFi::typeNames[type]);
         Plugin p;
-        p.set (ParamIDs::osc (0, "Pan"), -1.0f);
+        p.set (ParamIDs::drum (0, "Pan"), -1.0f);
         p.set (ParamIDs::lofiOn, 1.0f);
         p.set (ParamIDs::lofiType, (float) type);
         p.set (ParamIDs::lofiNoise, 0.0f);   // (NOISE's hiss is on both sides, as a phone line's)
@@ -156,7 +155,6 @@ TEST_CASE ("MOD / LO-FI: switched off they change nothing, whatever their settin
     const auto run = [] (bool changed)
     {
         Plugin p;
-        p.set (ParamIDs::osc (0, "Wave"), (float) (int) synth::OscWave::saw);
         if (changed)
         {
             p.set (ParamIDs::modType, (float) (int) Type::rotary);
@@ -174,12 +172,12 @@ TEST_CASE ("MOD / LO-FI: switched off they change nothing, whatever their settin
 
 TEST_CASE ("MOD / LO-FI: after the sends' returns (the reverb's tail goes through the phone too), before the LIMITER", "[modfx][sends]")
 {
-    // A saw on A3 into a long hall, let go after 0.1 s: in its tail, harmonic 37 (8.1 kHz) against harmonic 4 (880 Hz).
+    // A saw on A3 into a long hall, 0.1 s long: in its tail, the fundamental (220 Hz) against harmonic 4 (880 Hz). The
+    // phone's band starts around 300 Hz, so through it the tail's bottom drops. (PR7-K measured harmonic 37, 8.1 kHz:
+    // with the saw as a sample, the hall's tail has almost none left to cut, about -118 dB.)
     const auto tail = [] (bool phone)
     {
         Plugin p;
-        p.set (ParamIDs::osc (0, "Wave"), (float) (int) synth::OscWave::saw);
-        p.set (ParamIDs::ampRelease, 5.0f);
         p.set (ParamIDs::reverbOn, 1.0f);
         p.set (ParamIDs::reverbMix, 1.0f);
         p.set (ParamIDs::reverbType, 2.0f);   // HALL
@@ -189,21 +187,20 @@ TEST_CASE ("MOD / LO-FI: after the sends' returns (the reverb's tail goes throug
             p.set (ParamIDs::lofiOn, 1.0f);
             p.set (ParamIDs::lofiNoise, 0.0f);
         }
-        p.set (ParamIDs::ampSustain, 0.0f);
-        p.set (ParamIDs::ampDecay, 60.0f);   // the note itself gone within the first 0.3 s: what's left is the tail
+        // (the saw itself gone after 0.1 s: what's left is the tail)
         const auto out = p.play (57, 0.1, 1.2);
         const auto from = (size_t) (0.6 * sampleRate), length = (size_t) (0.5 * sampleRate);
-        return std::pair { levelAt (out[0], 220.0 * 37, from, length), levelAt (out[0], 220.0 * 4, from, length) };
+        return std::pair { levelAt (out[0], 220.0, from, length), levelAt (out[0], 220.0 * 4, from, length) };
     };
-    const auto [plainHigh, plainMid] = tail (false);
-    const auto [phoneHigh, phoneMid] = tail (true);
+    const auto [plainLow, plainMid] = tail (false);
+    const auto [phoneLow, phoneMid] = tail (true);
     REQUIRE (plainMid > 1.0e-4);   // the tail is there
     CHECK (phoneMid > 0.1 * plainMid);   // and still there through the phone
-    CHECK (db (phoneHigh / phoneMid) < db (plainHigh / plainMid) - 20.0);   // its top end cut by the phone
+    WARN ("the tail's 220 Hz against 880 Hz: plain " << db (plainLow / plainMid) << " dB, through the phone " << db (phoneLow / phoneMid) << " dB");
+    CHECK (db (phoneLow / phoneMid) < db (plainLow / plainMid) - 12.0);   // its bottom cut by the phone
 
     // LO-FI's LEVEL turned all the way up into the LIMITER: held at its ceiling.
     Plugin loud;
-    loud.set (ParamIDs::osc (0, "Wave"), (float) (int) synth::OscWave::saw);
     loud.set (ParamIDs::lofiOn, 1.0f);
     loud.set (ParamIDs::lofiType, (float) (int) LoFiType::megaphone);
     loud.set (ParamIDs::lofiLevel, 12.0f);
@@ -277,7 +274,7 @@ TEST_CASE ("MOD / LO-FI: what the pages draw is what plays", "[modfx]")
     }
 }
 
-TEST_CASE ("MOD / LO-FI: CPU, a chord through AEON, the Rotary and the cassette", "[modfx][performance]")
+TEST_CASE ("MOD / LO-FI: CPU, the kit through AEON, the Rotary and the cassette", "[modfx][performance]")
 {
     const auto cpu = [] (bool on)
     {
@@ -285,8 +282,7 @@ TEST_CASE ("MOD / LO-FI: CPU, a chord through AEON, the Rotary and the cassette"
         for (int run = 0; run < 3; ++run)
         {
             Plugin p;
-            p.set (ParamIDs::osc (0, "Wave"), (float) (int) synth::OscWave::saw);
-            if (on)
+                if (on)
             {
                 p.set (ParamIDs::modOn, 1.0f);
                 p.set (ParamIDs::modType, (float) (int) Type::flanger);   // AEON: two pedals (one a side), oversampled
@@ -295,19 +291,21 @@ TEST_CASE ("MOD / LO-FI: CPU, a chord through AEON, the Rotary and the cassette"
                 p.set (ParamIDs::lofiOn, 1.0f);
                 p.set (ParamIDs::lofiType, (float) (int) LoFiType::cassette);
             }
-            for (const auto note : { 48, 55, 60, 64 })
-                p.processor.getKeyboardState().noteOn (1, note, 0.8f);
             juce::AudioBuffer<float> buffer (2, blockSize);
-            juce::MidiBuffer midi;
             const auto started = juce::Time::getMillisecondCounterHiRes();
             for (int b = 0; b < (int) (4.0 * sampleRate) / blockSize; ++b)
+            {
+                juce::MidiBuffer midi;   // a drum every eighth of a second, round the kit
+                if (b % 23 == 0)
+                    midi.addEvent (juce::MidiMessage::noteOn (1, testkit::keyFor ((b / 23) % 12), (juce::uint8) 100), 0);
                 p.processor.processBlock (buffer, midi);
+            }
             best = std::min (best, (juce::Time::getMillisecondCounterHiRes() - started) / 4000.0 * 100.0);
         }
         return best;
     };
     const auto off = cpu (false), on = cpu (true);
-    WARN ("a 4-note saw chord: MOD / LO-FI off " << off << "% of one core; AEON, Rotary and cassette on " << on << "%");
+    WARN ("the kit, a hit every eighth of a second: MOD / LO-FI off " << off << "% of one core; AEON, Rotary and cassette on " << on << "%");
     CHECK (on < off + 15.0);   // generous for CI machines
 }
 
@@ -396,26 +394,4 @@ TEST_CASE ("The FX page's MOD / LO-FI view: three units, their pages, only the c
     CHECK (ids.contains (ParamIDs::modRate));
     set (ParamIDs::modSync, 3.0f);
     CHECK_FALSE (shownIds().contains (ParamIDs::modRate));
-}
-
-TEST_CASE ("MOD / LO-FI: the factory preset Tape Keys: the Vortex in STEREO, an auto-pan, a cassette", "[modfx][rigs]")
-{
-    Plugin p;
-    const auto* entry = p.processor.getRigLibrary().findFactory ("Tape Keys");
-    REQUIRE (entry != nullptr);
-    p.processor.loadRig (*entry);
-    const auto mod = p.processor.getModSettings (0);
-    CHECK (mod.on);
-    CHECK (mod.type == Type::chorus);
-    CHECK (mod.stereoOutputs);
-    CHECK (p.processor.getModSettings (1).type == Type::autoPan);
-    CHECK (p.processor.getLoFiSettings().type == LoFiType::cassette);
-    const auto out = p.play (60, 0.5, 1.0);
-    const auto from = (size_t) (0.1 * sampleRate);
-    CHECK (rms (out[0], from, out[0].size()) > 0.01);
-    CHECK (rms (out[1], from, out[1].size()) > 0.01);
-    std::vector<float> side (out[0].size());
-    for (size_t i = 0; i < side.size(); ++i)
-        side[i] = out[0][i] - out[1][i];
-    CHECK (rms (side, from, side.size()) > 0.1 * rms (out[0], from, out[0].size()));   // the chorus between the speakers
 }

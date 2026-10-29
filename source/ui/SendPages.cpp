@@ -210,10 +210,11 @@ SendPage::SendPage (ParagonX1AudioProcessor& p, Kind k) : kind (k)
         make (controls, reverbMix, "MIX", "How loud the reverb comes back into the mix (the return's level).");
         make (controls, reverbDuck, "DUCK", "Tucks the reverb under what you play; it swells back in the gaps.");
     }
-    for (int i = 0; i < synth::numOscillators; ++i)
-        make (sends, osc (i, kind == Kind::delay ? "SendDelay" : "SendReverb"), "OSC " + juce::String (i + 1),
-              "How much of oscillator " + juce::String (i + 1) + " goes to the " + (kind == Kind::delay ? "DELAY" : "REVERB")
-                  + " (also on its WAVE page): 0 keeps it dry");
+    for (int i = 0; i < synth::drums::numSlots; ++i)
+        make (sends, drum (i, kind == Kind::delay ? "SendDelay" : "SendReverb"), synth::drums::slotDefaults[(size_t) i].key,
+              "How much of drum " + juce::String (i + 1) + " (" + synth::drums::slotDefaults[(size_t) i].key + ") goes to the "
+                  + (kind == Kind::delay ? "DELAY" : "REVERB") + " (also on the DRUMS page): 0 keeps it dry. A drum on an insert "
+                  "bus sends through the bus instead.");
     for (auto* list : { &top, &controls, &sends })
         for (auto& c : *list)
             addAndMakeVisible (*c);
@@ -280,7 +281,7 @@ void SendPage::resized()
     for (auto& c : sends)
         sendList.push_back (c.get());
     SynthPanel::layoutRow (controlRow, row, 110);
-    SynthPanel::layoutRow (sendRow, sendList, 96);
+    SynthPanel::layoutRow (sendRow, sendList, 92);
 }
 
 //==============================================================================
@@ -288,12 +289,12 @@ SendMatrix::SendMatrix (ParagonX1AudioProcessor& p)
 {
     auto& state = p.getParameters();
     for (int which = 0; which < synth::numSends; ++which)
-        for (int i = 0; i < synth::numOscillators; ++i)
+        for (int i = 0; i < synth::drums::numSlots; ++i)
         {
-            knobs.push_back (std::make_unique<ParamControl> (state, ParamIDs::osc (i, which == 0 ? "SendDelay" : "SendReverb"),
-                                                             "OSC " + juce::String (i + 1),
-                                                             "How much of oscillator " + juce::String (i + 1) + " goes to the "
-                                                                 + (which == 0 ? "DELAY" : "REVERB") + " (0: it stays dry)"));
+            knobs.push_back (std::make_unique<ParamControl> (state, ParamIDs::drum (i, which == 0 ? "SendDelay" : "SendReverb"),
+                                                             synth::drums::slotDefaults[(size_t) i].key,
+                                                             "How much of drum " + juce::String (i + 1) + " (" + synth::drums::slotDefaults[(size_t) i].key
+                                                                 + ") goes to the " + (which == 0 ? "DELAY" : "REVERB") + " (0: it stays dry)"));
             addAndMakeVisible (*knobs.back());
         }
     delayToReverb = std::make_unique<ParamControl> (state, ParamIDs::delayToReverb, "DELAY > REVERB",
@@ -310,7 +311,7 @@ void SendMatrix::paint (juce::Graphics& g)
     g.setColour (ParagonColours::textDim);
     const auto rowTitle = [&] (int row, const char* text)
     {
-        g.drawText (text, juce::Rectangle<int> (14, knobs[(size_t) (row * synth::numOscillators)]->getY(), 90, ParamControl::knobHeight),
+        g.drawText (text, juce::Rectangle<int> (14, knobs[(size_t) (row * synth::drums::numSlots)]->getY(), 90, ParamControl::knobHeight),
                     juce::Justification::centredLeft, false);
     };
     rowTitle (0, "TO DELAY");
@@ -330,8 +331,8 @@ void SendMatrix::resized()
     {
         area.removeFromTop (gap);
         std::vector<juce::Component*> row;
-        for (int i = 0; i < synth::numOscillators; ++i)
-            row.push_back (knobs[(size_t) (which * synth::numOscillators + i)].get());
+        for (int i = 0; i < synth::drums::numSlots; ++i)
+            row.push_back (knobs[(size_t) (which * synth::drums::numSlots + i)].get());
         SynthPanel::layoutRow (area.removeFromTop (h), row);
     }
 }

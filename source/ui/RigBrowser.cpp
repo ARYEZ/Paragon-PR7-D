@@ -23,7 +23,7 @@ namespace
         label.setColour (juce::Label::textColourId, ParagonColours::textDim);
     }
 
-    // One line describing a preset: how many oscillators it uses, and whether the filter's on.
+    // One line describing a preset: its samples, whether it has a beat, and the sends it uses.
     juce::String describeBlocks (const Rig& rig)
     {
         const auto isOn = [&rig] (const juce::String& id)
@@ -31,11 +31,17 @@ namespace
             const auto found = rig.parameters.find (id);
             return found != rig.parameters.end() && found->second > 0.5f;
         };
-        int oscillators = 0;
-        for (int i = 0; i < ParamIDs::numOscillators; ++i)
-            oscillators += isOn (ParamIDs::osc (i, "On")) ? 1 : 0;
-        return juce::String (oscillators) + (oscillators == 1 ? " oscillator" : " oscillators")
-             + (isOn (ParamIDs::fltOn) ? ", filter" : "");
+        const auto samples = (int) rig.drumSamples.size();
+        juce::StringArray parts;
+        parts.add (samples == 0 ? juce::String ("drum synths") : juce::String (samples) + (samples == 1 ? " sample" : " samples"));
+        const auto& patterns = rig.modulation.drumPatterns;
+        if (std::any_of (patterns.begin(), patterns.end(), [] (const auto& p) { return ! p.isEmpty(); }))
+            parts.add ("a beat");
+        if (isOn (ParamIDs::delayOn))
+            parts.add ("delay");
+        if (isOn (ParamIDs::reverbOn))
+            parts.add ("reverb");
+        return parts.joinIntoString (", ");
     }
 }
 

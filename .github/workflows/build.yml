@@ -61,7 +61,7 @@ jobs:
           curl -sSL -o pluginval.zip \
             "https://github.com/Tracktion/pluginval/releases/download/${PLUGINVAL_VERSION}/${{ matrix.pluginval_zip }}"
           unzip -q pluginval.zip
-          PLUGIN="build/ParagonX1_artefacts/Release/VST3/Paragon PR7-K.vst3"
+          PLUGIN="build/ParagonX1_artefacts/Release/VST3/Paragon PR7-D.vst3"
           RUN="${{ matrix.pluginval_bin }} --strictness-level 10 --validate-in-process --validate"
           if [ "$RUNNER_OS" = "Linux" ]; then
             # pluginval's own Linux VST3 host now and then crashes as it shuts
@@ -102,10 +102,7 @@ jobs:
   # above, zipped, with notes from CHANGELOG.md.
   release:
     name: Release
-    # Off in the seed commit: this is still PR7-K's 0.24.0, and PR7-D has no
-    # releases yet, so a push would publish a PR7-K build under PR7-D's name.
-    # Back on in 0.1.0, once the plugin is PR7-D.
-    if: false
+    if: github.event_name == 'push'
     needs: build
     runs-on: ubuntu-24.04
     permissions:
@@ -146,10 +143,10 @@ jobs:
           mkdir release
           # Artifact storage drops file permissions; put the executable flag
           # back on the macOS and Linux binaries so every host will load them.
-          chmod -R a+x "artifacts/ParagonX1-VST3-macOS/Paragon PR7-K.vst3/Contents/MacOS" \
-                       "artifacts/ParagonX1-VST3-Linux/Paragon PR7-K.vst3/Contents/x86_64-linux"
+          chmod -R a+x "artifacts/ParagonX1-VST3-macOS/Paragon PR7-D.vst3/Contents/MacOS" \
+                       "artifacts/ParagonX1-VST3-Linux/Paragon PR7-D.vst3/Contents/x86_64-linux"
           for os in Windows macOS Linux; do
-            (cd "artifacts/ParagonX1-VST3-${os}" && zip -qr "../../release/ParagonPR7-K-${TAG}-${os}-VST3.zip" "Paragon PR7-K.vst3")
+            (cd "artifacts/ParagonX1-VST3-${os}" && zip -qr "../../release/ParagonPR7-D-${TAG}-${os}-VST3.zip" "Paragon PR7-D.vst3")
           done
           ls -l release
 
@@ -174,5 +171,5 @@ jobs:
           # --target creates the tag on this exact commit if it doesn't exist yet.
           gh release create "$TAG" release/*.zip \
             --target "$GITHUB_SHA" \
-            --title "Paragon PR7-K ${TAG}" \
+            --title "Paragon PR7-D ${TAG}" \
             --notes-file notes.md

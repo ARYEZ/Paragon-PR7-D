@@ -1,7 +1,7 @@
-// THE DRUM SEQUENCER (stage 6b) in the plugin: SONG following the DAW, KEY's pattern keys taken from the synth, the
+// THE DRUM SEQUENCER (stage 6b) in the plugin: SONG following the DAW, KEY's pattern keys, the
 // patterns kept by presets, the project and undo, reversed synth drums, and MIDI export. (The sequencer itself:
 // DrumSeqTests.cpp.)
-#include "SynthTestUtils.h"
+#include "TestUtils.h"
 
 #include "PluginProcessor.h"
 #include "ui/DrumPage.h"
@@ -33,7 +33,6 @@ namespace
             processor.prepareToPlay (sampleRate, blockSize);
             processor.setPlayHead (&song);
             processor.seedRandomForTest (1);
-            set (ParamIDs::drumsOn, 1.0f);
             set (ParamIDs::dseqOn, 1.0f);
         }
         void set (const juce::String& id, float value)
@@ -125,9 +124,6 @@ TEST_CASE ("DRUM SEQUENCER in the plugin: SONG plays the pattern with the DAW, o
     off.addNote (0, 2, 0.0);
     off.set (ParamIDs::dseqOn, 0.0f);
     CHECK (peakOf (off.play (0.5)) == 0.0);
-    off.set (ParamIDs::dseqOn, 1.0f);
-    off.set (ParamIDs::drumsOn, 0.0f);
-    CHECK (peakOf (off.play (0.5)) == 0.0);
 
     // PATTERN chooses which plays.
     Plugin b;
@@ -137,13 +133,13 @@ TEST_CASE ("DRUM SEQUENCER in the plugin: SONG plays the pattern with the DAW, o
     CHECK (peakOf (b.play (2.0), 1.7, 1.8) > 0.1);   // B at the next bar (beat 4: 1.7 s on from beat 0.6)
 }
 
-TEST_CASE ("DRUM SEQUENCER in the plugin: KEY: the four keys under the kit play patterns, not the synth", "[drumseqplugin]")
+TEST_CASE ("DRUM SEQUENCER in the plugin: KEY: the four keys under the kit play patterns", "[drumseqplugin]")
 {
     Plugin p;
     p.set (ParamIDs::dseqTrigger, 1.0f);
     p.song.playing = false;
     p.addNote (1, 2, 0.0);   // B: the snare at once
-    // A (key 32) is empty: silence, so the synth didn't get the key either.
+    // A (key 32) is empty: silence.
     CHECK (peakOf (p.play (0.4, { { 32, 0.1, 0.3 } })) == 0.0);
     // B (key 33): the snare from the key, each bar while held.
     const auto played = p.play (4.5, { { 33, 0.1, 2.2 } });
@@ -151,10 +147,11 @@ TEST_CASE ("DRUM SEQUENCER in the plugin: KEY: the four keys under the kit play 
     CHECK (peakOf (played, 2.1, 2.15) > 0.05);   // the next bar, 2 s on
     CHECK (peakOf (played, 4.05) < 1.0e-4);      // let go at 2.2 s: no bar after (the last hit rang out by then)
 
-    // On SONG, those keys play the synth as ever.
+    // On SONG, those keys do nothing (they're below the kit).
     Plugin song;
     song.song.playing = false;
-    CHECK (peakOf (song.play (0.3, { { 33, 0.0, 0.2 } })) > 0.01);
+    song.addNote (1, 2, 0.0);
+    CHECK (peakOf (song.play (0.3, { { 33, 0.0, 0.2 } })) == 0.0);
 }
 
 TEST_CASE ("DRUM SEQUENCER in the plugin: the patterns are kept by presets, the project and undo", "[drumseqplugin]")
@@ -342,12 +339,12 @@ TEST_CASE ("DRUMS page, SEQUENCER: the grid adds, moves, chooses and removes not
     CHECK (page.getDisplay().isVisible());
 }
 
-TEST_CASE ("DRUM SEQUENCER in the plugin: preset A41 plays its beat with the song, and nothing while the song is stopped", "[drumseqplugin]")
+TEST_CASE ("DRUM SEQUENCER in the plugin: preset A03 plays its beat with the song, and nothing while the song is stopped", "[drumseqplugin]")
 {
     const auto rigs = makeFactoryRigs();
-    const auto found = std::find_if (rigs.begin(), rigs.end(), [] (const Rig& r) { return r.name == "Beat And Bass"; });
+    const auto found = std::find_if (rigs.begin(), rigs.end(), [] (const Rig& r) { return r.name == "Room Beat"; });
     REQUIRE (found != rigs.end());
-    CHECK (found->getSlotName() == "A41");
+    CHECK (found->getSlotName() == "A03");
     for (const auto& pattern : found->modulation.drumPatterns)
         CHECK (pattern.notes.size() >= 10);
 

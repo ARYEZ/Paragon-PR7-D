@@ -1,6 +1,6 @@
 // THE DRUMS, 6c part 2: kits and sequences saved and loaded (and LINK), < > through a sample's folder, choosing
 // several drums for routing, and the rows' playheads.
-#include "SynthTestUtils.h"
+#include "TestUtils.h"
 
 #include "PluginProcessor.h"
 #include "ui/DrumPage.h"
@@ -72,18 +72,18 @@ TEST_CASE ("DRUM KITS: a kit keeps every drum's settings, samples and envelopes;
     CHECK_FALSE (p.processor.drumSequencesFolder().getChildFile ("Room Kit.pr7seq").existsAsFile());   // no LINK: just the kit
     CHECK (p.processor.listDrumKits().size() == 1);
 
-    // Another instance: a kit sets the kit (the rest of its kit settings to new), and leaves the synth and the beat.
+    // Another instance: a kit sets the kit (the rest of its kit settings to new), and leaves the effects and the beat.
     Plugin q (temp.folder);
     q.processor.drumLink = false;
     q.set (ParamIDs::drum (7, "Decay"), 0.9f);      // not in the kit file's... it is: back to new
-    q.set (ParamIDs::fltCutoff, 1234.0f);            // the synth: untouched
+    q.set (ParamIDs::reverbSize, 0.9f);              // the effects: untouched
     REQUIRE (q.processor.loadDrumKit (p.processor.drumKitsFolder().getChildFile ("Room Kit.pr7kit")));
     CHECK_THAT (q.get (ParamIDs::drumsLevel), WithinAbs (-4.0, 0.01));
     CHECK_THAT (q.get (ParamIDs::drum (5, "Pitch")), WithinAbs (3.5, 0.01));
     CHECK_THAT (q.get (ParamIDs::drum (5, "LowPass")), WithinAbs (3000.0, 1.0));
     CHECK (juce::roundToInt (q.get (ParamIDs::drum (9, "Choke"))) == 2);
     CHECK_THAT (q.get (ParamIDs::drum (7, "Decay")), WithinAbs (synth::drums::slotDefaults[7].decay, 0.001));
-    CHECK_THAT (q.get (ParamIDs::fltCutoff), WithinAbs (1234.0, 1.0));
+    CHECK_THAT (q.get (ParamIDs::reverbSize), WithinAbs (0.9, 0.001));
     REQUIRE (q.processor.getDrumSample (2) != nullptr);
     CHECK (q.processor.getDrumSample (2)->path == tone.getFullPathName());
     CHECK (q.processor.getModMatrix().drumEnvelopes[5] == m.drumEnvelopes[5]);
@@ -207,7 +207,6 @@ TEST_CASE ("DRUMS page: each row's playhead follows its hit", "[drumfiles][ui]")
 {
     TempFolder temp;
     Plugin p (temp.folder);
-    p.set (ParamIDs::drumsOn, 1.0f);
     DrumPage page (p.processor);
     page.setSize (1476, 672);
     juce::AudioBuffer<float> buffer (2, blockSize);

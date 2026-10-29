@@ -4,7 +4,7 @@
 //    defaults, read by the same getInsertDriveSettings / getInsertGlitchSettings the plugin uses), and runs the input
 //    through the DRIVE then the GLITCH, one of each a side as PR7-K's buses do (PR7-G's are mono);
 //  - left out: the expression pedal on GLITCH, GLITCH's PRE / POST, and the noise gate (not in PR7-K).
-// The buses in the synth are tested in InsertTests.cpp.
+// The buses in the plugin are tested in InsertTests.cpp.
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <set>
