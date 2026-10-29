@@ -102,7 +102,10 @@ jobs:
   # above, zipped, with notes from CHANGELOG.md.
   release:
     name: Release
-    if: github.event_name == 'push'
+    # Off in the seed commit: this is still PR7-K's 0.24.0, and PR7-D has no
+    # releases yet, so a push would publish a PR7-K build under PR7-D's name.
+    # Back on in 0.1.0, once the plugin is PR7-D.
+    if: false
     needs: build
     runs-on: ubuntu-24.04
     permissions:
