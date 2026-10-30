@@ -23,7 +23,7 @@ PR7-D is built in stages, each one released:
 | **2** | The bigger kit: 20 drums, with ride, ride bell, second crash, china, splash, half-open hat, tambourine, shaker | **Works (0.2.0)** |
 | **3** | Note maps: Root, a groove-library layout, General MIDI, and your own | **Works (0.2.0)** |
 | **4** | Multiple outputs: 16 stereo outputs; each drum, insert bus and send return chooses one | **Works (0.3.0)** |
-| **5** | The groove player: browse, filter, preview and drag MIDI grooves from your own folders | **Parts 1-3 work (0.6.0)**: folders, list, search, filter columns, preview, drag out, into the sequencer, tap to find |
+| **5** | The groove player: browse, filter, preview and drag MIDI grooves from your own folders | **Parts 1-4 work (0.7.0)**: folders, list, search, filter columns, preview, drag out, into the sequencer, tap to find, groove parts |
 
 ## Using it
 
@@ -51,7 +51,8 @@ PR7-D is built in stages, each one released:
   columns (TYPE, FEEL, TIME, POWER HAND, TEMPO: click to choose, right-click to exclude) narrow the list; TO SEQUENCER
   A-D makes the chosen groove a drum sequencer pattern. TAP TO FIND...: tap a rhythm on six pads (or your controller)
   over a two-bar loop with a metronome, and the closest grooves come first (MATCH); drop a MIDI file on the page, or
-  right-click a groove (FIND SIMILAR), to search with theirs.
+  right-click a groove (FIND SIMILAR), to search with theirs. GROOVE PARTS: tick the parts of the chosen groove (kick,
+  snare, hi-hat...) to hear, drag or LAYER ONTO a pattern just those, over the pattern's other drums.
 - **SEQUENCER** (beside DRUM): four patterns, **A** to **D**, drawn on a grid level with the kit's rows. Each note
   has its own velocity, pan, pitch, gate, roll and reverse. **SONG** plays with your DAW; **KEY** plays a pattern while
   one of the four keys under the kit is held (with the Root map). **EXPORT MIDI**: click to save, or drag onto a track.

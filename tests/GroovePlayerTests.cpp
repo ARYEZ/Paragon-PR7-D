@@ -5,6 +5,8 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
 #include "PluginTestUtils.h"
+
+#include <set>
 #include "ui/GroovesPage.h"
 
 using Catch::Matchers::WithinAbs;
@@ -339,6 +341,20 @@ TEST_CASE ("GROOVE INTO THE SEQUENCER: a pattern with the groove's notes, played
     CHECK (std::abs (o[3] - 96000) <= 1);   // the next bar
 }
 
+TEST_CASE ("GROOVE INTO THE SEQUENCER: a second groove into the same pattern is its own undo step", "[grooves][groove-player][to-pattern]")
+{
+    Plugin t;
+    t.p.grooveToPattern (groove ({ { 0.0, 36 }, { 1.0, 38 } }), 0, 0);
+    t.p.flushUndoStep();
+    const auto first = t.p.getModMatrix().drumPatterns[0];
+    // The same LENGTH, pattern and ON: only the notes change.
+    t.p.grooveToPattern (groove ({ { 0.0, 36 }, { 2.0, 38 }, { 3.0, 38 } }), 0, 0);
+    t.p.flushUndoStep();
+    REQUIRE (t.p.getModMatrix().drumPatterns[0].notes.size() == 3);
+    t.p.undo();
+    CHECK (t.p.getModMatrix().drumPatterns[0] == first);   // back one step, not two
+}
+
 TEST_CASE ("GROOVE INTO THE SEQUENCER: the factor and velocity scale; longer than 16 beats: the first 16", "[grooves][groove-player][to-pattern]")
 {
     Plugin t;
@@ -600,4 +616,149 @@ TEST_CASE ("TAP TO FIND page: open taps with a loop; FIND sorts by MATCH; FIND S
     // Closing the window while tapping stops the loop.
     page.openTapPanel();
     CHECK (t.p.isTapping());
+}
+
+TEST_CASE ("GROOVE PARTS: every drum in a part; the preview plays only the parts chosen", "[parts][groove-player]")
+{
+    using grooves::DrumPart;
+    CHECK (grooves::drumPartOf (BD) == (int) DrumPart::kick);
+    CHECK (grooves::drumPartOf (RIM) == (int) DrumPart::snare);
+    CHECK (grooves::drumPartOf (HH) == (int) DrumPart::hats);
+    CHECK (grooves::drumPartOf (PH) == (int) DrumPart::pedal);
+    CHECK (grooves::drumPartOf (RB) == (int) DrumPart::ride);
+    CHECK (grooves::drumPartOf (SPL) == (int) DrumPart::crash);
+    CHECK (grooves::drumPartOf (CLP) == (int) DrumPart::percussion);
+    for (int k = 0; k < synth::drums::numSlots; ++k)
+        CHECK (grooves::drumPartOf (k) >= 0);   // none left out
+
+    Plugin t;
+    t.p.playGroove (groove ({ { 0.0, 36 }, { 0.0, 38 }, { 0.0, 42 } }), 0, false, 1u << (int) DrumPart::hats);
+    juce::AudioBuffer<float> buffer (2, blockSize);
+    juce::MidiBuffer none;
+    t.p.processBlock (buffer, none);
+    for (int k = 0; k < synth::drums::numSlots; ++k)
+        CHECK (t.p.getDrumKit().isSounding (k) == (k == CH));
+}
+
+TEST_CASE ("GROOVE PARTS: dragged out, only the parts chosen", "[parts][groove-player]")
+{
+    Plugin t;
+    const auto pack = t.folder.getChildFile ("Pack");
+    pack.createDirectory();
+    REQUIRE (t.p.getGrooveLibrary().addFolder (pack));
+    const auto g = groove ({ { 0.0, 36 }, { 1.0, 38 }, { 0.5, 42 }, { 1.5, 46 }, { 2.0, 51 } });
+    const auto file = t.p.grooveDragFile (g, 0, (1u << (int) grooves::DrumPart::hats) | (1u << (int) grooves::DrumPart::ride));
+    CHECK (file.getFileNameWithoutExtension().endsWith ("HI-HAT RIDE"));
+    const auto read = grooves::read (file, synth::drums::notemap::grooveLibrary());
+    REQUIRE (read.has_value());
+    REQUIRE (read->hits.size() == 3);   // closed hat, open hat, ride (on this kit's notes under ROOT)
+    CHECK (read->hits[0].note == 36 + CH);
+    CHECK (read->hits[1].note == 36 + OH);
+    CHECK (read->hits[2].note == 36 + RD);
+}
+
+TEST_CASE ("GROOVE PARTS: laid into a pattern: those drums replaced, repeated to LENGTH, the rest kept; undo", "[parts][groove-player]")
+{
+    Plugin t;
+    // Pattern B from a kick-snare-hats groove (8 beats).
+    t.p.grooveToPattern (groove ({ { 0.0, 36 }, { 1.0, 38 }, { 0.0, 42 }, { 2.0, 42 }, { 4.0, 36 }, { 5.0, 38 }, { 4.0, 42 } }, 90.0, 2), 0, 1);
+    t.p.flushUndoStep();
+    const auto before = t.p.getModMatrix().drumPatterns[1];
+    REQUIRE (before.notes.size() == 7);
+    // Another groove's hats (one bar of sixteenths, soft) laid on: repeated across the 8 beats.
+    std::vector<std::pair<double, int>> sixteenths;
+    for (int s = 0; s < 16; ++s)
+        sixteenths.push_back ({ s * 0.25, 42 });
+    sixteenths.push_back ({ 0.0, 36 });   // its kick: not a hat, not laid
+    auto hats = groove (sixteenths, 90.0, 1, 0.6f);
+    const auto r = t.p.layerParts (hats, 0, 1u << (int) grooves::DrumPart::hats, 1);
+    CHECK (r.placed == 32);
+    const auto& after = t.p.getModMatrix().drumPatterns[1];
+    auto kicks = 0, snares = 0, hatNotes = 0;
+    for (const auto& n : after.notes)
+    {
+        kicks += n.row == BD;
+        snares += n.row == SD;
+        hatNotes += n.row == CH;
+        if (n.row == CH)
+            CHECK_THAT (n.velocity, WithinAbs (0.6, 1e-6));
+    }
+    CHECK (kicks == 2);      // the pattern's own, kept
+    CHECK (snares == 2);
+    CHECK (hatNotes == 32);  // the old hats gone, the new ones twice round
+    const auto lastHat = std::max_element (after.notes.begin(), after.notes.end(), [] (const auto& a, const auto& b)
+    {
+        return (a.row == CH ? a.start : -1.0) < (b.row == CH ? b.start : -1.0);
+    });
+    CHECK_THAT (lastHat->start, WithinAbs (31.0, 1e-9));   // 7.75 beats, in sixteenths
+    CHECK (juce::roundToInt (t.p.getParameters().getRawParameterValue (ParamIDs::dseqLength)->load()) == 8);   // LENGTH kept
+
+    t.p.flushUndoStep();
+    t.p.undo();
+    INFO ("after undo: " << t.p.getModMatrix().drumPatterns[1].notes.size() << " notes");
+    CHECK (t.p.getModMatrix().drumPatterns[1] == before);
+}
+
+TEST_CASE ("GROOVE PARTS page: the chosen groove's parts counted; ticking; the preview with them; LAYER ONTO", "[parts][groove-player][ui]")
+{
+    Plugin t;
+    const auto pack = t.folder.getChildFile ("Pack");
+    {
+        juce::MidiMessageSequence track;
+        for (const auto& [beat, note] : std::vector<std::pair<double, int>> { { 0, 36 }, { 2, 36 }, { 1, 38 }, { 3, 38 }, { 0, 42 }, { 1, 42 }, { 2, 42 }, { 3, 46 } })
+        {
+            track.addEvent (juce::MidiMessage::noteOn (10, note, (juce::uint8) 100).withTimeStamp (beat * 480));
+            track.addEvent (juce::MidiMessage::noteOff (10, note).withTimeStamp (beat * 480 + 60));
+        }
+        juce::MidiFile file;
+        file.setTicksPerQuarterNote (480);
+        track.updateMatchedPairs();
+        file.addTrack (track);
+        pack.createDirectory();
+        juce::FileOutputStream out (pack.getChildFile ("Beat.mid"));
+        file.writeTo (out);
+    }
+    REQUIRE (t.p.getGrooveLibrary().addFolder (pack));
+    t.p.getGrooveLibrary().scanNow();
+    GroovesPage page (t.p);
+    page.setSize (1476, 672);
+    page.refresh();
+    page.getTable().selectRow (0);
+    using grooves::DrumPart;
+    const auto counts = page.getPartCounts();
+    CHECK (counts[(size_t) DrumPart::kick] == 2);
+    CHECK (counts[(size_t) DrumPart::snare] == 2);
+    CHECK (counts[(size_t) DrumPart::hats] == 4);   // closed and open
+    CHECK (counts[(size_t) DrumPart::ride] == 0);
+
+    CHECK (page.getDrumParts() == grooves::allParts);
+    page.toggleDrumPart ((int) DrumPart::hats);    // from ALL: just the hats
+    CHECK (page.getDrumParts() == 1u << (int) DrumPart::hats);
+    page.toggleDrumPart ((int) DrumPart::kick);    // and the kick
+    CHECK (page.getDrumParts() == ((1u << (int) DrumPart::hats) | (1u << (int) DrumPart::kick)));
+    page.toggleDrumPart ((int) DrumPart::kick);
+    page.toggleDrumPart ((int) DrumPart::hats);    // none left: back to ALL
+    CHECK (page.getDrumParts() == grooves::allParts);
+
+    // The preview with only the hats; ticking the snare while it plays: heard at once.
+    page.toggleDrumPart ((int) DrumPart::hats);
+    page.playRow (0, true);
+    juce::AudioBuffer<float> buffer (2, blockSize);
+    juce::MidiBuffer none;
+    t.p.processBlock (buffer, none);
+    CHECK (t.p.getDrumKit().isSounding (CH));
+    CHECK_FALSE (t.p.getDrumKit().isSounding (BD));
+    page.toggleDrumPart ((int) DrumPart::snare);
+    t.p.prepareToPlay (sampleRate, blockSize);   // the kit quiet: what plays now is the new preview
+    for (int b = 0; b < 200; ++b)
+        t.p.processBlock (buffer, none);   // past beat 2 (the snare's at 1)
+    CHECK (t.p.getDrumKit().isSounding (SD));
+
+    // LAYER ONTO C: the hats and snare only.
+    page.layerOnto (2);
+    const auto& c = t.p.getModMatrix().drumPatterns[2];
+    auto rows = std::set<int>();
+    for (const auto& n : c.notes)
+        rows.insert (n.row);
+    CHECK (rows == std::set<int> { SD, CH, OH });
 }

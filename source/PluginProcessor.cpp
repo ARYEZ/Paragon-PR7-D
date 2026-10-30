@@ -1808,12 +1808,12 @@ synth::drums::notemap::Map ParagonX1AudioProcessor::grooveLayout (int folder) co
     return grooveFolders->layoutFor (folder, customMap, juce::roundToInt (param (ParamIDs::drumsRoot)));
 }
 
-void ParagonX1AudioProcessor::playGroove (const grooves::Groove& groove, int folder, bool loop)
+void ParagonX1AudioProcessor::playGroove (const grooves::Groove& groove, int folder, bool loop, unsigned parts)
 {
     auto preview = std::make_shared<GroovePreview>();
     const auto map = grooveLayout (folder);
     for (const auto& h : groove.hits)
-        if (const auto slot = h.note >= 0 && h.note < 128 ? map[(size_t) h.note] : -1; slot >= 0)
+        if (const auto slot = h.note >= 0 && h.note < 128 ? map[(size_t) h.note] : -1; slot >= 0 && grooves::inParts (parts, slot))
             preview->hits.push_back ({ h.beat, slot, h.velocity });
     preview->lengthBeats = juce::jmax (0.25, groove.lengthBeats);
     preview->endBeat = juce::jmax (preview->lengthBeats, groove.hits.empty() ? 0.0 : groove.hits.back().beat + 1.0e-6);
@@ -1904,8 +1904,18 @@ int ParagonX1AudioProcessor::collectGrooveHits (int numSamples) noexcept
     return count;
 }
 
-std::function<int (int)> ParagonX1AudioProcessor::grooveNoteFor (int folder) const
+std::function<int (int)> ParagonX1AudioProcessor::grooveNoteFor (int folder, unsigned parts) const
 {
+    // GROOVE PARTS: notes on drums outside `parts` left out, whichever way the rest goes.
+    if (parts != grooves::allParts)
+    {
+        const auto map = grooveLayout (folder);
+        return [map, parts, rest = grooveNoteFor (folder)] (int note)
+        {
+            const auto slot = note >= 0 && note < 128 ? map[(size_t) note] : -1;
+            return grooves::inParts (parts, slot) ? rest (note) : -1;
+        };
+    }
     // As written: FOR THIS KIT off, or the folder's map is the one the kit plays (its notes already right, every
     // articulation kept). Else each note's drum on the kit's note for it (dropped if the kit has none).
     const auto layout = folder >= 0 && folder < (int) grooveFolders->getFolders().size() ? grooveFolders->getFolders()[(size_t) folder].layout
@@ -1954,6 +1964,7 @@ ParagonX1AudioProcessor::GrooveToPattern ParagonX1AudioProcessor::grooveToPatter
     auto m = matrix;
     m.drumPatterns[(size_t) juce::jlimit (0, ds::numPatterns - 1, pattern)] = std::move (made);
     setModMatrix (m);
+    modMatrixEditFinished();   // an undo step of its own (the settings below may not change and make one)
     const auto set = [this] (const char* id, float value)
     {
         if (auto* parameter = parameters.getParameter (id))
@@ -1970,13 +1981,64 @@ ParagonX1AudioProcessor::GrooveToPattern ParagonX1AudioProcessor::grooveToPatter
     return result;
 }
 
-juce::File ParagonX1AudioProcessor::grooveDragFile (const grooves::Groove& groove, int folder) const
+ParagonX1AudioProcessor::GrooveToPattern ParagonX1AudioProcessor::layerParts (const grooves::Groove& groove, int folder, unsigned parts,
+                                                                              int pattern)
+{
+    namespace ds = synth::drumseq;
+    GrooveToPattern result;
+    const auto p = grooveFolders->getPreview();
+    const auto scale = 1.0 / grooves::factorOf (p.factor);
+    const auto settings = getDrumSeqSettings();
+    const auto length = (double) settings.lengthBeats;
+    const auto partLength = juce::jmax (0.25, groove.lengthBeats * scale);
+    const auto map = grooveLayout (folder);
+    pattern = juce::jlimit (0, ds::numPatterns - 1, pattern);
+
+    // The pattern's notes on other drums kept; then the groove's parts, round and round to LENGTH.
+    auto m = matrix;
+    auto& notes = m.drumPatterns[(size_t) pattern].notes;
+    std::erase_if (notes, [parts] (const ds::Note& n) { return grooves::inParts (parts, n.row); });
+    for (auto repeat = 0.0; repeat < length - 1.0e-9; repeat += partLength)
+        for (const auto& h : groove.hits)
+        {
+            const auto slot = h.note >= 0 && h.note < 128 ? map[(size_t) h.note] : -1;
+            if (! grooves::inParts (parts, slot))
+            {
+                result.noDrum += repeat == 0.0 && slot < 0 ? 1 : 0;
+                continue;
+            }
+            const auto beat = repeat + h.beat * scale;
+            if (h.beat * scale >= partLength - 1.0e-9 || beat >= length - 1.0e-9 || (int) notes.size() >= ds::maxNotes)
+            {
+                result.pastEnd += repeat == 0.0 ? 1 : 0;
+                continue;
+            }
+            ds::Note n;
+            n.row = slot;
+            n.start = beat / settings.beatsPerStep();
+            n.velocity = juce::jlimit (0.0f, 1.0f, h.velocity * p.velocity);
+            notes.push_back (n);
+            ++result.placed;
+        }
+    setModMatrix (m);
+    modMatrixEditFinished();   // an undo step of its own
+    result.lengthBeats = settings.lengthBeats;
+    return result;
+}
+
+juce::File ParagonX1AudioProcessor::grooveDragFile (const grooves::Groove& groove, int folder, unsigned parts) const
 {
     const auto p = grooveFolders->getPreview();
-    const auto midi = grooves::toMidi (groove, grooveTempo (groove.bpm), p.velocity, grooveNoteFor (folder), p.factor);
+    const auto midi = grooves::toMidi (groove, grooveTempo (groove.bpm), p.velocity, grooveNoteFor (folder, parts), p.factor);
     const auto folderOut = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("PR7-D Grooves");
     folderOut.createDirectory();
-    const auto name = juce::File::createLegalFileName (groove.file.getParentDirectory().getFileName() + " - " + groove.name);
+    // GROOVE PARTS: a part on its own named for it ("... - Verse 01 HI-HAT").
+    juce::String partsName;
+    if (parts != grooves::allParts)
+        for (int k = 0; k < grooves::numDrumParts; ++k)
+            if ((parts & (1u << k)) != 0)
+                partsName << " " << grooves::drumPartNames[k];
+    const auto name = juce::File::createLegalFileName (groove.file.getParentDirectory().getFileName() + " - " + groove.name + partsName);
     const auto file = folderOut.getChildFile (name + ".mid");
     file.deleteFile();
     if (juce::FileOutputStream out (file); out.openedOk())

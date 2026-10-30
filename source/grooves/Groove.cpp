@@ -20,6 +20,23 @@ namespace grooves
         }
     }
 
+    int drumPartOf (int slot) noexcept
+    {
+        using namespace synth::drums::notemap;
+        switch (slot)
+        {
+            case BD: return (int) DrumPart::kick;
+            case SD: case SD2: case RIM: return (int) DrumPart::snare;
+            case CH: case OH: case HH: return (int) DrumPart::hats;
+            case PH: return (int) DrumPart::pedal;
+            case RD: case RB: return (int) DrumPart::ride;
+            case LT: case MT: case HT: return (int) DrumPart::toms;
+            case CY: case CR2: case CHN: case SPL: return (int) DrumPart::crash;
+            case CLP: case TMB: case SHK: return (int) DrumPart::percussion;
+            default: return -1;
+        }
+    }
+
     Part partIn (const juce::String& name)
     {
         // Lower case, '-' and '_' as spaces, so "Pre-Chorus", "pre_chorus" and "Pre Chorus" read alike. Checked in this

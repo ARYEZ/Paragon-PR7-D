@@ -44,6 +44,12 @@ public:
     void clearTap();
     bool isTapSearching() const noexcept { return tapSearch.has_value(); }
     TapPanel& getTapPanel() noexcept { return *tapPanel; }
+    // GROOVE PARTS (0.7.0): the parts chosen (grooves::DrumPart bits), as ticking them does; the chosen groove's hits a
+    // part; its parts laid into pattern A-D, as LAYER ONTO does.
+    void toggleDrumPart (int part);   // -1: ALL
+    unsigned getDrumParts() const noexcept { return chosenParts; }
+    std::array<int, grooves::numDrumParts> getPartCounts() const noexcept { return partCounts; }
+    void layerOnto (int pattern);
 
     // A MIDI file dropped on the page: a search with its first two bars.
     bool isInterestedInFileDrag (const juce::StringArray&) override;
@@ -62,6 +68,7 @@ private:
     void cellDoubleClicked (int row, int column, const juce::MouseEvent&) override;
     void sortOrderChanged (int, bool) override {}
     juce::var getDragSourceDescription (const juce::SparseSet<int>&) override;
+    void selectedRowsChanged (int lastRowSelected) override;
     juce::String getCellTooltip (int row, int column) override;
 
     // Dragged out of the window: the groove as a file.
@@ -89,6 +96,13 @@ private:
     juce::TextButton tapButton { "TAP TO FIND..." }, clearTapButton { "CLEAR TAP" };
     juce::Label tapInfo;
     std::optional<grooves::Library::TapSearch> tapSearch;
+    class PartsList;
+    std::unique_ptr<PartsList> partsList;
+    juce::Label layerLabel { {}, "LAYER ONTO" };
+    std::array<juce::TextButton, 4> layerButtons;
+    unsigned chosenParts = grooves::allParts;
+    std::array<int, grooves::numDrumParts> partCounts {};
+    juce::File partsOf;              // the groove the counts are for
     juce::String tapWhat;            // what the search came from ("your taps", "Verse 01", a file's name)
     ParagonX1AudioProcessor& processor;
     grooves::Library& library;

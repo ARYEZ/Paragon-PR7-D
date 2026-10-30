@@ -446,6 +446,9 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             if (tap == "2")
                 panel.getFindButton().onClick();
         }
+        // GROOVE PARTS: the playing groove's HI-HAT ticked.
+        if (env ("PARAGON_SNAPSHOT_PARTS") == "1")
+            grooves.toggleDrumPart ((int) grooves::DrumPart::hats);
         if (env ("PARAGON_SNAPSHOT_GROOVESEQ").isNotEmpty())
             grooves.toPattern (1);   // TO SEQUENCER B: its note in the status line
         if (env ("PARAGON_SNAPSHOT_GROOVESEQ") == "2")

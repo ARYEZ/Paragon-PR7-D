@@ -219,7 +219,8 @@ public:
     synth::drums::notemap::Map grooveLayout (int folder) const;
     // Plays it through the kit from its start, looping or once, at the preview's tempo and velocity (the library's
     // settings: call applyGroovePreview after changing them).
-    void playGroove (const grooves::Groove&, int folder, bool loop);
+    // GROOVE PARTS (0.7.0): `parts` (grooves::DrumPart bits) the drums it plays: the rest of the groove left out.
+    void playGroove (const grooves::Groove&, int folder, bool loop, unsigned parts = grooves::allParts);
     void stopGroove();
     void applyGroovePreview();
     // Beats into the groove playing (its loop), or -1; and which file.
@@ -229,13 +230,17 @@ public:
     double grooveTempo (double grooveBpm) const noexcept;
     // DRAG OUT: the groove as a MIDI file (in the temporary folder) for a DAW track or the desktop: velocity scaled, notes
     // moved for the factor, and (FOR THIS KIT) on this kit's notes in its map (as written, if the folder's map is it).
-    juce::File grooveDragFile (const grooves::Groove&, int folder) const;
-    std::function<int (int)> grooveNoteFor (int folder) const;
+    juce::File grooveDragFile (const grooves::Groove&, int folder, unsigned parts = grooves::allParts) const;
+    std::function<int (int)> grooveNoteFor (int folder, unsigned parts = grooves::allParts) const;
     // INTO THE SEQUENCER (0.5.0): the groove as drum sequencer pattern `pattern` (0-3), replacing it: each hit a note on
     // its drum's row at its exact place (off the grid too), with its velocity, the preview's factor and velocity scale;
     // LENGTH set to the groove's (at most maxBeats: hits after that are left out), the sequencer on, playing it.
     struct GrooveToPattern { int placed = 0, noDrum = 0, pastEnd = 0; int lengthBeats = 0; };
     GrooveToPattern grooveToPattern (const grooves::Groove&, int folder, int pattern);
+    // GROOVE PARTS (0.7.0): the groove's `parts` laid into pattern `pattern`: that pattern's notes on those parts'
+    // drums replaced by the groove's (where played, with velocity, factor and velocity scale), the groove repeated to
+    // fill the pattern's LENGTH; its other drums, LENGTH and the sequencer's settings left as they are. Undoable.
+    GrooveToPattern layerParts (const grooves::Groove&, int folder, unsigned parts, int pattern);
 
     // TAP TO FIND (0.6.0): a loop of `loopBeats` at `bpm` with a metronome (on MAIN) while tapping; notes played (the
     // DAW's, the on-screen keyboard's) and the pads' taps recorded where they fall in the loop, by drum group.

@@ -171,6 +171,60 @@ private:
 };
 
 //==============================================================================
+// GROOVE PARTS: ALL, then each part with how many hits the chosen groove has in it; click ticks it, a drag takes it out.
+class GroovesPage::PartsList final : public juce::Component, private juce::ListBoxModel
+{
+public:
+    explicit PartsList (GroovesPage& p) : page (p)
+    {
+        list.setModel (this);
+        list.setRowHeight (24);
+        list.setColour (juce::ListBox::backgroundColourId, juce::Colours::transparentBlack);
+        list.setTooltip ("The chosen groove's parts. Ticked: heard in the preview, dragged out with it, laid into a pattern with "
+                         "LAYER ONTO. Drag a part to take just it out.");
+        addAndMakeVisible (list);
+    }
+    void refresh() { list.updateContent(); list.repaint(); }
+    void paint (juce::Graphics& g) override
+    {
+        g.setColour (ParagonColours::textDim);
+        g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        g.drawText ("GROOVE PARTS", 4, 0, getWidth() - 8, 16, juce::Justification::centredLeft, false);
+    }
+    void resized() override { list.setBounds (getLocalBounds().withTrimmedTop (18)); }
+
+private:
+    int getNumRows() override { return 1 + grooves::numDrumParts; }
+    void paintListBoxItem (int row, juce::Graphics& g, int width, int height, bool) override
+    {
+        const auto part = row - 1;
+        const auto ticked = part < 0 ? page.chosenParts == grooves::allParts : (page.chosenParts & (1u << part)) != 0;
+        const auto count = part < 0 ? 0 : page.partCounts[(size_t) part];
+        const auto used = part < 0 || count > 0;
+        // The tick box.
+        const auto box = juce::Rectangle<float> (6.0f, (float) height * 0.5f - 6.0f, 12.0f, 12.0f);
+        g.setColour (ticked ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.6f));
+        if (ticked)
+            g.fillRoundedRectangle (box, 2.0f);
+        else
+            g.drawRoundedRectangle (box, 2.0f, 1.0f);
+        g.setColour (! used ? ParagonColours::textDim.withAlpha (0.5f) : ticked ? ParagonColours::text : ParagonColours::textDim);
+        g.setFont (juce::FontOptions (12.5f, part < 0 ? juce::Font::bold : juce::Font::plain));
+        g.drawText (part < 0 ? juce::String ("ALL") : grooves::drumPartNames[part], 26, 0, width - 64, height, juce::Justification::centredLeft, true);
+        if (part >= 0 && count > 0)
+            g.drawText (juce::String (count), width - 40, 0, 34, height, juce::Justification::centredRight, false);
+    }
+    void listBoxItemClicked (int row, const juce::MouseEvent&) override { page.toggleDrumPart (row - 1); }
+    juce::var getDragSourceDescription (const juce::SparseSet<int>& rows) override
+    {
+        return rows.isEmpty() || rows[0] < 1 ? juce::var() : juce::var ("part:" + juce::String (rows[0] - 1));
+    }
+
+    GroovesPage& page;
+    juce::ListBox list;
+};
+
+//==============================================================================
 GroovesPage::GroovesPage (ParagonX1AudioProcessor& p) : processor (p), library (p.getGrooveLibrary())
 {
     addFolder.setTooltip ("Link a folder of your own MIDI grooves (and its subfolders). They stay where they are: PR7-D reads "
@@ -273,6 +327,7 @@ GroovesPage::GroovesPage (ParagonX1AudioProcessor& p) : processor (p), library (
     header.addColumn ("POWER HAND", hand, 120, 60, 200, flags);
     header.addColumn ("INTENSITY", intensity, 120, 60, 240, flags);
     header.addColumn ("MATCH", matchScore, 80, 50, 140, flags);
+    header.setStretchToFitActive (true);   // the columns share the list's width (no scrolling sideways)
     table.setMultipleSelectionEnabled (false);
 
     for (juce::Component* c : { (juce::Component*) &addFolder, (juce::Component*) &removeFolder, (juce::Component*) &subfolders,
@@ -328,6 +383,23 @@ GroovesPage::GroovesPage (ParagonX1AudioProcessor& p) : processor (p), library (
         findByRhythm (r, grid, "your taps");
     };
     addChildComponent (*tapPanel);
+
+    // GROOVE PARTS (0.7.0).
+    partsList = std::make_unique<PartsList> (*this);
+    addAndMakeVisible (*partsList);
+    layerLabel.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+    layerLabel.setColour (juce::Label::textColourId, ParagonColours::textDim);
+    addAndMakeVisible (layerLabel);
+    for (int i = 0; i < (int) layerButtons.size(); ++i)
+    {
+        auto& b = layerButtons[(size_t) i];
+        b.setButtonText (synth::drumseq::patternNames[i]);
+        b.setTooltip ("Lay the ticked parts of the chosen groove into pattern " + synth::drumseq::patternNames[i] + ": its notes on "
+                      "those drums replaced by the groove's (repeated to fill the pattern's LENGTH), its other drums kept. "
+                      "Undo takes it back.");
+        b.onClick = [this, i] { layerOnto (i); };
+        addAndMakeVisible (b);
+    }
 
     library.addChangeListener (this);
     refresh();
@@ -648,7 +720,62 @@ std::optional<grooves::Groove> GroovesPage::readRow (int row) const
 void GroovesPage::playRow (int row, bool loop)
 {
     if (const auto g = readRow (row))
-        processor.playGroove (*g, results[(size_t) row].folder, loop);
+        processor.playGroove (*g, results[(size_t) row].folder, loop, chosenParts);
+}
+
+void GroovesPage::selectedRowsChanged (int row)
+{
+    // The parts' counts for the groove chosen.
+    partCounts = {};
+    partsOf = juce::File();
+    if (const auto g = readRow (row))
+    {
+        partsOf = g->file;
+        const auto map = processor.grooveLayout (results[(size_t) row].folder);
+        for (const auto& h : g->hits)
+            if (const auto part = grooves::drumPartOf (h.note >= 0 && h.note < 128 ? map[(size_t) h.note] : -1); part >= 0)
+                ++partCounts[(size_t) part];
+    }
+    partsList->refresh();
+}
+
+void GroovesPage::toggleDrumPart (int part)
+{
+    if (part < 0)
+        chosenParts = grooves::allParts;
+    else if (chosenParts == grooves::allParts)
+        chosenParts = 1u << part;   // from ALL, a click picks just that part
+    else
+    {
+        chosenParts ^= 1u << part;
+        if (chosenParts == 0)
+            chosenParts = grooves::allParts;   // nothing ticked: back to ALL
+    }
+    partsList->refresh();
+    // The chosen groove playing: heard with its new parts at once.
+    if (const auto row = table.getSelectedRow(); row >= 0 && row < (int) results.size()
+        && processor.getGroovePosition() >= 0.0 && processor.getGrooveFile() == results[(size_t) row].file)
+        playRow (row, true);
+}
+
+void GroovesPage::layerOnto (int pattern)
+{
+    const auto row = table.getSelectedRow();
+    const auto g = readRow (row);
+    if (! g.has_value())
+        message = "Choose a groove first (click it in the list)";
+    else
+    {
+        processor.layerParts (*g, results[(size_t) row].folder, chosenParts, pattern);
+        juce::StringArray names;
+        for (int k = 0; k < grooves::numDrumParts; ++k)
+            if ((chosenParts & (1u << k)) != 0)
+                names.add (grooves::drumPartNames[k]);
+        message = (chosenParts == grooves::allParts ? juce::String ("All of ") : names.joinIntoString (", ") + " of ") + g->name
+                  + " laid into pattern " + synth::drumseq::patternNames[pattern];
+    }
+    messageUntil = juce::Time::getMillisecondCounterHiRes() + 5000.0;
+    timerCallback();
 }
 
 //==============================================================================
@@ -792,14 +919,21 @@ juce::var GroovesPage::getDragSourceDescription (const juce::SparseSet<int>& row
 bool GroovesPage::shouldDropFilesWhenDraggedExternally (const juce::DragAndDropTarget::SourceDetails& details, juce::StringArray& files,
                                                         bool& canMoveFiles)
 {
+    // A groove (its ticked parts), or one part of the chosen groove dragged from GROOVE PARTS.
     const auto description = details.description.toString();
-    if (! description.startsWith (dragPrefix))
-        return false;
-    const auto row = description.fromFirstOccurrenceOf (dragPrefix, false, false).getIntValue();
+    auto row = -1;
+    auto parts = chosenParts;
+    if (description.startsWith (dragPrefix))
+        row = description.fromFirstOccurrenceOf (dragPrefix, false, false).getIntValue();
+    else if (description.startsWith ("part:"))
+    {
+        row = table.getSelectedRow();
+        parts = 1u << juce::jlimit (0, grooves::numDrumParts - 1, description.fromFirstOccurrenceOf ("part:", false, false).getIntValue());
+    }
     const auto g = readRow (row);
     if (! g.has_value())
         return false;
-    const auto file = processor.grooveDragFile (*g, results[(size_t) row].folder);
+    const auto file = processor.grooveDragFile (*g, results[(size_t) row].folder, parts);
     if (! file.existsAsFile())
         return false;
     files.add (file.getFullPathName());
@@ -887,6 +1021,18 @@ void GroovesPage::resized()
     for (auto& c : filterColumns)
         c->setBounds (strip.removeFromLeft (columnWidth).reduced (4, 0));
     area.removeFromTop (14);
+    // GROOVE PARTS at the list's right, LAYER ONTO under it.
+    {
+        auto parts = area.removeFromRight (180).reduced (4);
+        auto buttons = parts.removeFromBottom (30);
+        layerLabel.setBounds (parts.removeFromBottom (22));
+        parts.removeFromBottom (4);
+        partsList->setBounds (parts);
+        const auto w = buttons.getWidth() / (int) layerButtons.size();
+        for (auto& b : layerButtons)
+            b.setBounds (buttons.removeFromLeft (w).reduced (2, 0));
+        area.removeFromRight (10);
+    }
     table.setBounds (area.reduced (4));
     // The tap panel over the filters and the list while open.
     tapPanel->setBounds (table.getBounds().getUnion (filterColumns[0]->getBounds().withX (tapButton.getX())).expanded (4));

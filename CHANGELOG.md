@@ -2,6 +2,33 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.7.0
+
+**The groove player, part 4: GROOVE PARTS.** Hear, drag or lay in just part of a groove: the hats of one over the kick and snare of another. Our own design, inspired by the groove parts of commercial drum software.
+
+- **GROOVE PARTS** (right of the groove list): the chosen groove's parts, each with how many hits it has: KICK, SNARE, HI-HAT (closed, open and half-open), HI-HAT PEDAL, RIDE (and its bell), TOMS, CRASH (the crashes, china and splash), PERCUSSION (clap, tambourine, shaker). Parts the groove doesn't use are dimmed.
+  - **Click a part to tick it.** From ALL, a click picks just that part; click more to add them; ALL ticks them all again.
+  - **The preview plays only the ticked parts.** Tick or untick while it plays and you hear the change at once.
+  - **Dragging a groove** out takes only its ticked parts. **Drag a part's row** to take just that part. Its file is named for it ("... Verse 01 HI-HAT").
+- **LAYER ONTO A B C D:** the ticked parts go into that drum sequencer pattern.
+  - Only the pattern's notes on those drums are replaced; its other drums stay as they are. A part shorter than the pattern repeats to fill its LENGTH.
+  - LENGTH and the sequencer's other settings don't change. TEMPO's factor and VELOCITY apply, as with TO SEQUENCER.
+  - For example: TO SEQUENCER B with one groove, then choose another groove, tick HI-HAT, LAYER ONTO B: its hats over the first groove's kick and snare.
+  - **Undo** takes it back.
+- **Fixed: undo after TO SEQUENCER.** Putting a second groove into the same pattern with nothing else changing (the same LENGTH, the same pattern, the sequencer already on) didn't make an undo step of its own, so undo took back both grooves. Each is its own undo step now.
+- **The groove list** now fits its width (no scrolling sideways to see MATCH).
+- **Tests:**
+  - every drum in a part;
+  - the preview playing only the ticked parts, and changing as you tick;
+  - a dragged file with only those notes, named for them;
+  - hats laid onto a pattern: its kick and snare kept, its old hats gone, a one-bar part repeated to fill 8 beats (32 sixteenths, the last at 7.75 beats), its velocity, LENGTH unchanged, and undo bringing the pattern back exactly;
+  - TO SEQUENCER twice into the same pattern undoing one step;
+  - the page's counts, ticking and LAYER ONTO.
+
+What can't be checked here: how it sounds, and real groove packs' parts (which notes a pack uses for each drum comes from the folder's FILES' MAP).
+
+Next: the song track (grooves arranged into a song). It's in the manual's chapter 7: please send it when you can, so it's designed from what it describes.
+
 ## 0.6.0
 
 **The groove player, part 3: TAP TO FIND.** Tap a rhythm, and the grooves closest to it come first. Our own design, inspired by the tap-a-rhythm search of commercial drum software.

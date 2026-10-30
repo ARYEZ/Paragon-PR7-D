@@ -28,6 +28,19 @@ namespace grooves
     Part partOf (const juce::File&);   // the file's name, then its folder's, then the one above
     Part partIn (const juce::String& name);   // nothing found: Part::beat
 
+    // GROOVE PARTS (0.7.0): a groove's drums in groups, to hear, drag or lay into a pattern on their own. Chosen as a
+    // set: bit n is part n (allParts: every one).
+    enum class DrumPart { kick, snare, hats, pedal, ride, toms, crash, percussion };
+    inline constexpr int numDrumParts = 8;
+    inline constexpr unsigned allParts = (1u << numDrumParts) - 1u;
+    inline const juce::StringArray drumPartNames { "KICK", "SNARE", "HI-HAT", "HI-HAT PEDAL", "RIDE", "TOMS", "CRASH", "PERCUSSION" };
+    int drumPartOf (int slot) noexcept;   // the kit's slot's part (every slot has one), -1 for none
+    inline bool inParts (unsigned parts, int slot) noexcept
+    {
+        const auto part = drumPartOf (slot);
+        return part >= 0 && (parts & (1u << part)) != 0;
+    }
+
     struct Hit
     {
         double beat = 0.0;    // quarter notes from the groove's start
