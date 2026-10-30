@@ -1,4 +1,5 @@
 #include "GroovesPage.h"
+#include "grooves/GrooveDatabase.h"
 
 #include <map>
 
@@ -35,7 +36,7 @@ public:
             juce::ignoreUnused (entry);
             return true;
         }
-        return false;
+        return ! grooves::db::foldersIn (folder).empty();   // a groove database's folders (0.15.0)
     }
 
     void itemOpennessChanged (bool isNowOpen) override
@@ -47,6 +48,10 @@ public:
         for (const auto& child : children)
             if (! child.isHidden())
                 addSubItem (new FolderItem (page, child, child.getFileName()));
+        // A groove database's folders (0.15.0), after the hidden check: they aren't on disk, which Windows reports as
+        // hidden.
+        for (const auto& inside : grooves::db::foldersIn (folder))
+            addSubItem (new FolderItem (page, inside, inside.getFileName()));
     }
 
     void paintItem (juce::Graphics& g, int width, int height) override

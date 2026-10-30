@@ -21,6 +21,7 @@ add_executable(ParagonX1Tests
     NoteMapTests.cpp
     OutputTests.cpp
     GrooveTests.cpp
+    GrooveDatabaseTests.cpp
     GroovePlayerTests.cpp
     RhythmTests.cpp
     SongTests.cpp
@@ -52,3 +53,6 @@ target_compile_definitions(ParagonX1Tests PRIVATE
 
 include(${catch2_SOURCE_DIR}/extras/Catch.cmake)
 catch_discover_tests(ParagonX1Tests)
+
+# Test files kept in the repository (tests/data): the groove database made by make_groove_db.py.
+target_compile_definitions(ParagonX1Tests PRIVATE PARAGON_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/data")

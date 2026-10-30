@@ -23,7 +23,7 @@ PR7-D is built in stages, each one released:
 | **2** | The bigger kit: 20 drums, with ride, ride bell, second crash, china, splash, half-open hat, tambourine, shaker | **Works (0.2.0)** |
 | **3** | Note maps: Root, a groove-library layout, General MIDI, and your own | **Works (0.2.0)** |
 | **4** | Multiple outputs: 16 stereo outputs; each drum, insert bus and send return chooses one | **Works (0.3.0)** |
-| **5** | The groove player: browse, filter, preview and drag MIDI grooves from your own folders | **Works (0.13.0)**: folders, list, search, filter columns, preview, drag out, into the sequencer (buttons, or dragged onto its grid), tap to find, groove parts |
+| **5** | The groove player: browse, filter, preview and drag MIDI grooves from your own folders | **Works (0.15.0)**: folders, list, search, filter columns, preview, drag out, into the sequencer (buttons, or dragged onto its grid), tap to find, groove parts; grooves kept in `midiDB` database files too |
 | **6** | The song track: grooves laid out as a song, played with your DAW | **Works (0.12.0)**: blocks from grooves or MIDI files, move, lengthen, duplicate, mute, song parts, change tempo, PLAY, EXPORT MIDI; editing inside a block (paste or remove drums, quantize, velocity, split, merge, EDIT BLOCK); the SONG CREATOR; tempo and time signature changes; IMPORT MIDI FILE; RECORD; BOUNCE to audio; FOLLOW DAW |
 | **7** | The kit view: a drawn kit (our own 3D kit, black with glowing rings) to click and play | **Works (0.14.0)**: click a drum to choose and hear it; each piece glows as it plays |
 

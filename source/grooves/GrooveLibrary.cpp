@@ -1,4 +1,5 @@
 #include "GrooveLibrary.h"
+#include "grooves/GrooveDatabase.h"
 
 #include <map>
 
@@ -270,19 +271,15 @@ namespace grooves
             const auto& linked = folders[(size_t) f];
             // CUSTOM and ROOT files: their power hand from the factory layout (the plugin's own map can change any time).
             const auto map = layoutFor (f, synth::drums::notemap::grooveLibrary(), 36);
-            for (const auto& item : juce::RangedDirectoryIterator (linked.folder, true, "*.mid;*.midi", juce::File::findFiles))
+            const auto add = [&] (const juce::File& file, const juce::String& key, auto readIt)
             {
-                if ((stop != nullptr && stop->load()) || (int) found.size() >= maxFiles)
-                    break;
-                const auto file = item.getFile();
-                const auto key = stamp (file, linked.layout);
                 Entry e;
                 if (const auto known = before.find (file.getFullPathName()); known != before.end() && known->second.first == key)
                     e = known->second.second;
-                else if (const auto g = grooves::read (file, map))
+                else if (const auto g = readIt())
                     e = entryOf (*g, f, map);
                 else
-                    continue;   // not a groove: no notes, or not a MIDI file
+                    return;   // not a groove: no notes, or not a MIDI file
                 e.folder = f;
                 e.name = file.getFileNameWithoutExtension();
                 e.family = file.getParentDirectory().getFileName();
@@ -291,6 +288,33 @@ namespace grooves
                 found.push_back (std::move (e));
                 if ((++scanned % 200) == 0)
                     sendChangeMessage();
+            };
+            for (const auto& item : juce::RangedDirectoryIterator (linked.folder, true, juce::String ("*.mid;*.midi;") + db::wildcard, juce::File::findFiles))
+            {
+                if ((stop != nullptr && stop->load()) || (int) found.size() >= maxFiles)
+                    break;
+                const auto file = item.getFile();
+                if (! file.hasFileExtension ("mid;midi"))
+                {
+                    // A groove database (0.15.0): each groove in it, as if a file inside it; known ones by the database's
+                    // own size and date.
+                    if (! db::isDatabase (file))
+                        continue;
+                    const auto contents = db::load (file);
+                    const auto key = "db:" + stamp (file, linked.layout);
+                    for (const auto& groove : contents->items)
+                    {
+                        if ((stop != nullptr && stop->load()) || (int) found.size() >= maxFiles)
+                            break;
+                        add (groove.file, key, [&]
+                        {
+                            juce::MemoryInputStream in (groove.midi, false);
+                            return grooves::read (in, groove.file, map);
+                        });
+                    }
+                    continue;
+                }
+                add (file, stamp (file, linked.layout), [&] { return grooves::read (file, map); });
             }
         }
         if (stop != nullptr && stop->load())

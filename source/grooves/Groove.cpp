@@ -1,4 +1,5 @@
 #include "Groove.h"
+#include "grooves/GrooveDatabase.h"
 
 namespace grooves
 {
@@ -94,6 +95,17 @@ namespace grooves
 
     std::optional<Groove> read (const juce::File& file, const Map& layout)
     {
+        // A groove inside a groove database (0.15.0): read from there.
+        if (! file.existsAsFile())
+        {
+            std::shared_ptr<const db::Contents> keep;
+            if (const auto* item = db::itemFor (file, keep))
+            {
+                juce::MemoryInputStream in (item->midi, false);
+                return read (in, file, layout);
+            }
+            return std::nullopt;
+        }
         juce::FileInputStream in (file);
         if (! in.openedOk())
             return std::nullopt;
@@ -123,7 +135,8 @@ namespace grooves
                     endOfTrack = juce::jmax (endOfTrack, beat);
                 else if (m.isTempoMetaEvent() && ! tempoFound && m.getTempoSecondsPerQuarterNote() > 0.0)
                 {
-                    g.bpm = 60.0 / m.getTempoSecondsPerQuarterNote();
+                    // To a thousandth: the file keeps microseconds a beat, so 90 BPM comes back as 89.99996.
+                    g.bpm = std::round (60000.0 / m.getTempoSecondsPerQuarterNote()) / 1000.0;
                     g.bpmKnown = tempoFound = true;
                 }
                 else if (m.isTimeSignatureMetaEvent() && ! signatureFound)

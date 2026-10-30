@@ -90,6 +90,12 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         write ("Ballads/Slow 68 BPM/Verse 01.mid", 68.0, 51, 4, 1, 40);
         write ("Shuffle 124 BPM/Verse 01.mid", 124.0, 42, 2, 1, 0, true);
         write ("Shuffle 124 BPM/Chorus 01.mid", 124.0, 51, 2, 1, 0, true);
+        // PARAGON_SNAPSHOT_GROOVEDB=1 (0.15.0): a groove database in the pack too (tests/data's, its grooves invented).
+        if (env ("PARAGON_SNAPSHOT_GROOVEDB") == "1")
+        {
+            groovePack.getChildFile ("Demo Database").createDirectory();
+            juce::File (PARAGON_TEST_DATA).getChildFile ("midiDB").copyFileTo (groovePack.getChildFile ("Demo Database/midiDB"));
+        }
         REQUIRE (processor.getGrooveLibrary().addFolder (groovePack));
         processor.getGrooveLibrary().scanNow();
         processor.getGrooveLibrary().setFavourite (groovePack.getChildFile ("Rock 96 BPM/Chorus 01.mid"), true);
@@ -443,11 +449,21 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         view->showPage (MainView::Page::grooves);
         auto& grooves = view->getGroovesPage();
         grooves.refresh();
-        grooves.toggleFilter (grooves::Column::type, "Verse", false);
-        grooves.toggleFilter (grooves::Column::type, "Chorus", false);
-        grooves.toggleFilter (grooves::Column::tempo, "Below 80", true);
-        grooves.playRow (1, true);
-        grooves.getTable().selectRow (1);
+        if (env ("PARAGON_SNAPSHOT_GROOVEDB") == "1")
+        {
+            // The database's rock song chosen in the tree, its second groove playing.
+            grooves.chooseFolder (groovePack.getChildFile ("Demo Database/midiDB/Demo Grooves/Straight 4-4/Rock Song 100 BPM"));
+            grooves.playRow (1, true);
+            grooves.getTable().selectRow (1);
+        }
+        else
+        {
+            grooves.toggleFilter (grooves::Column::type, "Verse", false);
+            grooves.toggleFilter (grooves::Column::type, "Chorus", false);
+            grooves.toggleFilter (grooves::Column::tempo, "Below 80", true);
+            grooves.playRow (1, true);
+            grooves.getTable().selectRow (1);
+        }
         // TAP TO FIND: =1 the panel open, a push beat tapped (kick, snare, eighth hats) and the loop running; =2 found.
         if (const auto tap = env ("PARAGON_SNAPSHOT_TAP"); tap.isNotEmpty())
         {

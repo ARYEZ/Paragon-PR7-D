@@ -2,6 +2,22 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.15.0
+
+**GROOVES reads groove databases.** Some drum software installs its MIDI grooves not as .mid files but inside one database file per pack, named `midiDB`. Until now GROOVES only looked for .mid files, so a folder of those packs listed nothing. It reads them now, from your own computer when you link the folder; nothing of them is copied into the plugin or your presets.
+
+- **Link the folder that holds the packs** (ADD FOLDER...): each `midiDB` in it, or in any folder below, shows up in the tree as its pack, with the pack's own folders inside, their sorting codes taken off and the song's name added where they don't say it. For example: **Heavy Rock Grooves > Straight 4-4 > Ordinary Man 72 BPM > Fills > Fills 01**.
+- **Everything works on them as on .mid files:** preview, the filter columns, search, favourites, tap to find, groove parts, to the sequencer (buttons or dragged onto its grid), the song track and song creator, and dragging a groove out to your DAW (as a real MIDI file).
+- **Tempo, time signature and length** come from the database; power hand, feel and the rest are worked out from the notes as for any groove.
+- **Velocities are our guess.** The databases keep each note's time and drum but no velocity. They do mark the strong hits of each groove's first two bars, so a hit on a marked step plays at **112** and the others at **80** (the two bars' marks repeat through longer grooves); a groove with no marks plays at 100. Use the preview's VELOCITY to scale them.
+- **Electronic packs** that use their own near-General-MIDI note layout want the folder's map set to **General MIDI** (FILES' MAP), as found when we checked your EZX Electronic database for 0.8.1.
+- **Checked against your two databases** (Heavy Rock Grooves, EZX Electronic; privately, nothing of them committed): all 495 and 267 grooves listed, every note read (29,458 and 10,902), every length right, the same as a standard database reader gets from the same files.
+- **How:** a small reader of the database file format of our own (read-only; it never changes your files), so no extra library goes into the plugin. A damaged or unreadable file lists fewer grooves or none, never a crash.
+- **Fixed: tempos read from MIDI files** came back a hair off (90 BPM as 89.99996, as MIDI files keep microseconds a beat): rounded to a thousandth now.
+- **Tests:** a small database made for the tests (laid out like a real one, its grooves invented) read through its tables, several pages deep and spread over overflow pages; the accent velocities; 43 grooves listed in their folders with tempo, length, time signature (a 3/4 one) and FILL from the folder; a groove's 26 notes and their velocities; a 64-bar groove's 576 notes; the folder tree; preview through the kit and a dragged MIDI file; not-a-database, cut-short and scrambled files listing fewer or none without crashing.
+
+Not checked here: where your packs keep their `midiDB` files on Windows (link the folder you found them in, or one above it), and how the guessed velocities sound to you.
+
 ## 0.14.0
 
 **The KIT VIEW: a drawn kit to click and play.** The first step towards a kit page like the drum software's (our own artwork, look and design: only the idea of a clickable kit is shared).
