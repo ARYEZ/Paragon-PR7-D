@@ -1574,3 +1574,67 @@ TEST_CASE ("SONG 0.12 strip: REC arms recording; the TRACK menu has BOUNCE (grey
     track.getRecordButton().setToggleState (false, juce::sendNotificationSync);
     CHECK (! t.p.isSongRecording());
 }
+
+//==============================================================================
+// FOLLOW DAW (0.12.0).
+TEST_CASE ("SONG FOLLOW DAW: off, the DAW playing doesn't play the song; PLAY does (the DAW playing or not); saved; undone", "[song][follow]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 1, { { 0.0, BD }, { 2.0, BD } }), 0.0);
+    t.p.setSong (s);
+    t.p.flushUndoStep();
+    // On (as before): the DAW leads.
+    t.host.ppq = 0.0;
+    CHECK (onsets (t.play (1.5)) == std::vector<int> { 0, 48000 });
+
+    // Off: the DAW plays, the song doesn't.
+    s.followDaw = false;
+    t.p.setSong (s);
+    t.p.flushUndoStep();
+    t.host.ppq = 0.0;
+    CHECK (onsets (t.play (1.5)).empty());
+    // PLAY, the DAW still playing (at ppq 37, nothing to do with the song): the song from bar 1, on its own clock.
+    t.host.ppq = 37.0;
+    t.p.playSong (0.0);
+    CHECK (onsets (t.play (1.5)) == std::vector<int> { 0, 48000 });
+    CHECK (t.p.isSongPlaying());   // the DAW playing didn't take over
+
+    // Saved and read back (on is the default: not written).
+    CHECK (! song::Song::fromXml (*t.p.getSong().toXml()).followDaw);
+    CHECK (song::Song::fromXml (*song::Song().toXml()).followDaw);
+    juce::MemoryBlock state;
+    t.p.getStateInformation (state);
+    ParagonX1AudioProcessor other;
+    other.setStateInformation (state.getData(), (int) state.getSize());
+    CHECK (! other.getSong().followDaw);
+    // Undone: on again.
+    t.p.undo();
+    CHECK (t.p.getSong().followDaw);
+}
+
+TEST_CASE ("SONG FOLLOW DAW strip: the button switches it; EXPORT MIDI with it on reminds, with it off doesn't", "[song][follow][ui]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 1, { { 0.0, BD } }), 0.0);
+    t.p.setSong (s);
+    SongTrack track (t.p);
+    track.setBounds (0, 0, 1400, 126);
+    CHECK (track.getFollowButton().getToggleState());
+    // A drag of EXPORT MIDI (its file made): the reminder.
+    MidiExportButton* exportButton = nullptr;
+    for (auto* c : track.getChildren())
+        if (auto* b = dynamic_cast<MidiExportButton*> (c))
+            exportButton = b;
+    REQUIRE (exportButton != nullptr);
+    CHECK (exportButton->makeDragFile().existsAsFile());
+    CHECK (track.getStatusText().contains ("Turn FOLLOW DAW off"));
+    // Off: the song says so; no reminder after another export.
+    track.getFollowButton().setToggleState (false, juce::sendNotificationSync);
+    CHECK (! t.p.getSong().followDaw);
+    CHECK (track.getStatusText().contains ("only with PLAY"));
+    t.folder.createDirectory();
+    CHECK (exportButton->exportTo (t.folder.getChildFile ("song.mid")));
+    CHECK (! track.getStatusText().contains ("Turn FOLLOW DAW off"));
+}

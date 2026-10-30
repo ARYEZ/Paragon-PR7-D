@@ -2197,6 +2197,7 @@ void ParagonX1AudioProcessor::installSong (std::shared_ptr<const song::Song> new
     playback->events = newSong->events();
     playback->endBeat = newSong->endBeat();
     playback->timing.tempos = newSong->tempos;
+    playback->followDaw = newSong->followDaw;
     songData = std::move (newSong);
     if (songPlayback != nullptr)
         retiredSongs.emplace_back (songPlayback, juce::Time::getMillisecondCounterHiRes());
@@ -2261,7 +2262,8 @@ int ParagonX1AudioProcessor::collectSongHits (int numSamples, double ppq, double
     // the tempo map to beats (exact for glides too, and as drift-free as the whole-sample clock).
     const auto timed = s != nullptr && ! s->timing.tempos.empty();
     double secondsFrom = 0.0, samplesFrom = 0.0;   // with tempo changes: this piece's start (seconds, and samples from the song's start)
-    if (ppq >= 0.0)
+    // FOLLOW DAW off: the DAW's position is ignored (PLAY alone plays the song, the DAW playing or not).
+    if (ppq >= 0.0 && (s == nullptr || s->followDaw))
     {
         from = ppq;
         to = from + numSamples * perSample;

@@ -361,6 +361,8 @@ namespace song
             xml->setAttribute ("tempos", t.joinIntoString (" "));
         if (! m.isEmpty())
             xml->setAttribute ("meters", m.joinIntoString (" "));
+        if (! followDaw)
+            xml->setAttribute ("followDaw", false);   // (0.12.0; on when it's not there)
         for (const auto& b : blocks)
         {
             auto* e = xml->createNewChildElement ("Block");
@@ -391,6 +393,7 @@ namespace song
             if (const auto f = juce::StringArray::fromTokens (token, ":", {}); f.size() == 3)
                 s.meters.push_back ({ f[0].getDoubleValue(), f[1].getIntValue(), f[2].getIntValue() });
         s.tidyMeters();
+        s.followDaw = xml.getBoolAttribute ("followDaw", true);
         for (const auto* e : xml.getChildWithTagNameIterator ("Block"))
         {
             Block b;

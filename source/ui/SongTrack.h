@@ -79,6 +79,10 @@ public:
     // TO AUDIO... renders the song to WAV files (on a thread of its own: the plugin plays on; the status line shows how
     // far), in the folder chosen.
     juce::TextButton& getRecordButton() noexcept { return record; }
+    // FOLLOW DAW (0.12.0): the song plays with the DAW (on) or only with PLAY (off); after EXPORT MIDI with it on, a
+    // reminder in the status line (the song on a DAW track as well would play every hit twice).
+    juce::TextButton& getFollowButton() noexcept { return follow; }
+    juce::String getStatusText() const { return status.getText(); }
     void startBounce (const ParagonX1AudioProcessor::BounceOptions&, const juce::File& folder);
     bool isBouncing() const noexcept { return bounceThread != nullptr; }
     double getStartBeat() const noexcept { return startBeat; }
@@ -100,7 +104,10 @@ private:
     int dragTempo = -1;                       // a tempo change being dragged
     std::optional<song::Song> tempoDraft;     // ... the song as it would be (drawn while dragging)
     std::unique_ptr<juce::FileChooser> chooser;
-    juce::TextButton record { "REC" };
+    juce::TextButton record { "REC" }, follow { "FOLLOW DAW" };
+    juce::String note;          // a few seconds' note in the status line
+    double noteUntil = 0.0;
+    void showNote (const juce::String&, double seconds);
     struct BounceThread;
     std::unique_ptr<BounceThread> bounceThread;
     juce::String bounceNote;   // the last bounce's result, for the status line

@@ -44,12 +44,24 @@ SongTrack::SongTrack (ParagonX1AudioProcessor& p) : processor (p)
     addAndMakeVisible (play);
     exportButton.setTooltip ("The whole song as one MIDI file on the kit's notes: click to save it, drag it onto a DAW track.");
     exportButton.fileName = "PR7-D Song";
-    exportButton.makeDragFile = [this] { return processor.songDragFile(); };
-    exportButton.exportTo = [this] (const juce::File& file)
+    // EXPORT MIDI with FOLLOW DAW on: a reminder (the song on a DAW track as well plays every hit twice).
+    const auto remind = [this]
+    {
+        if (processor.getSong().followDaw)
+            showNote ("Playing the song from a DAW track? Turn FOLLOW DAW off, or each hit plays twice.", 10.0);
+    };
+    exportButton.makeDragFile = [this, remind]
+    {
+        remind();
+        return processor.songDragFile();
+    };
+    exportButton.exportTo = [this, remind] (const juce::File& file)
     {
         file.deleteFile();
         juce::FileOutputStream out (file);
-        return out.openedOk() && processor.songToMidi().writeTo (out);
+        const auto ok = out.openedOk() && processor.songToMidi().writeTo (out);
+        remind();
+        return ok;
     };
     addAndMakeVisible (exportButton);
     creator.setTooltip ("The song creator: a whole song from one groove and the grooves round it, by song structure.");
@@ -65,6 +77,19 @@ SongTrack::SongTrack (ParagonX1AudioProcessor& p) : processor (p)
     record.setColour (juce::TextButton::textColourOnId, ParagonColours::meterRed);   // armed: red (and the lane framed red)
     record.onClick = [this] { processor.setSongRecording (record.getToggleState()); };
     addAndMakeVisible (record);
+    follow.setClickingTogglesState (true);
+    follow.setToggleState (processor.getSong().followDaw, juce::dontSendNotification);
+    follow.setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
+    follow.setTooltip ("On: the song plays with your DAW (bar 1 is your DAW's bar 1). Off: only with PLAY, your DAW playing or not. "
+                       "Turn it off when the song's MIDI is on a DAW track (EXPORT MIDI dragged in), or every hit plays twice.");
+    follow.onClick = [this]
+    {
+        const auto on = follow.getToggleState();
+        edit ([on] (song::Song& s) { s.followDaw = on; });
+        if (! on)
+            showNote ("FOLLOW DAW off: the song plays only with PLAY.", 5.0);
+    };
+    addAndMakeVisible (follow);
     blocksView.setTooltip ("The blocks: arrange the song.");
     tempoView.setTooltip ("The song's tempo changes (used by PLAY and EXPORT MIDI; while your DAW plays, its tempo leads): "
                           "double-click to add one, drag one to move it, right-click it to glide to the next or remove it.");
@@ -131,6 +156,8 @@ void SongTrack::resized()
     blocksView.setBounds (top.removeFromLeft (62).reduced (2, 2));
     tempoView.setBounds (top.removeFromLeft (62).reduced (2, 2));
     timeView.setBounds (top.removeFromLeft (56).reduced (2, 2));
+    top.removeFromLeft (8);
+    follow.setBounds (top.removeFromLeft (98).reduced (2, 2));
     status.setBounds (top.reduced (8, 0));
     area.removeFromTop (2);
     ruler = area.removeFromTop (rulerHeight);
@@ -154,6 +181,11 @@ void SongTrack::updateStatus()
     if (bounceThread != nullptr || bounceNote.isNotEmpty())
     {
         status.setText (bounceNote, juce::dontSendNotification);
+        return;
+    }
+    if (note.isNotEmpty() && juce::Time::getMillisecondCounterHiRes() < noteUntil)
+    {
+        status.setText (note, juce::dontSendNotification);
         return;
     }
     if (s.isEmpty())
@@ -702,6 +734,13 @@ void SongTrack::changeListenerCallback (juce::ChangeBroadcaster*)
 
 void SongTrack::timerCallback()
 {
+    // A note's time up: the usual line again. FOLLOW DAW as the song has it (undo, a project loaded).
+    if (note.isNotEmpty() && juce::Time::getMillisecondCounterHiRes() >= noteUntil)
+    {
+        note.clear();
+        updateStatus();
+    }
+    follow.setToggleState (processor.getSong().followDaw, juce::dontSendNotification);
     // RECORD: the notes played since, into the song (and REC as the processor has it).
     if (processor.isSongRecording() && processor.mergeRecordedNotes() > 0)
         updateStatus();
@@ -906,4 +945,11 @@ void SongTrack::askBounce()
                 startBounce (o, folder);
         });
     }));
+}
+
+void SongTrack::showNote (const juce::String& text, double seconds)
+{
+    note = text;
+    noteUntil = juce::Time::getMillisecondCounterHiRes() + seconds * 1000.0;
+    updateStatus();
 }

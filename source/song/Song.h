@@ -75,6 +75,9 @@ namespace song
         std::vector<Block> blocks;               // in time order, never overlapping
         std::vector<Meter> meters;               // time signature changes after the start, in order, each on a bar line
         std::vector<TempoPoint> tempos;          // in order; none: the DAW's tempo
+        // FOLLOW DAW (0.12.0): on, the song plays with the DAW's song position while it plays; off, only with PLAY (the
+        // DAW playing or not): for when the song's MIDI is on a DAW track, which would play every hit a second time.
+        bool followDaw = true;
 
         double beatsPerBar() const noexcept { return numerator * 4.0 / juce::jmax (1, denominator); }   // the first bars'
         double endBeat() const noexcept { return blocks.empty() ? 0.0 : blocks.back().end(); }
@@ -82,7 +85,7 @@ namespace song
         bool operator== (const Song& o) const noexcept
         {
             return numerator == o.numerator && denominator == o.denominator && blocks == o.blocks && meters == o.meters
-                && tempos == o.tempos;
+                && tempos == o.tempos && followDaw == o.followDaw;
         }
 
         // BARS (0.11.0), with the time signature changes: the time signature at a beat; every bar line from the start

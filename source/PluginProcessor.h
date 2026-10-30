@@ -266,7 +266,7 @@ public:
     int addBlockToSong (song::Block, double beat = -1.0);   // any block (a MIDI file dropped on the strip)
     void playSong (double fromBeat = 0.0);   // with the DAW stopped: plays from there at the DAW's last tempo
     void stopSong();
-    bool isSongPlaying() const noexcept { return songLocal.load(); }
+    bool isSongPlaying() const noexcept { return songLocal.load(); }   // PLAY (with FOLLOW DAW off, also while the DAW plays)
     double getSongPosition() const noexcept { return songPosition.load(); }   // beats into the song (-1: not playing)
     // EXPORT MIDI: the whole song on the kit's notes (each drum's home note in the map), at the DAW's tempo.
     juce::MidiFile songToMidi() const;
@@ -527,6 +527,7 @@ private:
         std::vector<song::Hit> events;
         double endBeat = 0.0;
         song::Song timing;   // 0.11.0: only its tempo changes (PLAY's clock through them; none: the DAW's tempo)
+        bool followDaw = true;   // 0.12.0: FOLLOW DAW
     };
     void installSong (std::shared_ptr<const song::Song>);
     int collectSongHits (int numSamples, double ppq, double bpm, synth::drums::SlotHit* into, int room) noexcept;
