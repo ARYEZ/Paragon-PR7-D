@@ -694,6 +694,7 @@ void ParagonX1AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     for (int start = 0; start < numSamples; start += preparedBlockSize)
         processChunk (buffer, keyboardMidi, kit, start, juce::jmin (preparedBlockSize, numSamples - start), aux.from (start));
 
+    runTapping (buffer, keyboardMidi, kit);   // TAP TO FIND: its taps and its metronome (after everything: the click on top)
     activeVoices = drumKit.getNumActiveVoices();
     midi.clear();   // an instrument: nothing goes on down the MIDI chain
 }
@@ -947,6 +948,103 @@ void ParagonX1AudioProcessor::previewDrum (int slot) noexcept
 {
     if (slot >= 0 && slot < ParamIDs::numDrums)
         pendingPreview[(size_t) slot] = true;
+}
+
+//==============================================================================
+// TAP TO FIND (0.6.0)
+void ParagonX1AudioProcessor::startTapping (double bpm, double loopBeats, double beatsPerBar)
+{
+    tapBpm = juce::jlimit (30.0, 300.0, bpm);
+    tapLoopBeats = juce::jmax (1.0, loopBeats);
+    tapBeatsPerBar = juce::jmax (0.5, beatsPerBar);
+    ++tapRestart;   // from the loop's start
+    tapping = true;
+}
+
+void ParagonX1AudioProcessor::stopTapping()
+{
+    tapping = false;
+    tapPosition = -1.0;
+}
+
+void ParagonX1AudioProcessor::tapPad (int lane) noexcept
+{
+    if (lane >= 0 && lane < grooves::numLanes)
+        tapsWaiting.fetch_or (1 << lane);
+}
+
+int ParagonX1AudioProcessor::popTaps (std::vector<Tap>& into)
+{
+    const auto scope = tapFifo.read (tapFifo.getNumReady());
+    for (int i = 0; i < scope.blockSize1; ++i) into.push_back (tapBuffer[(size_t) (scope.startIndex1 + i)]);
+    for (int i = 0; i < scope.blockSize2; ++i) into.push_back (tapBuffer[(size_t) (scope.startIndex2 + i)]);
+    return scope.blockSize1 + scope.blockSize2;
+}
+
+void ParagonX1AudioProcessor::runTapping (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& notes,
+                                          const synth::drums::KitSettings& kit) noexcept
+{
+    const auto numSamples = buffer.getNumSamples();
+    if (! tapping.load())
+    {
+        tapsWaiting = 0;
+        clickAt = -1;
+        return;
+    }
+    if (const auto restart = tapRestart.load(); restart != tapRestartSeen)
+    {
+        tapRestartSeen = restart;
+        tapSamples = 0;
+        clickAt = -1;
+    }
+    const auto perSample = tapBpm.load() / 60.0 / getSampleRate();
+    const auto loop = tapLoopBeats.load();
+    const auto beatAt = [&] (int sample) { return std::fmod ((double) (tapSamples + sample) * perSample, loop); };
+    const auto record = [&] (int lane, double beat)
+    {
+        const auto scope = tapFifo.write (1);
+        if (scope.blockSize1 > 0)
+            tapBuffer[(size_t) scope.startIndex1] = { lane, beat };
+        else if (scope.blockSize2 > 0)
+            tapBuffer[(size_t) scope.startIndex2] = { lane, beat };
+    };
+
+    // The pads clicked since the last block: their drums now, their taps here. Notes played: where they fall.
+    if (const auto pads = tapsWaiting.exchange (0); pads != 0)
+        for (int lane = 0; lane < grooves::numLanes; ++lane)
+            if ((pads & (1 << lane)) != 0)
+            {
+                drumKit.trigger (grooves::slotOfLane (lane), 0.8f, kit);
+                record (lane, beatAt (0));
+            }
+    for (const auto metadata : notes)
+        if (const auto& m = metadata.getMessage(); m.isNoteOn())
+            if (const auto lane = grooves::laneOf (kit.slotFor (m.getNoteNumber())); lane >= 0)
+                record (lane, beatAt (juce::jlimit (0, numSamples - 1, metadata.samplePosition)));
+
+    // THE METRONOME: a short click on each beat (higher and on the bar's first), added to MAIN after everything.
+    const auto clickLength = (int) (0.03 * getSampleRate());
+    const auto perBar = tapBeatsPerBar.load();
+    for (int i = 0; i < numSamples; ++i)
+    {
+        const auto now = (double) (tapSamples + i) * perSample;
+        const auto before = (double) (tapSamples + i - 1) * perSample;
+        if (tapSamples + i == 0 || std::floor (now) != std::floor (before))
+        {
+            clickAt = 0;
+            clickAccent = std::fmod (std::floor (std::fmod (now, loop) + 1.0e-9), perBar) < 0.5;
+        }
+        if (clickAt < 0)
+            continue;
+        const auto t = clickAt / getSampleRate();
+        const auto s = metronomeLevel * (float) (std::sin (juce::MathConstants<double>::twoPi * (clickAccent ? 1600.0 : 1100.0) * t) * std::exp (-t / 0.008));
+        for (int c = 0; c < juce::jmin (2, getMainBusNumOutputChannels(), buffer.getNumChannels()); ++c)
+            buffer.addSample (c, i, s);
+        if (++clickAt >= clickLength)
+            clickAt = -1;
+    }
+    tapSamples += numSamples;
+    tapPosition = beatAt (0);
 }
 
 synth::drums::KitSettings ParagonX1AudioProcessor::getKitSettings() const noexcept

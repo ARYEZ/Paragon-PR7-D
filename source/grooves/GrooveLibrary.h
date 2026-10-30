@@ -5,6 +5,7 @@
 #pragma once
 
 #include "Groove.h"
+#include "Rhythm.h"
 
 #include <juce_events/juce_events.h>
 
@@ -28,6 +29,8 @@ namespace grooves
         int numHits = 0;
         Feel feel = Feel::straight;
         Part part = Part::beat;      // from the names (worked out when listed)
+        std::shared_ptr<const Rhythm> rhythm;   // TAP TO FIND (0.6.0): its rhythm (shared: entries are copied a lot)
+        float match = -1.0f;         // with a tap search: how close, 0 to 1 (else -1)
 
         juce::String signature() const { return juce::String (numerator) + "/" + juce::String (denominator); }
         double lengthBeats() const noexcept { return bars * numerator * 4.0 / denominator; }
@@ -107,8 +110,12 @@ namespace grooves
 
         // THE BROWSER: the grooves in `within` (nothing: everywhere; a folder: its files, and its subfolders' if
         // SUBFOLDERS is on) whose name or folder has every word of `text`, favourites only if asked, sorted.
+        // TAP TO FIND (0.6.0): with `tap`, every groove gets its match to the tapped rhythm on the `grid`, and the list
+        // is sorted by it, closest first (instead of `sort`).
+        struct TapSearch { Rhythm rhythm; double grid = 0.5; };
         std::vector<Entry> query (const juce::File& within, const juce::String& text, bool favouritesOnly, Sort sort,
-                                  double songBpm, int songNumerator, int songDenominator, const Filters& filters = {}) const;
+                                  double songBpm, int songNumerator, int songDenominator, const Filters& filters = {},
+                                  const TapSearch* tap = nullptr) const;
 
         // FAVOURITES.
         bool isFavourite (const juce::File&) const;

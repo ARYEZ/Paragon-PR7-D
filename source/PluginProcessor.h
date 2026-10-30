@@ -237,6 +237,17 @@ public:
     struct GrooveToPattern { int placed = 0, noDrum = 0, pastEnd = 0; int lengthBeats = 0; };
     GrooveToPattern grooveToPattern (const grooves::Groove&, int folder, int pattern);
 
+    // TAP TO FIND (0.6.0): a loop of `loopBeats` at `bpm` with a metronome (on MAIN) while tapping; notes played (the
+    // DAW's, the on-screen keyboard's) and the pads' taps recorded where they fall in the loop, by drum group.
+    void startTapping (double bpm, double loopBeats, double beatsPerBar);
+    void stopTapping();
+    bool isTapping() const noexcept { return tapping.load(); }
+    double getTapBeat() const noexcept { return tapPosition.load(); }   // where in the loop now (-1: not tapping)
+    void tapPad (int lane) noexcept;   // a pad clicked: its drum plays and the tap is recorded (at the next block)
+    struct Tap { int lane = 0; double beat = 0.0; };
+    int popTaps (std::vector<Tap>& into);   // the taps recorded since the last call (message thread)
+    static constexpr float metronomeLevel = 0.25f;   // the click's peak (about -12 dBFS): heard over the kit, not loud
+
     juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
     LevelMeterSource& getOutputMeter() noexcept { return outputMeter; }
 
@@ -421,6 +432,19 @@ private:
     std::atomic<double> grooveFactor { 1.0 };
     std::atomic<float> grooveVelocity { 1.0f };
     std::array<synth::drums::SlotHit, 256> grooveHits {};
+
+    // TAP TO FIND: the loop's clock (whole samples since it started, as the preview's), the metronome's click, the pads
+    // waiting for the next block (a bit each), and what was tapped on its way to the page.
+    void runTapping (juce::AudioBuffer<float>&, const juce::MidiBuffer&, const synth::drums::KitSettings&) noexcept;
+    std::atomic<bool> tapping { false };
+    std::atomic<double> tapBpm { 120.0 }, tapLoopBeats { 8.0 }, tapBeatsPerBar { 4.0 }, tapPosition { -1.0 };
+    std::atomic<int> tapsWaiting { 0 }, tapRestart { 0 };
+    int tapRestartSeen = 0;
+    juce::int64 tapSamples = 0;
+    int clickAt = -1;          // samples into the click sounding (-1: none)
+    bool clickAccent = false;
+    juce::AbstractFifo tapFifo { 512 };
+    std::array<Tap, 512> tapBuffer {};
     std::array<std::atomic<bool>, ParamIDs::numDrums> pendingPreview {};
     juce::MidiBuffer drumMidi;
     // Reversed synth drums' rendered hits (by slot), what each was made from, and the audio thread's pointers.

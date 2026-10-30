@@ -9,10 +9,10 @@ namespace grooves
         using synth::drums::notemap::Layout;
 
         // What was read from a file, kept with what it was read as (so a changed file, or folder map, is read again),
-        // and the index's format ("2": with FEEL, 0.5.0; anything older is read again).
+        // and the index's format ("2": with FEEL, 0.5.0; "3": with the rhythm, 0.6.0; anything older is read again).
         juce::String stamp (const juce::File& f, Layout layout)
         {
-            return "2:" + juce::String (f.getSize()) + ":" + juce::String (f.getLastModificationTime().toMilliseconds()) + ":"
+            return "3:" + juce::String (f.getSize()) + ":" + juce::String (f.getLastModificationTime().toMilliseconds()) + ":"
                    + juce::String ((int) layout);
         }
 
@@ -30,6 +30,8 @@ namespace grooves
             x->setAttribute ("intensity", (double) e.intensity);
             x->setAttribute ("hits", e.numHits);
             x->setAttribute ("feel", (int) e.feel);
+            if (e.rhythm != nullptr)
+                x->setAttribute ("rhythm", e.rhythm->encode());
             return x;
         }
 
@@ -46,10 +48,11 @@ namespace grooves
             e.intensity = (float) x.getDoubleAttribute ("intensity");
             e.numHits = x.getIntAttribute ("hits");
             e.feel = (Feel) juce::jlimit (0, feelNames.size() - 1, x.getIntAttribute ("feel"));
+            e.rhythm = std::make_shared<const Rhythm> (Rhythm::decode (x.getStringAttribute ("rhythm")));
             return e;
         }
 
-        Entry entryOf (const Groove& g, int folder)
+        Entry entryOf (const Groove& g, int folder, const synth::drums::notemap::Map& layout)
         {
             Entry e;
             e.file = g.file;
@@ -65,6 +68,7 @@ namespace grooves
             e.intensity = g.intensity;
             e.numHits = (int) g.hits.size();
             e.feel = g.feel;
+            e.rhythm = std::make_shared<const Rhythm> (rhythmOf (g, layout));
             return e;
         }
     }
@@ -276,7 +280,7 @@ namespace grooves
                 if (const auto known = before.find (file.getFullPathName()); known != before.end() && known->second.first == key)
                     e = known->second.second;
                 else if (const auto g = grooves::read (file, map))
-                    e = entryOf (*g, f);
+                    e = entryOf (*g, f, map);
                 else
                     continue;   // not a groove: no notes, or not a MIDI file
                 e.folder = f;
@@ -348,7 +352,8 @@ namespace grooves
     }
 
     std::vector<Entry> Library::query (const juce::File& within, const juce::String& text, bool favouritesOnly, Sort sort,
-                                       double songBpm, int songNumerator, int songDenominator, const Filters& filters) const
+                                       double songBpm, int songNumerator, int songDenominator, const Filters& filters,
+                                       const TapSearch* tap) const
     {
         juce::StringArray words;
         words.addTokens (text.toLowerCase(), " ", "\"");
@@ -368,6 +373,8 @@ namespace grooves
                 if (! filters.passes (e))
                     continue;
                 result.push_back (e);
+                if (tap != nullptr)
+                    result.back().match = e.rhythm != nullptr ? (float) match (tap->rhythm, *e.rhythm, tap->grid) : 0.0f;
             }
         }
         const auto byName = [] (const Entry& a, const Entry& b)
@@ -376,6 +383,14 @@ namespace grooves
                 return c < 0;
             return a.name.compareNatural (b.name) < 0;
         };
+        if (tap != nullptr)
+        {
+            std::stable_sort (result.begin(), result.end(), [&] (const Entry& a, const Entry& b)
+            {
+                return a.match != b.match ? a.match > b.match : byName (a, b);
+            });
+            return result;
+        }
         switch (sort)
         {
             case Sort::name:

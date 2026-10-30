@@ -421,3 +421,115 @@ TEST_CASE ("GROOVES page 0.5: the filter columns list what the grooves have; cho
     page.toPattern (3);
     CHECK (t.p.getModMatrix().drumPatterns[3].notes.size() == 3);
 }
+
+TEST_CASE ("TAP TO FIND: the metronome clicks on each beat while tapping (higher on the bar), and not after", "[tap][groove-player]")
+{
+    Plugin t;
+    t.p.startTapping (120.0, 8.0, 4.0);
+    const auto out = t.play (2.2);
+    const auto o = onsets (out);
+    // Beats every 24000 samples at 120. (The click is a sine from zero, so it doesn't pop: its first sound is the
+    // sample after the beat's.)
+    REQUIRE (o.size() >= 5);
+    CHECK (std::vector<int> (o.begin(), o.begin() + 5) == std::vector<int> { 1, 24001, 48001, 72001, 96001 });
+    CHECK_THAT (peak (out), WithinAbs (ParagonX1AudioProcessor::metronomeLevel, 0.03));
+    // The bar's first click higher: count its rises in its first 5 ms against the next beat's.
+    const auto rises = [&out] (int from)
+    {
+        auto n = 0;
+        for (int i = from + 1; i < from + 240; ++i)
+            n += out[(size_t) i - 1] < 0.0f && out[(size_t) i] >= 0.0f;
+        return n;
+    };
+    CHECK (rises (0) > rises (24000));
+    CHECK (rises (96000) > rises (72000));   // bar 2's first
+    t.p.stopTapping();
+    CHECK (peak (t.play (1.0)) < 1.0e-6f);
+    CHECK (t.p.getTapBeat() < 0.0);
+}
+
+TEST_CASE ("TAP TO FIND: notes played are taps where they fall in the loop, by drum group; the pads' too", "[tap][groove-player]")
+{
+    Plugin t;
+    t.p.startTapping (120.0, 8.0, 4.0);
+    juce::AudioBuffer<float> buffer (2, blockSize);
+    // Blocks of 256: a kick note (36) at 30000 samples (1.25 beats), a hat (42 under ROOT: F#2, the closed hat) at
+    // 200000 (8.33 beats: round the 8-beat loop to 0.33).
+    const std::pair<int, int> notes[] = { { 30000, 36 }, { 200000, 42 } };
+    for (int start = 0; start < 210000; start += blockSize)
+    {
+        juce::MidiBuffer midi;
+        for (const auto& [at, note] : notes)
+            if (at >= start && at < start + blockSize)
+                midi.addEvent (juce::MidiMessage::noteOn (10, note, (juce::uint8) 100), at - start);
+        buffer.clear();
+        t.p.processBlock (buffer, midi);
+    }
+    std::vector<ParagonX1AudioProcessor::Tap> taps;
+    REQUIRE (t.p.popTaps (taps) == 2);
+    CHECK (taps[0].lane == (int) grooves::Lane::kick);
+    CHECK_THAT (taps[0].beat, WithinAbs (1.25, 1e-9));
+    CHECK (taps[1].lane == (int) grooves::Lane::hats);
+    CHECK_THAT (taps[1].beat, WithinAbs (200000.0 / 24000.0 - 8.0, 1e-9));
+
+    // A pad: recorded at the next block's start, its drum played.
+    t.p.tapPad ((int) grooves::Lane::snare);
+    buffer.clear();
+    juce::MidiBuffer none;
+    t.p.processBlock (buffer, none);
+    taps.clear();
+    REQUIRE (t.p.popTaps (taps) == 1);
+    CHECK (taps[0].lane == (int) grooves::Lane::snare);
+    CHECK (t.p.getDrumKit().isSounding (SD));
+    // Not tapping: nothing recorded.
+    t.p.stopTapping();
+    t.p.tapPad (0);
+    t.p.processBlock (buffer, none);
+    taps.clear();
+    CHECK (t.p.popTaps (taps) == 0);
+}
+
+TEST_CASE ("TAP TO FIND in the library: grooves sorted by how close they are to the tap", "[tap][grooves]")
+{
+    Plugin t;
+    const auto pack = t.folder.getChildFile ("Pack");
+    const auto write = [&] (const char* path, std::vector<std::pair<double, int>> notes)
+    {
+        juce::MidiMessageSequence track;
+        for (const auto& [beat, note] : notes)
+        {
+            track.addEvent (juce::MidiMessage::noteOn (10, note, (juce::uint8) 100).withTimeStamp (beat * 480));
+            track.addEvent (juce::MidiMessage::noteOff (10, note).withTimeStamp (beat * 480 + 60));
+        }
+        juce::MidiFile file;
+        file.setTicksPerQuarterNote (480);
+        track.updateMatchedPairs();
+        file.addTrack (track);
+        const auto f = pack.getChildFile (path);
+        f.getParentDirectory().createDirectory();
+        juce::FileOutputStream out (f);
+        file.writeTo (out);
+    };
+    // Rock: kick 1 and 3, snare 2 and 4. Push: kick 1 and the "and" of 2. Four: kick on every beat.
+    write ("Rock.mid", { { 0, 36 }, { 2, 36 }, { 1, 38 }, { 3, 38 }, { 4, 36 }, { 6, 36 }, { 5, 38 }, { 7, 38 } });
+    write ("Push.mid", { { 0, 36 }, { 1.5, 36 }, { 1, 38 }, { 3, 38 }, { 4, 36 }, { 5.5, 36 }, { 5, 38 }, { 7, 38 } });
+    write ("Four.mid", { { 0, 36 }, { 1, 36 }, { 2, 36 }, { 3, 36 }, { 1, 38 }, { 3, 38 }, { 4, 36 }, { 5, 36 }, { 6, 36 }, { 7, 36 }, { 5, 38 }, { 7, 38 } });
+    auto& library = t.p.getGrooveLibrary();
+    REQUIRE (library.addFolder (pack));
+    library.scanNow();
+    grooves::Library::TapSearch tap;
+    tap.grid = 0.5;
+    tap.rhythm.lengthBeats = 8.0;
+    tap.rhythm.beats[(size_t) grooves::Lane::kick] = { 0.0, 1.5, 4.0, 5.5 };
+    tap.rhythm.beats[(size_t) grooves::Lane::snare] = { 1.0, 3.0, 5.0, 7.0 };
+    const auto found = library.query ({}, {}, false, grooves::Sort::name, 120.0, 4, 4, {}, &tap);
+    REQUIRE (found.size() == 3);
+    CHECK (found[0].name == "Push");
+    CHECK_THAT (found[0].match, WithinAbs (1.0, 1e-6));
+    CHECK (found[1].match < 1.0f);
+    CHECK (found[1].match >= found[2].match);
+    // The rhythm comes back from the index too.
+    grooves::Library again (t.folder.getChildFile ("Grooves.xml"), t.folder.getChildFile ("Groove Index.xml"));
+    again.loadIndex();
+    CHECK (again.query ({}, {}, false, grooves::Sort::name, 120.0, 4, 4, {}, &tap)[0].name == "Push");
+}
