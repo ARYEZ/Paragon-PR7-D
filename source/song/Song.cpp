@@ -176,7 +176,10 @@ namespace song
                 return i;
             }
         const auto at = std::upper_bound (tempos.begin(), tempos.end(), beat, [] (double b, const TempoPoint& p) { return b < p.beat; });
-        return (int) std::distance (tempos.begin(), tempos.insert (at, { beat, bpm, false }));
+        // (Inserted first, then counted from the start: one statement doing both would let a compiler take begin() before
+        // the insert moves the list, and count from where it was: the 0.11.0 macOS crash.)
+        const auto inserted = tempos.insert (at, { beat, bpm, false });
+        return (int) std::distance (tempos.begin(), inserted);
     }
 
     void Song::moveTempo (int index, double beat, double bpm)

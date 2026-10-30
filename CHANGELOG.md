@@ -6,6 +6,10 @@ Each version's notes appear on its GitHub Release page.
 
 **The song track, part 4b: RECORD and BOUNCE.** Our own design, inspired by the transport's record button and the bounce in chapter 7 of the drum software manual you sent. That completes the song track as planned.
 
+**0.11.0 was never published** (its macOS build crashed in a test, so no release was made). **This release is the first with 0.11.0's changes too:** tempo and time signature changes (the TEMPO and TIME views), TRACK... > IMPORT MIDI FILE..., and **only the PR7 family's colours** everywhere (song parts, sliders, highlights and the rest: see 0.11.0 below).
+
+- **Fixed: the crash.** Adding a tempo change worked out its place in the song's list of tempo changes in the same step that inserted it. Which half a compiler does first is up to the compiler: the Mac's measured from where the list had been before the insert moved it in memory, read a nonsense place and crashed. (Linux's did it the other way round, so the tests there passed.) It's two steps now, the same on every computer. Checked by building the tests with the compiler macOS uses and a memory checker on (clang with AddressSanitizer): the song tests pass with no memory errors.
+
 - **REC** (beside PLAY): armed, the notes you play while the song plays go into it, at the beats you play them.
   - From your DAW's MIDI (a controller through it too) or the on-screen keyboard, each through the kit's note map. Notes the kit doesn't play are left out.
   - With your DAW playing, or with PLAY (through the song's tempo changes too).
