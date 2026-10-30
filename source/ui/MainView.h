@@ -73,6 +73,7 @@ private:
 // FX, PRESETS and SETTINGS cover the DRUMS page; the keyboard and OUTPUT stay.
 class MainView final : public juce::Component,
                        public juce::DragAndDropContainer,
+                       public juce::DragAndDropTarget,
                        public ControlHost,
                        private juce::ChangeListener,
                        private juce::Timer
@@ -98,6 +99,17 @@ public:
     BlockEditor& getBlockEditor() noexcept { return blockEditor; }
     SongCreator& getSongCreator() noexcept { return songCreator; }
     void openSongCreator (const juce::File& source = {});   // over the page (EDIT BLOCK closed), with that source if given
+
+    // A GROOVE DRAGGED OVER THE DRUMS TAB (0.13.0): held there half a second, the DRUMS page with the SEQUENCER comes in
+    // front (the page it came from stays under it, so the drag carries on), to drop it on the grid; when the drag is
+    // over, the window settles on DRUMS. updateDragHover is the timer's (and tests') look at it.
+    bool isInterestedInDragSource (const SourceDetails&) override;
+    void itemDragMove (const SourceDetails&) override;
+    void itemDragExit (const SourceDetails&) override;
+    void itemDropped (const SourceDetails&) override;
+    void updateDragHover (double nowMs, bool dragStillOn);
+    bool isPeekingAtSequencer() const noexcept { return dragPeek; }
+    juce::Rectangle<int> getDrumsTabBounds() const { return drumsTab.getBounds(); }
     // THE SONG TRACK (0.8.0): the strip under the pages shows the keyboard or the song (KEYS | SONG beside it).
     void showSong (bool);
     bool isShowingSong() const noexcept { return songTrack.isVisible(); }
@@ -148,6 +160,8 @@ private:
     SettingsPage settingsPage;
     BlockEditor blockEditor;   // EDIT BLOCK (0.9.0): over the pages, opened from the song track
     SongCreator songCreator;   // THE SONG CREATOR (0.10.0): over the pages too (one of the two at a time)
+    double hoverSince = -1.0;  // a drag over the DRUMS tab since then (-1: none)
+    bool dragPeek = false;     // the DRUMS page brought in front for a drag
     Page page = Page::drums;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainView)

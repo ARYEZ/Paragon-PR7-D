@@ -239,6 +239,10 @@ public:
     // LENGTH set to the groove's (at most maxBeats: hits after that are left out), the sequencer on, playing it.
     struct GrooveToPattern { int placed = 0, noDrum = 0, pastEnd = 0; int lengthBeats = 0; };
     GrooveToPattern grooveToPattern (const grooves::Groove&, int folder, int pattern);
+    // (0.13.0) The same with the notes through `map` (a file from outside the linked folders: the kit's own map), and a
+    // MIDI file dropped on the sequencer's grid as pattern `pattern` (nothing if it can't be read: placed 0).
+    GrooveToPattern grooveToPattern (const grooves::Groove&, const synth::drums::notemap::Map& map, int pattern);
+    GrooveToPattern grooveFileToPattern (const juce::File&, int pattern);
     // GROOVE PARTS (0.7.0): the groove's `parts` laid into pattern `pattern`: that pattern's notes on those parts'
     // drums replaced by the groove's (where played, with velocity, factor and velocity scale), the groove repeated to
     // fill the pattern's LENGTH; its other drums, LENGTH and the sequencer's settings left as they are. Undoable.

@@ -207,6 +207,33 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     songTrack.onCreatorDropped = [this] (int part, int index, double beat) { songCreator.addToSong (part, index, beat); };
     groovesPage.onUseWithCreator = [this] (const juce::File& f) { openSongCreator (f); };
     songCreator.chosenBlock = [this] { return songTrack.getChosen(); };
+    // A GROOVE DROPPED ON THE SEQUENCER's GRID (0.13.0): from the GROOVES list (a row, or a GROOVE PARTS row), or the
+    // song creator's columns.
+    auto& grid = drumPage.getSequencer().getGrid();
+    grid.describeDrop = [this, &grid] (const juce::String& d) -> juce::String
+    {
+        const auto letter = synth::drumseq::patternNames[grid.getPattern()];
+        if (d.startsWith ("groove:"))
+            return groovesPage.describeRowDrop (grid.getPattern());
+        if (d.startsWith ("part:"))
+            return "DROP: ITS " + grooves::drumPartNames[juce::jlimit (0, grooves::numDrumParts - 1, d.fromFirstOccurrenceOf (":", false, false).getIntValue())]
+                 + " LAID ONTO PATTERN " + letter;
+        if (d.startsWith ("creator:"))
+            return "DROP: THE GROOVE REPLACES PATTERN " + letter;
+        return {};
+    };
+    grid.onDrop = [this, &grid] (const juce::String& d)
+    {
+        const auto value = d.fromFirstOccurrenceOf (":", false, false);
+        if (d.startsWith ("groove:"))
+            return groovesPage.rowToPattern (value.getIntValue(), grid.getPattern());
+        if (d.startsWith ("part:"))
+            return groovesPage.partToPattern (value.getIntValue(), grid.getPattern());
+        if (d.startsWith ("creator:"))
+            return songCreator.toPattern (value.upToFirstOccurrenceOf (":", false, false).getIntValue(),
+                                          value.fromFirstOccurrenceOf (":", false, false).getIntValue(), grid.getPattern());
+        return false;
+    };
     songCreator.onGrooveRowDropped = [this] (int row)
     {
         const auto& results = groovesPage.getResults();
@@ -267,6 +294,7 @@ void MainView::refreshRig()
 
 void MainView::timerCallback()
 {
+    updateDragHover (juce::Time::getMillisecondCounterHiRes(), groovesPage.isDragAndDropActive() || isDragAndDropActive());
     refreshRig();
     undoButton.setEnabled (audioProcessor.canUndo());
     redoButton.setEnabled (audioProcessor.canRedo());
@@ -436,4 +464,58 @@ void MainView::openSongCreator (const juce::File& source)
     if (source != juce::File())
         songCreator.setSource (source);
     songCreator.open();
+}
+
+//==============================================================================
+// A GROOVE DRAGGED OVER THE DRUMS TAB (0.13.0)
+bool MainView::isInterestedInDragSource (const SourceDetails& details)
+{
+    const auto d = details.description.toString();
+    return d.startsWith ("groove:") || d.startsWith ("part:") || d.startsWith ("creator:");
+}
+
+void MainView::itemDragMove (const SourceDetails& details)
+{
+    if (drumsTab.getBounds().contains (details.localPosition) && ! dragPeek && page != Page::drums)
+    {
+        if (hoverSince < 0.0)
+            hoverSince = juce::Time::getMillisecondCounterHiRes();
+    }
+    else
+        hoverSince = -1.0;
+}
+
+void MainView::itemDragExit (const SourceDetails&)
+{
+    hoverSince = -1.0;
+}
+
+void MainView::itemDropped (const SourceDetails&)
+{
+    hoverSince = -1.0;   // dropped somewhere that takes nothing
+}
+
+void MainView::updateDragHover (double nowMs, bool dragStillOn)
+{
+    // Half a second over DRUMS: its SEQUENCER in front, the page the drag came from left under it (hiding that would end
+    // the drag).
+    if (hoverSince >= 0.0 && dragStillOn && nowMs - hoverSince >= 500.0)
+    {
+        hoverSince = -1.0;
+        dragPeek = true;
+        drumPage.showView (DrumPage::View::sequencer);
+        drumPage.setVisible (true);
+        drumPage.toFront (false);
+        drumsTab.setToggleState (true, juce::dontSendNotification);
+    }
+    // The drag over: the window settles on DRUMS.
+    if (dragPeek && ! dragStillOn)
+    {
+        dragPeek = false;
+        songCreator.setVisible (false);
+        blockEditor.setVisible (false);
+        showPage (Page::drums);
+    }
+    if (! dragStillOn)
+        hoverSince = -1.0;
 }

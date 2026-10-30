@@ -11,6 +11,7 @@
 #include "ui/SongTrack.h"
 #include "ui/BlockEditor.h"
 #include "ui/SongCreator.h"
+#include "ui/MainView.h"
 
 using Catch::Matchers::WithinAbs;
 
@@ -1637,4 +1638,125 @@ TEST_CASE ("SONG FOLLOW DAW strip: the button switches it; EXPORT MIDI with it o
     t.folder.createDirectory();
     CHECK (exportButton->exportTo (t.folder.getChildFile ("song.mid")));
     CHECK (! track.getStatusText().contains ("Turn FOLLOW DAW off"));
+}
+
+//==============================================================================
+// A GROOVE DRAGGED ONTO THE SEQUENCER's GRID (0.13.0).
+TEST_CASE ("SEQUENCER DROP: a groove replaces the pattern shown; ticked parts or a part's row lay onto it; a creator groove; a file; undo", "[seq-drop][ui]")
+{
+    using grooves::DrumPart;
+    Plugin t;
+    const auto pack = t.folder.getChildFile ("Pack");
+    // A one-bar groove: kick on 1 and 3, snare on 2 and 4, eighth hats (the groove library map: 22 closed hat).
+    std::vector<std::pair<double, int>> notes { { 0.0, 36 }, { 2.0, 36 }, { 1.0, 38 }, { 3.0, 38 } };
+    for (int e = 0; e < 8; ++e)
+        notes.push_back ({ e * 0.5, 22 });
+    writeMidi (pack.getChildFile ("Rock/Verse 01.mid"), notes);
+    writeMidi (pack.getChildFile ("Rock/Chorus 01.mid"), { { 0.0, 36 }, { 0.5, 36 } });
+    REQUIRE (t.p.getGrooveLibrary().addFolder (pack));
+    t.p.getGrooveLibrary().scanNow();
+    t.p.flushUndoStep();
+
+    MainView view (t.p);
+    view.setSize (MainView::width, MainView::height);
+    auto& page = view.getGroovesPage();
+    page.refresh();
+    REQUIRE (page.getResults().size() == 2);
+    const auto verse = page.getResults()[0].name == "Verse 01" ? 0 : 1;
+    auto& grid = view.getDrumPage().getSequencer().getGrid();
+    const auto pattern = grid.getPattern();
+    const auto rows = [&t, pattern] (int row)
+    {
+        std::vector<double> starts;
+        for (const auto& n : t.p.getModMatrix().drumPatterns[(size_t) pattern].notes)
+            if (n.row == row)
+                starts.push_back (n.start);
+        std::sort (starts.begin(), starts.end());
+        return starts;
+    };
+    const auto drop = [&grid] (const juce::String& d)
+    {
+        juce::DragAndDropTarget::SourceDetails details (d, nullptr, { 10, 10 });
+        REQUIRE (grid.isInterestedInDragSource (details));
+        grid.itemDragEnter (details);
+        const auto text = grid.getDropText();
+        grid.itemDropped (details);
+        CHECK (grid.getDropText().isEmpty());
+        return text;
+    };
+
+    // The whole groove: the pattern shown is it (in 16ths: kicks 0 and 8, snares 4 and 12, hats every 2).
+    CHECK (drop ("groove:" + juce::String (verse)).contains ("REPLACES PATTERN"));
+    CHECK (rows (BD) == std::vector<double> { 0.0, 8.0 });
+    CHECK (rows (SD) == std::vector<double> { 4.0, 12.0 });
+    CHECK (rows (CH).size() == 8);
+    t.p.flushUndoStep();
+    const auto first = t.p.getModMatrix().drumPatterns[(size_t) pattern];
+
+    // The chorus with KICK ticked: only its kicks laid onto the pattern (0 and 2), the snares and hats kept.
+    page.getTable().selectRow (1 - verse);
+    page.toggleDrumPart ((int) DrumPart::kick);
+    CHECK (drop ("groove:" + juce::String (1 - verse)).contains ("KICK LAID ONTO"));
+    CHECK (rows (BD) == std::vector<double> { 0.0, 2.0 });   // its kicks in place of the verse's (as LAYER ONTO)
+    CHECK (rows (SD) == std::vector<double> { 4.0, 12.0 });
+    t.p.flushUndoStep();
+    // Undo: the verse as dropped.
+    t.p.undo();
+    CHECK (t.p.getModMatrix().drumPatterns[(size_t) pattern] == first);
+
+    // A GROOVE PARTS row (HI-HAT) of the chosen groove (the verse): its hats laid on alone.
+    page.toggleDrumPart (-1);   // ALL again
+    page.getTable().selectRow (verse);
+    t.p.grooveToPattern (*grooves::read (pack.getChildFile ("Rock/Chorus 01.mid"), t.p.grooveLayout (0)), 0, pattern);   // no hats
+    CHECK (rows (CH).empty());
+    CHECK (drop ("part:" + juce::String ((int) DrumPart::hats)).contains ("HI-HAT LAID ONTO"));
+    CHECK (rows (BD) == std::vector<double> { 0.0, 2.0 });   // the chorus's kicks kept
+    CHECK (rows (CH).size() == 8);   // its 8 hats over the one-bar pattern
+
+    // A song creator groove: in place of the pattern.
+    view.openSongCreator (pack.getChildFile ("Rock/Verse 01.mid"));
+    CHECK (drop ("creator:" + juce::String ((int) grooves::Part::chorus) + ":0").contains ("REPLACES"));
+    CHECK (rows (BD) == std::vector<double> { 0.0, 2.0 });
+    CHECK (rows (CH).empty());
+
+    // A MIDI file from the computer, through the kit's own map: the pattern.
+    const auto file = t.folder.getChildFile ("Mine.mid");
+    writeMidi (file, { { 1.0, t.p.homeNote (SD) }, { 3.0, t.p.homeNote (SD) } });
+    REQUIRE (grid.isInterestedInFileDrag ({ file.getFullPathName() }));
+    CHECK (! grid.isInterestedInFileDrag ({ "/x/kick.wav" }));
+    grid.filesDropped ({ file.getFullPathName() }, 10, 10);
+    CHECK (rows (SD) == std::vector<double> { 4.0, 12.0 });
+    CHECK (rows (BD).empty());
+    CHECK (! grid.isInterestedInDragSource ({ "something:else", nullptr, {} }));
+}
+
+TEST_CASE ("SEQUENCER DROP: a groove held over the DRUMS tab brings the sequencer in front; the drag over, the window settles there", "[seq-drop][ui]")
+{
+    Plugin t;
+    MainView view (t.p);
+    view.setSize (MainView::width, MainView::height);
+    view.showPage (MainView::Page::grooves);
+    const juce::DragAndDropTarget::SourceDetails over ("groove:0", nullptr, view.getDrumsTabBounds().getCentre());
+    REQUIRE (view.isInterestedInDragSource (over));
+    const auto now = juce::Time::getMillisecondCounterHiRes();
+    view.itemDragMove (over);
+    view.updateDragHover (now + 200.0, true);   // not yet
+    CHECK (! view.isPeekingAtSequencer());
+    view.updateDragHover (now + 600.0, true);   // half a second: in front, the GROOVES page still there under it
+    CHECK (view.isPeekingAtSequencer());
+    CHECK (view.getDrumPage().isVisible());
+    CHECK (view.getGroovesPage().isVisible());
+    CHECK (view.getDrumPage().getSequencer().isVisible());
+    // Dropped (or let go anywhere): DRUMS, the GROOVES page hidden.
+    view.updateDragHover (now + 700.0, false);
+    CHECK (! view.isPeekingAtSequencer());
+    CHECK (view.getPage() == MainView::Page::drums);
+    CHECK (! view.getGroovesPage().isVisible());
+    // Moved off the tab before the half second: nothing.
+    view.showPage (MainView::Page::grooves);
+    view.itemDragMove (over);
+    view.itemDragMove ({ "groove:0", nullptr, { 5, 600 } });
+    view.updateDragHover (now + 5000.0, true);
+    CHECK (! view.isPeekingAtSequencer());
+    CHECK (view.getPage() == MainView::Page::grooves);
 }

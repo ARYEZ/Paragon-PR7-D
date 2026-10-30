@@ -44,6 +44,8 @@ public:
     bool replaceChosenBlock (int part, int index);
     juce::PopupMenu grooveMenu (int part, int index);
     juce::Rectangle<int> cellOf (int part, int index) const;
+    // (0.13.0) A groove of its columns dragged onto the sequencer's grid: in place of pattern `pattern`.
+    bool toPattern (int part, int index, int pattern);
 
     void paint (juce::Graphics&) override;
     void resized() override;

@@ -730,6 +730,40 @@ bool GroovesPage::addRowToSong (int row, double beat)
     return true;
 }
 
+bool GroovesPage::rowToPattern (int row, int pattern)
+{
+    const auto g = readRow (row);
+    if (! g.has_value())
+        return false;
+    const auto folder = results[(size_t) row].folder;
+    const auto r = chosenParts == grooves::allParts ? processor.grooveToPattern (*g, folder, pattern)
+                                                    : processor.layerParts (*g, folder, chosenParts, pattern);
+    message = g->name + " is in pattern " + synth::drumseq::patternNames[pattern] + " now";
+    messageUntil = juce::Time::getMillisecondCounterHiRes() + 4000.0;
+    return r.placed > 0;
+}
+
+bool GroovesPage::partToPattern (int part, int pattern)
+{
+    const auto row = table.getSelectedRow();
+    const auto g = readRow (row);
+    if (! g.has_value())
+        return false;
+    return processor.layerParts (*g, results[(size_t) row].folder, 1u << juce::jlimit (0, grooves::numDrumParts - 1, part), pattern).placed > 0;
+}
+
+juce::String GroovesPage::describeRowDrop (int pattern) const
+{
+    const auto letter = synth::drumseq::patternNames[pattern];
+    if (chosenParts == grooves::allParts)
+        return "DROP: THE GROOVE REPLACES PATTERN " + letter;
+    juce::StringArray names;
+    for (int k = 0; k < grooves::numDrumParts; ++k)
+        if ((chosenParts & (1u << k)) != 0)
+            names.add (grooves::drumPartNames[k]);
+    return "DROP: ITS " + names.joinIntoString (", ") + " LAID ONTO PATTERN " + letter;
+}
+
 bool GroovesPage::copyRowForSong (int row)
 {
     const auto g = readRow (row);

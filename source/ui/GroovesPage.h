@@ -56,6 +56,11 @@ public:
     std::function<void()> onAddedToSong;
     // COPY FOR SONG (0.9.0): the groove (its ticked GROOVE PARTS) into the song's clipboard, to paste onto blocks.
     bool copyRowForSong (int row);
+    // ONTO THE SEQUENCER's GRID (0.13.0): a groove dragged there (with GROOVE PARTS ticked: only those, laid onto the
+    // pattern; all: in place of it), and one part of the chosen groove (a GROOVE PARTS row dragged there), laid onto it.
+    bool rowToPattern (int row, int pattern);
+    bool partToPattern (int part, int pattern);
+    juce::String describeRowDrop (int pattern) const;   // what dropping a groove would do (for the grid's line)
     // USE WITH SONG CREATOR (0.10.0): the groove as the song creator's source (MainView opens it).
     std::function<void (const juce::File&)> onUseWithCreator;
 

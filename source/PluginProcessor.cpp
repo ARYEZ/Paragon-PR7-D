@@ -1956,12 +1956,25 @@ std::function<int (int)> ParagonX1AudioProcessor::grooveNoteFor (int folder, uns
 
 ParagonX1AudioProcessor::GrooveToPattern ParagonX1AudioProcessor::grooveToPattern (const grooves::Groove& groove, int folder, int pattern)
 {
+    return grooveToPattern (groove, grooveLayout (folder), pattern);
+}
+
+ParagonX1AudioProcessor::GrooveToPattern ParagonX1AudioProcessor::grooveFileToPattern (const juce::File& file, int pattern)
+{
+    const auto map = getNoteMap();
+    if (const auto g = grooves::read (file, map))
+        return grooveToPattern (*g, map, pattern);
+    return {};
+}
+
+ParagonX1AudioProcessor::GrooveToPattern ParagonX1AudioProcessor::grooveToPattern (const grooves::Groove& groove,
+                                                                                   const synth::drums::notemap::Map& map, int pattern)
+{
     namespace ds = synth::drumseq;
     GrooveToPattern result;
     const auto p = grooveFolders->getPreview();
     const auto scale = 1.0 / grooves::factorOf (p.factor);   // as dragged out: 2x puts the notes twice as close
     const auto length = juce::jlimit (1, ds::maxBeats, (int) std::ceil (groove.lengthBeats * scale - 1.0e-6));
-    const auto map = grooveLayout (folder);
     const auto beatsPerStep = getDrumSeqSettings().beatsPerStep();
     ds::Pattern made;
     for (const auto& h : groove.hits)

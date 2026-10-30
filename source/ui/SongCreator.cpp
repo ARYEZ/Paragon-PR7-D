@@ -456,3 +456,13 @@ void SongCreator::filesDropped (const juce::StringArray& files, int, int)
 {
     setSource (juce::File (files[0]));
 }
+
+bool SongCreator::toPattern (int part, int index, int pattern)
+{
+    const auto* e = entry (part, index);
+    if (e == nullptr)
+        return false;
+    if (const auto g = grooves::read (e->file, processor.grooveLayout (e->folder)))
+        return processor.grooveToPattern (*g, e->folder, pattern).placed > 0;
+    return false;
+}

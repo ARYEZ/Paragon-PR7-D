@@ -535,6 +535,7 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 view->getSongTrack().getRecordButton().setToggleState (true, juce::dontSendNotification);
                 processor.songBroadcaster.dispatchPendingMessages();
             }
+
             // =2: EDIT BLOCK on the chorus, its snare chosen.
             if (env ("PARAGON_SNAPSHOT_SONG") == "2")
             {
@@ -542,6 +543,14 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 view->getBlockEditor().chooseDrum (2, false);
             }
         }
+    }
+    // A GROOVE HELD OVER THE SEQUENCER's GRID (0.13.0): the DRUMS page's SEQUENCER, the frame and what dropping would do.
+    if (page == "grooves" && env ("PARAGON_SNAPSHOT_SEQDROP") == "1")
+    {
+        view->getGroovesPage().toggleDrumPart (-1);
+        view->showPage (MainView::Page::drums);
+        view->getDrumPage().showView (DrumPage::View::sequencer);
+        view->getDrumPage().getSequencer().getGrid().itemDragEnter ({ "groove:1", nullptr, { 40, 40 } });
     }
     if (page == "presets")
         view->showPage (MainView::Page::presets);

@@ -29,12 +29,29 @@ private:
 // either way; DELETE removes the chosen notes, CTRL+A chooses all. The line across it is where the beat is playing.
 class DrumSeqGrid final : public juce::Component,
                           public juce::SettableTooltipClient,
+                          public juce::DragAndDropTarget,
+                          public juce::FileDragAndDropTarget,
                           private juce::Timer
 {
 public:
     explicit DrumSeqGrid (ParagonX1AudioProcessor&);
+    // A GROOVE DROPPED ON IT (0.13.0): what a drag ("groove:<row>", "part:<n>", "creator:<part>:<index>") would do, as a
+    // line shown over the grid while it's held there (empty: not one it takes), and the drop (MainView knows where they
+    // come from). A MIDI file from the computer: the pattern shown, through the kit's map.
+    std::function<juce::String (const juce::String& description)> describeDrop;
+    std::function<bool (const juce::String& description)> onDrop;
+    bool isInterestedInDragSource (const SourceDetails&) override;
+    void itemDragEnter (const SourceDetails&) override;
+    void itemDragExit (const SourceDetails&) override;
+    void itemDropped (const SourceDetails&) override;
+    bool isInterestedInFileDrag (const juce::StringArray&) override;
+    void fileDragEnter (const juce::StringArray&, int, int) override;
+    void fileDragExit (const juce::StringArray&) override;
+    void filesDropped (const juce::StringArray&, int, int) override;
+    juce::String getDropText() const { return dropText; }
     enum class Tool { pen, select };
     Tool tool = Tool::pen;
+    juce::String dropText;   // a drag held over the grid: what dropping it would do
     std::function<void (int row)> onRowTouched;   // a note added or picked: its drum chosen on the left
     std::function<void()> onSelectionChanged;
 

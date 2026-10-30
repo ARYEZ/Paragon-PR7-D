@@ -281,6 +281,75 @@ void DrumSeqGrid::paint (juce::Graphics& g)
         g.setColour (ParagonColours::text.withAlpha (0.85f));
         g.fillRect (juce::Rectangle<float> (x - 0.75f, rowArea (0).getY(), 1.5f, rowArea (synth::drumseq::numRows - 1).getBottom() - rowArea (0).getY()));
     }
+
+    // A groove (or a file) held over the grid: an orange frame and what dropping it would do.
+    if (dropText.isNotEmpty())
+    {
+        const auto area = getLocalBounds().toFloat().reduced (1.0f);
+        g.setColour (ParagonColours::accent.withAlpha (0.08f));
+        g.fillRoundedRectangle (area, 4.0f);
+        g.setColour (ParagonColours::accent);
+        g.drawRoundedRectangle (area, 4.0f, 2.0f);
+        const auto label = area.withSizeKeepingCentre (juce::jmin (area.getWidth() - 20.0f, 560.0f), 34.0f);
+        g.setColour (juce::Colour (0xe0141016));
+        g.fillRoundedRectangle (label, 5.0f);
+        g.setColour (ParagonColours::accent);
+        g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+        g.drawText (dropText, label, juce::Justification::centred, true);
+    }
+}
+
+//==============================================================================
+// A GROOVE DROPPED ON IT (0.13.0)
+bool DrumSeqGrid::isInterestedInDragSource (const SourceDetails& details)
+{
+    return describeDrop != nullptr && describeDrop (details.description.toString()).isNotEmpty();
+}
+
+void DrumSeqGrid::itemDragEnter (const SourceDetails& details)
+{
+    dropText = describeDrop != nullptr ? describeDrop (details.description.toString()) : juce::String();
+    repaint();
+}
+
+void DrumSeqGrid::itemDragExit (const SourceDetails&)
+{
+    dropText.clear();
+    repaint();
+}
+
+void DrumSeqGrid::itemDropped (const SourceDetails& details)
+{
+    dropText.clear();
+    if (onDrop != nullptr && onDrop (details.description.toString()))
+        refreshShown();
+    repaint();
+}
+
+bool DrumSeqGrid::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    return files.size() == 1 && juce::File (files[0]).hasFileExtension ("mid;midi");
+}
+
+void DrumSeqGrid::fileDragEnter (const juce::StringArray& files, int, int)
+{
+    dropText = "DROP: " + juce::File (files[0]).getFileNameWithoutExtension() + " REPLACES PATTERN "
+             + synth::drumseq::patternNames[getPattern()];
+    repaint();
+}
+
+void DrumSeqGrid::fileDragExit (const juce::StringArray&)
+{
+    dropText.clear();
+    repaint();
+}
+
+void DrumSeqGrid::filesDropped (const juce::StringArray& files, int, int)
+{
+    dropText.clear();
+    if (processor.grooveFileToPattern (juce::File (files[0]), getPattern()).placed > 0)
+        refreshShown();
+    repaint();
 }
 
 void DrumSeqGrid::mouseDown (const juce::MouseEvent& e)

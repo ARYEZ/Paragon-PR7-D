@@ -2,6 +2,21 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.13.0
+
+**Drag a groove straight onto the drum sequencer.** The last piece of the groove player's plan.
+
+- **Drop a groove on the SEQUENCER's grid** (DRUMS page): it becomes the pattern shown (A to D), as TO SEQUENCER does: its notes on the kit's drums at their steps, the pattern's LENGTH set to it, the sequencer on.
+  - **From the GROOVES list.** With GROOVE PARTS ticked, only those parts are laid onto the pattern (its other drums kept), as LAYER ONTO does.
+  - **A GROOVE PARTS row** (say HI-HAT) dragged onto the grid: just that part of the chosen groove, laid onto the pattern.
+  - **From the SONG CREATOR's columns.**
+  - **A MIDI file from your computer**, through the kit's note map.
+  - While a groove is over the grid, it's framed orange and says what dropping it will do ("DROP: THE GROOVE REPLACES PATTERN A", "... HI-HAT LAID ONTO PATTERN A"). Each drop is one undo step.
+- **The DRUMS tab opens for a drag:** hold a groove over it for half a second and the DRUMS page comes up with the SEQUENCER showing, to drop it on the grid. (The page you dragged from stays underneath until the drag ends, then the window settles on DRUMS; hiding it during the drag would cancel the drag.)
+- **Tests:** a groove dropped as the pattern (kicks on steps 0 and 8, snares on 4 and 12, eight hats); ticked KICK laid onto it, the snares and hats kept; undo back to the pattern before; a HI-HAT row laid onto another groove's pattern, its kicks kept; a song creator groove; a MIDI file through the kit's map; drags it doesn't take refused; the DRUMS tab: nothing at 0.2 s, the sequencer in front at 0.5 s with the GROOVES page still under it, the window on DRUMS when the drag ends, nothing if the drag moved off the tab first.
+
+Not checked here: how a real drag feels in your DAW's window (the tests drive the drop and the tab's timer directly).
+
 ## 0.12.0
 
 **The song track, part 4b: RECORD and BOUNCE.** Our own design, inspired by the transport's record button and the bounce in chapter 7 of the drum software manual you sent. That completes the song track as planned.
