@@ -26,8 +26,41 @@ namespace grooves
         PowerHand hand = PowerHand::none;
         float intensity = 0.0f;
         int numHits = 0;
+        Feel feel = Feel::straight;
+        Part part = Part::beat;      // from the names (worked out when listed)
 
         juce::String signature() const { return juce::String (numerator) + "/" + juce::String (denominator); }
+        double lengthBeats() const noexcept { return bars * numerator * 4.0 / denominator; }
+    };
+
+    // THE FILTER COLUMNS (0.5.0): each groove's value in each, as text.
+    enum class Column { type, feel, time, hand, tempo };
+    inline constexpr int numColumns = 5;
+    inline const juce::StringArray columnNames { "TYPE", "FEEL", "TIME", "POWER HAND", "TEMPO" };
+    juce::String valueOf (const Entry&, Column);
+    // The values a column can have, in the order it lists them (TIME: whichever signatures there are, listed as found).
+    juce::StringArray valuesOf (Column);
+
+    // Values chosen in each column (a groove passes with any of them) and values excluded (it passes with none of them);
+    // the columns together (it passes them all).
+    struct Filters
+    {
+        std::array<juce::StringArray, numColumns> include, exclude;
+        bool isEmpty() const noexcept
+        {
+            return std::all_of (include.begin(), include.end(), [] (const auto& a) { return a.isEmpty(); })
+                && std::all_of (exclude.begin(), exclude.end(), [] (const auto& a) { return a.isEmpty(); });
+        }
+        bool passes (const Entry& e) const
+        {
+            for (int c = 0; c < numColumns; ++c)
+            {
+                const auto v = valueOf (e, (Column) c);
+                if ((! include[(size_t) c].isEmpty() && ! include[(size_t) c].contains (v)) || exclude[(size_t) c].contains (v))
+                    return false;
+            }
+            return true;
+        }
     };
 
     struct LinkedFolder
@@ -75,7 +108,7 @@ namespace grooves
         // THE BROWSER: the grooves in `within` (nothing: everywhere; a folder: its files, and its subfolders' if
         // SUBFOLDERS is on) whose name or folder has every word of `text`, favourites only if asked, sorted.
         std::vector<Entry> query (const juce::File& within, const juce::String& text, bool favouritesOnly, Sort sort,
-                                  double songBpm, int songNumerator, int songDenominator) const;
+                                  double songBpm, int songNumerator, int songDenominator, const Filters& filters = {}) const;
 
         // FAVOURITES.
         bool isFavourite (const juce::File&) const;

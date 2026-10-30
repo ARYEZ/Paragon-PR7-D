@@ -1,5 +1,7 @@
 #include "GroovesPage.h"
 
+#include <map>
+
 #include "ui/DockPanels.h"
 #include "ui/Icons.h"
 #include "ui/ParagonLookAndFeel.h"
@@ -11,7 +13,9 @@ namespace
 
     juce::String tempoText (const grooves::Entry& e)
     {
-        return e.bpmKnown ? juce::String (e.bpm, e.bpm == std::round (e.bpm) ? 0 : 1) : juce::String ("-");
+        // Whole numbers as such: a file keeps its tempo in microseconds a beat, so 104 reads back as 104.0001.
+        const auto whole = std::abs (e.bpm - std::round (e.bpm)) < 0.05;
+        return e.bpmKnown ? (whole ? juce::String (juce::roundToInt (e.bpm)) : juce::String (e.bpm, 1)) : juce::String ("-");
     }
 }
 
@@ -85,6 +89,85 @@ private:
     GroovesPage& page;
     juce::File folder;
     juce::String text;
+};
+
+//==============================================================================
+// A filter column: its values (those the grooves listed have, with how many), click to choose, right-click to exclude.
+class GroovesPage::FilterColumn final : public juce::Component, private juce::ListBoxModel
+{
+public:
+    FilterColumn (GroovesPage& p, grooves::Column c) : page (p), column (c)
+    {
+        list.setModel (this);
+        list.setRowHeight (20);
+        list.setColour (juce::ListBox::backgroundColourId, juce::Colours::transparentBlack);
+        list.setTooltip ("Click: only grooves with this (several in a column: any of them). Right-click: none with this. "
+                         "The columns together: grooves that pass them all.");
+        addAndMakeVisible (list);
+    }
+
+    // The values to list and their counts (in the grooves the folder, search and favourites leave).
+    void setValues (juce::StringArray v, juce::Array<int> c)
+    {
+        values = std::move (v);
+        counts = std::move (c);
+        list.updateContent();
+        list.repaint();
+        repaint();
+    }
+    juce::StringArray describe() const
+    {
+        juce::StringArray result;
+        for (int i = 0; i < values.size(); ++i)
+            result.add (values[i] + " (" + juce::String (counts[i]) + ")");
+        return result;
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto& f = page.filters;
+        const auto active = f.include[(size_t) column].size() + f.exclude[(size_t) column].size();
+        g.setColour (active > 0 ? ParagonColours::accent : ParagonColours::textDim);
+        g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        g.drawText (grooves::columnNames[(int) column] + (active > 0 ? "  " + juce::String (active) : juce::String()), 4, 0,
+                    getWidth() - 8, 16, juce::Justification::centredLeft, false);
+    }
+    void resized() override { list.setBounds (getLocalBounds().withTrimmedTop (18)); }
+
+private:
+    int getNumRows() override { return values.size(); }
+    void paintListBoxItem (int row, juce::Graphics& g, int width, int height, bool) override
+    {
+        if (row < 0 || row >= values.size())
+            return;
+        const auto& f = page.filters;
+        const auto included = f.include[(size_t) column].contains (values[row]);
+        const auto excluded = f.exclude[(size_t) column].contains (values[row]);
+        if (included)
+        {
+            g.setColour (ParagonColours::accentDim.withAlpha (0.7f));
+            g.fillRoundedRectangle (1.0f, 1.0f, (float) width - 2.0f, (float) height - 2.0f, 3.0f);
+        }
+        const auto colour = excluded ? ParagonColours::meterRed : included ? ParagonColours::accent : ParagonColours::text;
+        g.setColour (colour);
+        g.setFont (juce::FontOptions (12.5f));
+        g.drawText (values[row], 6, 0, width - 46, height, juce::Justification::centredLeft, true);
+        if (excluded)
+            g.drawHorizontalLine (height / 2, 6.0f, 6.0f + (float) juce::jmin (width - 52, juce::GlyphArrangement::getStringWidthInt (juce::FontOptions (12.5f), values[row])));
+        g.setColour (colour.withAlpha (0.6f));
+        g.drawText (juce::String (counts[row]), width - 40, 0, 34, height, juce::Justification::centredRight, false);
+    }
+    void listBoxItemClicked (int row, const juce::MouseEvent& e) override
+    {
+        if (row >= 0 && row < values.size())
+            page.toggleFilter (column, values[row], e.mods.isPopupMenu());
+    }
+
+    GroovesPage& page;
+    grooves::Column column;
+    juce::ListBox list;
+    juce::StringArray values;
+    juce::Array<int> counts;
 };
 
 //==============================================================================
@@ -200,6 +283,31 @@ GroovesPage::GroovesPage (ParagonX1AudioProcessor& p) : processor (p), library (
                                 (juce::Component*) &playing, (juce::Component*) &tree, (juce::Component*) &table })
         addAndMakeVisible (c);
 
+    // THE FILTER COLUMNS and INTO THE SEQUENCER (0.5.0).
+    for (int c = 0; c < grooves::numColumns; ++c)
+    {
+        filterColumns[(size_t) c] = std::make_unique<FilterColumn> (*this, (grooves::Column) c);
+        addAndMakeVisible (*filterColumns[(size_t) c]);
+    }
+    clearFiltersButton.setTooltip ("Every filter column back to all.");
+    clearFiltersButton.onClick = [this] { clearFilters(); };
+    addAndMakeVisible (clearFiltersButton);
+    toSequencerLabel.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+    toSequencerLabel.setColour (juce::Label::textColourId, ParagonColours::textDim);
+    toSequencerLabel.setJustificationType (juce::Justification::centredRight);
+    addAndMakeVisible (toSequencerLabel);
+    for (int i = 0; i < (int) patternButtons.size(); ++i)
+    {
+        auto& b = patternButtons[(size_t) i];
+        b.setButtonText (synth::drumseq::patternNames[i]);
+        b.setTooltip ("The chosen groove as the drum sequencer's pattern " + synth::drumseq::patternNames[i] + " (replacing it): each "
+                      "hit a note on its drum, where it was played, with its velocity, TEMPO's factor and VELOCITY. LENGTH becomes "
+                      "the groove's (16 beats at most: a longer groove brings its first 16), and the sequencer plays it. Undo "
+                      "takes it back.");
+        b.onClick = [this, i] { toPattern (i); };
+        addAndMakeVisible (b);
+    }
+
     library.addChangeListener (this);
     refresh();
     startTimerHz (15);
@@ -302,11 +410,96 @@ int GroovesPage::folderIndexOf (const juce::File& f) const
 
 void GroovesPage::requery()
 {
+    // The grooves the folder, words and favourites leave; the filter columns list their values (with how many have
+    // each), and the list shows those that pass the filters.
     const auto p = library.getPreview();
-    results = library.query (within, search.getText(), favouritesOnly.getToggleState(), p.sort, processor.getHostBpm(),
-                             processor.getHostNumerator(), processor.getHostDenominator());
+    const auto scope = library.query (within, search.getText(), favouritesOnly.getToggleState(), p.sort, processor.getHostBpm(),
+                                      processor.getHostNumerator(), processor.getHostDenominator());
+    results.clear();
+    for (const auto& e : scope)
+        if (filters.passes (e))
+            results.push_back (e);
+    for (int c = 0; c < grooves::numColumns; ++c)
+    {
+        const auto column = (grooves::Column) c;
+        std::map<juce::String, int> counts;
+        for (const auto& e : scope)
+            ++counts[grooves::valueOf (e, column)];
+        auto order = grooves::valuesOf (column);
+        if (order.isEmpty())   // TIME: the signatures there are, simplest first
+        {
+            for (const auto& [value, n] : counts)
+                order.add (value);
+            std::sort (order.begin(), order.end(), [] (const juce::String& a, const juce::String& b)
+            {
+                const auto da = a.fromFirstOccurrenceOf ("/", false, false).getIntValue(), db = b.fromFirstOccurrenceOf ("/", false, false).getIntValue();
+                return da != db ? da < db : a.getIntValue() < b.getIntValue();
+            });
+        }
+        juce::StringArray values;
+        juce::Array<int> numbers;
+        for (const auto& v : order)
+        {
+            const auto found = counts.find (v);
+            const auto n = found != counts.end() ? found->second : 0;
+            // Listed if some grooves have it, or it's chosen or excluded (so it can be let go).
+            if (n > 0 || filters.include[(size_t) c].contains (v) || filters.exclude[(size_t) c].contains (v))
+            {
+                values.add (v);
+                numbers.add (n);
+            }
+        }
+        filterColumns[(size_t) c]->setValues (values, numbers);
+    }
+    clearFiltersButton.setEnabled (! filters.isEmpty());
     table.updateContent();
     table.repaint();
+    timerCallback();
+}
+
+void GroovesPage::toggleFilter (grooves::Column column, const juce::String& value, bool exclude)
+{
+    auto& include = filters.include[(size_t) column];
+    auto& excluded = filters.exclude[(size_t) column];
+    auto& into = exclude ? excluded : include;
+    auto& other = exclude ? include : excluded;
+    other.removeString (value);
+    if (into.contains (value))
+        into.removeString (value);
+    else
+        into.add (value);
+    requery();
+}
+
+void GroovesPage::clearFilters()
+{
+    filters = {};
+    requery();
+}
+
+juce::StringArray GroovesPage::getColumnValues (grooves::Column c) const
+{
+    return filterColumns[(size_t) c]->describe();
+}
+
+void GroovesPage::toPattern (int pattern)
+{
+    const auto row = table.getSelectedRow();
+    const auto g = readRow (row);
+    if (! g.has_value())
+    {
+        message = "Choose a groove first (click it in the list)";
+    }
+    else
+    {
+        const auto r = processor.grooveToPattern (*g, results[(size_t) row].folder, pattern);
+        message = g->name + " is pattern " + synth::drumseq::patternNames[pattern] + " now (" + juce::String (r.lengthBeats) + " beats)";
+        if (r.pastEnd > 0)
+            message << ", its first 16 beats";
+        if (r.noDrum > 0)
+            message << "; " << r.noDrum << (r.noDrum == 1 ? " note" : " notes") << " no drum plays";
+    }
+    messageUntil = juce::Time::getMillisecondCounterHiRes() + 5000.0;
     timerCallback();
 }
 
@@ -335,7 +528,9 @@ void GroovesPage::changeListenerCallback (juce::ChangeBroadcaster*)
 
 void GroovesPage::timerCallback()
 {
-    if (library.isScanning())
+    if (juce::Time::getMillisecondCounterHiRes() < messageUntil)
+        status.setText (message, juce::dontSendNotification);
+    else if (library.isScanning())
         status.setText ("Reading your grooves... " + juce::String (library.getNumScanned()) + " files", juce::dontSendNotification);
     else if (library.getFolders().empty())
         status.setText ("No groove folders yet: ADD FOLDER... links one of yours", juce::dontSendNotification);
@@ -560,11 +755,23 @@ void GroovesPage::resized()
     place (second, stop, 70, 20);
     place (second, dragLabel, 40, 6);
     place (second, dragAs, 130, 20);
+    place (second, toSequencerLabel, 96, 6);
+    for (auto& b : patternButtons)
+        place (second, b, 34, 4);
+    second.removeFromLeft (16);
     playing.setBounds (second);
     area.removeFromTop (38);
 
     auto left = area.removeFromLeft (300);
     tree.setBounds (left.reduced (4));
     area.removeFromLeft (16);
+    // The filter columns above the list, CLEAR at their end.
+    auto strip = area.removeFromTop (128).reduced (4, 0);
+    clearFiltersButton.setBounds (strip.removeFromRight (70).removeFromTop (26));
+    strip.removeFromRight (10);
+    const auto columnWidth = strip.getWidth() / grooves::numColumns;
+    for (auto& c : filterColumns)
+        c->setBounds (strip.removeFromLeft (columnWidth).reduced (4, 0));
+    area.removeFromTop (14);
     table.setBounds (area.reduced (4));
 }

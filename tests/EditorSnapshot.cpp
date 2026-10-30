@@ -49,7 +49,7 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
     const auto groovePack = rigFolder.getChildFile ("My Grooves");
     if (page == "grooves")
     {
-        const auto write = [&] (const juce::String& path, double bpm, int hat, int bars, int busy, int softness)
+        const auto write = [&] (const juce::String& path, double bpm, int hat, int bars, int busy, int softness, bool swing = false)
         {
             juce::MidiMessageSequence track;
             track.addEvent (juce::MidiMessage::tempoMetaEvent (juce::roundToInt (60.0e6 / bpm)));
@@ -67,7 +67,7 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 add (b + 1.0, 38, 115);
                 add (b + 3.0, 38, 118);
                 for (int e = 0; e < 8 * busy; ++e)
-                    add (b + e * 0.5 / busy, hat, e % 2 == 0 ? 100 : 70);
+                    add (b + (swing ? e / 2 + (e % 2 == 1 ? 2.0 / 3.0 : 0.0) : e * 0.5 / busy), hat, e % 2 == 0 ? 100 : 70);
             }
             juce::MidiFile file;
             file.setTicksPerQuarterNote (480);
@@ -86,6 +86,8 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         write ("Funk 104 BPM/Verse 01.mid", 104.0, 42, 2, 2, 10);
         write ("Funk 104 BPM/Chorus 01.mid", 104.0, 22, 2, 2, 0);
         write ("Ballads/Slow 68 BPM/Verse 01.mid", 68.0, 51, 4, 1, 40);
+        write ("Shuffle 124 BPM/Verse 01.mid", 124.0, 42, 2, 1, 0, true);
+        write ("Shuffle 124 BPM/Chorus 01.mid", 124.0, 51, 2, 1, 0, true);
         REQUIRE (processor.getGrooveLibrary().addFolder (groovePack));
         processor.getGrooveLibrary().scanNow();
         processor.getGrooveLibrary().setFavourite (groovePack.getChildFile ("Rock 96 BPM/Chorus 01.mid"), true);
@@ -418,14 +420,24 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
     }
     if (page == "grooves")
     {
-        // The rock folder chosen, its second groove playing a moment in.
+        // Every groove listed; TYPE: verses and choruses; TEMPO: the slowest excluded; the second playing a moment in.
         view->showPage (MainView::Page::grooves);
         auto& grooves = view->getGroovesPage();
         grooves.refresh();
-        grooves.chooseFolder (groovePack.getChildFile ("Rock 96 BPM"));
-        grooves.refresh();
+        grooves.toggleFilter (grooves::Column::type, "Verse", false);
+        grooves.toggleFilter (grooves::Column::type, "Chorus", false);
+        grooves.toggleFilter (grooves::Column::tempo, "Below 80", true);
         grooves.playRow (1, true);
         grooves.getTable().selectRow (1);
+        if (env ("PARAGON_SNAPSHOT_GROOVESEQ").isNotEmpty())
+            grooves.toPattern (1);   // TO SEQUENCER B: its note in the status line
+        if (env ("PARAGON_SNAPSHOT_GROOVESEQ") == "2")
+        {
+            // ...and the pattern it made, in the SEQUENCER.
+            view->showPage (MainView::Page::drums);
+            view->getDrumPage().showView (DrumPage::View::sequencer);
+            view->getDrumPage().getSequencer().selectPattern (1);   // B already: its button lit now, not at the next tick
+        }
         juce::AudioBuffer<float> buffer (2, 256);
         juce::MidiBuffer midi;
         for (int b = 0; b < 300; ++b)

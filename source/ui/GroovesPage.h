@@ -26,6 +26,13 @@ public:
     void chooseFolder (const juce::File&);            // as clicking it in the tree (nothing: all)
     void setSearch (const juce::String&);
     void playRow (int row, bool loop);
+    // THE FILTER COLUMNS (0.5.0): a value chosen (`exclude`: excluded) or let go, as clicking (right-clicking) it does.
+    void toggleFilter (grooves::Column, const juce::String& value, bool exclude);
+    void clearFilters();
+    const grooves::Filters& getFilters() const noexcept { return filters; }
+    juce::StringArray getColumnValues (grooves::Column) const;   // as listed, "value (count)"
+    // INTO THE SEQUENCER (0.5.0): the chosen groove as pattern A-D, as its button does.
+    void toPattern (int pattern);
     juce::TableListBox& getTable() noexcept { return table; }
     juce::TreeView& getTree() noexcept { return tree; }
 
@@ -55,6 +62,14 @@ private:
     std::optional<grooves::Groove> readRow (int row) const;
 
     class FolderItem;
+    class FilterColumn;
+    std::array<std::unique_ptr<FilterColumn>, grooves::numColumns> filterColumns;
+    grooves::Filters filters;
+    juce::TextButton clearFiltersButton { "CLEAR" };
+    juce::Label toSequencerLabel { {}, "TO SEQUENCER" };
+    std::array<juce::TextButton, 4> patternButtons;
+    juce::String message;            // a moment's note in the status line ("Verse 01 is pattern B now")
+    double messageUntil = 0.0;
     ParagonX1AudioProcessor& processor;
     grooves::Library& library;
 

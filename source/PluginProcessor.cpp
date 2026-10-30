@@ -1825,6 +1825,53 @@ std::function<int (int)> ParagonX1AudioProcessor::grooveNoteFor (int folder) con
     };
 }
 
+ParagonX1AudioProcessor::GrooveToPattern ParagonX1AudioProcessor::grooveToPattern (const grooves::Groove& groove, int folder, int pattern)
+{
+    namespace ds = synth::drumseq;
+    GrooveToPattern result;
+    const auto p = grooveFolders->getPreview();
+    const auto scale = 1.0 / grooves::factorOf (p.factor);   // as dragged out: 2x puts the notes twice as close
+    const auto length = juce::jlimit (1, ds::maxBeats, (int) std::ceil (groove.lengthBeats * scale - 1.0e-6));
+    const auto map = grooveLayout (folder);
+    const auto beatsPerStep = getDrumSeqSettings().beatsPerStep();
+    ds::Pattern made;
+    for (const auto& h : groove.hits)
+    {
+        const auto slot = h.note >= 0 && h.note < 128 ? map[(size_t) h.note] : -1;
+        const auto beat = h.beat * scale;
+        if (slot < 0)
+            ++result.noDrum;
+        else if (beat >= length - 1.0e-9 || (int) made.notes.size() >= ds::maxNotes)
+            ++result.pastEnd;
+        else
+        {
+            ds::Note n;
+            n.row = slot;
+            n.start = beat / beatsPerStep;
+            n.velocity = juce::jlimit (0.0f, 1.0f, h.velocity * p.velocity);
+            made.notes.push_back (n);
+            ++result.placed;
+        }
+    }
+    auto m = matrix;
+    m.drumPatterns[(size_t) juce::jlimit (0, ds::numPatterns - 1, pattern)] = std::move (made);
+    setModMatrix (m);
+    const auto set = [this] (const char* id, float value)
+    {
+        if (auto* parameter = parameters.getParameter (id))
+        {
+            parameter->beginChangeGesture();
+            parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+            parameter->endChangeGesture();
+        }
+    };
+    set (ParamIDs::dseqLength, (float) length);
+    set (ParamIDs::dseqPattern, (float) pattern);
+    set (ParamIDs::dseqOn, 1.0f);
+    result.lengthBeats = length;
+    return result;
+}
+
 juce::File ParagonX1AudioProcessor::grooveDragFile (const grooves::Groove& groove, int folder) const
 {
     const auto p = grooveFolders->getPreview();

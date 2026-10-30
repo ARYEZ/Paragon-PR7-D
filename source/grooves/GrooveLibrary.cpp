@@ -8,10 +8,11 @@ namespace grooves
     {
         using synth::drums::notemap::Layout;
 
-        // What was read from a file, kept with what it was read as (so a changed file, or folder map, is read again).
+        // What was read from a file, kept with what it was read as (so a changed file, or folder map, is read again),
+        // and the index's format ("2": with FEEL, 0.5.0; anything older is read again).
         juce::String stamp (const juce::File& f, Layout layout)
         {
-            return juce::String (f.getSize()) + ":" + juce::String (f.getLastModificationTime().toMilliseconds()) + ":"
+            return "2:" + juce::String (f.getSize()) + ":" + juce::String (f.getLastModificationTime().toMilliseconds()) + ":"
                    + juce::String ((int) layout);
         }
 
@@ -28,6 +29,7 @@ namespace grooves
             x->setAttribute ("hand", (int) e.hand);
             x->setAttribute ("intensity", (double) e.intensity);
             x->setAttribute ("hits", e.numHits);
+            x->setAttribute ("feel", (int) e.feel);
             return x;
         }
 
@@ -43,6 +45,7 @@ namespace grooves
             e.hand = (PowerHand) juce::jlimit (0, powerHandNames.size() - 1, x.getIntAttribute ("hand"));
             e.intensity = (float) x.getDoubleAttribute ("intensity");
             e.numHits = x.getIntAttribute ("hits");
+            e.feel = (Feel) juce::jlimit (0, feelNames.size() - 1, x.getIntAttribute ("feel"));
             return e;
         }
 
@@ -61,6 +64,7 @@ namespace grooves
             e.hand = g.hand;
             e.intensity = g.intensity;
             e.numHits = (int) g.hits.size();
+            e.feel = g.feel;
             return e;
         }
     }
@@ -105,6 +109,7 @@ namespace grooves
                         e.folder = f;
                         e.name = e.file.getFileNameWithoutExtension();
                         e.family = e.file.getParentDirectory().getFileName();
+                        e.part = partOf (e.file);
                         known.push_back (e);
                         break;
                     }
@@ -277,6 +282,7 @@ namespace grooves
                 e.folder = f;
                 e.name = file.getFileNameWithoutExtension();
                 e.family = file.getParentDirectory().getFileName();
+                e.part = partOf (file);
                 index.addChildElement (toXml (e, key).release());
                 found.push_back (std::move (e));
                 if ((++scanned % 200) == 0)
@@ -306,8 +312,43 @@ namespace grooves
         return (int) entries.size();
     }
 
+    juce::String valueOf (const Entry& e, Column c)
+    {
+        switch (c)
+        {
+            case Column::type: return partNames[(int) e.part];
+            case Column::feel: return feelNames[(int) e.feel];
+            case Column::time: return e.signature();
+            case Column::hand: return powerHandNames[(int) e.hand];
+            case Column::tempo:
+            {
+                if (! e.bpmKnown)
+                    return "Unknown";
+                const auto bpm = juce::roundToInt (e.bpm);
+                if (bpm < 80) return "Below 80";
+                if (bpm >= 160) return "160 and up";
+                const auto low = bpm / 20 * 20;
+                return juce::String (low) + "-" + juce::String (low + 19);
+            }
+        }
+        return {};
+    }
+
+    juce::StringArray valuesOf (Column c)
+    {
+        switch (c)
+        {
+            case Column::type: return partNames;
+            case Column::feel: return feelNames;
+            case Column::time: return {};
+            case Column::hand: return powerHandNames;
+            case Column::tempo: return { "Below 80", "80-99", "100-119", "120-139", "140-159", "160 and up", "Unknown" };
+        }
+        return {};
+    }
+
     std::vector<Entry> Library::query (const juce::File& within, const juce::String& text, bool favouritesOnly, Sort sort,
-                                       double songBpm, int songNumerator, int songDenominator) const
+                                       double songBpm, int songNumerator, int songDenominator, const Filters& filters) const
     {
         juce::StringArray words;
         words.addTokens (text.toLowerCase(), " ", "\"");
@@ -323,6 +364,8 @@ namespace grooves
                     continue;
                 const auto haystack = (e.name + " " + e.family).toLowerCase();
                 if (! std::all_of (words.begin(), words.end(), [&] (const juce::String& w) { return haystack.contains (w); }))
+                    continue;
+                if (! filters.passes (e))
                     continue;
                 result.push_back (e);
             }

@@ -2,6 +2,32 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.5.0
+
+**The groove player, part 2: filter columns, and grooves into the drum sequencer.**
+
+- **Filter columns** above the groove list: TYPE, FEEL, TIME, POWER HAND, TEMPO. Each lists the values the grooves you're browsing have (in the folder you've chosen, with your search and favourites), and how many have each.
+  - **Click** a value: only grooves with it. Several in one column: grooves with any of them. **Right-click**: none with it (shown red, struck through). Click again to let it go.
+  - The columns work together: a groove is listed if it passes every column. **CLEAR** lets them all go. A column's title shows how many of its values are in use.
+  - **TYPE:** Intro, Verse, Pre-Chorus, Chorus, Bridge, Fill, Ending, Count-In, or Beat. Read from the groove's name, else its folder's, else the one above ("Fills/Var 2" is a fill), the way groove packs name them; Beat when none of those words is there.
+  - **FEEL:** Straight or Swung. Our own measure, from the notes: whether the hits between the beats fall on the half and quarter beats (straight) or on the triplet grid (a swing or shuffle).
+  - **TIME:** the time signatures there are. **POWER HAND:** as in the list. **TEMPO:** below 80, 80-99, 100-119, 120-139, 140-159, 160 and up, or Unknown (a file that doesn't say).
+- **TO SEQUENCER A B C D:** the chosen groove becomes that drum sequencer pattern (replacing it).
+  - Each hit is a note on its drum's row, where it was played (between the grid's steps too, so a laid-back snare stays laid back), with its velocity.
+  - TEMPO's factor and VELOCITY go with it (as when you drag a groove out).
+  - LENGTH becomes the groove's, and the sequencer comes on playing that pattern (with your song, on SONG).
+  - A pattern holds 16 beats at most, so a longer groove brings its first 16. LENGTH is one setting for all four patterns.
+  - Notes no drum plays in the folder's FILES' MAP are left out. The status line says what was made ("Verse 01 is pattern B now (8 beats)").
+  - **Undo** takes it back.
+  - SHUFFLE still applies to what's in the pattern: leave it at 0% to hear the groove as played.
+- **Also:** tempos read from files show as whole numbers (104, not 104.0: a MIDI file keeps tempo in millionths of a second a beat).
+- **Your library is read once more** the first time you open GROOVES after updating: the index now remembers FEEL. Then it's quick again.
+- **Tests:** FEEL (straight and shuffle beats, a stray triplet note not making a beat swung); TYPE from names and folders (PRE-CHORUS not CHORUS, "Country" not a count-in); every column's values; choosing, several in a column, excluding, columns together, CLEAR; a groove put in pattern B and played with the song at 120 hitting the same samples as the groove (its off-grid snare 25440 samples in); the factor, velocity, a 32-beat groove cut to 16, notes with no drum; undo; the page's columns, counts and buttons.
+
+What can't be checked here: real groove packs (TYPE depends on how a pack names its files: if one names them differently, tell us the words), and how it sounds.
+
+Next, your choice: Tap-to-find (tap a rhythm, get the closest grooves), groove parts (one drum's part from one groove over another), or the song track (needs the manual's chapter 7).
+
 ## 0.4.0
 
 **The groove player, part 1: your MIDI grooves, browsed, played through the kit and dragged into your DAW.** A new **GROOVES** tab (after DRUMS). Our own design, inspired by the groove browsers of commercial drum software. It reads only your own MIDI files, from where they are on your computer: no grooves, sounds or tags from anyone else ship with it.

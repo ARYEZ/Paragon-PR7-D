@@ -322,3 +322,89 @@ TEST_CASE ("GROOVE LIBRARY: the scan runs in the background", "[grooves]")
     CHECK_FALSE (library.isScanning());
     CHECK (library.getNumEntries() == 4);
 }
+
+TEST_CASE ("GROOVES 0.5: FEEL from where the off-beat hits fall; TYPE from the names", "[grooves][filters]")
+{
+    // Straight eighths and sixteenths: straight. A shuffle (the hat on the beat and two thirds of it): swung.
+    CHECK (readBlock (midiFile (rockBeat()))->feel == grooves::Feel::straight);
+    std::vector<Note> shuffle { { 0.0, 36 }, { 1.0, 38 } };
+    for (int b = 0; b < 4; ++b)
+    {
+        shuffle.push_back ({ b * 1.0, 42 });
+        shuffle.push_back ({ b + 2.0 / 3.0, 42 });
+    }
+    CHECK (readBlock (midiFile (shuffle))->feel == grooves::Feel::swung);
+    // A beat with one stray triplet note stays straight.
+    auto almost = rockBeat();
+    almost.push_back ({ 1.0 / 3.0, 38 });
+    CHECK (readBlock (midiFile (almost))->feel == grooves::Feel::straight);
+
+    using grooves::Part;
+    CHECK (grooves::partIn ("Verse 02") == Part::verse);
+    CHECK (grooves::partIn ("Pre-Chorus 01") == Part::preChorus);   // not CHORUS
+    CHECK (grooves::partIn ("pre_chorus") == Part::preChorus);
+    CHECK (grooves::partIn ("Chorus") == Part::chorus);
+    CHECK (grooves::partIn ("Fills") == Part::fill);
+    CHECK (grooves::partIn ("Outro") == Part::ending);
+    CHECK (grooves::partIn ("Count-In 2 bars") == Part::countIn);
+    CHECK (grooves::partIn ("Country Shuffle") == Part::beat);       // "Country" isn't a count-in
+    CHECK (grooves::partIn ("Groove 3") == Part::beat);
+    // From the file's name, else its folder's, else the one above.
+    CHECK (grooves::partOf (juce::File ("/p/Rock/Fills/Var 1.mid")) == Part::fill);
+    CHECK (grooves::partOf (juce::File ("/p/Rock/Bridge/Fast/Var 1.mid")) == Part::bridge);
+    CHECK (grooves::partOf (juce::File ("/p/Rock/Intro 01.mid")) == Part::intro);
+}
+
+TEST_CASE ("GROOVE LIBRARY 0.5: filter columns: any of the values chosen in a column, none excluded, all columns together", "[grooves][filters]")
+{
+    TempGrooves t;
+    // Plus a swung fill at 150, and a verse with no tempo.
+    std::vector<Note> shuffle;
+    for (int b = 0; b < 4; ++b)
+    {
+        shuffle.push_back ({ b * 1.0, 42 });
+        shuffle.push_back ({ b + 2.0 / 3.0, 42 });
+    }
+    t.write ("Swing/Fill 02.mid", midiFile (shuffle, 150.0, 4, 4));
+    t.write ("Loose/Verse 03.mid", midiFile (rockBeat()));
+    grooves::Library library (t.settings, t.index);
+    library.addFolder (t.pack);
+    library.scanNow();
+    using grooves::Column;
+    const auto q = [&] (const grooves::Filters& f)
+    {
+        return names (library.query ({}, {}, false, grooves::Sort::name, 120.0, 4, 4, f));
+    };
+    const auto all = library.query ({}, {}, false, grooves::Sort::name, 120.0, 4, 4);
+    REQUIRE (all.size() == 6);
+    const auto value = [&] (const juce::String& family, const juce::String& name, Column c)
+    {
+        for (const auto& e : all)
+            if (e.family == family && e.name == name)
+                return grooves::valueOf (e, c);
+        return juce::String ("?");
+    };
+    CHECK (value ("Rock 96 BPM", "Verse 01", Column::type) == "Verse");
+    CHECK (value ("Rock 96 BPM", "Fill 01", Column::type) == "Fill");
+    CHECK (value ("Pack", "Ride Beat", Column::type) == "Beat");
+    CHECK (value ("Swing", "Fill 02", Column::feel) == "Swung");
+    CHECK (value ("Rock 96 BPM", "Verse 01", Column::feel) == "Straight");
+    CHECK (value ("6-8", "Verse 01", Column::time) == "6/8");
+    CHECK (value ("Pack", "Ride Beat", Column::hand) == "Ride");
+    CHECK (value ("Rock 96 BPM", "Verse 01", Column::tempo) == "80-99");
+    CHECK (value ("Pack", "Ride Beat", Column::tempo) == "140-159");
+    CHECK (value ("6-8", "Verse 01", Column::tempo) == "Below 80");
+    CHECK (value ("Loose", "Verse 03", Column::tempo) == "Unknown");
+
+    grooves::Filters f;
+    f.include[(size_t) Column::type] = { "Fill" };
+    CHECK (q (f) == juce::StringArray { "Rock 96 BPM/Fill 01", "Swing/Fill 02" });
+    f.include[(size_t) Column::type].add ("Verse");   // any of them
+    CHECK (q (f).size() == 5);
+    f.exclude[(size_t) Column::time] = { "6/8" };     // none excluded
+    CHECK (q (f).size() == 4);
+    f.include[(size_t) Column::feel] = { "Swung" };   // and every column
+    CHECK (q (f) == juce::StringArray { "Swing/Fill 02" });
+    CHECK_FALSE (f.isEmpty());
+    CHECK (grooves::Filters().isEmpty());
+}

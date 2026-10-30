@@ -274,3 +274,150 @@ TEST_CASE ("GROOVES page: the tree opens the way to the folder chosen; a folder 
     }
     CHECK (t.p.getGrooveFile() == juce::File());
 }
+
+namespace
+{
+    struct Song final : juce::AudioPlayHead
+    {
+        double bpm = 120.0, ppq = 0.0;
+        juce::Optional<PositionInfo> getPosition() const override
+        {
+            PositionInfo info;
+            info.setBpm (bpm);
+            info.setPpqPosition (ppq);
+            info.setIsPlaying (true);
+            return info;
+        }
+    };
+}
+
+TEST_CASE ("GROOVE INTO THE SEQUENCER: a pattern with the groove's notes, played with the song, hits on the samples the groove has them", "[grooves][groove-player][to-pattern]")
+{
+    Plugin t;
+    // A one-bar groove with an off-grid hit (a laid-back snare: 1.06 beats), soft hats, and a note no drum has (4).
+    auto g = groove ({ { 0.0, 36 }, { 1.06, 36 }, { 2.5, 22 }, { 3.0, 4 } }, 90.0, 1, 0.8f);
+    auto& library = t.p.getGrooveLibrary();
+    const auto pack = t.folder.getChildFile ("Pack");
+    pack.createDirectory();
+    REQUIRE (library.addFolder (pack));
+    const auto r = t.p.grooveToPattern (g, 0, 1);   // pattern B
+    CHECK (r.placed == 3);
+    CHECK (r.noDrum == 1);
+    CHECK (r.pastEnd == 0);
+    CHECK (r.lengthBeats == 4);
+
+    const auto& made = t.p.getModMatrix().drumPatterns[1];
+    REQUIRE (made.notes.size() == 3);
+    CHECK (made.notes[0].row == BD);
+    CHECK (made.notes[2].row == CH);   // 22: the closed hat, through the folder's map
+    CHECK_THAT (made.notes[1].start, WithinAbs (1.06 * 4.0, 1e-9));   // in sixteenths, off the grid as played
+    CHECK_THAT (made.notes[0].velocity, WithinAbs (0.8, 1e-6));
+    const auto value = [&t] (const char* id) { return t.p.getParameters().getRawParameterValue (id)->load(); };
+    CHECK (value (ParamIDs::dseqOn) > 0.5f);
+    CHECK (juce::roundToInt (value (ParamIDs::dseqPattern)) == 1);
+    CHECK (juce::roundToInt (value (ParamIDs::dseqLength)) == 4);
+
+    // Played with the song at 120: the kick at 0 and at 1.06 beats (25440 samples), each bar.
+    Song song;
+    t.p.setPlayHead (&song);
+    std::vector<float> out;
+    juce::AudioBuffer<float> buffer (2, blockSize);
+    juce::MidiBuffer none;
+    for (int b = 0; b < (int) (2.2 * sampleRate) / blockSize; ++b)
+    {
+        buffer.clear();
+        t.p.processBlock (buffer, none);
+        out.insert (out.end(), buffer.getReadPointer (0), buffer.getReadPointer (0) + blockSize);
+        song.ppq += blockSize / sampleRate * 2.0;
+    }
+    t.p.setPlayHead (nullptr);
+    const auto o = onsets (out);
+    REQUIRE (o.size() >= 4);
+    CHECK (o[0] == 0);
+    CHECK (std::abs (o[1] - 25440) <= 1);
+    CHECK (std::abs (o[2] - 60000) <= 1);   // the hat (2.5 beats)
+    CHECK (std::abs (o[3] - 96000) <= 1);   // the next bar
+}
+
+TEST_CASE ("GROOVE INTO THE SEQUENCER: the factor and velocity scale; longer than 16 beats: the first 16", "[grooves][groove-player][to-pattern]")
+{
+    Plugin t;
+    t.preview (true, grooves::TempoFactor::twice, 0.5f);
+    const auto r = t.p.grooveToPattern (groove ({ { 0.0, 36 }, { 3.0, 36 } }, 90.0, 2), 0, 0);   // 8 beats at 2x: 4
+    CHECK (r.lengthBeats == 4);
+    const auto& a = t.p.getModMatrix().drumPatterns[0];
+    REQUIRE (a.notes.size() == 2);
+    CHECK_THAT (a.notes[1].start, WithinAbs (1.5 * 4.0, 1e-9));
+    CHECK_THAT (a.notes[0].velocity, WithinAbs (0.5, 1e-6));
+
+    t.preview (true, grooves::TempoFactor::normal, 1.0f);
+    std::vector<std::pair<double, int>> long8bars;
+    for (int b = 0; b < 32; ++b)
+        long8bars.push_back ({ b * 1.0, 36 });
+    const auto l = t.p.grooveToPattern (groove (long8bars, 90.0, 8), 0, 2);
+    CHECK (l.lengthBeats == 16);
+    CHECK (l.placed == 16);
+    CHECK (l.pastEnd == 16);
+    CHECK (t.p.getModMatrix().drumPatterns[2].notes.size() == 16);   // beats 0 to 15
+
+    // UNDO takes it back: pattern C empty again, LENGTH as it was before.
+    t.p.flushUndoStep();
+    t.p.undo();
+    CHECK (t.p.getModMatrix().drumPatterns[2].notes.empty());
+    CHECK (juce::roundToInt (t.p.getParameters().getRawParameterValue (ParamIDs::dseqLength)->load()) == 4);
+}
+
+TEST_CASE ("GROOVES page 0.5: the filter columns list what the grooves have; choosing, excluding, CLEAR; TO SEQUENCER", "[grooves][groove-player][ui]")
+{
+    Plugin t;
+    const auto pack = t.folder.getChildFile ("Pack");
+    const auto write = [&] (const char* path, std::vector<std::pair<double, int>> notes, double bpm)
+    {
+        juce::MidiMessageSequence track;
+        track.addEvent (juce::MidiMessage::tempoMetaEvent (juce::roundToInt (60.0e6 / bpm)));
+        for (const auto& [beat, note] : notes)
+        {
+            track.addEvent (juce::MidiMessage::noteOn (10, note, (juce::uint8) 100).withTimeStamp (beat * 480));
+            track.addEvent (juce::MidiMessage::noteOff (10, note).withTimeStamp (beat * 480 + 60));
+        }
+        juce::MidiFile file;
+        file.setTicksPerQuarterNote (480);
+        track.updateMatchedPairs();
+        file.addTrack (track);
+        const auto f = pack.getChildFile (path);
+        f.getParentDirectory().createDirectory();
+        juce::FileOutputStream out (f);
+        file.writeTo (out);
+    };
+    write ("Rock/Verse 01.mid", { { 0.0, 36 }, { 0.5, 42 }, { 1.0, 38 }, { 1.5, 42 } }, 96.0);
+    write ("Rock/Fill 01.mid", { { 0.0, 36 }, { 2.0, 38 }, { 3.0, 49 } }, 96.0);
+    write ("Shuffle/Verse 02.mid", { { 0.0, 36 }, { 2.0 / 3.0, 42 }, { 1.0, 38 }, { 5.0 / 3.0, 42 } }, 130.0);
+    REQUIRE (t.p.getGrooveLibrary().addFolder (pack));
+    t.p.getGrooveLibrary().scanNow();
+    GroovesPage page (t.p);
+    page.setSize (1476, 672);
+    page.refresh();
+    REQUIRE (page.getResults().size() == 3);
+    using grooves::Column;
+    CHECK (page.getColumnValues (Column::type) == juce::StringArray { "Verse (2)", "Fill (1)" });
+    CHECK (page.getColumnValues (Column::feel) == juce::StringArray { "Straight (2)", "Swung (1)" });
+    CHECK (page.getColumnValues (Column::tempo) == juce::StringArray { "80-99 (2)", "120-139 (1)" });
+
+    page.toggleFilter (Column::type, "Verse", false);
+    CHECK (page.getResults().size() == 2);
+    page.toggleFilter (Column::feel, "Swung", true);   // excluded
+    REQUIRE (page.getResults().size() == 1);
+    CHECK (page.getResults()[0].name == "Verse 01");
+    page.toggleFilter (Column::feel, "Swung", true);   // let go
+    CHECK (page.getResults().size() == 2);
+    page.clearFilters();
+    CHECK (page.getResults().size() == 3);
+    CHECK (page.getFilters().isEmpty());
+
+    // TO SEQUENCER: nothing chosen, nothing happens; the fill chosen, pattern D is it.
+    page.toPattern (3);
+    CHECK (t.p.getModMatrix().drumPatterns[3].notes.empty());
+    page.getTable().selectRow (0);   // sorted by folder and name: Rock / Fill 01 first
+    page.toPattern (3);
+    CHECK (t.p.getModMatrix().drumPatterns[3].notes.size() == 3);
+}

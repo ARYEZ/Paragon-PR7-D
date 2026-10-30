@@ -20,6 +20,32 @@ namespace grooves
         }
     }
 
+    Part partIn (const juce::String& name)
+    {
+        // Lower case, '-' and '_' as spaces, so "Pre-Chorus", "pre_chorus" and "Pre Chorus" read alike. Checked in this
+        // order: PRE-CHORUS before CHORUS, COUNT-IN only as "count in" / "count off" (not "Country").
+        const auto t = " " + name.toLowerCase().replaceCharacters ("-_", "  ") + " ";
+        const std::pair<const char*, Part> words[] = {
+            { "count in", Part::countIn }, { "countin", Part::countIn }, { "count off", Part::countIn },
+            { "pre chorus", Part::preChorus }, { "prechorus", Part::preChorus },
+            { "intro", Part::intro }, { "verse", Part::verse }, { "chorus", Part::chorus }, { "bridge", Part::bridge },
+            { "fill", Part::fill }, { "ending", Part::ending }, { "outro", Part::ending }, { " end ", Part::ending },
+        };
+        for (const auto& [word, part] : words)
+            if (t.contains (word))
+                return part;
+        return Part::beat;
+    }
+
+    Part partOf (const juce::File& file)
+    {
+        auto f = file;
+        for (int level = 0; level < 3 && f.getFullPathName().isNotEmpty(); ++level, f = f.getParentDirectory())
+            if (const auto part = partIn (f.getFileNameWithoutExtension()); part != Part::beat)
+                return part;
+        return Part::beat;
+    }
+
     double tempoInName (const juce::String& text)
     {
         // The number just before "BPM" (any case, a space or not).
@@ -126,6 +152,25 @@ namespace grooves
         counts[0] = 0;
         if (const auto most = std::max_element (counts.begin(), counts.end()); *most > 0)
             g.hand = (PowerHand) std::distance (counts.begin(), most);
+
+        // FEEL (our own measure): the hits off the beat, each near the straight grid (quarter and half beats) or the
+        // triplet one (thirds and sixths of a beat); swung when the triplet ones are more (and at least two).
+        auto straight = 0, triplet = 0;
+        for (const auto& h : g.hits)
+        {
+            const auto f = h.beat - std::floor (h.beat);
+            if (f < 0.03 || f > 0.97)
+                continue;
+            const auto near = [f] (std::initializer_list<double> grid)
+            {
+                return std::any_of (grid.begin(), grid.end(), [f] (double x) { return std::abs (f - x) < 0.035; });
+            };
+            if (near ({ 0.25, 0.5, 0.75 }))
+                ++straight;
+            else if (near ({ 1.0 / 6.0, 1.0 / 3.0, 2.0 / 3.0, 5.0 / 6.0 }))
+                ++triplet;
+        }
+        g.feel = triplet >= 2 && triplet > straight ? Feel::swung : Feel::straight;
 
         // INTENSITY (our own measure): how hard, on average, and how busy (8 hits a beat counts as all-out), half each.
         const auto hard = velocity / (double) g.hits.size();

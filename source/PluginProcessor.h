@@ -231,6 +231,11 @@ public:
     // moved for the factor, and (FOR THIS KIT) on this kit's notes in its map (as written, if the folder's map is it).
     juce::File grooveDragFile (const grooves::Groove&, int folder) const;
     std::function<int (int)> grooveNoteFor (int folder) const;
+    // INTO THE SEQUENCER (0.5.0): the groove as drum sequencer pattern `pattern` (0-3), replacing it: each hit a note on
+    // its drum's row at its exact place (off the grid too), with its velocity, the preview's factor and velocity scale;
+    // LENGTH set to the groove's (at most maxBeats: hits after that are left out), the sequencer on, playing it.
+    struct GrooveToPattern { int placed = 0, noDrum = 0, pastEnd = 0; int lengthBeats = 0; };
+    GrooveToPattern grooveToPattern (const grooves::Groove&, int folder, int pattern);
 
     juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
     LevelMeterSource& getOutputMeter() noexcept { return outputMeter; }

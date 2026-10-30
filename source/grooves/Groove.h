@@ -17,6 +17,17 @@ namespace grooves
     enum class PowerHand { none, closedHat, openHat, ride, crash, percussion };
     inline const juce::StringArray powerHandNames { "-", "Closed Hat", "Open Hat", "Ride", "Crash", "Percussion" };
 
+    // FEEL (0.5.0): how its off-beat hits fall, on the half / quarter-beat grid or the triplet grid (a swing or shuffle).
+    enum class Feel { straight, swung };
+    inline const juce::StringArray feelNames { "Straight", "Swung" };
+
+    // TYPE (0.5.0): which part of a song it's for, from the words groove packs name their files and folders with
+    // ("Verse 02", "Pre-Chorus", "Fills"...); BEAT when none is there.
+    enum class Part { beat, intro, verse, preChorus, chorus, bridge, fill, ending, countIn };
+    inline const juce::StringArray partNames { "Beat", "Intro", "Verse", "Pre-Chorus", "Chorus", "Bridge", "Fill", "Ending", "Count-In" };
+    Part partOf (const juce::File&);   // the file's name, then its folder's, then the one above
+    Part partIn (const juce::String& name);   // nothing found: Part::beat
+
     struct Hit
     {
         double beat = 0.0;    // quarter notes from the groove's start
@@ -35,6 +46,7 @@ namespace grooves
         int bars = 1;
         PowerHand hand = PowerHand::none;
         float intensity = 0.0f;           // 0 to 1: how hard (velocity) and how busy (hits a beat)
+        Feel feel = Feel::straight;
         std::vector<Hit> hits;            // in time order
 
         double beatsPerBar() const noexcept { return numerator * 4.0 / denominator; }
