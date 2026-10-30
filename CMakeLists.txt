@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.24)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "macOS architectures")
 
-project(ParagonX1 VERSION 0.13.0 LANGUAGES C CXX)
+project(ParagonX1 VERSION 0.14.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -42,6 +42,28 @@ juce_add_binary_data(ParagonX1Fonts
         resources/fonts/Inter-Regular.ttf
         resources/fonts/Inter-SemiBold.ttf
         resources/fonts/InterDisplay-BlackItalic.ttf)
+
+# THE KIT VIEW's pictures (0.14.0): our own 3D kit, rendered once (the kit, each piece glowing, a click map, where
+# each glow goes). See resources/kit/README.md.
+juce_add_binary_data(ParagonX1Kit
+    HEADER_NAME KitImages.h
+    NAMESPACE   KitImages
+    SOURCES
+        resources/kit/kit.jpg
+        resources/kit/kitzones.png
+        resources/kit/kitlayout.txt
+        resources/kit/litkick.png
+        resources/kit/litsnare.png
+        resources/kit/littom1.png
+        resources/kit/littom2.png
+        resources/kit/litfloor.png
+        resources/kit/lithihat.png
+        resources/kit/litcrash.png
+        resources/kit/litcrash2.png
+        resources/kit/litride.png
+        resources/kit/litchina.png
+        resources/kit/litsplash.png
+        resources/kit/littambourine.png)
 
 target_sources(ParagonX1
     PRIVATE
@@ -93,6 +115,7 @@ target_sources(ParagonX1
         source/ui/SynthDisplays.cpp
         source/ui/MultiPointEditor.cpp
         source/ui/DrumPage.cpp
+        source/ui/KitView.cpp
         source/ui/GroovesPage.cpp
         source/ui/TapPanel.cpp
         source/ui/SongTrack.cpp
@@ -130,6 +153,7 @@ target_compile_definitions(ParagonX1
 target_link_libraries(ParagonX1
     PRIVATE
         ParagonX1Fonts
+        ParagonX1Kit
         juce::juce_audio_utils
         juce::juce_dsp
         juce::juce_recommended_warning_flags   # strict warnings for our code only

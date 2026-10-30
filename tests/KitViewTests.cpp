@@ -1,0 +1,182 @@
+// THE KIT VIEW (0.14.0): its pictures, where clicks land, a click choosing and playing a drum, and each piece's glow
+// following its hits.
+#include "TestUtils.h"
+
+#include "PluginProcessor.h"
+#include "ui/DrumPage.h"
+#include "ui/KitView.h"
+
+namespace
+{
+    struct TempFolder
+    {
+        juce::File folder = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                                .getChildFile ("pr7d-kitview-test-" + juce::String (juce::Random::getSystemRandom().nextInt64()));
+        TempFolder() { folder.createDirectory(); }
+        ~TempFolder() { folder.deleteRecursively(); }
+    };
+
+    struct Plugin
+    {
+        ParagonX1AudioProcessor processor;
+        explicit Plugin (const juce::File& presets)
+        {
+            processor.setPlayConfigDetails (0, 2, sampleRate, blockSize);
+            processor.prepareToPlay (sampleRate, blockSize);
+            processor.useRigFolder (presets);
+        }
+        void run (double seconds, juce::MidiBuffer midi = {})
+        {
+            juce::AudioBuffer<float> buffer (2, blockSize);
+            for (int b = 0; b < (int) (seconds * sampleRate / blockSize); ++b)
+            {
+                processor.processBlock (buffer, midi);
+                midi.clear();
+            }
+        }
+    };
+
+    // The slots with a part on the kit (the clap and the shaker have none).
+    const std::vector<int> onTheKit { 0, 1, 2, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 18 };
+
+    // A pixel's hue in degrees, and whether it's coloured enough to count (the family's rule is about colours, not
+    // the near-black onyx or pearl greys).
+    bool coloured (juce::Colour c) { return c.getSaturation() > 0.3f && c.getBrightness() > 0.15f && c.getAlpha() > 128; }
+    float hueOf (juce::Colour c) { return c.getHue() * 360.0f; }
+}
+
+TEST_CASE ("KIT VIEW: its pictures are built in and fit together", "[kitview]")
+{
+    const auto& pics = KitView::pictures();
+    REQUIRE (pics.kit.isValid());
+    REQUIRE (pics.zones.isValid());
+    CHECK (pics.kit.getBounds() == pics.zones.getBounds());
+    CHECK (pics.kit.getWidth() >= 1200);   // sharp at the editor's largest size
+    for (int k = 0; k < KitView::numPieces; ++k)
+    {
+        INFO (KitView::pieceName (k));
+        REQUIRE (pics.lit[(size_t) k].isValid());
+        CHECK (pics.lit[(size_t) k].getBounds().getSmallestIntegerContainer() == pics.litArea[(size_t) k].withZeroOrigin());
+        CHECK (pics.kit.getBounds().contains (pics.litArea[(size_t) k]));
+        CHECK (pics.lit[(size_t) k].hasAlphaChannel());
+    }
+}
+
+TEST_CASE ("KIT VIEW: each drum on the kit has its part, the clap and shaker none", "[kitview]")
+{
+    TempFolder temp;
+    Plugin p (temp.folder);
+    KitView view (p.processor);
+    view.setSize (848, 612);
+
+    for (int slot = 0; slot < synth::drums::numSlots; ++slot)
+    {
+        INFO (synth::drums::slotDefaults[(size_t) slot].key);
+        const auto at = view.pointFor (slot);
+        const auto expected = std::find (onTheKit.begin(), onTheKit.end(), slot) != onTheKit.end();
+        CHECK (at.has_value() == expected);
+        if (at.has_value())
+        {
+            CHECK (view.slotAt (*at) == slot);
+            CHECK (view.pictureArea().contains (*at));
+            // The piece it glows on is the one it's drawn on.
+            CHECK (KitView::pieceOf (slot) >= 0);
+        }
+    }
+    // Articulations on one piece: the snare's head, hoop and shell; the ride's bow and bell; the hats and their pedal.
+    CHECK (KitView::pieceOf (2) == KitView::pieceOf (4));
+    CHECK (KitView::pieceOf (2) == KitView::pieceOf (1));
+    CHECK (KitView::pieceOf (12) == KitView::pieceOf (13));
+    CHECK (KitView::pieceOf (6) == KitView::pieceOf (8));
+    CHECK (KitView::pieceOf (3) == -1);
+    CHECK (KitView::pieceOf (19) == -1);
+    // The empty floor in the corners chooses nothing.
+    CHECK (view.slotAt ({ 3.0f, 3.0f }) == -1);
+    CHECK (view.slotAt ({ 845.0f, 609.0f }) == -1);
+}
+
+TEST_CASE ("KIT VIEW: a click on the snare's head chooses SD and plays it", "[kitview]")
+{
+    TempFolder temp;
+    Plugin p (temp.folder);
+    DrumPage page (p.processor);
+    page.setSize (1476, 672);
+    CHECK (page.getView() == DrumPage::View::kit);   // the page opens on it
+    auto& view = page.getKitView();
+    REQUIRE (view.isVisible());
+
+    const auto snare = view.pointFor (2);
+    REQUIRE (snare.has_value());
+    CHECK (p.processor.getDrumKit().getHitAge (2) < 0.0f);
+    view.click (*snare, {});
+    CHECK (page.getSelected() == 2);
+    CHECK (page.getChosen() == std::vector<int> { 2 });
+    p.run (0.05);
+    CHECK (p.processor.getDrumKit().getHitAge (2) >= 0.0f);   // it played
+
+    // CTRL adds the ride's bell, as on the rows.
+    const auto bell = view.pointFor (13);
+    REQUIRE (bell.has_value());
+    view.click (*bell, juce::ModifierKeys::ctrlModifier);
+    CHECK (page.getChosen() == std::vector<int> { 2, 13 });
+
+    // A click on nothing changes nothing.
+    view.click ({ 2.0f, 2.0f }, {});
+    CHECK (page.getChosen() == std::vector<int> { 2, 13 });
+}
+
+TEST_CASE ("KIT VIEW: a piece glows as its drum plays and fades with the hit", "[kitview]")
+{
+    TempFolder temp;
+    Plugin p (temp.folder);
+    DrumPage page (p.processor);
+    page.setSize (1476, 672);
+    auto& view = page.getKitView();
+
+    juce::MidiBuffer midi;
+    midi.addEvent (juce::MidiMessage::noteOn (1, 36 + 15, 1.0f), 0);   // CHN, the china (ROOT + 15)
+    midi.addEvent (juce::MidiMessage::noteOn (1, 36 + 4, 1.0f), 0);    // SD2: the snare's piece
+    p.run ((double) blockSize / sampleRate, midi);
+    page.updateLights();
+    const auto china = KitView::pieceOf (15), snare = KitView::pieceOf (4);
+    CHECK (view.getGlow (china) > 0.9f);
+    CHECK (view.getGlow (snare) > 0.9f);
+    for (int k = 0; k < KitView::numPieces; ++k)
+        if (k != china && k != snare)
+            CHECK (view.getGlow (k) == 0.0f);
+
+    p.run (0.5);
+    page.updateLights();
+    CHECK_THAT (view.getGlow (china), Catch::Matchers::WithinAbs (0.25, 0.05));   // (1 - age)^2, half a second in
+    p.run (0.6);
+    page.updateLights();
+    CHECK (view.getGlow (china) == 0.0f);
+}
+
+TEST_CASE ("KIT VIEW: its pictures keep to the family's colours", "[kitview][colours]")
+{
+    const auto& pics = KitView::pictures();
+    const auto check = [] (const juce::Image& image, const char* what)
+    {
+        int counted = 0, outside = 0;
+        float worst = 0.0f;
+        for (int y = 0; y < image.getHeight(); y += 2)
+            for (int x = 0; x < image.getWidth(); x += 2)
+                if (const auto c = image.getPixelAt (x, y); coloured (c))
+                {
+                    ++counted;
+                    const auto h = hueOf (c);
+                    if (h > 42.0f && h < 318.0f)
+                    {
+                        ++outside;
+                        worst = std::abs (h - 180.0f) > std::abs (worst - 180.0f) ? worst : h;
+                    }
+                }
+        INFO (what << ": " << outside << " of " << counted << " coloured pixels outside, e.g. hue " << worst);
+        CHECK (counted > 0);
+        CHECK (outside == 0);
+    };
+    check (pics.kit, "the kit");
+    for (int k = 0; k < KitView::numPieces; ++k)
+        check (pics.lit[(size_t) k], KitView::pieceName (k));
+}

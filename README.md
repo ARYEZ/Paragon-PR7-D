@@ -25,10 +25,16 @@ PR7-D is built in stages, each one released:
 | **4** | Multiple outputs: 16 stereo outputs; each drum, insert bus and send return chooses one | **Works (0.3.0)** |
 | **5** | The groove player: browse, filter, preview and drag MIDI grooves from your own folders | **Works (0.13.0)**: folders, list, search, filter columns, preview, drag out, into the sequencer (buttons, or dragged onto its grid), tap to find, groove parts |
 | **6** | The song track: grooves laid out as a song, played with your DAW | **Works (0.12.0)**: blocks from grooves or MIDI files, move, lengthen, duplicate, mute, song parts, change tempo, PLAY, EXPORT MIDI; editing inside a block (paste or remove drums, quantize, velocity, split, merge, EDIT BLOCK); the SONG CREATOR; tempo and time signature changes; IMPORT MIDI FILE; RECORD; BOUNCE to audio; FOLLOW DAW |
+| **7** | The kit view: a drawn kit (our own 3D kit, black with glowing rings) to click and play | **Works (0.14.0)**: click a drum to choose and hear it; each piece glows as it plays |
 
 ## Using it
 
 - **DRUMS** (the page it opens on):
+  - **KIT VIEW** (the right-hand panel's first tab): the kit from the drummer's seat, our own 3D kit in the PR7
+    colours (black drums lit by glowing rings, pink on the hi-hat's side through red to orange on the ride's). **Click a
+    drum to choose it and hear it** (SHIFT / CTRL choose several, as on the rows): the snare's head, hoop (rimshot) and
+    shell (sidestick); the ride's bow and bell; the hi-hat and its pedal; toms, cymbals, kick and a tambourine. Each
+    piece glows as it plays, from your DAW, the sequencer, a groove or the song. The clap and shaker are on the rows only.
   - **The kit:** 20 drums: kick, rim, snare, clap, a second snare, three toms, closed, pedal and open hat, cymbal,
     ride, ride bell, second crash, china, splash, half-open hat, tambourine, shaker. Each is one of our own drum synths
     (kick, snare, clap, hats, tom, rim, cowbell, cymbal, ride, bell, tambourine, shaker) or a **SAMPLE** you load (drop

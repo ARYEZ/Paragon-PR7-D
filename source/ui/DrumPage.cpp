@@ -550,7 +550,7 @@ void DrumHitDisplay::filesDropped (const juce::StringArray& files, int, int)
 }
 
 //==============================================================================
-DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), envelope (p), sequencer (p)
+DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), envelope (p), sequencer (p), kitView (p)
 {
     auto& state = p.getParameters();
     const auto kitControl = [&] (const char* id, const juce::String& label, const juce::String& tip)
@@ -652,21 +652,24 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), en
 
     addChildComponent (sequencer);
     sequencer.getGrid().onRowTouched = [this] (int row) { select (row); };
-    for (auto* tab : { &drumTab, &sequencerTab })
+    addChildComponent (kitView);
+    kitView.onChoose = [this] (int slot, juce::ModifierKeys mods) { clickRow (slot, mods); };
+    for (auto* tab : { &kitTab, &drumTab, &sequencerTab })
     {
         DrumSeqPanel::style (*tab);
         tab->setClickingTogglesState (true);
         tab->setRadioGroupId (963);
         addAndMakeVisible (*tab);
     }
+    kitTab.setTooltip ("The KIT VIEW: the kit from the drummer's seat. Click a drum to choose it and hear it; each glows as it plays.");
     drumTab.setTooltip ("The chosen drum's sound, its sample and where it goes.");
     sequencerTab.setTooltip ("The DRUM SEQUENCER: beats for the kit, played with your song or from keys.");
-    drumTab.setToggleState (true, juce::dontSendNotification);
+    kitTab.onClick = [this] { showView (View::kit); };
     drumTab.onClick = [this] { showView (View::drum); };
     sequencerTab.onClick = [this] { showView (View::sequencer); };
 
     select (0);
-    refreshPictures();
+    showView (View::kit);
     startTimerHz (30);
 }
 
@@ -682,8 +685,10 @@ void DrumPage::showView (View v)
         c->setVisible (drum);
     wholeFile.setVisible (drum && display.showsFile());
     refreshPictures();
-    sequencer.setVisible (! drum);
-    (drum ? drumTab : sequencerTab).setToggleState (true, juce::dontSendNotification);
+    sequencer.setVisible (v == View::sequencer);
+    kitView.setVisible (v == View::kit);
+    (v == View::kit ? kitTab : drum ? drumTab : sequencerTab).setToggleState (true, juce::dontSendNotification);
+    kitTab.toFront (false);
     drumTab.toFront (false);
     sequencerTab.toFront (false);
     repaint();
@@ -859,6 +864,7 @@ void DrumPage::select (int slot)
     for (auto& row : rows)
         row->setSelected (row->getSlot() == selected);
     sequencer.getGrid().setHighlightedRow (selected);
+    kitView.setSelected (selected);
     envelope.setTarget (MultiPointEditor::Kind::drumEnvelope, selected);
     listenToRouting();
     display.setSlot (selected);
@@ -938,6 +944,7 @@ void DrumPage::updateLights()
         row->setLit (age >= 0.0f ? juce::jmax (0.0f, 1.0f - age / 0.25f) : 0.0f);
         row->setPlayhead (age >= 0.0f && kit.isSounding (row->getSlot()) ? age : -1.0f);
     }
+    kitView.updateLights();
 }
 
 void DrumPage::chooseSample()
@@ -978,6 +985,11 @@ void DrumPage::paint (juce::Graphics& g)
     if (view == View::sequencer)
     {
         title ("SEQUENCER", drumArea.reduced (18, 0).withHeight (40));
+        return;
+    }
+    if (view == View::kit)
+    {
+        title ("KIT VIEW", drumArea.reduced (18, 0).withHeight (40));
         return;
     }
     const auto& slotKit = kit.slots[(size_t) selected];
@@ -1023,6 +1035,8 @@ void DrumPage::resized()
     auto tabs = drumArea.reduced (14, 10).removeFromTop (30);
     sequencerTab.setBounds (tabs.removeFromRight (104).withSizeKeepingCentre (100, 24));
     drumTab.setBounds (tabs.removeFromRight (74).withSizeKeepingCentre (70, 24));
+    kitTab.setBounds (tabs.removeFromRight (94).withSizeKeepingCentre (90, 24));
+    kitView.setBounds (drumArea.reduced (14, 10).withTrimmedTop (36));
     sequencer.setBounds (drumArea);
     const auto inner = drumArea.reduced (14, 0);
     sequencer.setGridArea ({ inner.getX() - drumArea.getX(), rowsTop - drumArea.getY(), inner.getWidth(), rowHeight * synth::drums::numSlots });

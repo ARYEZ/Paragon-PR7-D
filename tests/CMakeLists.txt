@@ -11,6 +11,7 @@ add_executable(ParagonX1Tests
     DrumSeqTests.cpp
     DrumEditorTests.cpp
     DrumKitFileTests.cpp
+    KitViewTests.cpp
     DrumSeqPluginTests.cpp
     StackSizeTests.cpp
     ParameterIdTests.cpp

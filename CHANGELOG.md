@@ -2,6 +2,25 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.14.0
+
+**The KIT VIEW: a drawn kit to click and play.** The first step towards a kit page like the drum software's (our own artwork, look and design: only the idea of a clickable kit is shared).
+
+- **A new KIT VIEW tab on DRUMS** (first in the right-hand panel, beside DRUM and SEQUENCER; the page opens on it): the kit seen from the drummer's seat.
+  - It's **our own 3D kit**, modelled and rendered for the plugin: gloss-black drums and black hardware, each hoop, cymbal edge and bell, pedal and stand lit by a glowing ring, the colour running across the kit from pink (hi-hat side) through red to orange (ride side), on a dark red grid floor. Only the PR7 family's colours (a test checks every coloured pixel as the plugin draws it).
+  - 11 pieces: kick (with its pedal), snare, two rack toms, floor tom, hi-hat (with its pedal), two crashes, ride, china, splash, and a tambourine on the hi-hat stand.
+- **Click a drum to choose it and hear it**, as clicking its row does (SHIFT / CTRL choose several). Where you click picks the articulation:
+  - snare: the head plays **SD**, the hoop **SD2** (the rimshot), the shell **RIM** (the sidestick);
+  - ride: the bow **RD**, the bell **RB**;
+  - hi-hat: the cymbals **CH**, the pedal **PH** (the open and half-open hats are on their rows);
+  - the clap and the shaker have no piece: they're on the rows only.
+  - The piece under the mouse lights a little and its drum, model and note show at the bottom; the chosen drum's piece stays lit a little.
+- **Each piece glows as it plays,** whatever plays it (your DAW, the keyboard, the sequencer, a groove preview, the song), brightest on the hit and fading over its first second.
+- **How it's drawn:** the kit was rendered once (Blender, from our own model) into pictures built into the plugin: the kit, each piece glowing, and a hidden click map with each part in its own value, so a click is matched to the exact part under it. The scripts that make them are in `resources/kit/`. It adds about 2.4 MB to the plugin.
+- **Tests:** the pictures load and fit together; all 16 drums on the kit have a part where a click lands on them, the clap and shaker none, the empty floor nothing; a click on the snare's head chooses SD and plays it, CTRL-click on the ride's bell adds RB; the china and the snare (from SD2) glow on their hits, nothing else, a quarter as bright half a second later, dark after a second; the pictures' colours.
+
+Not checked here: how smoothly the glow fades in your DAW on Windows (it redraws only the pieces that change, 30 times a second).
+
 ## 0.13.0
 
 **Drag a groove straight onto the drum sequencer.** The last piece of the groove player's plan.

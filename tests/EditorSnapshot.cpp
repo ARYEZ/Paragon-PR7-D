@@ -20,7 +20,9 @@
 //                                    PARAGON_SNAPSHOT_DRUMS=1: a beat just played, its rows lit; =2 a file of nine kicks, the 4th chosen;
 //                                    PARAGON_SNAPSHOT_DRUMSEQ=1: the SEQUENCER view, a beat playing with the song;
 //                                    PARAGON_SNAPSHOT_DRUMEDIT=1: the clap with an envelope, an anchor, GAIN and LP, =2 with DRUMS=2 a fade;
-//                                    PARAGON_SNAPSHOT_DRUMCHOSEN=1: the hats and cymbal chosen together, the tom's playhead)
+//                                    PARAGON_SNAPSHOT_DRUMCHOSEN=1: the hats and cymbal chosen together, the tom's playhead;
+//                                    any of these shows the DRUM view; with none, the KIT VIEW (0.14.0), the page's first:
+//                                    PARAGON_SNAPSHOT_KIT=1: the kick, snare, crash and china just hit, glowing, the ride's bell chosen)
 //   PARAGON_SNAPSHOT_PAGE=fx         THE RACK (PARAGON_SNAPSHOT_RACK=1: at work on a beat, the sends and bus A too; PARAGON_SNAPSHOT_FX=eq|dominion|comp|limiter|sends|delay|reverb|modfx|mod|mod2|lofi|inserts|insdrive|insglitch|insmod|inslofi: that view, the inserts' on bus PARAGON_SNAPSHOT_BUS=1-4)
 //   PARAGON_SNAPSHOT_NOTES=1         the kick, snare and closed hat's keys held on the keyboard (they light)
 //   PARAGON_SNAPSHOT_MIDI=1          demo MIDI links and a knob learning (with PAGE=settings: the links list)
@@ -271,6 +273,23 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         // snare and closed hat just hit: their rows lit).
         view->showPage (MainView::Page::drums);
         auto& drums = view->getDrumPage();
+        for (const auto* what : { "PARAGON_SNAPSHOT_DRUM", "PARAGON_SNAPSHOT_DRUMS", "PARAGON_SNAPSHOT_DRUMEDIT", "PARAGON_SNAPSHOT_DRUMCHOSEN" })
+            if (env (what).isNotEmpty())
+                drums.showView (DrumPage::View::drum);
+        if (env ("PARAGON_SNAPSHOT_KIT") == "1")
+        {
+            drums.showView (DrumPage::View::kit);
+            drums.select (13);
+            juce::AudioBuffer<float> buffer (2, 512);
+            juce::MidiBuffer midi;
+            for (const auto note : { 36, 38, 47, 51 })   // BD, SD, CY, CHN (ROOT 36)
+                midi.addEvent (juce::MidiMessage::noteOn (1, note, 1.0f), 0);
+            processor.processBlock (buffer, midi);
+            midi.clear();
+            for (int b = 0; b < 8; ++b)
+                processor.processBlock (buffer, midi);
+            drums.updateLights();
+        }
         if (env ("PARAGON_SNAPSHOT_DRUMS") == "2")
         {
             // A file of nine kicks (each a semitone higher) in the kick's slot, its 4th kick chosen.
@@ -303,7 +322,7 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             }
             drums.refreshPictures();
         }
-        if (env ("PARAGON_SNAPSHOT_DRUMS") != "2")
+        if (env ("PARAGON_SNAPSHOT_DRUMS") != "2" && env ("PARAGON_SNAPSHOT_KIT").isEmpty())
             drums.select (juce::jmax (1, env ("PARAGON_SNAPSHOT_DRUM").getIntValue()) - 1);
         if (env ("PARAGON_SNAPSHOT_DRUMS") == "1")
         {
