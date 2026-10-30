@@ -9,6 +9,7 @@
 
 #include "ui/GroovesPage.h"
 #include "ui/SongTrack.h"
+#include "ui/BlockEditor.h"
 
 using Catch::Matchers::WithinAbs;
 
@@ -463,4 +464,336 @@ TEST_CASE ("SONG strip: a MIDI file dropped is a block; DELETE; the menu's DUPLI
     CHECK (t.p.getSong().blocks[2].name == "Fill 01");
     CHECK (t.p.getSong().blocks[2].start == 20.0);
     CHECK (t.p.getSong().blocks[2].part == grooves::Part::fill);
+}
+
+//==============================================================================
+// THE SONG TRACK part 2 (0.9.0): editing inside a block.
+namespace
+{
+    std::vector<std::pair<double, int>> notesOf (const song::Block& b)
+    {
+        std::vector<std::pair<double, int>> out;
+        for (const auto& h : b.hits)
+            out.emplace_back (h.beat, h.slot);
+        return out;
+    }
+    unsigned bit (int slot) { return 1u << slot; }
+}
+
+TEST_CASE ("SONG 0.9: split at a bar (each half its own notes), merge with the next (a gap kept as rests)", "[song][song-edit]")
+{
+    song::Song s;
+    s.place (block ("A", 1, { { 0.0, BD }, { 2.0, SD } }), 0.0);
+    s.resize (0, 12.0);   // three bars, the one-bar groove three times round
+    s.place (block ("B", 1, { { 1.0, CH } }), 16.0);   // a bar's gap before it
+    REQUIRE (starts (s) == std::vector<double> { 0.0, 16.0 });
+
+    // At beat 5.2: the nearest bar line inside it is beat 4.
+    CHECK (s.split (0, 5.2) == 1);
+    REQUIRE (names (s).joinIntoString (",") == "A,A,B");
+    CHECK (starts (s) == std::vector<double> { 0.0, 4.0, 16.0 });
+    CHECK (s.blocks[0].length == 4.0);
+    CHECK (s.blocks[1].length == 8.0);
+    CHECK (s.blocks[1].loopLength == 8.0);   // the repeats written out
+    CHECK (notesOf (s.blocks[1]) == std::vector<std::pair<double, int>> { { 0.0, BD }, { 2.0, SD }, { 4.0, BD }, { 6.0, SD } });
+    CHECK (s.split (0, 0.4) == -1);   // no bar line inside a one-bar block
+    // The song plays the same as before.
+    auto e = s.events();
+    REQUIRE (e.size() == 7);
+    CHECK (e[4].beat == 8.0);
+
+    // The second half merged with B: its 4-beat gap kept as rests, B's hat at 16 + 1 from the song's start.
+    CHECK (s.mergeWithNext (1) == 1);
+    REQUIRE (s.blocks.size() == 2);
+    CHECK (s.blocks[1].start == 4.0);
+    CHECK (s.blocks[1].length == 16.0);
+    CHECK (notesOf (s.blocks[1]).back() == std::make_pair (13.0, (int) CH));
+    CHECK (s.events().size() == 7);
+    CHECK (s.mergeWithNext (1) == -1);   // nothing after it
+}
+
+TEST_CASE ("SONG 0.9: remove drums, paste drums (repeated to fill), quantize, velocity, move a drum, add and remove a note", "[song][song-edit]")
+{
+    // A two-bar groove: kick, a late snare, hats.
+    auto b = block ("Verse", 2, { { 0.0, BD }, { 1.06, SD }, { 3.0, SD }, { 4.0, BD }, { 5.0, SD } });
+    for (int e = 0; e < 16; ++e)
+        b.hits.push_back ({ e * 0.5, CH, e % 2 == 0 ? 0.8f : 0.4f });
+    std::stable_sort (b.hits.begin(), b.hits.end(), [] (const song::Hit& x, const song::Hit& y) { return x.beat < y.beat; });
+    CHECK (song::slotsIn (b) == (bit (BD) | bit (SD) | bit (CH)));
+    CHECK (song::slotsOf (1u << (int) grooves::DrumPart::hats) == (bit (CH) | bit (OH) | bit (HH)));
+
+    auto removed = b;
+    song::removeDrums (removed, song::slotsOf (1u << (int) grooves::DrumPart::hats));
+    CHECK (song::slotsIn (removed) == (bit (BD) | bit (SD)));
+    CHECK (removed.hits.size() == 5);
+
+    // A one-bar ride part pasted on the hats' place... the hats stay (other drums), the ride repeats to fill 2 bars.
+    const auto ride = block ("Ride", 1, { { 0.0, RD }, { 1.0, RD }, { 2.0, RD }, { 3.0, RD }, { 0.0, BD } });
+    auto pasted = b;
+    song::pasteDrums (pasted, ride, bit (RD));
+    auto rides = 0;
+    for (const auto& h : pasted.hits)
+        rides += h.slot == RD;
+    CHECK (rides == 8);
+    CHECK (pasted.hits.size() == b.hits.size() + 8);   // its kick not pasted (not asked for), nothing else changed
+    // Pasted onto the kick: the block's own kicks replaced by the clip's (one a bar).
+    song::pasteDrums (pasted, ride, bit (BD));
+    auto kicks = std::vector<double>();
+    for (const auto& h : pasted.hits)
+        if (h.slot == BD)
+            kicks.push_back (h.beat);
+    CHECK (kicks == std::vector<double> { 0.0, 4.0 });
+
+    // QUANTIZE 1/4 on the snare only: 1.06 -> 1; the hats' off-beats untouched.
+    auto q = b;
+    song::quantize (q, 1.0, bit (SD));
+    CHECK (notesOf (q)[2] == std::make_pair (0.5, (int) CH));
+    auto snares = std::vector<double>();
+    for (const auto& h : q.hits)
+        if (h.slot == SD)
+            snares.push_back (h.beat);
+    CHECK (snares == std::vector<double> { 1.0, 3.0, 5.0 });
+    // A note pushed to the groove's end goes round to its start; two on one drum and beat become one, the louder.
+    auto wrap = block ("W", 1, { { 0.0, BD }, { 3.9, BD } });
+    wrap.hits[0].velocity = 0.3f;
+    song::quantize (wrap, 1.0);
+    REQUIRE (wrap.hits.size() == 1);
+    CHECK (wrap.hits[0].beat == 0.0);
+    CHECK (wrap.hits[0].velocity == 1.0f);
+
+    // VELOCITY: the hats at half, their balance kept (0.8 / 0.4 -> 0.4 / 0.2); others untouched; never past full or to 0.
+    auto v = b;
+    song::scaleVelocity (v, 0.5f, bit (CH));
+    CHECK_THAT (v.hits[1].velocity, WithinAbs (0.4, 1e-6));   // the hat on 0 (after the kick)
+    CHECK_THAT (v.hits[2].velocity, WithinAbs (0.2, 1e-6));
+    CHECK (v.hits[0].velocity == 1.0f);
+    song::scaleVelocity (v, 10.0f);
+    CHECK (v.hits[1].velocity == 1.0f);
+    song::scaleVelocity (v, 0.0f);
+    CHECK_THAT (v.hits[1].velocity, WithinAbs (1.0 / 127.0, 1e-6));
+
+    // MOVE TO: the hats on the ride; then the ride on the kick: merged, one hit where both had one (the louder).
+    auto m = b;
+    song::moveDrum (m, CH, RD);
+    CHECK (song::slotsIn (m) == (bit (BD) | bit (SD) | bit (RD)));
+    song::moveDrum (m, RD, BD);
+    auto onZero = 0;
+    for (const auto& h : m.hits)
+        onZero += h.slot == BD && h.beat == 0.0;
+    CHECK (onZero == 1);
+
+    // A note added (one on that drum and beat replaced), removed by the nearest within reach.
+    auto n = b;
+    song::addHit (n, { 7.75, BD, 0.5f });
+    song::addHit (n, { 7.75, BD, 0.9f });
+    CHECK (n.hits.back() .velocity == 0.9f);
+    song::addHit (n, { 8.0, BD, 0.5f });   // past the groove: not added
+    CHECK (n.hits.size() == b.hits.size() + 1);
+    CHECK (! song::removeHitNear (n, SD, 2.0, 0.1));
+    CHECK (song::removeHitNear (n, SD, 1.1, 0.1));   // the late snare
+    CHECK (n.hits.size() == b.hits.size());
+}
+
+TEST_CASE ("SONG 0.9 heard: QUANTIZE puts a late snare on its sample; VELOCITY 50% plays as the notes at half velocity", "[song][song-edit][song-player]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("Late", 1, { { 1.06, SD } }), 0.0);
+    t.p.setSong (s);
+    t.host.ppq = 0.0;
+    auto o = onsets (t.play (1.0));
+    REQUIRE (! o.empty());
+    CHECK (o[0] == 25440);   // 1.06 beats at 120
+    song::quantize (s.blocks[0], 0.25);
+    t.p.setSong (s);
+    t.host.ppq = 0.0;
+    o = onsets (t.play (1.0));
+    REQUIRE (! o.empty());
+    CHECK (o[0] == 24000);   // on beat 2
+
+    // A loud snare scaled to 50% against the same note written at half: the same sound, sample for sample.
+    const auto render = [&t] (float velocity, float scale)
+    {
+        song::Song one;
+        auto b = block ("V", 1, { { 0.0, SD } });
+        b.hits[0].velocity = velocity;
+        song::scaleVelocity (b, scale);
+        one.place (b, 0.0);
+        t.p.setSong (one);
+        t.host.ppq = 0.0;
+        return t.play (0.1);
+    };
+    const auto scaled = render (0.8f, 0.5f), written = render (0.4f, 1.0f), full = render (0.8f, 1.0f);
+    CHECK (scaled == written);
+    auto peak = [] (const std::vector<float>& x) { auto p = 0.0f; for (auto v : x) p = std::max (p, std::abs (v)); return p; };
+    CHECK (peak (scaled) < peak (full) * 0.9f);
+}
+
+TEST_CASE ("SONG 0.9: the clipboard: a groove's ticked parts copied; the strip's menu pastes, removes, quantizes, splits, merges", "[song][song-edit][ui]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 2, { { 0.0, BD }, { 1.03, SD }, { 2.0, CH } }), 0.0);
+    s.place (block ("B", 1, { { 0.0, BD } }), s.endBeat());
+    t.p.setSong (s);
+    SongTrack track (t.p);
+    track.setBounds (0, 0, 1400, 126);
+    auto opened = -1;
+    track.onEditBlock = [&opened] (int b) { opened = b; };
+    t.p.flushUndoStep();
+    const auto run = [&track, &t] (int block, const juce::String& path, double at = -1.0)
+    {
+        // The item at `path` ("Sub|Item" for a submenu's), run as clicking it does; false if not there or greyed out.
+        auto menu = track.menuFor (block, at);
+        const auto parts = juce::StringArray::fromTokens (path, "|", {});
+        std::function<bool (juce::PopupMenu&, int)> find = [&] (juce::PopupMenu& m, int depth)
+        {
+            for (juce::PopupMenu::MenuItemIterator it (m); it.next();)
+            {
+                auto& item = it.getItem();
+                if (item.text != parts[depth])
+                    continue;
+                if (depth + 1 < parts.size())
+                    return item.subMenu != nullptr && find (*item.subMenu, depth + 1);
+                if (! item.isEnabled || item.action == nullptr)
+                    return false;
+                item.action();
+                t.p.flushUndoStep();   // each its own undo step (the editor's timer does this)
+                return true;
+            }
+            return false;
+        };
+        return find (menu, 0);
+    };
+
+    // Nothing copied yet: PASTE greyed out.
+    CHECK (! run (0, "Paste After"));
+    CHECK (run (0, "Edit Block..."));
+    CHECK (opened == 0);
+
+    // A groove from GROOVES with only HI-HAT ticked: the clipboard has only its hats.
+    const auto pack = t.folder.getChildFile ("Pack");
+    writeMidi (pack.getChildFile ("Verse 01.mid"), { { 0.0, 36 }, { 0.5, 42 }, { 1.5, 42 }, { 1.0, 38 } });
+    REQUIRE (t.p.getGrooveLibrary().addFolder (pack));
+    t.p.getGrooveLibrary().scanNow();
+    GroovesPage page (t.p);
+    page.setSize (1476, 672);
+    page.refresh();
+    page.getTable().selectRow (0);
+    page.toggleDrumPart ((int) grooves::DrumPart::hats);
+    REQUIRE (page.copyRowForSong (0));
+    REQUIRE (t.p.getSongClipboard().has_value());
+    CHECK (song::slotsIn (*t.p.getSongClipboard()) == bit (CH));
+
+    // PASTE DRUMS ONTO IT: HI-HAT: block A's hats replaced by the groove's (twice round, 2 bars).
+    CHECK (run (0, "Paste Drums Onto It|HI-HAT (2)"));
+    auto hats = 0;
+    for (const auto& h : t.p.getSong().blocks[0].hits)
+        hats += h.slot == CH;
+    CHECK (hats == 4);
+    // REMOVE DRUMS: KICK; QUANTIZE 1/4: the snare on 1; VELOCITY 50%.
+    CHECK (run (0, "Remove Drums|KICK (1)"));
+    CHECK ((song::slotsIn (t.p.getSong().blocks[0]) & bit (BD)) == 0);
+    CHECK (run (0, "Quantize|1/4"));
+    for (const auto& h : t.p.getSong().blocks[0].hits)
+        if (h.slot == SD)
+            CHECK (h.beat == 1.0);   // the late snare (1.03) on the beat
+    CHECK (run (0, "Velocity|50%"));
+    // SPLIT HERE at beat 4 (A is two bars), MERGE WITH NEXT back.
+    CHECK (run (0, "Split Here", 4.2));
+    REQUIRE (t.p.getSong().blocks.size() == 3);
+    CHECK (t.p.getSong().blocks[1].start == 4.0);
+    CHECK (run (0, "Merge With Next"));
+    CHECK (t.p.getSong().blocks.size() == 2);
+    // COPY a block, PASTE AFTER the first: the copy goes between, B moved along.
+    CHECK (run (1, "Copy"));
+    CHECK (run (0, "Paste After"));
+    REQUIRE (t.p.getSong().blocks.size() == 3);
+    CHECK (names (t.p.getSong()).joinIntoString (",") == "A,B,B");
+    CHECK (starts (t.p.getSong()) == std::vector<double> { 0.0, 8.0, 12.0 });
+    // The seven edits undone one by one: back to the song as it was; one more: before it was set.
+    for (int i = 0; i < 7; ++i)
+        t.p.undo();
+    CHECK (t.p.getSong() == s);
+    t.p.undo();
+    CHECK (t.p.getSong().isEmpty());
+}
+
+TEST_CASE ("SONG 0.9 EDIT BLOCK: rows for its drums; click adds on GRID, drag sets velocity, right-click removes; the buttons", "[song][song-edit][ui]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 1, { { 0.0, BD }, { 1.0, SD }, { 3.0, SD } }), 0.0);
+    t.p.setSong (s);
+    BlockEditor editor (t.p);
+    editor.setBounds (0, 0, 1476, 672);
+    editor.open (0);
+    CHECK (editor.isVisible());
+    CHECK (editor.getRows() == std::vector<int> { BD, SD });
+
+    const auto mouse = [&editor] (juce::Point<float> at, juce::Point<float> from, juce::ModifierKeys mods)
+    {
+        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, mods, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                 &editor, &editor, juce::Time::getCurrentTime(), from, juce::Time::getCurrentTime(), 1, false);
+    };
+    const auto left = juce::ModifierKeys::leftButtonModifier, right = juce::ModifierKeys::rightButtonModifier;
+    const auto blockNow = [&t] { return t.p.getSong().blocks[0]; };
+
+    // A click on the kick's row near beat 2.5 (a hair late): a kick at 2.5 on the 1/16 grid, at 0.8.
+    auto at = editor.cellOf (BD, 2.52).getCentre().withX (editor.cellOf (BD, 2.52).getX());
+    editor.mouseDown (mouse (at, at, left));
+    editor.mouseUp (mouse (at, at, left));
+    REQUIRE (blockNow().hits.size() == 4);
+    CHECK (notesOf (blockNow())[2] == std::make_pair (2.5, (int) BD));
+    CHECK_THAT (blockNow().hits[2].velocity, WithinAbs (0.8, 1e-6));
+    // Dragged 60 pixels down: half a step softer (120 pixels from full to nothing).
+    const auto on = editor.cellOf (BD, 2.5).getCentre();
+    editor.mouseDown (mouse (on, on, left));
+    editor.mouseDrag (mouse (on.translated (0, 60), on, left));
+    editor.mouseUp (mouse (on.translated (0, 60), on, left));
+    CHECK_THAT (blockNow().hits[2].velocity, WithinAbs (0.3, 1e-4));
+    // Right-click on the note's right edge (it's drawn several pixels wide): gone.
+    const auto edge = editor.cellOf (BD, 2.5).getCentre().withX (editor.cellOf (BD, 2.5).getRight() - 1.0f);
+    editor.mouseDown (mouse (edge, edge, right));
+    CHECK (blockNow().hits.size() == 3);
+
+    // The snare chosen: VELOCITY 50% only on it; QUANTIZE on it; COPY it, choose an added CLOSED HAT row, PASTE: the snare's
+    // notes on the hat; MOVE TO the ride; REMOVE.
+    editor.chooseDrum (SD, false);
+    CHECK (editor.getChosenDrums() == bit (SD));
+    editor.applyVelocity (0.5f);
+    CHECK (blockNow().hits[0].velocity == 1.0f);   // the kick
+    CHECK_THAT (blockNow().hits[1].velocity, WithinAbs (0.5, 1e-6));
+    editor.copyChosen();
+    editor.addRow (CH);
+    CHECK (editor.getRows() == std::vector<int> { BD, SD, CH });
+    CHECK (editor.getChosenDrums() == bit (CH));
+    editor.pasteChosen();
+    auto hatBeats = std::vector<double>();
+    for (const auto& h : blockNow().hits)
+        if (h.slot == CH)
+            hatBeats.push_back (h.beat);
+    CHECK (hatBeats == std::vector<double> { 1.0, 3.0 });
+    editor.moveChosenTo (RD);
+    CHECK ((song::slotsIn (blockNow()) & (bit (CH) | bit (RD))) == bit (RD));
+    CHECK (editor.getChosenDrums() == bit (RD));
+    editor.removeChosen();
+    CHECK (song::slotsIn (blockNow()) == (bit (BD) | bit (SD)));
+
+    // Nothing chosen: the buttons work on every drum (a 1/4 QUANTIZE moves nothing here: all on beats).
+    CHECK (editor.getChosenDrums() == 0);   // the ride's row went with its notes
+    editor.setGrid (0);
+    const auto before = blockNow();
+    editor.quantizeChosen();
+    CHECK (blockNow() == before);
+
+    // The block removed (on the strip, say): the editor closes.
+    auto closed = false;
+    editor.onClose = [&closed] { closed = true; };
+    auto empty = t.p.getSong();
+    empty.remove (0);
+    t.p.setSong (empty);
+    t.p.songBroadcaster.dispatchPendingMessages();
+    CHECK (closed);
+    CHECK (! editor.isVisible());
 }

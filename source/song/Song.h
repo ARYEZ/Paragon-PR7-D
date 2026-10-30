@@ -69,6 +69,13 @@ namespace song
         int blockAt (double beat) const noexcept;         // -1: none there
         double snap (double beat) const noexcept;         // to the nearest bar line, not before 0
 
+        // SPLIT (0.9.0): the block cut in two at the bar line nearest `atBeat` (inside it), each half its own notes as
+        // played there (no longer repeating); returns the second half's index (-1: no bar line inside it).
+        int split (int index, double atBeat);
+        // MERGE WITH NEXT (0.9.0): the block and the one after it as one (named and coloured as the first; a gap between
+        // them kept as rests); returns its index (-1: no block after it).
+        int mergeWithNext (int index);
+
         // Every hit the song plays (muted blocks left out), in time order, each block's groove repeated to fill it.
         std::vector<Hit> events() const;
         // The whole song as a MIDI file: tempo `bpm`, its time signature, each drum on `noteFor`'s note (below 0: left out).
@@ -87,6 +94,27 @@ namespace song
                      float velocityScale = 1.0f);
     // CHANGE TEMPO on a block: its notes and lengths times 1 / factor (2x: twice as fast, half as long).
     void changeTempo (Block&, grooves::TempoFactor);
+
+    // EDITING INSIDE A BLOCK (0.9.0, the song track part 2). Our own design, inspired by the block editing in chapter 7
+    // of the manual the owner sent. Each works on the block's groove (one time round: `loopLength`), on the drums in
+    // `slots` (bit n: the kit's drum n; allSlots: every drum), and keeps its hits in time order.
+    inline constexpr unsigned allSlots = (1u << synth::drums::numSlots) - 1u;
+    unsigned slotsOf (unsigned parts) noexcept;                  // grooves::DrumPart bits -> the drums in them
+    unsigned slotsIn (const Block&) noexcept;                    // the drums the block plays
+    std::vector<Hit> unrolled (const Block&);                    // every hit over its whole length (repeats written out)
+    void flatten (Block&);                                       // the repeats written out: loopLength = length
+    void removeDrums (Block&, unsigned slots);
+    // The clip's notes on those drums in place of the block's own (the clip repeated, or cut, to the block's groove).
+    void pasteDrums (Block&, const Block& clip, unsigned slots);
+    // Each note to the nearest `grid` beats (a note pushed to the groove's end goes round to its start); two on the same
+    // drum and beat become one (the louder).
+    void quantize (Block&, double grid, unsigned slots = allSlots);
+    // Each velocity times `factor` (the balance between them kept), between 1/127 and full.
+    void scaleVelocity (Block&, float factor, unsigned slots = allSlots);
+    // Every note on drum `from` played by drum `to` instead, with `to`'s own (on the same beat: one, the louder).
+    void moveDrum (Block&, int from, int to);
+    void addHit (Block&, Hit);                                   // one more (replacing one on that drum and beat)
+    bool removeHitNear (Block&, int slot, double beat, double within);   // the nearest within that many beats
 
     // SONG PART colours (our own palette, a colour each kind).
     juce::Colour colourOf (grooves::Part) noexcept;

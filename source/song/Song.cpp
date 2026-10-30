@@ -209,6 +209,186 @@ namespace song
             h.beat *= scale;
     }
 
+    //==============================================================================
+    // EDITING INSIDE A BLOCK (0.9.0)
+    namespace
+    {
+        bool has (unsigned slots, int slot) noexcept { return slot >= 0 && slot < 32 && (slots & (1u << slot)) != 0; }
+
+        // In time order; on one drum and beat (within a hair) only the loudest kept.
+        void tidy (std::vector<Hit>& hits)
+        {
+            std::stable_sort (hits.begin(), hits.end(), [] (const Hit& a, const Hit& b)
+            {
+                return a.beat != b.beat ? a.beat < b.beat : a.slot != b.slot ? a.slot < b.slot : a.velocity > b.velocity;
+            });
+            std::vector<Hit> kept;
+            for (const auto& h : hits)
+            {
+                const auto same = std::find_if (kept.rbegin(), kept.rend(), [&h] (const Hit& k)
+                {
+                    return k.slot == h.slot && std::abs (k.beat - h.beat) < 1.0e-6;
+                });
+                if (same == kept.rend())
+                    kept.push_back (h);
+                else
+                    same->velocity = std::max (same->velocity, h.velocity);
+            }
+            std::stable_sort (kept.begin(), kept.end(), [] (const Hit& a, const Hit& b) { return a.beat < b.beat; });
+            hits = std::move (kept);
+        }
+    }
+
+    unsigned slotsOf (unsigned parts) noexcept
+    {
+        auto slots = 0u;
+        for (int k = 0; k < synth::drums::numSlots; ++k)
+            if (grooves::inParts (parts, k))
+                slots |= 1u << k;
+        return slots;
+    }
+
+    unsigned slotsIn (const Block& b) noexcept
+    {
+        auto slots = 0u;
+        for (const auto& h : b.hits)
+            if (h.slot >= 0 && h.slot < synth::drums::numSlots)
+                slots |= 1u << h.slot;
+        return slots;
+    }
+
+    std::vector<Hit> unrolled (const Block& b)
+    {
+        std::vector<Hit> out;
+        if (b.loopLength <= 0.0)
+            return out;
+        for (auto repeat = 0.0; repeat < b.length - 1.0e-9; repeat += b.loopLength)
+            for (const auto& h : b.hits)
+                if (repeat + h.beat < b.length - 1.0e-9)
+                    out.push_back ({ repeat + h.beat, h.slot, h.velocity });
+        return out;
+    }
+
+    void flatten (Block& b)
+    {
+        b.hits = unrolled (b);
+        b.loopLength = b.length;
+    }
+
+    void removeDrums (Block& b, unsigned slots)
+    {
+        std::erase_if (b.hits, [slots] (const Hit& h) { return has (slots, h.slot); });
+    }
+
+    void pasteDrums (Block& b, const Block& clip, unsigned slots)
+    {
+        removeDrums (b, slots);
+        if (clip.loopLength > 0.0)
+            for (auto repeat = 0.0; repeat < b.loopLength - 1.0e-9; repeat += clip.loopLength)
+                for (const auto& h : clip.hits)
+                    if (has (slots, h.slot) && repeat + h.beat < b.loopLength - 1.0e-9)
+                        b.hits.push_back ({ repeat + h.beat, h.slot, h.velocity });
+        tidy (b.hits);
+    }
+
+    void quantize (Block& b, double grid, unsigned slots)
+    {
+        if (grid <= 0.0)
+            return;
+        for (auto& h : b.hits)
+            if (has (slots, h.slot))
+            {
+                h.beat = std::round (h.beat / grid) * grid;
+                if (h.beat >= b.loopLength - 1.0e-9)
+                    h.beat = 0.0;   // pushed to the groove's end: its start, the next time round
+            }
+        tidy (b.hits);
+    }
+
+    void scaleVelocity (Block& b, float factor, unsigned slots)
+    {
+        for (auto& h : b.hits)
+            if (has (slots, h.slot))
+                h.velocity = juce::jlimit (1.0f / 127.0f, 1.0f, h.velocity * factor);
+    }
+
+    void moveDrum (Block& b, int from, int to)
+    {
+        if (from == to || to < 0 || to >= synth::drums::numSlots)
+            return;
+        for (auto& h : b.hits)
+            if (h.slot == from)
+                h.slot = to;
+        tidy (b.hits);
+    }
+
+    void addHit (Block& b, Hit hit)
+    {
+        if (hit.beat < 0.0 || hit.beat >= b.loopLength || hit.slot < 0 || hit.slot >= synth::drums::numSlots)
+            return;
+        std::erase_if (b.hits, [&hit] (const Hit& h) { return h.slot == hit.slot && std::abs (h.beat - hit.beat) < 1.0e-6; });
+        b.hits.push_back (hit);
+        tidy (b.hits);
+    }
+
+    bool removeHitNear (Block& b, int slot, double beat, double within)
+    {
+        auto best = b.hits.end();
+        auto distance = within;
+        for (auto it = b.hits.begin(); it != b.hits.end(); ++it)
+            if (it->slot == slot && std::abs (it->beat - beat) <= distance)
+            {
+                distance = std::abs (it->beat - beat);
+                best = it;
+            }
+        if (best == b.hits.end())
+            return false;
+        b.hits.erase (best);
+        return true;
+    }
+
+    int Song::split (int index, double atBeat)
+    {
+        if (index < 0 || index >= (int) blocks.size())
+            return -1;
+        auto& first = blocks[(size_t) index];
+        const auto bar = beatsPerBar();
+        const auto cut = first.start + std::round ((atBeat - first.start) / bar) * bar;
+        if (cut <= first.start + 1.0e-9 || cut >= first.end() - 1.0e-9)
+            return -1;
+        flatten (first);
+        auto second = first;
+        const auto at = cut - first.start;
+        first.length = first.loopLength = at;
+        std::erase_if (first.hits, [at] (const Hit& h) { return h.beat >= at - 1.0e-9; });
+        second.start = cut;
+        second.length = second.loopLength = second.length - at;
+        std::erase_if (second.hits, [at] (const Hit& h) { return h.beat < at - 1.0e-9; });
+        for (auto& h : second.hits)
+            h.beat -= at;
+        blocks.insert (blocks.begin() + index + 1, std::move (second));
+        return index + 1;
+    }
+
+    int Song::mergeWithNext (int index)
+    {
+        if (index < 0 || index + 1 >= (int) blocks.size())
+            return -1;
+        auto& first = blocks[(size_t) index];
+        const auto& next = blocks[(size_t) index + 1];
+        auto hits = unrolled (first);
+        for (auto h : unrolled (next))
+        {
+            h.beat += next.start - first.start;
+            hits.push_back (h);
+        }
+        first.length = first.loopLength = next.end() - first.start;
+        first.hits = std::move (hits);
+        tidy (first.hits);
+        blocks.erase (blocks.begin() + index + 1);
+        return index;
+    }
+
     juce::Colour colourOf (grooves::Part part) noexcept
     {
         switch (part)

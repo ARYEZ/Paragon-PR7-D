@@ -730,6 +730,17 @@ bool GroovesPage::addRowToSong (int row, double beat)
     return true;
 }
 
+bool GroovesPage::copyRowForSong (int row)
+{
+    const auto g = readRow (row);
+    if (! g.has_value())
+        return false;
+    processor.copyGrooveForSong (*g, results[(size_t) row].folder, chosenParts);
+    message = g->name + " copied: right-click a block in the song, PASTE DRUMS ONTO IT";
+    messageUntil = juce::Time::getMillisecondCounterHiRes() + 4000.0;
+    return true;
+}
+
 void GroovesPage::playRow (int row, bool loop)
 {
     if (const auto g = readRow (row))
@@ -898,6 +909,7 @@ void GroovesPage::cellClicked (int row, int column, const juce::MouseEvent& e)
         juce::PopupMenu menu;
         const auto file = results[(size_t) row].file;
         menu.addItem ("Add to Song", [this, row] { addRowToSong (row); });
+        menu.addItem (chosenParts == grooves::allParts ? "Copy for Song" : "Copy for Song (the ticked parts)", [this, row] { copyRowForSong (row); });
         menu.addItem ("Find Similar (its rhythm)", [this, row] { findSimilar (row); });
         menu.addItem (library.isFavourite (file) ? "Not a Favourite" : "Favourite", [this, file]
         {

@@ -30,6 +30,7 @@ public:
     void mouseDown (const juce::MouseEvent&) override;
     void mouseDrag (const juce::MouseEvent&) override;
     void mouseUp (const juce::MouseEvent&) override;
+    void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
     bool keyPressed (const juce::KeyPress&) override;
 
@@ -48,8 +49,10 @@ public:
     double beatAt (float x) const noexcept;      // on the lane, not snapped
     float xOf (double beat) const noexcept;
     juce::Rectangle<int> getLane() const noexcept { return lane; }
-    void showMenuFor (int block);                // as right-clicking it
-    juce::PopupMenu menuFor (int block);
+    void showMenuFor (int block, double atBeat = -1.0);   // as right-clicking it (at that beat: SPLIT HERE's place)
+    juce::PopupMenu menuFor (int block, double atBeat = -1.0);
+    // EDIT BLOCK... (0.9.0), or a double-click on a block: MainView opens the block editor on it.
+    std::function<void (int block)> onEditBlock;
     double getStartBeat() const noexcept { return startBeat; }
     juce::TextButton& getPlayButton() noexcept { return play; }
 

@@ -271,6 +271,11 @@ public:
     juce::MidiFile songToMidi() const;
     juce::File songDragFile() const;
     juce::ChangeBroadcaster songBroadcaster;   // the song changed (an edit, undo, a project loaded)
+    // THE SONG's CLIPBOARD (0.9.0): a block (or some of its drums) copied, from the song or from a groove (its ticked
+    // GROOVE PARTS), to paste as a block or onto blocks' drums. Message thread; not saved.
+    const std::optional<song::Block>& getSongClipboard() const noexcept { return songClipboard; }
+    void setSongClipboard (std::optional<song::Block> b) { songClipboard = std::move (b); }
+    void copyGrooveForSong (const grooves::Groove&, int folder, unsigned parts = grooves::allParts);
 
     juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
     LevelMeterSource& getOutputMeter() noexcept { return outputMeter; }
@@ -465,6 +470,7 @@ private:
     void installSong (std::shared_ptr<const song::Song>);
     int collectSongHits (int numSamples, double ppq, double bpm, synth::drums::SlotHit* into, int room) noexcept;
     std::shared_ptr<const song::Song> songData = std::make_shared<const song::Song>();
+    std::optional<song::Block> songClipboard;
     std::shared_ptr<const SongPlayback> songPlayback;
     std::atomic<const SongPlayback*> songForAudio { nullptr };
     std::vector<std::pair<std::shared_ptr<const SongPlayback>, double>> retiredSongs;

@@ -12,6 +12,7 @@
 #include "ui/DrumPage.h"
 #include "ui/GroovesPage.h"
 #include "ui/SongTrack.h"
+#include "ui/BlockEditor.h"
 #include "ui/FxPage.h"
 
 // A side strip: a title, a gain knob with its value underneath, and a level meter.
@@ -93,6 +94,7 @@ public:
     SettingsPage& getSettingsPage() noexcept { return settingsPage; }
     KitKeyboard& getKeyboard() noexcept { return keyboard; }
     SongTrack& getSongTrack() noexcept { return songTrack; }
+    BlockEditor& getBlockEditor() noexcept { return blockEditor; }
     // THE SONG TRACK (0.8.0): the strip under the pages shows the keyboard or the song (KEYS | SONG beside it).
     void showSong (bool);
     bool isShowingSong() const noexcept { return songTrack.isVisible(); }
@@ -141,6 +143,7 @@ private:
     FxPage fxPage;
     RigBrowser rigBrowser;
     SettingsPage settingsPage;
+    BlockEditor blockEditor;   // EDIT BLOCK (0.9.0): over the pages, opened from the song track
     Page page = Page::drums;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainView)

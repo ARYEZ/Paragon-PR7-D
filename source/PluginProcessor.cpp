@@ -2317,3 +2317,10 @@ juce::File ParagonX1AudioProcessor::songDragFile() const
         songToMidi().writeTo (out);
     return file;
 }
+
+void ParagonX1AudioProcessor::copyGrooveForSong (const grooves::Groove& groove, int folder, unsigned parts)
+{
+    auto block = songBlockFrom (groove, folder);
+    song::removeDrums (block, song::allSlots & ~song::slotsOf (parts));
+    songClipboard = std::move (block);
+}

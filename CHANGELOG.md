@@ -2,6 +2,35 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.9.0
+
+**The song track, part 2: editing inside a block.** Change a block's drums, notes and feel without touching the groove file it came from. Our own design, inspired by the block editing in chapter 7 of the drum software manual you sent (its block menu, play-style editor and grid editor, in one simpler panel).
+
+- **Right-click a block**, new:
+  - **Edit Block...** (or double-click the block): the block editor, below.
+  - **Copy**, then **Paste After** (a copy after this block, the ones after it moved along).
+  - **Paste Drums Onto It:** the copied block's drums, all or one group at a time (KICK, SNARE, HI-HAT...), in place of this block's own on those drums. A shorter part repeats to fill.
+  - **Remove Drums:** a group of drums taken out (each listed with how many notes it has).
+  - **Quantize** (1/4, 1/8, 1/16, 1/8 or 1/16 triplets) and **Velocity** (50% to 150%, the balance between hits kept).
+  - **Split Here** (at the bar line nearest where you clicked) and **Merge With Next** (a gap between them kept as rests).
+- **GROOVES: right-click a groove, Copy for Song.** With GROOVE PARTS ticked, only those parts: copy one groove's hats, then paste them onto any block (PASTE DRUMS ONTO IT).
+- **EDIT BLOCK**, over the page (the song plays on below it): a row for each drum the block plays, its notes on a grid with the bars numbered, each note as tall as it's loud.
+  - **Click** an empty place: a note there, on the GRID (1/4 to 1/16 triplets). **Drag a note up or down**: louder or softer. **Right-click** a note: gone.
+  - **ADD DRUM:** a row for a drum the block doesn't play yet.
+  - **Click a drum's name** to choose it (CTRL or SHIFT for more). The buttons work on the chosen drums, or on all of them when none is chosen:
+    - VELOCITY (25% to 200%: let go of the slider and it's done; it goes back to 100% for the next change);
+    - QUANTIZE (to the GRID), REMOVE, COPY and PASTE;
+    - **MOVE TO:** one drum's notes played by another (the hats' pattern on the ride, say), merged with that drum's own.
+  - PASTE puts each copied drum's notes on the same drum here. If you copied one drum and have one drum chosen, they go onto the chosen drum.
+- A block's edits stay in the song (not the groove file), are saved with your project, and **undo** takes back each one.
+- **Tests:**
+  - split and merge (the song playing the same), removing and pasting drums (a one-bar part repeated over two), quantize (a note pushed past the end going round to the start; two on one beat becoming one, the louder), velocity (balance kept, never past full or silent), moving a drum (merged, no doubled hits), adding and removing notes;
+  - heard: a late snare (1.06 beats) quantized to 1/16 lands exactly on beat 2 (sample 24000 at 120 BPM); a block at 50% VELOCITY plays sample for sample as the same notes written at half velocity;
+  - the block menu's items, each doing what it says, and the seven edits undone one by one back to the song as it was;
+  - the editor: a click adding a note on the grid, a drag setting its velocity, a right-click on its drawn edge removing it, and each button.
+
+Not checked here: how it sounds and feels in your DAW. Not in this part: adding or removing hits "like a drummer would" (that software uses its makers' statistics from real performances, which we don't have), articulations, an opening hit, and moving single notes sideways in the editor (remove and click it in again).
+
 ## 0.8.1
 
 **Groove TYPE: fills found by more names.** From a check against two real groove packs you sent (Heavy Rock Grooves and EZX Electronic: 762 grooves, compared with their own labels; the packs stay with you, nothing from them is in the plugin).

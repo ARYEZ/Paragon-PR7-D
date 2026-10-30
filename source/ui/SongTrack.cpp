@@ -256,7 +256,7 @@ void SongTrack::mouseDown (const juce::MouseEvent& e)
         return;
     if (e.mods.isPopupMenu())
     {
-        showMenuFor (block);
+        showMenuFor (block, beatAt (e.position.x));
         return;
     }
     const auto& b = s.blocks[(size_t) block];
@@ -303,7 +303,7 @@ bool SongTrack::keyPressed (const juce::KeyPress& key)
     return false;
 }
 
-juce::PopupMenu SongTrack::menuFor (int block)
+juce::PopupMenu SongTrack::menuFor (int block, double atBeat)
 {
     juce::PopupMenu menu;
     const auto& s = processor.getSong();
@@ -340,12 +340,81 @@ juce::PopupMenu SongTrack::menuFor (int block)
             });
         });
     menu.addSubMenu ("Change Tempo", tempo);
+
+    // EDITING INSIDE IT (0.9.0): its drums by GROOVE PARTS group (each with how many notes it has there).
+    const auto partsMenu = [] (const song::Block& of, const std::function<void (unsigned slots)>& act, bool withAll)
+    {
+        juce::PopupMenu m;
+        std::array<int, grooves::numDrumParts> counts {};
+        for (const auto& h : of.hits)
+            if (const auto part = grooves::drumPartOf (h.slot); part >= 0)
+                ++counts[(size_t) part];
+        if (withAll)
+            m.addItem ("All Its Drums", ! of.hits.empty(), false, [act] { act (song::allSlots); });
+        for (int k = 0; k < grooves::numDrumParts; ++k)
+            if (counts[(size_t) k] > 0)
+                m.addItem (grooves::drumPartNames[k] + " (" + juce::String (counts[(size_t) k]) + ")", [act, k] { act (song::slotsOf (1u << k)); });
+        return m;
+    };
+    menu.addSeparator();
+    menu.addItem ("Edit Block...", onEditBlock != nullptr, false, [this, block] { if (onEditBlock != nullptr) onEditBlock (block); });
+    menu.addItem ("Copy", [this, b] { processor.setSongClipboard (b); });
+    const auto& clip = processor.getSongClipboard();
+    menu.addItem ("Paste After", clip.has_value(), false, [this, block]
+    {
+        if (const auto& c = processor.getSongClipboard())
+            edit ([&] (song::Song& song) { chosen = song.place (*c, song.blocks[(size_t) block].end()); });
+    });
+    if (clip.has_value())
+        menu.addSubMenu ("Paste Drums Onto It", partsMenu (*clip, [this, block] (unsigned slots)
+        {
+            if (const auto& c = processor.getSongClipboard())
+                edit ([&] (song::Song& song) { song::pasteDrums (song.blocks[(size_t) block], *c, slots); });
+        }, true));
+    else
+        menu.addItem ("Paste Drums Onto It", false, false, nullptr);
+    menu.addSubMenu ("Remove Drums", partsMenu (b, [this, block] (unsigned slots)
+    {
+        edit ([&] (song::Song& song) { song::removeDrums (song.blocks[(size_t) block], slots); });
+    }, false), ! b.hits.empty());
+    juce::PopupMenu grid;
+    for (int q = 0; q < grooves::quantizeNames.size(); ++q)
+        grid.addItem (grooves::quantizeNames[q], [this, block, q] { edit ([&] (song::Song& song) { song::quantize (song.blocks[(size_t) block], grooves::gridOf (q)); }); });
+    menu.addSubMenu ("Quantize", grid, ! b.hits.empty());
+    juce::PopupMenu velocity;
+    for (const auto percent : { 50, 75, 90, 110, 125, 150 })
+        velocity.addItem (juce::String (percent) + "%", [this, block, percent]
+        {
+            edit ([&] (song::Song& song) { song::scaleVelocity (song.blocks[(size_t) block], (float) percent / 100.0f); });
+        });
+    menu.addSubMenu ("Velocity", velocity, ! b.hits.empty());
+    const auto splitAt = atBeat >= 0.0 ? atBeat : b.start + b.length * 0.5;
+    auto trial = s;
+    menu.addItem ("Split Here", trial.split (block, splitAt) >= 0, false, [this, block, splitAt]
+    {
+        edit ([&] (song::Song& song) { song.split (block, splitAt); });
+    });
+    menu.addItem ("Merge With Next", block + 1 < (int) s.blocks.size(), false, [this, block]
+    {
+        edit ([&] (song::Song& song) { chosen = song.mergeWithNext (block); });
+    });
     return menu;
 }
 
-void SongTrack::showMenuFor (int block)
+void SongTrack::showMenuFor (int block, double atBeat)
 {
-    menuFor (block).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
+    menuFor (block, atBeat).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
+}
+
+void SongTrack::mouseDoubleClick (const juce::MouseEvent& e)
+{
+    if (! lane.contains (e.getPosition()))
+        return;
+    if (const auto block = processor.getSong().blockAt (beatAt (e.position.x)); block >= 0 && onEditBlock != nullptr)
+    {
+        chosen = block;
+        onEditBlock (block);
+    }
 }
 
 //==============================================================================

@@ -54,6 +54,8 @@ public:
     // or ADD TO SONG does; then onAddedToSong (MainView shows the song).
     bool addRowToSong (int row, double beat = -1.0);
     std::function<void()> onAddedToSong;
+    // COPY FOR SONG (0.9.0): the groove (its ticked GROOVE PARTS) into the song's clipboard, to paste onto blocks.
+    bool copyRowForSong (int row);
 
     // A MIDI file dropped on the page: a search with its first two bars.
     bool isInterestedInFileDrag (const juce::StringArray&) override;

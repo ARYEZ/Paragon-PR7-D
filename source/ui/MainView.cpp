@@ -128,7 +128,8 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
       groovesPage (processorToShow),
       fxPage (processorToShow),
       rigBrowser (processorToShow),
-      settingsPage (processorToShow)
+      settingsPage (processorToShow),
+      blockEditor (processorToShow)
 {
     // Header
     for (auto* tab : { &drumsTab, &groovesTab, &fxTab, &presetsTab, &settingsTab })
@@ -184,6 +185,12 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     // THE SONG TRACK: in the keyboard's place (KEYS | SONG switches); a groove dropped on it from the list is a block.
     addChildComponent (songTrack);
     songTrack.onGrooveDropped = [this] (int row, double beat) { groovesPage.addRowToSong (row, beat); };
+    songTrack.onEditBlock = [this] (int block)
+    {
+        showSong (true);
+        blockEditor.open (block);
+    };
+    addChildComponent (blockEditor);
     for (auto* tab : { &keysTab, &songTab })
     {
         tab->setClickingTogglesState (false);
@@ -388,6 +395,7 @@ void MainView::resized()
     groovesPage.setBounds (pageArea);
     rigBrowser.setBounds (pageArea);
     settingsPage.setBounds (pageArea);
+    blockEditor.setBounds (pageArea);
 }
 
 void MainView::showSong (bool show)

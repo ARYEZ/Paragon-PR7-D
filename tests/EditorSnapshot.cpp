@@ -465,7 +465,7 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         grooves.refresh();
         // THE SONG TRACK: a song of the demo pack's Rock grooves (the first verse two times round, a fill, the chorus,
         // the second verse muted, the bridge), shown in the keyboard's place, playing with the DAW in the chorus.
-        if (env ("PARAGON_SNAPSHOT_SONG") == "1")
+        if (env ("PARAGON_SNAPSHOT_SONG").isNotEmpty())
         {
             processor.stopGroove();
             for (const auto* name : { "Verse 01", "Fill 01", "Chorus 01", "Verse 02", "Fill 01", "Bridge 01" })
@@ -497,6 +497,12 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 host.ppq += 256.0 / 48000.0 * 96.0 / 60.0;
             }
             processor.setPlayHead (nullptr);
+            // =2: EDIT BLOCK on the chorus, its snare chosen.
+            if (env ("PARAGON_SNAPSHOT_SONG") == "2")
+            {
+                view->getBlockEditor().open (2);
+                view->getBlockEditor().chooseDrum (2, false);
+            }
         }
     }
     if (page == "presets")
