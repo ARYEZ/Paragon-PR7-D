@@ -520,6 +520,21 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 view->getSongTrack().setView (SongTrack::View::tempo);
                 processor.songBroadcaster.dispatchPendingMessages();
             }
+            // =5 (0.12.0): REC armed, a take's "Recorded" block after the song.
+            if (env ("PARAGON_SNAPSHOT_SONG") == "5")
+            {
+                auto recorded = processor.getSong();
+                song::Block take;
+                take.name = "Recorded";
+                take.length = take.loopLength = 8.0;
+                for (int e = 0; e < 16; ++e)
+                    take.hits.push_back ({ e * 0.5, e % 4 == 0 ? 0 : e % 4 == 2 ? 2 : 6, e % 2 == 0 ? 0.9f : 0.5f });
+                recorded.place (take, recorded.endBeat());
+                processor.setSong (recorded);
+                processor.setSongRecording (true);
+                view->getSongTrack().getRecordButton().setToggleState (true, juce::dontSendNotification);
+                processor.songBroadcaster.dispatchPendingMessages();
+            }
             // =2: EDIT BLOCK on the chorus, its snare chosen.
             if (env ("PARAGON_SNAPSHOT_SONG") == "2")
             {

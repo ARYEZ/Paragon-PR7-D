@@ -275,6 +275,43 @@ public:
     // after the song there (from the next bar line; an empty song: the song); with its tempo changes and time
     // signatures if `withTempo`. Returns how many blocks it added (0: nothing the kit plays, or not a MIDI file).
     int importSongMidi (const juce::File&, bool withTempo);
+
+    // RECORD (0.12.0): armed, the notes played (the DAW's, the on-screen keyboard's) while the song plays (with the DAW,
+    // or PLAY) are written into it at their beats, through the kit's map: on top of the blocks there (a repeating block
+    // written out first, so a note lands only where it was played), or in a "Recorded" block made bar by bar where there's
+    // none. mergeRecordedNotes (the message thread, often) puts them in; disarming ends the take: one undo step.
+    void setSongRecording (bool);
+    bool isSongRecording() const noexcept { return songRecording.load(); }
+    int mergeRecordedNotes();   // how many it put in
+
+    // BOUNCE (0.12.0): the song rendered to WAV files, faster than real time, by a copy of the plugin made from the
+    // project's state (this one plays on, untouched): from the start through the song's tempo changes (none: the DAW's
+    // last tempo) to its end, then on until the kit and effects have died away (silence, or `tailSeconds`); the plugin's
+    // own delay (the limiter's look-ahead) taken off, so bar 1 is at the file's start.
+    struct BounceOptions
+    {
+        bool perOutput = false;     // a file per output used, as routed (else one file: every drum in it)
+        int bits = 24;              // 16, 24, or 32 (float)
+        float gainDb = 0.0f;
+        double tailSeconds = 10.0;
+        juce::String name = "PR7-D Song";
+    };
+    class SongBouncer
+    {
+    public:
+        SongBouncer (ParagonX1AudioProcessor& from, BounceOptions, juce::File folder);   // the message thread
+        ~SongBouncer();
+        juce::Array<juce::File> run();   // any thread: the files written (none: an empty song, cancelled, or not written)
+        std::atomic<float> progress { 0.0f };
+        std::atomic<bool> cancel { false };
+        juce::String error;
+
+    private:
+        std::unique_ptr<ParagonX1AudioProcessor> copy;
+        BounceOptions options;
+        juce::File folder;
+        double sampleRate = 48000.0, bpm = 120.0;
+    };
     juce::ChangeBroadcaster songBroadcaster;   // the song changed (an edit, undo, a project loaded)
     // THE SONG's CLIPBOARD (0.9.0): a block (or some of its drums) copied, from the song or from a groove (its ticked
     // GROOVE PARTS), to paste as a block or onto blocks' drums. Message thread; not saved.
@@ -495,6 +532,19 @@ private:
     int collectSongHits (int numSamples, double ppq, double bpm, synth::drums::SlotHit* into, int room) noexcept;
     std::shared_ptr<const song::Song> songData = std::make_shared<const song::Song>();
     std::optional<song::Block> songClipboard;
+    // RECORD: the notes on their way from the audio thread; where the song is in the piece being played (for their beats).
+    struct RecordedNote { double beat = 0.0; int slot = 0; float velocity = 1.0f; };
+    juce::AbstractFifo recordFifo { 2048 };
+    std::array<RecordedNote, 2048> recordBuffer {};
+    std::atomic<bool> songRecording { false };
+    struct SongChunk
+    {
+        bool active = false, timed = false;
+        double from = 0.0, perSample = 0.0, samplesFrom = 0.0, bpm = 120.0;
+        const SongPlayback* playback = nullptr;
+    } songChunk;   // audio thread
+    void recordSongNotes (const juce::MidiBuffer&, int offset, int numSamples, const synth::drums::KitSettings&) noexcept;
+    int takeBlock = -1;   // message thread: this take's "Recorded" block (it grows bar by bar)
     std::shared_ptr<const SongPlayback> songPlayback;
     std::atomic<const SongPlayback*> songForAudio { nullptr };
     std::vector<std::pair<std::shared_ptr<const SongPlayback>, double>> retiredSongs;

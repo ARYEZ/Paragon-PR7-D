@@ -762,6 +762,7 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
         // The preview's hits and the song's, in sample order (the kit plays them in turn).
         const auto numGrooveHits = collectGrooveHits (n);
         const auto numHits = numGrooveHits + collectSongHits (n, ppq, bpm, grooveHits.data() + numGrooveHits, (int) grooveHits.size() - numGrooveHits);
+        recordSongNotes (drums, start + done, n, kit);   // RECORD: this piece's notes at their song beats
         if (numGrooveHits > 0 && numHits > numGrooveHits)
             std::sort (grooveHits.begin(), grooveHits.begin() + numHits, [] (const auto& a, const auto& b) { return a.offset < b.offset; });
         drumKit.process (out, n, drums, start + done, kit, sequencer, ppq, bpm, grooveHits.data(), numHits);
@@ -2303,8 +2304,11 @@ int ParagonX1AudioProcessor::collectSongHits (int numSamples, double ppq, double
     else
     {
         songPosition = -1.0;
+        songChunk.active = false;
         return 0;
     }
+    // Where the song is in this piece, for RECORD.
+    songChunk = { true, local && timed, from, perSample, samplesFrom, bpm, s };
     auto count = 0;
     if (s != nullptr)
     {
@@ -2508,4 +2512,239 @@ int ParagonX1AudioProcessor::importSongMidi (const juce::File& file, bool withTe
     const auto added = (int) imported.blocks.size();
     setSong (std::move (s));
     return added;
+}
+
+//==============================================================================
+// RECORD (0.12.0)
+void ParagonX1AudioProcessor::recordSongNotes (const juce::MidiBuffer& midi, int offset, int numSamples, const synth::drums::KitSettings& kit) noexcept
+{
+    if (! songRecording.load() || ! songChunk.active)
+        return;
+    for (const auto metadata : midi)
+    {
+        const auto pos = metadata.samplePosition - offset;
+        if (pos < 0 || pos >= numSamples)
+            continue;
+        const auto& m = metadata.getMessage();
+        if (! m.isNoteOn())
+            continue;
+        const auto slot = kit.slotFor (m.getNoteNumber());
+        if (slot < 0)
+            continue;
+        // Its beat: by the beat a sample here (the DAW's tempo, or PLAY's steady one), or through the tempo changes.
+        const auto beat = songChunk.timed && songChunk.playback != nullptr
+                              ? songChunk.playback->timing.beatAtSeconds ((songChunk.samplesFrom + pos) / getSampleRate(), songChunk.bpm)
+                              : songChunk.from + pos * songChunk.perSample;
+        const auto scope = recordFifo.write (1);
+        const RecordedNote note { juce::jmax (0.0, beat), slot, m.getFloatVelocity() };
+        if (scope.blockSize1 > 0)
+            recordBuffer[(size_t) scope.startIndex1] = note;
+        else if (scope.blockSize2 > 0)
+            recordBuffer[(size_t) scope.startIndex2] = note;
+    }
+}
+
+void ParagonX1AudioProcessor::setSongRecording (bool on)
+{
+    if (on == songRecording.load())
+        return;
+    if (on)
+    {
+        recordFifo.reset();   // nothing from before the take
+        takeBlock = -1;
+        songRecording = true;
+        return;
+    }
+    songRecording = false;
+    mergeRecordedNotes();
+    takeBlock = -1;
+    requestCheckpoint();   // the take: one undo step
+}
+
+int ParagonX1AudioProcessor::mergeRecordedNotes()
+{
+    std::vector<RecordedNote> notes;
+    const auto ready = recordFifo.getNumReady();
+    if (ready == 0)
+        return 0;
+    {
+        const auto scope = recordFifo.read (ready);
+        for (int i = 0; i < scope.blockSize1; ++i)
+            notes.push_back (recordBuffer[(size_t) (scope.startIndex1 + i)]);
+        for (int i = 0; i < scope.blockSize2; ++i)
+            notes.push_back (recordBuffer[(size_t) (scope.startIndex2 + i)]);
+    }
+    auto s = *songData;
+    for (const auto& n : notes)
+    {
+        auto index = s.blockAt (n.beat);
+        if (index < 0)
+        {
+            // No block there: this take's "Recorded" block grows to the bar (it ends on the bar line before), else a new
+            // one, its bar long (not into a block after it).
+            const auto lines = s.barLines (n.beat);
+            auto barStart = 0.0;
+            for (const auto line : lines)
+                if (line <= n.beat + 1.0e-9)
+                    barStart = line;
+            auto barEnd = lines.back() > n.beat + 1.0e-9 ? lines.back() : barStart + s.beatsPerBarAt (barStart);
+            for (const auto& b : s.blocks)
+                if (b.start > n.beat && b.start < barEnd)
+                    barEnd = b.start;
+            if (takeBlock >= 0 && takeBlock < (int) s.blocks.size() && std::abs (s.blocks[(size_t) takeBlock].end() - barStart) < 1.0e-9
+                && s.blocks[(size_t) takeBlock].length <= s.blocks[(size_t) takeBlock].loopLength + 1.0e-9)
+            {
+                auto& b = s.blocks[(size_t) takeBlock];
+                b.length = b.loopLength = barEnd - b.start;
+                index = takeBlock;
+            }
+            else
+            {
+                song::Block b;
+                b.name = "Recorded";
+                b.start = barStart;
+                b.length = b.loopLength = barEnd - barStart;
+                index = takeBlock = s.place (std::move (b), barStart);
+            }
+        }
+        auto& b = s.blocks[(size_t) index];
+        if (b.length > b.loopLength + 1.0e-9)
+            song::flatten (b);   // a repeating block: written out, so the note lands only where it was played
+        song::addHit (b, { n.beat - b.start, n.slot, n.velocity });
+    }
+    installSong (std::make_shared<const song::Song> (std::move (s)));   // no undo step yet: the take is one, when it ends
+    return (int) notes.size();
+}
+
+//==============================================================================
+// BOUNCE (0.12.0)
+namespace
+{
+    struct StoppedHost final : juce::AudioPlayHead
+    {
+        double bpm = 120.0;
+        juce::Optional<PositionInfo> getPosition() const override
+        {
+            PositionInfo info;
+            info.setBpm (bpm);
+            info.setIsPlaying (false);
+            return info;
+        }
+    };
+}
+
+ParagonX1AudioProcessor::SongBouncer::SongBouncer (ParagonX1AudioProcessor& from, BounceOptions o, juce::File f)
+    : options (std::move (o)), folder (std::move (f))
+{
+    // A copy of the plugin as it is now (the kit, its samples, the effects, the song), in the same presets folder.
+    copy = std::make_unique<ParagonX1AudioProcessor>();
+    copy->useRigFolder (from.getRigLibrary().getFolder());
+    juce::MemoryBlock state;
+    from.getStateInformation (state);
+    copy->setStateInformation (state.getData(), (int) state.getSize());
+    sampleRate = from.getSampleRate() > 0.0 ? from.getSampleRate() : 48000.0;
+    bpm = from.getHostBpm();
+    if (options.perOutput)
+        copy->enableAllBuses();   // OUT 2 to 16 on: each drum where it's routed
+}
+
+ParagonX1AudioProcessor::SongBouncer::~SongBouncer() = default;
+
+juce::Array<juce::File> ParagonX1AudioProcessor::SongBouncer::run()
+{
+    juce::Array<juce::File> written;
+    const auto& s = copy->getSong();
+    if (s.isEmpty())
+    {
+        error = "The song is empty.";
+        return written;
+    }
+    constexpr int blockSize = 512;
+    StoppedHost host;
+    host.bpm = bpm;
+    copy->setPlayHead (&host);
+    copy->setRateAndBufferSizeDetails (sampleRate, blockSize);   // as a host does before preparing it
+    copy->prepareToPlay (sampleRate, blockSize);
+    const auto latency = copy->getLatencySamples();
+    const auto songSamples = (int) std::ceil (s.secondsAt (s.endBeat(), bpm) * sampleRate);
+    const auto maxSamples = songSamples + latency + (int) (options.tailSeconds * sampleRate);
+    const auto channels = juce::jmax (2, copy->getTotalNumOutputChannels());
+
+    // The outputs' channels in the buffer: MAIN, and OUT 2 to 16 when they're on.
+    std::vector<std::pair<juce::String, int>> outputs { { "Main", 0 } };
+    if (options.perOutput)
+        for (int o = 1; o < synth::numOutputs; ++o)
+            if (const auto* bus = copy->getBus (false, o); bus != nullptr && bus->isEnabled() && bus->getNumberOfChannels() == 2)
+                outputs.emplace_back ("Out " + juce::String (o + 1), bus->getChannelIndexInProcessBlockBuffer (0));
+    juce::AudioBuffer<float> rendered (channels, maxSamples);
+    rendered.clear();
+    juce::AudioBuffer<float> block (channels, blockSize);
+    juce::MidiBuffer none;
+    copy->playSong (0.0);
+    auto done = 0, quiet = 0;
+    const auto quietNeeded = (int) (0.25 * sampleRate);
+    while (done < maxSamples)
+    {
+        if (cancel.load())
+        {
+            copy->setPlayHead (nullptr);
+            error = "Cancelled.";
+            return written;
+        }
+        const auto n = juce::jmin (blockSize, maxSamples - done);
+        block.setSize (channels, n, false, false, true);
+        block.clear();
+        copy->processBlock (block, none);
+        for (int c = 0; c < channels; ++c)
+            rendered.copyFrom (c, done, block, c, 0, n);
+        done += n;
+        progress = (float) juce::jmin (1.0, (double) done / (songSamples + latency));
+        // Past the song's end: on until a quarter second of silence (the cymbals and reverb died away).
+        if (done > songSamples + latency)
+        {
+            quiet = block.getMagnitude (0, n) < 1.0e-5f ? quiet + n : 0;
+            if (quiet >= quietNeeded)
+                break;
+        }
+    }
+    copy->setPlayHead (nullptr);
+    progress = 1.0f;
+
+    // Each output's file: the plugin's own delay taken off the front, the gain, the bits; OUT 2 to 16 only if used.
+    const auto length = juce::jmax (0, done - latency);
+    const auto gain = juce::Decibels::decibelsToGain (options.gainDb);
+    folder.createDirectory();
+    for (const auto& [label, first] : outputs)
+    {
+        if (first < 0 || first + 1 >= channels)
+            continue;
+        juce::AudioBuffer<float> out (2, length);
+        for (int c = 0; c < 2; ++c)
+        {
+            out.copyFrom (c, 0, rendered, first + c, latency, length);
+            out.applyGain (c, 0, length, gain);
+        }
+        if (label != "Main" && out.getMagnitude (0, length) < 1.0e-6f)
+            continue;
+        const auto file = folder.getChildFile (juce::File::createLegalFileName (options.name + " - " + label) + ".wav");
+        file.deleteFile();
+        auto stream = std::make_unique<juce::FileOutputStream> (file);
+        if (! stream->openedOk())
+        {
+            error = "Couldn't write " + file.getFullPathName();
+            continue;
+        }
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (stream.get(), sampleRate, 2, juce::jlimit (16, 32, options.bits), {}, 0));
+        if (writer == nullptr)
+        {
+            error = "Couldn't write " + file.getFullPathName();
+            continue;
+        }
+        stream.release();   // the writer owns it now
+        writer->writeFromAudioSampleBuffer (out, 0, length);
+        writer.reset();
+        written.add (file);
+    }
+    return written;
 }

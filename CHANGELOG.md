@@ -2,6 +2,30 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.12.0
+
+**The song track, part 4b: RECORD and BOUNCE.** Our own design, inspired by the transport's record button and the bounce in chapter 7 of the drum software manual you sent. That completes the song track as planned.
+
+- **REC** (beside PLAY): armed, the notes you play while the song plays go into it, at the beats you play them.
+  - From your DAW's MIDI (a controller through it too) or the on-screen keyboard, each through the kit's note map. Notes the kit doesn't play are left out.
+  - With your DAW playing, or with PLAY (through the song's tempo changes too).
+  - **On top of the blocks there** (overdub): a block that repeats its groove is written out first, so a note lands only where you played it. Where there's no block, a **RECORDED** block is made, growing bar by bar as you play on; after a gap, a new one.
+  - Click REC again to stop: **the take is one undo step.** Then QUANTIZE, EDIT BLOCK and the rest work on it like any block.
+  - Armed, REC is red and the song lane is framed red.
+- **TRACK... > BOUNCE TO AUDIO...:** the song rendered to WAV files, faster than real time, while the plugin plays on (the status line shows how far).
+  - **One file: the whole kit**, or **a file per output, as routed** (MAIN, and each of OUT 2-16 a drum, an insert bus or a send return is routed to).
+  - 24-bit, 16-bit or 32-bit float, at the plugin's sample rate; a gain (dB).
+  - From bar 1 through the song's tempo changes (none: your DAW's tempo) to its end, then on until the drums and effects have died away (silence, or 10 s).
+  - **The plugin's own delay** (the limiter's and CONSTRICTOR's look-ahead) **is taken off**, so the files start on bar 1 and line up in your DAW.
+  - It's rendered by a copy of the plugin made from your settings as they are, so the one you're playing isn't touched.
+- **Tests:**
+  - RECORD with the DAW playing: notes at their exact beats, a take's block growing bar by bar to 3 bars, a new one after a gap, a note the kit doesn't play left out, nothing recorded when not armed, the take undone in one step;
+  - on top of a repeating block (its repeats written out, the note only where played), and with PLAY through a tempo change (a note 2.5 s in at beat 4.5: 4 beats at 120, half a beat at 60);
+  - BOUNCE: the hits on their samples (0, 36000, 96000) with the limiter's look-ahead on, the file ending quiet, 24-bit at 48 kHz; +6 dB exactly twice as loud (32-bit float); a file per output (the snare on OUT 3: in its file only); an empty song: no files;
+  - REC and the TRACK menu on the strip.
+
+Not checked here: how it sounds, recording from your controller and DAW live, and the files in your DAW. Left out (that software's, needing its microphones): bouncing microphone channels and bleed; a loop area.
+
 ## 0.11.0
 
 **The song track, part 4a: tempo and time signature changes, and IMPORT MIDI FILE. And the family's colours only.** Our own design, inspired by the track menu in chapter 7 of the drum software manual you sent.

@@ -1364,3 +1364,213 @@ TEST_CASE ("COLOURS: the song parts' and the look-and-feel's (sliders, toggles, 
                           ParagonColours::filterPitch, ParagonColours::glitch, ParagonColours::pitch, ParagonColours::loFi })
         CHECK (inFamily (c));
 }
+
+//==============================================================================
+// THE SONG TRACK part 4b (0.12.0): RECORD and BOUNCE.
+namespace
+{
+    void setParam (ParagonX1AudioProcessor& p, const juce::String& id, float value)
+    {
+        auto* param = p.getParameters().getParameter (id);
+        REQUIRE (param != nullptr);
+        param->setValueNotifyingHost (param->convertTo0to1 (value));
+    }
+
+    // `seconds` of the plugin with `notes` (sample, note) played into it.
+    void playNotes (ParagonX1AudioProcessor& p, Host& host, double seconds, std::vector<std::pair<int, int>> notes)
+    {
+        juce::AudioBuffer<float> buffer (2, blockSize);
+        for (int done = 0; done < (int) (seconds * sampleRate); done += blockSize)
+        {
+            juce::MidiBuffer midi;
+            for (const auto& [at, note] : notes)
+                if (at >= done && at < done + blockSize)
+                    midi.addEvent (juce::MidiMessage::noteOn (10, note, (juce::uint8) 100), at - done);
+            buffer.clear();
+            p.processBlock (buffer, midi);
+            if (host.playing)
+                host.ppq += blockSize / sampleRate * host.bpm / 60.0;
+        }
+    }
+
+    std::vector<std::pair<double, int>> hitsOf (const song::Block& b)
+    {
+        std::vector<std::pair<double, int>> out;
+        for (const auto& h : b.hits)
+            out.emplace_back (std::round (h.beat * 1.0e6) / 1.0e6, h.slot);
+        return out;
+    }
+
+    juce::AudioBuffer<float> readWav (const juce::File& f, double& rate, int& bits)
+    {
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatReader> reader (wav.createReaderFor (f.createInputStream().release(), true));
+        REQUIRE (reader != nullptr);
+        rate = reader->sampleRate;
+        bits = (int) reader->bitsPerSample;
+        juce::AudioBuffer<float> out ((int) reader->numChannels, (int) reader->lengthInSamples);
+        reader->read (&out, 0, (int) reader->lengthInSamples, 0, true, true);
+        return out;
+    }
+}
+
+TEST_CASE ("SONG 0.12 RECORD with the DAW: notes at their beats, a take's block growing bar by bar, a new one after a gap; one undo step", "[song][record]")
+{
+    Plugin t;
+    t.p.flushUndoStep();
+    const auto kick = t.p.homeNote (BD), snare = t.p.homeNote (SD);
+    // Not armed: nothing.
+    playNotes (t.p, t.host, 0.5, { { 100, kick } });
+    CHECK (t.p.mergeRecordedNotes() == 0);
+    CHECK (t.p.getSong().isEmpty());
+
+    t.host.ppq = 0.0;
+    t.p.setSongRecording (true);
+    CHECK (t.p.isSongRecording());
+    // At 120: beat 1 (24000), beat 3 (72000), beat 5 (bar 2: the block grows), beat 9 (bar 3: no; bar 3 is next to bar 2:
+    // grows again), a note the kit doesn't play (127).
+    playNotes (t.p, t.host, 5.0, { { 24000, kick }, { 72000, snare }, { 120000, kick }, { 216000, snare }, { 30000, 127 } });
+    CHECK (t.p.mergeRecordedNotes() == 4);
+    const auto& s = t.p.getSong();
+    REQUIRE (s.blocks.size() == 1);
+    CHECK (s.blocks[0].name == "Recorded");
+    CHECK (s.blocks[0].start == 0.0);
+    CHECK (s.blocks[0].length == 12.0);
+    CHECK (hitsOf (s.blocks[0]) == std::vector<std::pair<double, int>> { { 1.0, BD }, { 3.0, SD }, { 5.0, BD }, { 9.0, SD } });
+    // After a gap (bar 6): a block of its own.
+    t.host.ppq = 20.0;
+    playNotes (t.p, t.host, 1.0, { { 12000, kick } });   // beat 20.5
+    t.p.setSongRecording (false);
+    REQUIRE (t.p.getSong().blocks.size() == 2);
+    CHECK (t.p.getSong().blocks[1].start == 20.0);
+    CHECK (hitsOf (t.p.getSong().blocks[1]) == std::vector<std::pair<double, int>> { { 0.5, BD } });
+    // The take: one undo step.
+    t.p.flushUndoStep();
+    t.p.undo();
+    CHECK (t.p.getSong().isEmpty());
+}
+
+TEST_CASE ("SONG 0.12 RECORD: on top of a repeating block (written out first), and with PLAY through a tempo change", "[song][record]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 1, { { 0.0, BD } }), 0.0);
+    s.resize (0, 12.0);   // the one-bar groove three times
+    t.p.setSong (s);
+    t.p.setSongRecording (true);
+    t.host.ppq = 0.0;
+    playNotes (t.p, t.host, 3.5, { { 144000, t.p.homeNote (SD) } });   // beat 6
+    t.p.setSongRecording (false);
+    const auto& a = t.p.getSong().blocks[0];
+    CHECK (a.loopLength == 12.0);
+    CHECK (hitsOf (a) == std::vector<std::pair<double, int>> { { 0.0, BD }, { 4.0, BD }, { 6.0, SD }, { 8.0, BD } });
+
+    // PLAY (the DAW stopped) through 120 for 4 beats then 60: a note 2.5 s in is beat 4.5.
+    song::Song timed;
+    timed.place (block ("B", 2), 0.0);
+    timed.addTempo (0.0, 120.0);
+    timed.addTempo (4.0, 60.0);
+    t.p.setSong (timed);
+    t.host.playing = false;
+    t.p.setSongRecording (true);
+    t.p.playSong (0.0);
+    playNotes (t.p, t.host, 3.0, { { 120000, t.p.homeNote (BD) } });
+    t.p.setSongRecording (false);
+    REQUIRE (! t.p.getSong().blocks[0].hits.empty());
+    CHECK_THAT (t.p.getSong().blocks[0].hits[0].beat, WithinAbs (4.5, 1e-6));
+}
+
+TEST_CASE ("SONG 0.12 BOUNCE: the song as WAV, each hit on its sample (the plugin's delay taken off), the gain, a file per output", "[song][bounce]")
+{
+    Plugin t;
+    t.p.setPlayHead (nullptr);
+    const auto folder = t.folder.getChildFile ("Bounced");
+    // Empty: nothing.
+    {
+        ParagonX1AudioProcessor::SongBouncer empty (t.p, {}, folder);
+        CHECK (empty.run().isEmpty());
+        CHECK (empty.error.isNotEmpty());
+    }
+    song::Song s;
+    s.place (block ("A", 2, { { 0.0, BD }, { 1.5, SD }, { 4.0, BD } }), 0.0);
+    t.p.setSong (s);
+    // The limiter's look-ahead on: the plugin is late by its latency; the bounce isn't.
+    setParam (t.p, ParamIDs::limitOn, 1.0f);
+    setParam (t.p, ParamIDs::mbLookahead, 1.0f);
+
+    ParagonX1AudioProcessor::BounceOptions o;
+    o.name = "Test Song";
+    ParagonX1AudioProcessor::SongBouncer one (t.p, o, folder);
+    const auto files = one.run();
+    REQUIRE (files.size() == 1);
+    CHECK (files[0].getFileName() == "Test Song - Main.wav");
+    CHECK (one.progress.load() == 1.0f);
+    double rate = 0.0;
+    int bits = 0;
+    const auto main = readWav (files[0], rate, bits);
+    CHECK (rate == sampleRate);
+    CHECK (bits == 24);
+    CHECK (main.getNumSamples() >= 192000);   // the song's two bars (4 s at 120), then its tail
+    std::vector<float> left (main.getReadPointer (0), main.getReadPointer (0) + main.getNumSamples());
+    auto o1 = onsets (left);
+    REQUIRE (o1.size() == 3);
+    CHECK (std::abs (o1[0] - 0) <= 1);
+    CHECK (std::abs (o1[1] - 36000) <= 1);   // 1.5 beats
+    CHECK (std::abs (o1[2] - 96000) <= 1);   // beat 4
+    CHECK (main.getMagnitude (0, main.getNumSamples() - 1000, 1000) < 1.0e-4f);   // it ends quiet
+
+    // +6 dB: twice the level (the limiter's GAIN at 0 leaves the bursts under its ceiling... compared before it acts).
+    setParam (t.p, ParamIDs::limitOn, 0.0f);
+    ParagonX1AudioProcessor::SongBouncer flat (t.p, o, folder);
+    const auto flatFile = flat.run();
+    o.gainDb = 6.0f;
+    o.bits = 32;
+    o.name = "Louder";
+    ParagonX1AudioProcessor::SongBouncer louder (t.p, o, folder);
+    const auto loudFile = louder.run();
+    REQUIRE ((flatFile.size() == 1 && loudFile.size() == 1));
+    const auto a = readWav (flatFile[0], rate, bits);
+    const auto b = readWav (loudFile[0], rate, bits);
+    CHECK (bits == 32);
+    CHECK_THAT (b.getMagnitude (0, 0, 2000) / a.getMagnitude (0, 0, 2000), WithinAbs (juce::Decibels::decibelsToGain (6.0f), 0.002));
+
+    // A file per output: the snare on OUT 3: MAIN has the kicks only, OUT 3 the snare.
+    setParam (t.p, ParamIDs::drum (SD, "Output"), 2.0f);
+    o = {};
+    o.perOutput = true;
+    o.name = "Routed";
+    ParagonX1AudioProcessor::SongBouncer routed (t.p, o, folder);
+    const auto parts = routed.run();
+    REQUIRE (parts.size() == 2);
+    CHECK (parts[0].getFileName() == "Routed - Main.wav");
+    CHECK (parts[1].getFileName() == "Routed - Out 3.wav");
+    const auto m = readWav (parts[0], rate, bits);
+    const auto three = readWav (parts[1], rate, bits);
+    std::vector<float> ml (m.getReadPointer (0), m.getReadPointer (0) + m.getNumSamples());
+    std::vector<float> tl (three.getReadPointer (0), three.getReadPointer (0) + three.getNumSamples());
+    CHECK (onsets (ml) == std::vector<int> { 0, 96000 });
+    REQUIRE (onsets (tl).size() == 1);
+    CHECK (std::abs (onsets (tl)[0] - 36000) <= 1);
+}
+
+TEST_CASE ("SONG 0.12 strip: REC arms recording; the TRACK menu has BOUNCE (greyed with an empty song)", "[song][record][bounce][ui]")
+{
+    Plugin t;
+    SongTrack track (t.p);
+    track.setBounds (0, 0, 1400, 126);
+    const auto has = [&track] (const juce::String& text)
+    {
+        auto menu = track.trackMenu();
+        for (juce::PopupMenu::MenuItemIterator it (menu); it.next();)
+            if (it.getItem().text == text)
+                return it.getItem().isEnabled;
+        return false;
+    };
+    CHECK (! has ("Bounce to Audio..."));
+    t.p.setSong ([] { song::Song s; s.place (block ("A", 1, { { 0.0, BD } }), 0.0); return s; }());
+    CHECK (has ("Bounce to Audio..."));
+    track.getRecordButton().setToggleState (true, juce::sendNotificationSync);
+    CHECK (t.p.isSongRecording());
+    track.getRecordButton().setToggleState (false, juce::sendNotificationSync);
+    CHECK (! t.p.isSongRecording());
+}

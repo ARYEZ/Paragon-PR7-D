@@ -74,6 +74,13 @@ public:
     juce::Point<float> pointOf (const song::TempoPoint&) const;
     double bpmAtY (float y) const noexcept;
     void importMidi (const juce::File&, bool withTempo);
+
+    // RECORD and BOUNCE (0.12.0): REC arms recording (the notes played while the song plays go into it); TRACK... > BOUNCE
+    // TO AUDIO... renders the song to WAV files (on a thread of its own: the plugin plays on; the status line shows how
+    // far), in the folder chosen.
+    juce::TextButton& getRecordButton() noexcept { return record; }
+    void startBounce (const ParagonX1AudioProcessor::BounceOptions&, const juce::File& folder);
+    bool isBouncing() const noexcept { return bounceThread != nullptr; }
     double getStartBeat() const noexcept { return startBeat; }
     juce::TextButton& getPlayButton() noexcept { return play; }
 
@@ -93,6 +100,11 @@ private:
     int dragTempo = -1;                       // a tempo change being dragged
     std::optional<song::Song> tempoDraft;     // ... the song as it would be (drawn while dragging)
     std::unique_ptr<juce::FileChooser> chooser;
+    juce::TextButton record { "REC" };
+    struct BounceThread;
+    std::unique_ptr<BounceThread> bounceThread;
+    juce::String bounceNote;   // the last bounce's result, for the status line
+    void askBounce();
     juce::Label status;
     juce::Rectangle<int> lane, ruler;
     int chosen = -1;

@@ -13,6 +13,21 @@ namespace
     }
 }
 
+// BOUNCE (0.12.0): the bounce on a thread of its own (the plugin plays on).
+struct SongTrack::BounceThread final : juce::Thread
+{
+    BounceThread (ParagonX1AudioProcessor& p, const ParagonX1AudioProcessor::BounceOptions& o, const juce::File& folder)
+        : juce::Thread ("PR7-D bounce"), bouncer (p, o, folder) {}
+    ~BounceThread() override
+    {
+        bouncer.cancel = true;
+        stopThread (10000);
+    }
+    void run() override { files = bouncer.run(); }
+    ParagonX1AudioProcessor::SongBouncer bouncer;   // made here, on the message thread
+    juce::Array<juce::File> files;
+};
+
 SongTrack::SongTrack (ParagonX1AudioProcessor& p) : processor (p)
 {
     setWantsKeyboardFocus (true);
@@ -44,6 +59,12 @@ SongTrack::SongTrack (ParagonX1AudioProcessor& p) : processor (p)
                       "or time signature changes.");
     track.onClick = [this] { trackMenu().showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&track)); };
     addAndMakeVisible (track);
+    record.setClickingTogglesState (true);
+    record.setTooltip ("Record: the notes you play (your DAW's MIDI, a controller, the keyboard) while the song plays go into it, "
+                       "on top of the blocks there (or into a new RECORDED block). Click again to stop: the take is one undo step.");
+    record.setColour (juce::TextButton::textColourOnId, ParagonColours::meterRed);   // armed: red (and the lane framed red)
+    record.onClick = [this] { processor.setSongRecording (record.getToggleState()); };
+    addAndMakeVisible (record);
     blocksView.setTooltip ("The blocks: arrange the song.");
     tempoView.setTooltip ("The song's tempo changes (used by PLAY and EXPORT MIDI; while your DAW plays, its tempo leads): "
                           "double-click to add one, drag one to move it, right-click it to glide to the next or remove it.");
@@ -102,6 +123,7 @@ void SongTrack::resized()
     auto top = area.removeFromTop (barHeight);
     top.removeFromLeft (52);   // "SONG"
     play.setBounds (top.removeFromLeft (64).reduced (2, 2));
+    record.setBounds (top.removeFromLeft (52).reduced (2, 2));
     exportButton.setBounds (top.removeFromLeft (104).reduced (2, 2));
     creator.setBounds (top.removeFromLeft (96).reduced (2, 2));
     track.setBounds (top.removeFromLeft (80).reduced (2, 2));
@@ -129,6 +151,11 @@ void SongTrack::visibilityChanged()
 void SongTrack::updateStatus()
 {
     const auto& s = processor.getSong();
+    if (bounceThread != nullptr || bounceNote.isNotEmpty())
+    {
+        status.setText (bounceNote, juce::dontSendNotification);
+        return;
+    }
     if (s.isEmpty())
     {
         status.setText ("Drag grooves here from the GROOVES list (or MIDI files), or right-click a groove: ADD TO SONG.", juce::dontSendNotification);
@@ -306,6 +333,13 @@ void SongTrack::paint (juce::Graphics& g)
                             juce::roundToInt (p.y) - 16, 60, 14, juce::Justification::centredLeft, false);
             }
         }
+    }
+
+    // RECORD armed: the lane framed red.
+    if (processor.isSongRecording())
+    {
+        g.setColour (ParagonColours::meterRed);
+        g.drawRoundedRectangle (lane.toFloat().reduced (1.0f), 4.0f, 2.0f);
     }
 
     // PLAY's start (a mark on the bar numbers) and where the song is playing.
@@ -668,6 +702,29 @@ void SongTrack::changeListenerCallback (juce::ChangeBroadcaster*)
 
 void SongTrack::timerCallback()
 {
+    // RECORD: the notes played since, into the song (and REC as the processor has it).
+    if (processor.isSongRecording() && processor.mergeRecordedNotes() > 0)
+        updateStatus();
+    if (record.getToggleState() != processor.isSongRecording())
+    {
+        record.setToggleState (processor.isSongRecording(), juce::dontSendNotification);
+        repaint();   // the lane's red frame
+    }
+    // BOUNCE: how far; done: what it wrote.
+    if (bounceThread != nullptr)
+    {
+        if (bounceThread->isThreadRunning())
+            bounceNote = "BOUNCING... " + juce::String (juce::roundToInt (bounceThread->bouncer.progress.load() * 100.0f)) + "%";
+        else
+        {
+            const auto files = bounceThread->files;
+            bounceNote = files.isEmpty() ? "Bounce: " + bounceThread->bouncer.error
+                                         : "Bounced " + juce::String (files.size()) + (files.size() == 1 ? " file" : " files") + " to "
+                                               + files[0].getParentDirectory().getFullPathName();
+            bounceThread.reset();
+        }
+        updateStatus();
+    }
     play.setButtonText (processor.isSongPlaying() ? "STOP" : "PLAY");
     if (const auto at = processor.getSongPosition(); at != shownPosition)
     {
@@ -794,6 +851,7 @@ juce::PopupMenu SongTrack::trackMenu()
             });
         });
     });
+    menu.addItem ("Bounce to Audio...", ! s.isEmpty() && bounceThread == nullptr, false, [this] { askBounce(); });
     menu.addSeparator();
     menu.addItem ("Remove All Tempo Changes (the DAW's tempo)", ! s.tempos.empty(), false, [this] { edit ([] (song::Song& song) { song.tempos.clear(); }); });
     menu.addItem ("Remove All Time Signature Changes", ! s.meters.empty(), false, [this] { edit ([] (song::Song& song) { song.meters.clear(); }); });
@@ -806,4 +864,46 @@ void SongTrack::importMidi (const juce::File& file, bool withTempo)
         chosen = -1;
     updateStatus();
     repaint();
+}
+
+//==============================================================================
+// BOUNCE (0.12.0)
+
+void SongTrack::startBounce (const ParagonX1AudioProcessor::BounceOptions& options, const juce::File& folder)
+{
+    if (bounceThread != nullptr)
+        return;
+    bounceNote = "BOUNCING... 0%";
+    bounceThread = std::make_unique<BounceThread> (processor, options, folder);
+    bounceThread->startThread();
+    updateStatus();
+}
+
+void SongTrack::askBounce()
+{
+    // What to bounce (one file, or one per output used), the bits, the gain; then where.
+    auto window = std::make_shared<juce::AlertWindow> ("Bounce the song to audio",
+                                                       "WAV files at the plugin's sample rate, from bar 1 through the song's tempo "
+                                                       "changes, until the drums and effects have died away.",
+                                                       juce::MessageBoxIconType::NoIcon, this);
+    window->addComboBox ("what", { "One file: the whole kit", "A file per output, as routed (MAIN, OUT 2-16)" }, "Files");
+    window->addComboBox ("bits", { "24-bit", "16-bit", "32-bit float" }, "Bits");
+    window->addTextEditor ("gain", "0", "Gain (dB)");
+    window->addButton ("Bounce...", 1, juce::KeyPress (juce::KeyPress::returnKey));
+    window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    window->enterModalState (true, juce::ModalCallbackFunction::create ([this, window] (int result)
+    {
+        if (result != 1)
+            return;
+        ParagonX1AudioProcessor::BounceOptions o;
+        o.perOutput = window->getComboBoxComponent ("what")->getSelectedItemIndex() == 1;
+        o.bits = std::array<int, 3> { 24, 16, 32 }[(size_t) juce::jlimit (0, 2, window->getComboBoxComponent ("bits")->getSelectedItemIndex())];
+        o.gainDb = juce::jlimit (-48.0f, 24.0f, window->getTextEditorContents ("gain").getFloatValue());
+        chooser = std::make_unique<juce::FileChooser> ("Choose a folder for the bounced files", juce::File::getSpecialLocation (juce::File::userMusicDirectory));
+        chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories, [this, o] (const juce::FileChooser& c)
+        {
+            if (const auto folder = c.getResult(); folder != juce::File())
+                startBounce (o, folder);
+        });
+    }));
 }

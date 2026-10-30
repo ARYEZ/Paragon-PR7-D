@@ -24,7 +24,7 @@ PR7-D is built in stages, each one released:
 | **3** | Note maps: Root, a groove-library layout, General MIDI, and your own | **Works (0.2.0)** |
 | **4** | Multiple outputs: 16 stereo outputs; each drum, insert bus and send return chooses one | **Works (0.3.0)** |
 | **5** | The groove player: browse, filter, preview and drag MIDI grooves from your own folders | **Parts 1-4 work (0.7.0)**: folders, list, search, filter columns, preview, drag out, into the sequencer, tap to find, groove parts |
-| **6** | The song track: grooves laid out as a song, played with your DAW | **Parts 1-4a work (0.11.0)**: blocks from grooves or MIDI files, move, lengthen, duplicate, mute, song parts, change tempo, PLAY, EXPORT MIDI; editing inside a block (paste or remove drums, quantize, velocity, split, merge, EDIT BLOCK); the SONG CREATOR; tempo and time signature changes; IMPORT MIDI FILE |
+| **6** | The song track: grooves laid out as a song, played with your DAW | **Works (0.12.0)**: blocks from grooves or MIDI files, move, lengthen, duplicate, mute, song parts, change tempo, PLAY, EXPORT MIDI; editing inside a block (paste or remove drums, quantize, velocity, split, merge, EDIT BLOCK); the SONG CREATOR; tempo and time signature changes; IMPORT MIDI FILE; RECORD; BOUNCE to audio |
 
 ## Using it
 
@@ -63,7 +63,9 @@ PR7-D is built in stages, each one released:
   groove's USE WITH SONG CREATOR): the grooves of its song folder in columns by song part, and SONG STRUCTURES (ours,
   and yours saved from the song track): MAKE SONG builds a whole drum track from them. TEMPO and TIME (beside BLOCKS):
   the song's tempo changes (PLAY and EXPORT MIDI use them; while your DAW plays, its tempo leads) and time signature
-  changes. TRACK... > IMPORT MIDI FILE...: a whole song's MIDI, cut into blocks at its markers. It plays with your DAW (bar 1 is the
+  changes. TRACK... > IMPORT MIDI FILE...: a whole song's MIDI, cut into blocks at its markers. REC: what you play while
+  the song plays goes into it (on top of its blocks). TRACK... > BOUNCE TO AUDIO...: the song as WAV files (one, or one
+  per output), lined up with bar 1. It plays with your DAW (bar 1 is the
   DAW's bar 1), or with PLAY when the DAW is stopped. EXPORT MIDI: the whole song as one file. Saved with the project.
 - **SEQUENCER** (beside DRUM): four patterns, **A** to **D**, drawn on a grid level with the kit's rows. Each note
   has its own velocity, pan, pitch, gate, roll and reverse. **SONG** plays with your DAW; **KEY** plays a pattern while
