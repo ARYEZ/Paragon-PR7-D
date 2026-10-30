@@ -2,6 +2,22 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.8.1
+
+**Groove TYPE: fills found by more names.** From a check against two real groove packs you sent (Heavy Rock Grooves and EZX Electronic: 762 grooves, compared with their own labels; the packs stay with you, nothing from them is in the plugin).
+
+- **"Break" is a fill** ("909 Break 2", "606 Clean Break"), as a word of its own, with or without a number after it ("Break3"). "Breakdown", "Breakbeat", "Breaks" and "Jailbreak" aren't.
+- **"Fill" wins over the song's sections:** "Introfill", "Verse Fill 02" and "Pre-Chorus Fill" are fills now (they were Intro, Verse, Pre-Chorus).
+- TYPE is read from the names each time, so your linked folders show it at once: no rescan.
+- In the check, TYPE now agrees with the packs' own Beat / Fill labels on every groove (it missed 23 of the electronic pack's fills before).
+
+What the check also found (no change needed):
+
+- **The GROOVE LIBRARY map is right** for the rock pack's notes: closed hat 22 and 61, open hat 24-26, pedal 21, ride 51, bell 53, crashes 49 and 57, kick, snare and toms. The power hand agreed on all 250 grooves labelled with a hat, ride or cymbal; the bar counts on all 762.
+- **EZX Electronic uses its own layout,** close to General MIDI (52 china, 54 tambourine, 56 cowbell): set that folder's **FILES' MAP to General MIDI**.
+- **FEEL** agreed on 91% (rock) and 98% (electronic). The rest are mostly triplet grooves the packs call straight; two stricter rules tried on your grooves did worse, so it stays as it is.
+- Not checked: how hard a groove is (the packs keep no velocities we could compare), half / double time (not measured yet).
+
 ## 0.8.0
 
 **The song track, part 1.** Lay grooves out as a whole song, bar by bar, and it plays along with your DAW. Our own design, inspired by the song track in chapter 7 of the drum software manual you sent.

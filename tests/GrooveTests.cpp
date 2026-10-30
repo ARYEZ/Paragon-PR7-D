@@ -349,6 +349,19 @@ TEST_CASE ("GROOVES 0.5: FEEL from where the off-beat hits fall; TYPE from the n
     CHECK (grooves::partIn ("Count-In 2 bars") == Part::countIn);
     CHECK (grooves::partIn ("Country Shuffle") == Part::beat);       // "Country" isn't a count-in
     CHECK (grooves::partIn ("Groove 3") == Part::beat);
+    // 0.8.1, from a check against real groove packs' labels: FILL before the song's sections; BREAK a fill as a word of
+    // its own (a number after it or not), not inside another.
+    CHECK (grooves::partIn ("Alien Introfill 2") == Part::fill);
+    CHECK (grooves::partIn ("Verse Fill 02") == Part::fill);
+    CHECK (grooves::partIn ("Pre-Chorus Fill") == Part::fill);
+    CHECK (grooves::partIn ("909 Break 2") == Part::fill);
+    CHECK (grooves::partIn ("606 Clean Break") == Part::fill);
+    CHECK (grooves::partIn ("Break3") == Part::fill);
+    CHECK (grooves::partIn ("Breakdown 1") == Part::beat);
+    CHECK (grooves::partIn ("Breakbeat 120") == Part::beat);
+    CHECK (grooves::partIn ("Breaks") == Part::beat);
+    CHECK (grooves::partIn ("Jailbreak") == Part::beat);
+    CHECK (grooves::partIn ("Intro 01") == Part::intro);
     // From the file's name, else its folder's, else the one above.
     CHECK (grooves::partOf (juce::File ("/p/Rock/Fills/Var 1.mid")) == Part::fill);
     CHECK (grooves::partOf (juce::File ("/p/Rock/Bridge/Fast/Var 1.mid")) == Part::bridge);

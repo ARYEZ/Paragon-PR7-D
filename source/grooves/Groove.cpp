@@ -40,17 +40,27 @@ namespace grooves
     Part partIn (const juce::String& name)
     {
         // Lower case, '-' and '_' as spaces, so "Pre-Chorus", "pre_chorus" and "Pre Chorus" read alike. Checked in this
-        // order: PRE-CHORUS before CHORUS, COUNT-IN only as "count in" / "count off" (not "Country").
+        // order: COUNT-IN only as "count in" / "count off" (not "Country"); then FILL, before the song's sections (0.8.1:
+        // "Introfill" and "Verse Fill 2" are fills, as groove packs label them); PRE-CHORUS before CHORUS.
         const auto t = " " + name.toLowerCase().replaceCharacters ("-_", "  ") + " ";
         const std::pair<const char*, Part> words[] = {
             { "count in", Part::countIn }, { "countin", Part::countIn }, { "count off", Part::countIn },
+            { "fill", Part::fill },
             { "pre chorus", Part::preChorus }, { "prechorus", Part::preChorus },
             { "intro", Part::intro }, { "verse", Part::verse }, { "chorus", Part::chorus }, { "bridge", Part::bridge },
-            { "fill", Part::fill }, { "ending", Part::ending }, { "outro", Part::ending }, { " end ", Part::ending },
+            { "ending", Part::ending }, { "outro", Part::ending }, { " end ", Part::ending },
         };
         for (const auto& [word, part] : words)
+        {
             if (t.contains (word))
                 return part;
+            // BREAK (0.8.1): a fill too ("909 Break 2" in electronic packs), as a word of its own, a number after it or
+            // not ("Break3"), so "Breakdown", "Breakbeat", "Breaks" and "Jailbreak" aren't fills.
+            if (part == Part::fill)
+                for (auto at = t.indexOf (" break"); at >= 0; at = t.indexOf (at + 1, " break"))
+                    if (const auto after = t[at + 6]; after == ' ' || juce::CharacterFunctions::isDigit (after))
+                        return Part::fill;
+        }
         return Part::beat;
     }
 
