@@ -2,6 +2,36 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.6.0
+
+**The groove player, part 3: TAP TO FIND.** Tap a rhythm, and the grooves closest to it come first. Our own design, inspired by the tap-a-rhythm search of commercial drum software.
+
+- **TAP TO FIND...** (GROOVES, left of the filter columns) opens the tap panel over the list:
+  - **Six pads:** KICK, SNARE, HI-HAT, RIDE, TOMS, CRASH. Clicking one plays its drum and taps it. Your controller or the on-screen keyboard taps too: each note taps the drum it plays (through the kit's map).
+  - **A two-bar loop** runs while the panel is open, with a **metronome** (a click on each beat, higher on the first of the bar) and a playhead. Tap one drum a time round if you like: every tap stays.
+  - **TEMPO:** your song's when it opens; change it and the loop starts again. **QUANTIZE:** 1/4, 1/8 (as it opens: right for most beats), 1/16, 1/8 or 1/16 triplets (for swing and shuffle). Each tap is drawn where it lands on the grid, with a small mark where you played it.
+  - **CLEAR** clears every tap, a row's **x** just that drum's. **CLOSE** puts it away (your taps stay for next time). **FIND** lists the grooves closest to your rhythm first.
+- **MATCH** (a new column): how close each groove is, 0 to 100%. **CLEAR TAP** goes back to the list as it was. The folder, search, favourites and filter columns still narrow what's listed.
+- **How grooves are compared** (our own measure):
+  - **Only the drums you tapped count.** Tap kick and snare, and the hats don't matter.
+  - Each drum scores by the hits both rhythms have on the QUANTIZE grid, against all the hits either has. The drums are weighted by how many hits you tapped on each.
+  - **HI-HAT and RIDE stand in for each other** when a groove has only one of them, since the riding hand can be on either.
+  - A groove is tried from **each of its bars** (looped if shorter than two bars), and its best two bars count, so a rhythm in bars 3-4 is found too.
+- **Drop a MIDI file** on the GROOVES page: its first two bars are the rhythm searched with.
+- **Right-click a groove: FIND SIMILAR** searches with its first two bars. FAVOURITE is there too.
+- **Your library is read once more** the first time you open GROOVES after updating: the index now keeps each groove's rhythm, so a search never opens the files. Then it's quick again.
+- **Tests:**
+  - the comparison: the same rhythm 100%; drums not tapped not counting; closer rhythms higher (one kick different above four-on-the-floor above kick and snare swapped); QUANTIZE taking taps a little off (and one a hair early for beat 1); hi-hat and ride standing in; a rhythm found in bars 3-4; a one-bar groove looped;
+  - the rhythm kept in the index;
+  - the metronome on each beat to the sample at 120, higher on the bar, silent after;
+  - notes as taps where they fall (1.25 beats at sample 30000, and round the loop), by drum group through the map; a pad's tap and drum;
+  - the library sorted by match;
+  - the page: tapping, FIND, FIND SIMILAR, a dropped file, CLEAR TAP.
+
+What can't be checked here: how tapping feels in your DAW (a pad's tap is placed at the start of the next audio block, a few milliseconds; QUANTIZE takes that up), how the metronome sounds, and how well the comparison ranks real groove packs: tell us when a groove you'd expect near the top isn't.
+
+Next, your choice: groove parts (take one drum's part from one groove and lay it over another), or the song track (needs the manual's chapter 7).
+
 ## 0.5.0
 
 **The groove player, part 2: filter columns, and grooves into the drum sequencer.**

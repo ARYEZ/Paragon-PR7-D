@@ -272,6 +272,7 @@ GroovesPage::GroovesPage (ParagonX1AudioProcessor& p) : processor (p), library (
     header.addColumn ("TEMPO", tempo, 70, 50, 120, flags);
     header.addColumn ("POWER HAND", hand, 120, 60, 200, flags);
     header.addColumn ("INTENSITY", intensity, 120, 60, 240, flags);
+    header.addColumn ("MATCH", matchScore, 80, 50, 140, flags);
     table.setMultipleSelectionEnabled (false);
 
     for (juce::Component* c : { (juce::Component*) &addFolder, (juce::Component*) &removeFolder, (juce::Component*) &subfolders,
@@ -307,6 +308,26 @@ GroovesPage::GroovesPage (ParagonX1AudioProcessor& p) : processor (p), library (
         b.onClick = [this, i] { toPattern (i); };
         addAndMakeVisible (b);
     }
+
+    // TAP TO FIND (0.6.0).
+    tapButton.setTooltip ("Tap a rhythm (on pads, your controller or the keyboard) over a two-bar loop, and list the grooves "
+                          "closest to it first. Or drop a MIDI file on the page, or right-click a groove: FIND SIMILAR.");
+    tapButton.onClick = [this] { openTapPanel(); };
+    clearTapButton.setTooltip ("Back to the list as it was (sorted by SORT, no MATCH).");
+    clearTapButton.onClick = [this] { clearTap(); };
+    tapInfo.setColour (juce::Label::textColourId, ParagonColours::textDim);
+    tapInfo.setFont (juce::FontOptions (11.5f));
+    tapInfo.setJustificationType (juce::Justification::topLeft);
+    tapInfo.setMinimumHorizontalScale (1.0f);
+    for (juce::Component* c : { (juce::Component*) &tapButton, (juce::Component*) &clearTapButton, (juce::Component*) &tapInfo })
+        addAndMakeVisible (c);
+    tapPanel = std::make_unique<TapPanel> (processor);
+    tapPanel->onFind = [this] (const grooves::Rhythm& r, double grid)
+    {
+        tapPanel->close();
+        findByRhythm (r, grid, "your taps");
+    };
+    addChildComponent (*tapPanel);
 
     library.addChangeListener (this);
     refresh();
@@ -414,7 +435,8 @@ void GroovesPage::requery()
     // each), and the list shows those that pass the filters.
     const auto p = library.getPreview();
     const auto scope = library.query (within, search.getText(), favouritesOnly.getToggleState(), p.sort, processor.getHostBpm(),
-                                      processor.getHostNumerator(), processor.getHostDenominator());
+                                      processor.getHostNumerator(), processor.getHostDenominator(), {},
+                                      tapSearch.has_value() ? &*tapSearch : nullptr);
     results.clear();
     for (const auto& e : scope)
         if (filters.passes (e))
@@ -452,6 +474,10 @@ void GroovesPage::requery()
         filterColumns[(size_t) c]->setValues (values, numbers);
     }
     clearFiltersButton.setEnabled (! filters.isEmpty());
+    clearTapButton.setEnabled (tapSearch.has_value());
+    tapInfo.setText (tapSearch.has_value() ? "Closest first to " + tapWhat + " (" + juce::String (tapSearch->rhythm.numHits()) + " hits)"
+                                           : juce::String ("Or drop a MIDI file here, or right-click a groove"),
+                     juce::dontSendNotification);
     table.updateContent();
     table.repaint();
     timerCallback();
@@ -501,6 +527,67 @@ void GroovesPage::toPattern (int pattern)
     }
     messageUntil = juce::Time::getMillisecondCounterHiRes() + 5000.0;
     timerCallback();
+}
+
+void GroovesPage::openTapPanel()
+{
+    processor.stopGroove();   // the loop and its metronome alone
+    const auto perBar = processor.getHostNumerator() * 4.0 / juce::jmax (1, processor.getHostDenominator());
+    tapPanel->open (processor.getHostBpm(), perBar);
+    tapPanel->toFront (false);
+}
+
+void GroovesPage::findByRhythm (const grooves::Rhythm& rhythm, double grid, const juce::String& what)
+{
+    if (rhythm.isEmpty())
+        return;
+    tapSearch = grooves::Library::TapSearch { rhythm, grid };
+    tapWhat = what;
+    requery();
+    table.scrollToEnsureRowIsOnscreen (0);
+}
+
+void GroovesPage::findSimilar (int row)
+{
+    if (row < 0 || row >= (int) results.size() || results[(size_t) row].rhythm == nullptr)
+        return;
+    const auto& e = results[(size_t) row];
+    const auto perBar = e.numerator * 4.0 / juce::jmax (1, e.denominator);
+    findByRhythm (grooves::firstBars (*e.rhythm, 2.0 * perBar), tapPanel->getGrid(), e.name);
+}
+
+bool GroovesPage::findLikeFile (const juce::File& file)
+{
+    // Its notes through the kit's map (a file made for this kit), or the groove libraries' layout under ROOT (where
+    // dropped grooves most often come from).
+    const auto layout = processor.getMapLayout() == synth::drums::notemap::Layout::root ? synth::drums::notemap::grooveLibrary()
+                                                                                          : processor.getNoteMap();
+    const auto g = grooves::read (file, layout);
+    if (! g.has_value())
+        return false;
+    findByRhythm (grooves::firstBars (grooves::rhythmOf (*g, layout), 2.0 * g->beatsPerBar()), tapPanel->getGrid(),
+                  file.getFileNameWithoutExtension());
+    return true;
+}
+
+void GroovesPage::clearTap()
+{
+    tapSearch.reset();
+    requery();
+}
+
+bool GroovesPage::isInterestedInFileDrag (const juce::StringArray& files)
+{
+    return files.size() == 1 && juce::File (files[0]).hasFileExtension ("mid;midi");
+}
+
+void GroovesPage::filesDropped (const juce::StringArray& files, int, int)
+{
+    if (! files.isEmpty() && ! findLikeFile (juce::File (files[0])))
+    {
+        message = "That file has no notes to search with";
+        messageUntil = juce::Time::getMillisecondCounterHiRes() + 5000.0;
+    }
 }
 
 void GroovesPage::savePreview()
@@ -628,6 +715,9 @@ void GroovesPage::paintCell (juce::Graphics& g, int row, int column, int width, 
         case bars: text (juce::String (e.bars), juce::Justification::centred); break;
         case tempo: text (tempoText (e), juce::Justification::centred); break;
         case hand: text (grooves::powerHandNames[(int) e.hand]); break;
+        case matchScore:
+            text (e.match >= 0.0f ? juce::String (juce::roundToInt (e.match * 100.0f)) + "%" : juce::String ("-"), juce::Justification::centred);
+            break;
         case intensity:
         {
             const auto bar = juce::Rectangle<float> (8.0f, (float) height * 0.5f - 3.0f, (float) width - 16.0f, 6.0f);
@@ -652,15 +742,30 @@ juce::String GroovesPage::getCellTooltip (int row, int column)
         case tempo: return e.bpmKnown ? "The tempo it was played at (from the file, or its name)." : "The file doesn't say its tempo.";
         case hand: return "What the riding hand plays most (the hats, ride, a crash or percussion): worked out from its notes.";
         case intensity: return "How hard and how busy it's played (our own measure, from its notes).";
+        case matchScore: return "How close its rhythm is to the one searched with (TAP TO FIND): the drums tapped, on QUANTIZE's grid.";
         default: return "Click: play it, round and round. Double-click: once. Drag it onto a track in your DAW, or to a folder.\n"
                         + e.file.getFullPathName();
     }
 }
 
-void GroovesPage::cellClicked (int row, int column, const juce::MouseEvent&)
+void GroovesPage::cellClicked (int row, int column, const juce::MouseEvent& e)
 {
     if (row < 0 || row >= (int) results.size())
         return;
+    if (e.mods.isPopupMenu())
+    {
+        // Right-click: find more like it, or make it a favourite.
+        juce::PopupMenu menu;
+        const auto file = results[(size_t) row].file;
+        menu.addItem ("Find Similar (its rhythm)", [this, row] { findSimilar (row); });
+        menu.addItem (library.isFavourite (file) ? "Not a Favourite" : "Favourite", [this, file]
+        {
+            library.setFavourite (file, ! library.isFavourite (file));
+            requery();
+        });
+        menu.showMenuAsync (juce::PopupMenu::Options());
+        return;
+    }
     if (column == favourite)
     {
         const auto& file = results[(size_t) row].file;
@@ -765,8 +870,17 @@ void GroovesPage::resized()
     auto left = area.removeFromLeft (300);
     tree.setBounds (left.reduced (4));
     area.removeFromLeft (16);
-    // The filter columns above the list, CLEAR at their end.
+    // The filter columns above the list (TAP TO FIND first, as a way to find), CLEAR at their end.
     auto strip = area.removeFromTop (128).reduced (4, 0);
+    {
+        auto tap = strip.removeFromLeft (150);
+        tapButton.setBounds (tap.removeFromTop (30));
+        tap.removeFromTop (6);
+        clearTapButton.setBounds (tap.removeFromTop (26));
+        tap.removeFromTop (6);
+        tapInfo.setBounds (tap);
+        strip.removeFromLeft (12);
+    }
     clearFiltersButton.setBounds (strip.removeFromRight (70).removeFromTop (26));
     strip.removeFromRight (10);
     const auto columnWidth = strip.getWidth() / grooves::numColumns;
@@ -774,4 +888,6 @@ void GroovesPage::resized()
         c->setBounds (strip.removeFromLeft (columnWidth).reduced (4, 0));
     area.removeFromTop (14);
     table.setBounds (area.reduced (4));
+    // The tap panel over the filters and the list while open.
+    tapPanel->setBounds (table.getBounds().getUnion (filterColumns[0]->getBounds().withX (tapButton.getX())).expanded (4));
 }

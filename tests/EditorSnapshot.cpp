@@ -429,6 +429,23 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         grooves.toggleFilter (grooves::Column::tempo, "Below 80", true);
         grooves.playRow (1, true);
         grooves.getTable().selectRow (1);
+        // TAP TO FIND: =1 the panel open, a push beat tapped (kick, snare, eighth hats) and the loop running; =2 found.
+        if (const auto tap = env ("PARAGON_SNAPSHOT_TAP"); tap.isNotEmpty())
+        {
+            grooves.clearFilters();
+            processor.stopGroove();
+            grooves.openTapPanel();
+            auto& panel = grooves.getTapPanel();
+            for (const auto b : { 0.0, 1.5, 2.5, 4.0, 5.5, 6.5 }) panel.addTap ((int) grooves::Lane::kick, b + (b > 3 ? 0.04 : -0.03));
+            for (const auto b : { 1.0, 3.0, 5.0, 7.0 }) panel.addTap ((int) grooves::Lane::snare, b + 0.05);
+            for (int e = 0; e < 16; ++e) panel.addTap ((int) grooves::Lane::hats, e * 0.5 + (e % 3 == 0 ? 0.03 : -0.02));
+            juce::AudioBuffer<float> buffer (2, 256);
+            juce::MidiBuffer midi;
+            for (int b = 0; b < 230; ++b)
+                processor.processBlock (buffer, midi);
+            if (tap == "2")
+                panel.getFindButton().onClick();
+        }
         if (env ("PARAGON_SNAPSHOT_GROOVESEQ").isNotEmpty())
             grooves.toPattern (1);   // TO SEQUENCER B: its note in the status line
         if (env ("PARAGON_SNAPSHOT_GROOVESEQ") == "2")

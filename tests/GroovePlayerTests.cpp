@@ -533,3 +533,71 @@ TEST_CASE ("TAP TO FIND in the library: grooves sorted by how close they are to 
     again.loadIndex();
     CHECK (again.query ({}, {}, false, grooves::Sort::name, 120.0, 4, 4, {}, &tap)[0].name == "Push");
 }
+
+TEST_CASE ("TAP TO FIND page: open taps with a loop; FIND sorts by MATCH; FIND SIMILAR; a MIDI file dropped; CLEAR TAP", "[tap][groove-player][ui]")
+{
+    Plugin t;
+    const auto pack = t.folder.getChildFile ("Pack");
+    const auto write = [&] (const juce::File& f, std::vector<std::pair<double, int>> notes)
+    {
+        juce::MidiMessageSequence track;
+        for (const auto& [beat, note] : notes)
+        {
+            track.addEvent (juce::MidiMessage::noteOn (10, note, (juce::uint8) 100).withTimeStamp (beat * 480));
+            track.addEvent (juce::MidiMessage::noteOff (10, note).withTimeStamp (beat * 480 + 60));
+        }
+        juce::MidiFile file;
+        file.setTicksPerQuarterNote (480);
+        track.updateMatchedPairs();
+        file.addTrack (track);
+        f.getParentDirectory().createDirectory();
+        juce::FileOutputStream out (f);
+        file.writeTo (out);
+    };
+    write (pack.getChildFile ("A Rock.mid"), { { 0, 36 }, { 2, 36 }, { 1, 38 }, { 3, 38 }, { 4, 36 }, { 6, 36 }, { 5, 38 }, { 7, 38 } });
+    write (pack.getChildFile ("B Push.mid"), { { 0, 36 }, { 1.5, 36 }, { 1, 38 }, { 3, 38 }, { 4, 36 }, { 5.5, 36 }, { 5, 38 }, { 7, 38 } });
+    write (pack.getChildFile ("C Half.mid"), { { 0, 36 }, { 2, 38 }, { 4, 36 }, { 6, 38 } });
+    REQUIRE (t.p.getGrooveLibrary().addFolder (pack));
+    t.p.getGrooveLibrary().scanNow();
+    GroovesPage page (t.p);
+    page.setSize (1476, 672);
+    page.refresh();
+    REQUIRE (page.getResults().size() == 3);
+    CHECK (page.getResults()[0].match < 0.0f);   // no search: no MATCH
+
+    page.openTapPanel();
+    CHECK (t.p.isTapping());
+    CHECK (page.getTapPanel().isVisible());
+    auto& panel = page.getTapPanel();
+    for (const auto b : { -0.04, 1.5, 4.0, 5.5 }) panel.addTap ((int) grooves::Lane::kick, b);   // beat 1 a hair early
+    CHECK_THAT (panel.getRhythm().beats[(size_t) grooves::Lane::kick].back(), WithinAbs (7.96, 1e-9));
+    for (const auto b : { 1.0, 3.0, 5.0, 7.0 }) panel.addTap ((int) grooves::Lane::snare, b);
+    panel.getFindButton().onClick();   // as clicking FIND
+    CHECK_FALSE (t.p.isTapping());   // FIND closes it
+    REQUIRE (page.isTapSearching());
+    REQUIRE (page.getResults().size() == 3);
+    CHECK (page.getResults()[0].name == "B Push");
+    CHECK_THAT (page.getResults()[0].match, WithinAbs (1.0, 1e-6));
+
+    // FIND SIMILAR on the rock beat: it first.
+    const auto rock = std::find_if (page.getResults().begin(), page.getResults().end(), [] (const auto& e) { return e.name == "A Rock"; });
+    page.findSimilar ((int) std::distance (page.getResults().begin(), rock));
+    CHECK (page.getResults()[0].name == "A Rock");
+
+    // A MIDI file dropped: the half-time one's rhythm.
+    const auto dropped = t.folder.getChildFile ("Elsewhere/half time.mid");
+    write (dropped, { { 0, 36 }, { 2, 38 }, { 4, 36 }, { 6, 38 } });
+    CHECK (page.isInterestedInFileDrag ({ dropped.getFullPathName() }));
+    CHECK_FALSE (page.isInterestedInFileDrag ({ t.folder.getChildFile ("x.wav").getFullPathName() }));
+    page.filesDropped ({ dropped.getFullPathName() }, 0, 0);
+    CHECK (page.getResults()[0].name == "C Half");
+
+    page.clearTap();
+    CHECK_FALSE (page.isTapSearching());
+    CHECK (page.getResults()[0].name == "A Rock");   // by name again
+    CHECK (page.getResults()[0].match < 0.0f);
+
+    // Closing the window while tapping stops the loop.
+    page.openTapPanel();
+    CHECK (t.p.isTapping());
+}

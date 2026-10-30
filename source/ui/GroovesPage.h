@@ -5,9 +5,11 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include "ui/TapPanel.h"
 
 class GroovesPage final : public juce::Component,
                           public juce::DragAndDropContainer,
+                          public juce::FileDragAndDropTarget,
                           private juce::TableListBoxModel,
                           private juce::ChangeListener,
                           private juce::Timer
@@ -33,10 +35,23 @@ public:
     juce::StringArray getColumnValues (grooves::Column) const;   // as listed, "value (count)"
     // INTO THE SEQUENCER (0.5.0): the chosen groove as pattern A-D, as its button does.
     void toPattern (int pattern);
+    // TAP TO FIND (0.6.0): the panel opened (as TAP TO FIND... does); a search with a rhythm (FIND, a MIDI file dropped,
+    // FIND SIMILAR on a groove), and back to none.
+    void openTapPanel();
+    void findByRhythm (const grooves::Rhythm&, double grid, const juce::String& what);
+    void findSimilar (int row);
+    bool findLikeFile (const juce::File&);
+    void clearTap();
+    bool isTapSearching() const noexcept { return tapSearch.has_value(); }
+    TapPanel& getTapPanel() noexcept { return *tapPanel; }
+
+    // A MIDI file dropped on the page: a search with its first two bars.
+    bool isInterestedInFileDrag (const juce::StringArray&) override;
+    void filesDropped (const juce::StringArray&, int, int) override;
     juce::TableListBox& getTable() noexcept { return table; }
     juce::TreeView& getTree() noexcept { return tree; }
 
-    enum Column { favourite = 1, name, family, signature, bars, tempo, hand, intensity };
+    enum Column { favourite = 1, name, family, signature, bars, tempo, hand, intensity, matchScore };
 
 private:
     // TableListBoxModel: the grooves.
@@ -70,6 +85,11 @@ private:
     std::array<juce::TextButton, 4> patternButtons;
     juce::String message;            // a moment's note in the status line ("Verse 01 is pattern B now")
     double messageUntil = 0.0;
+    std::unique_ptr<TapPanel> tapPanel;
+    juce::TextButton tapButton { "TAP TO FIND..." }, clearTapButton { "CLEAR TAP" };
+    juce::Label tapInfo;
+    std::optional<grooves::Library::TapSearch> tapSearch;
+    juce::String tapWhat;            // what the search came from ("your taps", "Verse 01", a file's name)
     ParagonX1AudioProcessor& processor;
     grooves::Library& library;
 
