@@ -44,6 +44,10 @@ All of this was done in 0.1.0; it's kept as the record of what makes PR7-D its o
 
 Seen in 0.1.0, for later (corrected in 0.2.0): a drum voice ends when its level falls below -80 dB (`Voice::finished`, `Drums.cpp`), so a long cymbal at full DECAY keeps a voice running about 11 s (`tests/RigTests.cpp` checks it's quiet, not that its voice ended). Ending hits sooner (e.g. relative to the hit's peak) would save CPU on busy beats; it changes what the drum tests compare against, so do it as its own change, with the owner.
 
+## The owner's aim (October 2026)
+
+**Emulate Superior Drummer 3 as closely as possible, eventually including a drum kit GUI like theirs.** How it works can be matched closely (workflow, features: a drawn kit to click and play, articulations per piece, velocity layers and round-robins, mic channels and bleed, a mixer, grooves, the song track); how it looks and sounds stays ours: our own artwork in the PR7 look (never Toontrack's graphics, photos, layout copied pixel for pixel, names or branding) and our own synths or the user's own samples (never Toontrack's). Proposed order (each with the owner, from the SD3 manual's chapters: ask for them): 1) a kit view on DRUMS (a drawn kit, click to choose, hit to play), 2) articulations per piece, 3) a sample engine (velocity layers, round-robins, several mics per piece, bleed, a mic mixer), 4) a MIXER page, 5) later, audio to MIDI and the rest. Asked for: the SD3 manual's Drums tab and Mixer chapters.
+
 ## Rules (from the owner and the family's CLAUDE.md files)
 
 - **Names:** our own designs, "inspired by"; no Toontrack, Superior Drummer, EZdrummer or Vengeance / Avenger names or branding on the plugin. Toontrack's grooves, sounds and tags are never shipped: the user's own MIDI packs are read from their computer when loaded. Never get round copy protection.
