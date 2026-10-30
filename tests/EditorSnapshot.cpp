@@ -497,6 +497,17 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 host.ppq += 256.0 / 48000.0 * 96.0 / 60.0;
             }
             processor.setPlayHead (nullptr);
+            // =3: THE SONG CREATOR on Rock's first verse, a song made with the bridge structure, its chorus heard.
+            if (env ("PARAGON_SNAPSHOT_SONG") == "3")
+            {
+                view->openSongCreator (groovePack.getChildFile ("Rock 96 BPM/Verse 01.mid"));
+                auto& creator = view->getSongCreator();
+                creator.chooseStructure (1);
+                creator.makeSong (false);
+                creator.audition ((int) grooves::Part::chorus, 0);
+                view->getSongTrack().choose (-1);
+                processor.songBroadcaster.dispatchPendingMessages();   // the strip's line as the plugin shows it
+            }
             // =2: EDIT BLOCK on the chorus, its snare chosen.
             if (env ("PARAGON_SNAPSHOT_SONG") == "2")
             {

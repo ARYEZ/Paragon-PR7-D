@@ -910,6 +910,11 @@ void GroovesPage::cellClicked (int row, int column, const juce::MouseEvent& e)
         const auto file = results[(size_t) row].file;
         menu.addItem ("Add to Song", [this, row] { addRowToSong (row); });
         menu.addItem (chosenParts == grooves::allParts ? "Copy for Song" : "Copy for Song (the ticked parts)", [this, row] { copyRowForSong (row); });
+        menu.addItem ("Use with Song Creator", onUseWithCreator != nullptr, false, [this, file]
+        {
+            if (onUseWithCreator != nullptr)
+                onUseWithCreator (file);
+        });
         menu.addItem ("Find Similar (its rhythm)", [this, row] { findSimilar (row); });
         menu.addItem (library.isFavourite (file) ? "Not a Favourite" : "Favourite", [this, file]
         {

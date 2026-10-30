@@ -56,6 +56,8 @@ public:
     std::function<void()> onAddedToSong;
     // COPY FOR SONG (0.9.0): the groove (its ticked GROOVE PARTS) into the song's clipboard, to paste onto blocks.
     bool copyRowForSong (int row);
+    // USE WITH SONG CREATOR (0.10.0): the groove as the song creator's source (MainView opens it).
+    std::function<void (const juce::File&)> onUseWithCreator;
 
     // A MIDI file dropped on the page: a search with its first two bars.
     bool isInterestedInFileDrag (const juce::StringArray&) override;

@@ -1,5 +1,7 @@
 #include "PluginProcessor.h"
 
+#include <map>
+
 #include "Parameters.h"
 #include "PluginEditor.h"
 
@@ -2323,4 +2325,110 @@ void ParagonX1AudioProcessor::copyGrooveForSong (const grooves::Groove& groove, 
     auto block = songBlockFrom (groove, folder);
     song::removeDrums (block, song::allSlots & ~song::slotsOf (parts));
     songClipboard = std::move (block);
+}
+
+//==============================================================================
+// THE SONG CREATOR (0.10.0)
+song::Columns ParagonX1AudioProcessor::songCreatorColumns (const juce::File& source) const
+{
+    juce::File root;
+    for (const auto& f : grooveFolders->getFolders())
+        if (source.isAChildOf (f.folder))
+            root = f.folder;
+    if (root == juce::File())
+        return {};   // not in a linked folder: no index to look round in
+    return song::variationsOf (source, grooveFolders->getEntries(), root);
+}
+
+std::optional<song::Block> ParagonX1AudioProcessor::songBlockFor (const grooves::Entry& e) const
+{
+    if (const auto g = grooves::read (e.file, grooveLayout (e.folder)))
+        return songBlockFrom (*g, e.folder);
+    return std::nullopt;
+}
+
+song::Song ParagonX1AudioProcessor::songFromStructure (const std::vector<song::Section>& sections, const song::Columns& columns) const
+{
+    song::Song made;
+    std::array<int, song::numSongParts> counts {};
+    for (size_t p = 0; p < columns.size(); ++p)
+        counts[p] = (int) columns[p].size();
+    // The song's bars: the first groove's time signature (else the DAW's).
+    made.numerator = hostNumerator.load();
+    made.denominator = hostDenominator.load();
+    for (const auto& c : columns)
+        if (! c.empty())
+        {
+            made.numerator = c.front().numerator;
+            made.denominator = c.front().denominator;
+            break;
+        }
+    const auto bar = made.beatsPerBar();
+    std::map<juce::String, std::optional<song::Block>> read;   // each file read once
+    const auto picks = song::pick (sections, counts);
+    for (size_t i = 0; i < sections.size(); ++i)
+    {
+        const auto length = sections[i].bars * bar;
+        if (picks[i].part < 0)
+        {
+            // No groove for it (a fill the folder hasn't): the one before plays on.
+            if (! made.blocks.empty())
+                made.blocks.back().length += length;
+            continue;
+        }
+        const auto& entry = columns[(size_t) picks[i].part][(size_t) picks[i].index];
+        auto& block = read[entry.file.getFullPathName()];
+        if (! block.has_value())
+            block = songBlockFor (entry);
+        if (! block.has_value())
+            continue;
+        auto b = *block;
+        b.start = made.endBeat();
+        b.length = length;
+        b.part = sections[i].part;   // coloured as the structure's part (a verse groove standing in for a pre-chorus)
+        made.blocks.push_back (std::move (b));
+    }
+    return made;
+}
+
+juce::File ParagonX1AudioProcessor::songStructuresFile() const
+{
+    return rigLibrary->getFolder().getChildFile ("Song Structures.xml");
+}
+
+std::vector<song::Structure> ParagonX1AudioProcessor::getSongStructures() const
+{
+    auto all = song::factoryStructures();
+    for (auto& s : song::loadStructures (songStructuresFile()))
+        all.push_back (std::move (s));
+    return all;
+}
+
+bool ParagonX1AudioProcessor::saveSongStructure (const juce::String& name, const std::vector<song::Section>& sections)
+{
+    if (name.trim().isEmpty() || sections.empty())
+        return false;
+    auto mine = song::loadStructures (songStructuresFile());
+    std::erase_if (mine, [&name] (const song::Structure& s) { return s.name == name.trim(); });
+    mine.push_back ({ name.trim(), sections, true });
+    return song::saveStructures (songStructuresFile(), mine);
+}
+
+bool ParagonX1AudioProcessor::renameSongStructure (const juce::String& from, const juce::String& to)
+{
+    auto mine = song::loadStructures (songStructuresFile());
+    const auto it = std::find_if (mine.begin(), mine.end(), [&from] (const song::Structure& s) { return s.name == from; });
+    if (it == mine.end() || to.trim().isEmpty())
+        return false;
+    std::erase_if (mine, [&to, &from] (const song::Structure& s) { return s.name == to.trim() && s.name != from; });
+    std::find_if (mine.begin(), mine.end(), [&from] (const song::Structure& s) { return s.name == from; })->name = to.trim();
+    return song::saveStructures (songStructuresFile(), mine);
+}
+
+bool ParagonX1AudioProcessor::removeSongStructure (const juce::String& name)
+{
+    auto mine = song::loadStructures (songStructuresFile());
+    const auto before = mine.size();
+    std::erase_if (mine, [&name] (const song::Structure& s) { return s.name == name; });
+    return mine.size() < before && song::saveStructures (songStructuresFile(), mine);
 }

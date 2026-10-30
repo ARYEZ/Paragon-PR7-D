@@ -10,6 +10,7 @@
 #include "ui/GroovesPage.h"
 #include "ui/SongTrack.h"
 #include "ui/BlockEditor.h"
+#include "ui/SongCreator.h"
 
 using Catch::Matchers::WithinAbs;
 
@@ -796,4 +797,234 @@ TEST_CASE ("SONG 0.9 EDIT BLOCK: rows for its drums; click adds on GRID, drag se
     t.p.songBroadcaster.dispatchPendingMessages();
     CHECK (closed);
     CHECK (! editor.isVisible());
+}
+
+//==============================================================================
+// THE SONG TRACK part 3 (0.10.0): the song creator.
+namespace
+{
+    grooves::Entry entryAt (const juce::File& f)
+    {
+        grooves::Entry e;
+        e.file = f;
+        e.name = f.getFileNameWithoutExtension();
+        e.part = grooves::partOf (f);
+        return e;
+    }
+    std::array<int, song::numSongParts> countsOf (std::initializer_list<std::pair<grooves::Part, int>> c)
+    {
+        std::array<int, song::numSongParts> out {};
+        for (const auto& [p, n] : c)
+            out[(size_t) p] = n;
+        return out;
+    }
+}
+
+TEST_CASE ("SONG CREATOR: structures as text; ours; a song's structure; which groove each section takes", "[song][creator]")
+{
+    using grooves::Part;
+    const auto s = song::decode ("Intro 4, verse 8, Pre-Chorus 2, Nonsense 3, Fill 0, Chorus 8");
+    REQUIRE (s.size() == 4);   // the unknown word and the empty fill left out
+    CHECK (s[1] == song::Section { Part::verse, 8 });
+    CHECK (s[2].part == Part::preChorus);
+    CHECK (song::encode (s) == "Intro 4, Verse 8, Pre-Chorus 2, Chorus 8");
+    CHECK (song::decode (song::encode (s)) == s);
+    for (const auto& f : song::factoryStructures())
+    {
+        CHECK (! f.sections.empty());
+        CHECK (! f.user);
+        CHECK (f.totalBars() % 4 == 1);   // whole four-bar phrases and the ending's bar
+    }
+    CHECK (song::factoryStructures()[0].totalBars() == 37);
+
+    song::Song song;
+    song.place (block ("V", 2), 0.0);
+    song.place (block ("C", 1), song.endBeat());
+    song.blocks[1].part = Part::chorus;
+    song.blocks[0].part = Part::verse;
+    song.blocks[1].length = 5.0;   // a bar and a beat: one bar
+    CHECK (song::structureOf (song) == std::vector<song::Section> { { Part::verse, 2 }, { Part::chorus, 1 } });
+
+    // Stand-ins: a missing pre-chorus is a verse, a missing bridge a chorus, a missing ending a fill; a missing fill: none.
+    const auto counts = countsOf ({ { Part::verse, 2 }, { Part::chorus, 1 }, { Part::fill, 1 } });
+    CHECK (song::standInFor (Part::preChorus, counts) == (int) Part::verse);
+    CHECK (song::standInFor (Part::bridge, counts) == (int) Part::chorus);
+    CHECK (song::standInFor (Part::ending, counts) == (int) Part::fill);
+    CHECK (song::standInFor (Part::intro, counts) == (int) Part::verse);
+    CHECK (song::standInFor (Part::fill, countsOf ({ { Part::verse, 2 } })) == -1);
+    // Each time a part comes back, its next groove, round and round.
+    const auto picks = song::pick (song::decode ("Verse 8, Chorus 8, Verse 8, Chorus 8, Verse 8, Pre-Chorus 2"), counts);
+    REQUIRE (picks.size() == 6);
+    CHECK ((picks[0].part == (int) Part::verse && picks[0].index == 0));
+    CHECK ((picks[2].part == (int) Part::verse && picks[2].index == 1));
+    CHECK ((picks[4].part == (int) Part::verse && picks[4].index == 0));
+    CHECK ((picks[3].part == (int) Part::chorus && picks[3].index == 0));
+    CHECK ((picks[5].part == (int) Part::verse && picks[5].index == 1));   // the pre-chorus's stand-in: the verses' next
+    CHECK (song::pick (song::decode ("Fill 1"), countsOf ({ { Part::verse, 1 } }))[0].part == -1);
+}
+
+TEST_CASE ("SONG CREATOR: the grooves round a source: its song folder, up a folder for fills kept apart, never past the linked folder", "[song][creator]")
+{
+    using grooves::Part;
+    const juce::File root ("/packs/Mine");
+    std::vector<grooves::Entry> all;
+    for (const auto* p : { "Rock 96 BPM/Verse 02.mid", "Rock 96 BPM/Verse 01.mid", "Rock 96 BPM/Chorus 01.mid", "Rock 96 BPM/Fill 01.mid",
+                           "Funk/Verse 01.mid", "Heavy/Grooves/Grooves 01.mid", "Heavy/Grooves/Grooves 02.mid", "Heavy/Fills/Fills 01.mid",
+                           "Alone.mid" })
+        all.push_back (entryAt (root.getChildFile (p)));
+
+    auto c = song::variationsOf (root.getChildFile ("Rock 96 BPM/Verse 01.mid"), all, root);
+    REQUIRE (c[(size_t) Part::verse].size() == 2);
+    CHECK (c[(size_t) Part::verse][0].name == "Verse 01");   // the source first
+    CHECK (c[(size_t) Part::chorus].size() == 1);
+    CHECK (c[(size_t) Part::fill].size() == 1);
+    CHECK (c[(size_t) Part::beat].empty());   // nothing from Funk
+
+    // "Grooves" holds only beats: one folder up, its fills too (not Rock's or Funk's).
+    c = song::variationsOf (root.getChildFile ("Heavy/Grooves/Grooves 02.mid"), all, root);
+    REQUIRE (c[(size_t) Part::beat].size() == 2);
+    CHECK (c[(size_t) Part::beat][0].name == "Grooves 02");
+    CHECK (c[(size_t) Part::fill].size() == 1);
+    CHECK (c[(size_t) Part::verse].empty());
+
+    // At the linked folder itself: no further.
+    c = song::variationsOf (root.getChildFile ("Alone.mid"), all, root);
+    auto n = 0;
+    for (const auto& col : c)
+        n += (int) col.size();
+    CHECK (n == (int) all.size());   // the linked folder holds them all; above it: nothing more
+}
+
+TEST_CASE ("SONG CREATOR: a song made from a structure (stand-ins, a missing fill playing on), heard on its samples; structures saved", "[song][creator][song-player]")
+{
+    using grooves::Part;
+    Plugin t;
+    const auto pack = t.folder.getChildFile ("Pack");
+    const auto kick = t.p.homeNote (BD), snare = t.p.homeNote (SD);
+    writeMidi (pack.getChildFile ("Rock/Verse 01.mid"), { { 0.0, kick } });
+    writeMidi (pack.getChildFile ("Rock/Verse 02.mid"), { { 2.0, kick } });
+    writeMidi (pack.getChildFile ("Rock/Chorus 01.mid"), { { 1.0, snare } });
+    REQUIRE (t.p.getGrooveLibrary().addFolder (pack));
+    t.p.getGrooveLibrary().scanNow();
+    const auto columns = t.p.songCreatorColumns (pack.getChildFile ("Rock/Verse 02.mid"));
+    REQUIRE (columns[(size_t) Part::verse].size() == 2);
+    CHECK (columns[(size_t) Part::verse][0].name == "Verse 02");
+
+    // No intro (a verse plays it, coloured as the intro), no fill (the verse before plays on), no ending (a chorus).
+    const auto made = t.p.songFromStructure (song::decode ("Intro 1, Verse 2, Fill 1, Chorus 1, Verse 1, Ending 1"), columns);
+    REQUIRE (made.blocks.size() == 5);
+    CHECK (names (made).joinIntoString (",") == "Verse 02,Verse 01,Chorus 01,Verse 02,Chorus 01");
+    CHECK (starts (made) == std::vector<double> { 0.0, 4.0, 16.0, 20.0, 24.0 });
+    CHECK (made.blocks[0].part == Part::intro);
+    CHECK (made.blocks[1].length == 12.0);   // its two bars and the fill's
+    CHECK (made.blocks[4].part == Part::ending);
+    CHECK (made.endBeat() == 28.0);
+
+    // Heard: the chorus (beat 16) snare on beat 17: sample 408000 at 120 BPM.
+    song::Song firstPart;
+    firstPart.blocks.assign (made.blocks.begin(), made.blocks.begin() + 3);
+    t.p.setSong (firstPart);
+    t.host.ppq = 15.0;
+    const auto o = onsets (t.play (1.0));
+    REQUIRE (! o.empty());
+    CHECK (o[0] == 2 * 24000);   // two beats after beat 15
+
+    // Your structures: saved (a name again: replaced), listed after ours, renamed, removed, in the presets folder.
+    CHECK (t.p.saveSongStructure ("Mine", song::decode ("Verse 4, Chorus 4")));
+    CHECK (t.p.saveSongStructure ("Mine", song::decode ("Verse 8, Chorus 8")));
+    CHECK (t.p.songStructuresFile().existsAsFile());
+    CHECK (t.p.songStructuresFile().getParentDirectory() == t.p.getRigLibrary().getFolder());
+    auto all = t.p.getSongStructures();
+    REQUIRE (all.size() == song::factoryStructures().size() + 1);
+    CHECK (all.back().user);
+    CHECK (all.back().totalBars() == 16);
+    CHECK (t.p.renameSongStructure ("Mine", "Ours Now"));
+    CHECK (t.p.getSongStructures().back().name == "Ours Now");
+    CHECK (! t.p.renameSongStructure ("Nothing", "X"));
+    CHECK (t.p.removeSongStructure ("Ours Now"));
+    CHECK (t.p.getSongStructures().size() == song::factoryStructures().size());
+    CHECK (! t.p.saveSongStructure ("  ", song::decode ("Verse 4")));
+}
+
+TEST_CASE ("SONG CREATOR panel: a source's columns, MAKE SONG / ADD TO END (undoable), the grooves' menu, SAVE SONG'S STRUCTURE", "[song][creator][ui]")
+{
+    using grooves::Part;
+    Plugin t;
+    const auto pack = t.folder.getChildFile ("Pack");
+    writeMidi (pack.getChildFile ("Rock/Verse 01.mid"), { { 0.0, 36 } });
+    writeMidi (pack.getChildFile ("Rock/Chorus 01.mid"), { { 1.0, 38 } });
+    writeMidi (pack.getChildFile ("Rock/Chorus 02.mid"), { { 3.0, 38 } });
+    writeMidi (pack.getChildFile ("Rock/Fill 01.mid"), { { 3.5, 38 } });
+    REQUIRE (t.p.getGrooveLibrary().addFolder (pack));
+    t.p.getGrooveLibrary().scanNow();
+    t.p.flushUndoStep();
+
+    SongCreator creator (t.p);
+    creator.setBounds (0, 0, 1476, 672);
+    auto chosen = -1;
+    creator.chosenBlock = [&chosen] { return chosen; };
+    creator.open();
+    CHECK (creator.getStructures().size() == song::factoryStructures().size());
+    creator.setSource (pack.getChildFile ("Rock/Verse 01.mid"));
+    CHECK (creator.getColumns()[(size_t) Part::chorus].size() == 2);
+    CHECK (! creator.cellOf ((int) Part::chorus, 1).isEmpty());
+
+    // Clicking a groove plays it.
+    creator.audition ((int) Part::chorus, 1);
+    CHECK (t.p.getGrooveFile().getFileName() == "Chorus 02.mid");
+
+    // MAKE SONG with ours (the first): 37 bars; ADD TO END: twice as long; undo: one then none.
+    creator.chooseStructure (0);
+    creator.makeSong (false);
+    t.p.flushUndoStep();
+    CHECK (t.p.getSong().endBeat() == 37 * 4.0);
+    const auto once = t.p.getSong();
+    creator.makeSong (true);
+    t.p.flushUndoStep();
+    CHECK (t.p.getSong().endBeat() == 2 * 37 * 4.0);
+    t.p.undo();
+    CHECK (t.p.getSong() == once);
+    t.p.undo();
+    CHECK (t.p.getSong().isEmpty());
+    t.p.redo();
+
+    // The grooves' menu: REPLACE ALL "Chorus" ON TRACK: every chorus block plays Chorus 02 now (their lengths kept).
+    juce::StringArray items;
+    auto menu = creator.grooveMenu ((int) Part::chorus, 1);
+    std::map<juce::String, std::function<void()>> actions;
+    for (juce::PopupMenu::MenuItemIterator it (menu); it.next();)
+    {
+        items.add (it.getItem().text);
+        actions[it.getItem().text] = it.getItem().action;
+    }
+    CHECK (items.contains ("Replace All \"Chorus\" on Track (2)"));
+    CHECK (items.contains ("Add to Song"));
+    CHECK (creator.replaceAll ((int) Part::chorus, 1) == 2);
+    for (const auto& b : t.p.getSong().blocks)
+        if (b.part == Part::chorus)
+        {
+            CHECK (b.name == "Chorus 02");
+            CHECK (b.length == 32.0);
+        }
+    // REPLACE THE CHOSEN BLOCK (the intro, block 0) with the fill; with none chosen: nothing.
+    CHECK (! creator.replaceChosenBlock ((int) Part::fill, 0));
+    chosen = 0;
+    CHECK (creator.replaceChosenBlock ((int) Part::fill, 0));
+    CHECK (t.p.getSong().blocks[0].name == "Fill 01");
+    CHECK (t.p.getSong().blocks[0].part == Part::intro);   // still the intro, its 4 bars
+    CHECK (t.p.getSong().blocks[0].length == 16.0);
+    // ADD TO SONG at a beat; COPY.
+    const auto added = creator.addToSong ((int) Part::verse, 0);
+    CHECK (added == (int) t.p.getSong().blocks.size() - 1);
+    actions["Copy"]();
+    REQUIRE (t.p.getSongClipboard().has_value());
+    CHECK (t.p.getSongClipboard()->name == "Chorus 02");
+
+    // SAVE SONG'S STRUCTURE: the song track's parts and lengths, chosen in the list after.
+    CHECK (creator.saveStructure ("From My Song"));
+    CHECK (creator.getStructures().back().name == "From My Song");
+    CHECK (creator.getChosenStructure() == (int) creator.getStructures().size() - 1);
+    CHECK (creator.getStructures().back().sections == song::structureOf (t.p.getSong()));
+    CHECK (creator.structureMenu (creator.getChosenStructure()).getNumItems() == 5);   // header, make, add, rename, remove
+    CHECK (creator.structureMenu (0).getNumItems() == 3);   // ours: no rename or remove
 }

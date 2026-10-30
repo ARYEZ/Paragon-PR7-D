@@ -2,6 +2,28 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.10.0
+
+**The song track, part 3: the SONG CREATOR.** A whole drum track from one groove, in a couple of clicks. Our own design, inspired by the song creator in chapter 7 of the drum software manual you sent. That one finds a groove's "variations" in its makers' own database, which we can't read or ship; ours come from your linked folders.
+
+- **CREATOR...** on the song track opens it over the page (the song track stays below). Also: right-click a groove in GROOVES, or a block in the song: **USE WITH SONG CREATOR**; or drop a groove from the GROOVES list (or a MIDI file in one of your linked folders) on it.
+- **The source's song, in columns:** the grooves in the source's folder, by song part: INTRO, VERSE, PRE-CHORUS, CHORUS, BRIDGE, FILL, ENDING, BEAT (from the names, as GROOVES' TYPE). If that folder has only one kind (a pack keeping its fills in "Fills" beside "Grooves"), it looks one folder up, never past your linked folder.
+  - **Click** a groove to hear it, **double-click** to add it to the song, or **drag** it onto the song track.
+  - **Right-click:** ADD TO SONG, COPY, **REPLACE ALL "CHORUS" ON TRACK** (every chorus block plays it now, each keeping its length), **REPLACE THE CHOSEN BLOCK**, USE AS SOURCE.
+- **SONG STRUCTURES** (left), each drawn as its sections in their colours. Ours: Verse / Chorus (ABAB), With Bridge (ABABCB), With Pre-Chorus, AABA, Chorus First (BABAB), 12-Bar Three Times (A the verse, B the chorus, C the bridge; an intro, a fill's bar before each chorus, an ending).
+  - **MAKE SONG:** the song made from the chosen structure, in place of the one there (undo brings it back). **ADD TO END:** after it.
+  - Each section takes the next groove in its column (two verses: Verse 01, then Verse 02). A part the folder hasn't is played by the nearest kind, coloured as the part it plays (a pre-chorus by a verse, a bridge by a chorus, an ending by a fill, an intro by a verse). A missing **fill** isn't played by another groove: the groove before it plays on through its bar.
+  - **SAVE SONG'S STRUCTURE...:** your song track's parts and lengths (no notes) as a structure of your own, to make songs from any groove. Right-click yours to RENAME or REMOVE them. They're kept in "Song Structures.xml" in your presets folder.
+- **Tests:**
+  - structures written and read; ours each whole four-bar phrases and an ending's bar; a song's structure read off it;
+  - the stand-ins and the next groove each time (a fill missing: none);
+  - the grooves round a source: its folder only (not the next song's), one up for fills kept apart, never past the linked folder;
+  - a song made from real files: its blocks, places, lengths and colours, the missing fill's bar given to the groove before; heard: the chorus's snare on its sample;
+  - your structures saved (the same name replaced), renamed, removed, in the presets folder;
+  - the panel: a click playing a groove, MAKE SONG and ADD TO END (undone one at a time), REPLACE ALL, REPLACE THE CHOSEN BLOCK, ADD TO SONG, COPY, SAVE SONG'S STRUCTURE.
+
+Our own choices (tell me if you'd like them otherwise): which part stands in for a missing one; the fill's bar before each chorus in our structures; the structures themselves. Not checked here: how the made songs sound, and real packs' folders (which grooves count as one song's comes from the folders).
+
 ## 0.9.0
 
 **The song track, part 2: editing inside a block.** Change a block's drums, notes and feel without touching the groove file it came from. Our own design, inspired by the block editing in chapter 7 of the drum software manual you sent (its block menu, play-style editor and grid editor, in one simpler panel).

@@ -5,7 +5,7 @@
 namespace
 {
     constexpr int barHeight = 24, rulerHeight = 16;
-    const juce::String groovePrefix = "groove:";
+    const juce::String groovePrefix = "groove:", creatorPrefix = "creator:";
 
     bool isMidiFile (const juce::String& path)
     {
@@ -37,6 +37,9 @@ SongTrack::SongTrack (ParagonX1AudioProcessor& p) : processor (p)
         return out.openedOk() && processor.songToMidi().writeTo (out);
     };
     addAndMakeVisible (exportButton);
+    creator.setTooltip ("The song creator: a whole song from one groove and the grooves round it, by song structure.");
+    creator.onClick = [this] { if (onOpenCreator != nullptr) onOpenCreator(); };
+    addAndMakeVisible (creator);
     status.setFont (juce::FontOptions (11.0f));
     status.setColour (juce::Label::textColourId, ParagonColours::textDim);
     status.setInterceptsMouseClicks (false, false);
@@ -77,6 +80,7 @@ void SongTrack::resized()
     top.removeFromLeft (52);   // "SONG"
     play.setBounds (top.removeFromLeft (64).reduced (2, 2));
     exportButton.setBounds (top.removeFromLeft (104).reduced (2, 2));
+    creator.setBounds (top.removeFromLeft (96).reduced (2, 2));
     status.setBounds (top.reduced (8, 0));
     area.removeFromTop (2);
     ruler = area.removeFromTop (rulerHeight);
@@ -358,6 +362,8 @@ juce::PopupMenu SongTrack::menuFor (int block, double atBeat)
     };
     menu.addSeparator();
     menu.addItem ("Edit Block...", onEditBlock != nullptr, false, [this, block] { if (onEditBlock != nullptr) onEditBlock (block); });
+    menu.addItem ("Use with Song Creator", onUseWithCreator != nullptr && b.source.existsAsFile(), false,
+                  [this, file = b.source] { onUseWithCreator (file); });
     menu.addItem ("Copy", [this, b] { processor.setSongClipboard (b); });
     const auto& clip = processor.getSongClipboard();
     menu.addItem ("Paste After", clip.has_value(), false, [this, block]
@@ -420,7 +426,8 @@ void SongTrack::mouseDoubleClick (const juce::MouseEvent& e)
 //==============================================================================
 bool SongTrack::isInterestedInDragSource (const SourceDetails& details)
 {
-    return details.description.toString().startsWith (groovePrefix);
+    const auto d = details.description.toString();
+    return d.startsWith (groovePrefix) || d.startsWith (creatorPrefix);
 }
 
 void SongTrack::itemDragMove (const SourceDetails& details)
@@ -438,9 +445,16 @@ void SongTrack::itemDragExit (const SourceDetails&)
 void SongTrack::itemDropped (const SourceDetails& details)
 {
     dropBeat = -1.0;
-    const auto row = details.description.toString().fromFirstOccurrenceOf (groovePrefix, false, false).getIntValue();
-    if (onGrooveDropped != nullptr)
-        onGrooveDropped (row, beatAt ((float) details.localPosition.x));
+    const auto d = details.description.toString();
+    const auto beat = beatAt ((float) details.localPosition.x);
+    if (d.startsWith (creatorPrefix))
+    {
+        const auto f = juce::StringArray::fromTokens (d.fromFirstOccurrenceOf (creatorPrefix, false, false), ":", {});
+        if (onCreatorDropped != nullptr && f.size() == 2)
+            onCreatorDropped (f[0].getIntValue(), f[1].getIntValue(), beat);
+    }
+    else if (onGrooveDropped != nullptr)
+        onGrooveDropped (d.fromFirstOccurrenceOf (groovePrefix, false, false).getIntValue(), beat);
     repaint();
 }
 

@@ -12,6 +12,7 @@
 #include "dsp/synth/NoteMap.h"
 #include "grooves/GrooveLibrary.h"
 #include "song/Song.h"
+#include "song/Creator.h"
 #include "rigs/RigLibrary.h"
 #include "rigs/UndoHistory.h"
 #include "rigs/MidiLinks.h"
@@ -276,6 +277,20 @@ public:
     const std::optional<song::Block>& getSongClipboard() const noexcept { return songClipboard; }
     void setSongClipboard (std::optional<song::Block> b) { songClipboard = std::move (b); }
     void copyGrooveForSong (const grooves::Groove&, int folder, unsigned parts = grooves::allParts);
+    // THE SONG CREATOR (0.10.0): the grooves around a source groove in columns by song part (from the linked folders'
+    // index); a groove of them as a block; a whole song from a structure's sections, each its column's next groove (a
+    // missing part played by the nearest kind, a missing fill by the groove before it playing on). The song made isn't
+    // set: MAKE SONG / ADD TO END do that (an undo step).
+    song::Columns songCreatorColumns (const juce::File& source) const;
+    std::optional<song::Block> songBlockFor (const grooves::Entry&) const;
+    song::Song songFromStructure (const std::vector<song::Section>&, const song::Columns&) const;
+    // SONG STRUCTURES: ours, then the player's ("Song Structures.xml" in the presets folder). Saving a name that's
+    // there replaces it.
+    std::vector<song::Structure> getSongStructures() const;
+    bool saveSongStructure (const juce::String& name, const std::vector<song::Section>&);
+    bool renameSongStructure (const juce::String& from, const juce::String& to);
+    bool removeSongStructure (const juce::String& name);
+    juce::File songStructuresFile() const;
 
     juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
     LevelMeterSource& getOutputMeter() noexcept { return outputMeter; }

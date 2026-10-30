@@ -129,7 +129,8 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
       fxPage (processorToShow),
       rigBrowser (processorToShow),
       settingsPage (processorToShow),
-      blockEditor (processorToShow)
+      blockEditor (processorToShow),
+      songCreator (processorToShow)
 {
     // Header
     for (auto* tab : { &drumsTab, &groovesTab, &fxTab, &presetsTab, &settingsTab })
@@ -188,9 +189,30 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     songTrack.onEditBlock = [this] (int block)
     {
         showSong (true);
+        songCreator.setVisible (false);
         blockEditor.open (block);
     };
     addChildComponent (blockEditor);
+    // THE SONG CREATOR: CREATOR... on the strip (again: closes it), USE WITH SONG CREATOR on a groove or a block, a groove
+    // from the GROOVES list dropped on it; its grooves dragged onto the strip.
+    addChildComponent (songCreator);
+    songTrack.onOpenCreator = [this]
+    {
+        if (songCreator.isVisible())
+            songCreator.setVisible (false);
+        else
+            openSongCreator();
+    };
+    songTrack.onUseWithCreator = [this] (const juce::File& f) { openSongCreator (f); };
+    songTrack.onCreatorDropped = [this] (int part, int index, double beat) { songCreator.addToSong (part, index, beat); };
+    groovesPage.onUseWithCreator = [this] (const juce::File& f) { openSongCreator (f); };
+    songCreator.chosenBlock = [this] { return songTrack.getChosen(); };
+    songCreator.onGrooveRowDropped = [this] (int row)
+    {
+        const auto& results = groovesPage.getResults();
+        if (row >= 0 && row < (int) results.size())
+            songCreator.setSource (results[(size_t) row].file);
+    };
     for (auto* tab : { &keysTab, &songTab })
     {
         tab->setClickingTogglesState (false);
@@ -396,6 +418,7 @@ void MainView::resized()
     rigBrowser.setBounds (pageArea);
     settingsPage.setBounds (pageArea);
     blockEditor.setBounds (pageArea);
+    songCreator.setBounds (pageArea);
 }
 
 void MainView::showSong (bool show)
@@ -404,4 +427,13 @@ void MainView::showSong (bool show)
     keyboard.setVisible (! show);
     keysTab.setToggleState (! show, juce::dontSendNotification);
     songTab.setToggleState (show, juce::dontSendNotification);
+}
+
+void MainView::openSongCreator (const juce::File& source)
+{
+    showSong (true);
+    blockEditor.setVisible (false);
+    if (source != juce::File())
+        songCreator.setSource (source);
+    songCreator.open();
 }

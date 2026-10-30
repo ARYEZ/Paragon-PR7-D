@@ -53,6 +53,12 @@ public:
     juce::PopupMenu menuFor (int block, double atBeat = -1.0);
     // EDIT BLOCK... (0.9.0), or a double-click on a block: MainView opens the block editor on it.
     std::function<void (int block)> onEditBlock;
+    // THE SONG CREATOR (0.10.0): CREATOR opens it; a groove dragged from its columns ("creator:<part>:<index>") dropped at
+    // a beat; USE WITH SONG CREATOR on a block (its groove's file).
+    std::function<void()> onOpenCreator;
+    std::function<void (int part, int index, double beat)> onCreatorDropped;
+    std::function<void (const juce::File&)> onUseWithCreator;
+    juce::TextButton& getCreatorButton() noexcept { return creator; }
     double getStartBeat() const noexcept { return startBeat; }
     juce::TextButton& getPlayButton() noexcept { return play; }
 
@@ -67,6 +73,7 @@ private:
     ParagonX1AudioProcessor& processor;
     juce::TextButton play { "PLAY" };
     MidiExportButton exportButton;
+    juce::TextButton creator { "CREATOR..." };
     juce::Label status;
     juce::Rectangle<int> lane, ruler;
     int chosen = -1;
