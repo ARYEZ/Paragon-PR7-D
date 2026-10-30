@@ -4,8 +4,195 @@ namespace song
 {
     double Song::snap (double beat) const noexcept
     {
-        const auto bar = beatsPerBar();
-        return juce::jmax (0.0, std::round (beat / bar) * bar);
+        // The nearest bar line (with the time signature changes).
+        if (beat <= 0.0)
+            return 0.0;
+        const auto lines = barLines (beat);
+        auto best = 0.0;
+        for (const auto line : lines)
+            if (std::abs (line - beat) < std::abs (best - beat))
+                best = line;
+        return best;
+    }
+
+    //==============================================================================
+    // BARS AND TEMPO (0.11.0)
+    Meter Song::meterAt (double beat) const noexcept
+    {
+        Meter m { 0.0, numerator, denominator };
+        for (const auto& change : meters)
+            if (change.beat <= beat + 1.0e-9)
+                m = change;
+        return m;
+    }
+
+    std::vector<double> Song::barLines (double upTo) const
+    {
+        std::vector<double> lines;
+        for (auto at = 0.0; lines.size() < 100000; at += beatsPerBarAt (at))
+        {
+            lines.push_back (at);
+            if (at > upTo)
+                break;
+        }
+        return lines;
+    }
+
+    int Song::barAt (double beat) const
+    {
+        const auto lines = barLines (beat);
+        auto bar = 0;
+        for (size_t i = 0; i < lines.size(); ++i)
+            if (lines[i] <= beat + 1.0e-9)
+                bar = (int) i;
+        return bar;
+    }
+
+    void Song::tidyMeters()
+    {
+        // In order; each moved to the bar line nearest it (as the ones before it make the bars); one repeating the
+        // time signature before it, or two on one bar line, kept once.
+        std::stable_sort (meters.begin(), meters.end(), [] (const Meter& a, const Meter& b) { return a.beat < b.beat; });
+        auto changes = std::move (meters);
+        meters.clear();
+        for (auto m : changes)
+        {
+            m.beat = snap (m.beat);
+            if (m.beat <= 1.0e-9)
+            {
+                numerator = m.numerator;
+                denominator = m.denominator;
+                continue;
+            }
+            if (! meters.empty() && std::abs (meters.back().beat - m.beat) < 1.0e-9)
+                meters.pop_back();
+            const auto before = meterAt (m.beat - 1.0e-6);
+            if (before.numerator != m.numerator || before.denominator != m.denominator)
+                meters.push_back (m);
+        }
+    }
+
+    void Song::setMeter (double beat, int num, int den)
+    {
+        num = juce::jlimit (1, 32, num);
+        den = juce::jlimit (1, 32, den);
+        const auto at = snap (beat);
+        std::erase_if (meters, [at] (const Meter& m) { return std::abs (m.beat - at) < 1.0e-9; });
+        meters.push_back ({ at, num, den });
+        tidyMeters();
+    }
+
+    void Song::removeMeter (double beat)
+    {
+        std::erase_if (meters, [beat] (const Meter& m) { return std::abs (m.beat - beat) < 1.0e-6; });
+        tidyMeters();
+    }
+
+    double Song::bpmAt (double beat, double daw) const noexcept
+    {
+        if (tempos.empty())
+            return daw;
+        if (beat <= tempos.front().beat)
+            return tempos.front().bpm;
+        for (size_t i = 0; i + 1 < tempos.size(); ++i)
+            if (beat < tempos[i + 1].beat)
+            {
+                const auto& a = tempos[i];
+                const auto& b = tempos[i + 1];
+                return a.ramp ? a.bpm + (b.bpm - a.bpm) * (beat - a.beat) / juce::jmax (1.0e-9, b.beat - a.beat) : a.bpm;
+            }
+        return tempos.back().bpm;
+    }
+
+    namespace
+    {
+        // Seconds over `beats` from a tempo `a` gliding by `k` BPM a beat (k = 0: steady): the integral of 60 / bpm.
+        double secondsOver (double a, double k, double beats) noexcept
+        {
+            return std::abs (k) < 1.0e-12 ? beats * 60.0 / a : 60.0 / k * std::log ((a + k * beats) / a);
+        }
+        // And back: beats in `seconds`.
+        double beatsIn (double a, double k, double seconds) noexcept
+        {
+            return std::abs (k) < 1.0e-12 ? seconds * a / 60.0 : a * (std::exp (k * seconds / 60.0) - 1.0) / k;
+        }
+    }
+
+    double Song::secondsAt (double beat, double daw) const noexcept
+    {
+        if (tempos.empty())
+            return beat * 60.0 / juce::jmax (1.0, daw);
+        // Before the first change: at its tempo. Then piece by piece.
+        auto seconds = 0.0;
+        auto at = 0.0;
+        if (beat <= tempos.front().beat)
+            return beat * 60.0 / tempos.front().bpm;
+        seconds = tempos.front().beat * 60.0 / tempos.front().bpm;
+        at = tempos.front().beat;
+        for (size_t i = 0; i < tempos.size(); ++i)
+        {
+            const auto& a = tempos[i];
+            const auto end = i + 1 < tempos.size() ? juce::jmin (beat, tempos[i + 1].beat) : beat;
+            const auto k = a.ramp && i + 1 < tempos.size() ? (tempos[i + 1].bpm - a.bpm) / juce::jmax (1.0e-9, tempos[i + 1].beat - a.beat) : 0.0;
+            seconds += secondsOver (a.bpm, k, end - at);
+            at = end;
+            if (at >= beat - 1.0e-12)
+                break;
+        }
+        return seconds;
+    }
+
+    double Song::beatAtSeconds (double seconds, double daw) const noexcept
+    {
+        if (tempos.empty())
+            return seconds * juce::jmax (1.0, daw) / 60.0;
+        const auto firstSeconds = tempos.front().beat * 60.0 / tempos.front().bpm;
+        if (seconds <= firstSeconds)
+            return seconds * tempos.front().bpm / 60.0;
+        auto left = seconds - firstSeconds;
+        for (size_t i = 0; i < tempos.size(); ++i)
+        {
+            const auto& a = tempos[i];
+            const auto last = i + 1 >= tempos.size();
+            const auto k = a.ramp && ! last ? (tempos[i + 1].bpm - a.bpm) / juce::jmax (1.0e-9, tempos[i + 1].beat - a.beat) : 0.0;
+            if (last)
+                return a.beat + beatsIn (a.bpm, 0.0, left);
+            const auto piece = secondsOver (a.bpm, k, tempos[i + 1].beat - a.beat);
+            if (left < piece)
+                return a.beat + beatsIn (a.bpm, k, left);
+            left -= piece;
+        }
+        return 0.0;
+    }
+
+    int Song::addTempo (double beat, double bpm)
+    {
+        beat = juce::jmax (0.0, beat);
+        bpm = juce::jlimit (20.0, 400.0, bpm);
+        for (int i = 0; i < (int) tempos.size(); ++i)
+            if (std::abs (tempos[(size_t) i].beat - beat) < 1.0e-9)
+            {
+                tempos[(size_t) i].bpm = bpm;
+                return i;
+            }
+        const auto at = std::upper_bound (tempos.begin(), tempos.end(), beat, [] (double b, const TempoPoint& p) { return b < p.beat; });
+        return (int) std::distance (tempos.begin(), tempos.insert (at, { beat, bpm, false }));
+    }
+
+    void Song::moveTempo (int index, double beat, double bpm)
+    {
+        if (index < 0 || index >= (int) tempos.size())
+            return;
+        const auto low = index > 0 ? tempos[(size_t) index - 1].beat + 1.0e-6 : 0.0;
+        const auto high = index + 1 < (int) tempos.size() ? tempos[(size_t) index + 1].beat - 1.0e-6 : 1.0e9;
+        tempos[(size_t) index].beat = juce::jlimit (low, juce::jmax (low, high), beat);
+        tempos[(size_t) index].bpm = juce::jlimit (20.0, 400.0, bpm);
+    }
+
+    void Song::removeTempo (int index)
+    {
+        if (index >= 0 && index < (int) tempos.size())
+            tempos.erase (tempos.begin() + index);
     }
 
     int Song::blockAt (double beat) const noexcept
@@ -46,7 +233,7 @@ namespace song
             at = atBeat - there.start < there.length * 0.5 ? there.start : there.end();
         }
         b.start = at;
-        b.length = juce::jmax (beatsPerBar() * 0.25, b.length);
+        b.length = juce::jmax (beatsPerBarAt (at) * 0.25, b.length);
         blocks.push_back (std::move (b));
         // The new one goes in front of any block that starts where it does, and those move along.
         settle ((int) blocks.size() - 1);
@@ -69,8 +256,14 @@ namespace song
     {
         if (index < 0 || index >= (int) blocks.size())
             return;
-        const auto bar = beatsPerBar();
-        blocks[(size_t) index].length = juce::jmax (bar, std::round (newLength / bar) * bar);
+        // Its end on the bar line nearest the new end (at least the first one after its start).
+        auto& b = blocks[(size_t) index];
+        const auto lines = barLines (b.start + juce::jmax (0.0, newLength) + 64.0);
+        auto end = -1.0;
+        for (const auto line : lines)
+            if (line > b.start + 1.0e-9 && (end < 0.0 || std::abs (line - (b.start + newLength)) < std::abs (end - (b.start + newLength))))
+                end = line;
+        b.length = end - b.start;
         settle (index);
     }
 
@@ -112,8 +305,25 @@ namespace song
         constexpr int ticks = 960;
         juce::MidiMessageSequence track;
         track.addEvent (juce::MidiMessage::textMetaEvent (3, "Song"));
-        track.addEvent (juce::MidiMessage::tempoMetaEvent (juce::roundToInt (60.0e6 / juce::jmax (1.0, bpm))));
+        // The tempo (its changes: a glide as steps a 16th apart, each at the tempo half way through it) and the time
+        // signatures.
+        const auto tempoAt = [] (double b) { return juce::roundToInt (60.0e6 / juce::jlimit (1.0, 1000.0, b)); };
+        if (tempos.empty())
+            track.addEvent (juce::MidiMessage::tempoMetaEvent (tempoAt (bpm)));
+        for (size_t i = 0; i < tempos.size(); ++i)
+        {
+            const auto& t = tempos[i];
+            const auto from = i == 0 ? 0.0 : t.beat;   // the first change's tempo from the start
+            if (t.ramp && i + 1 < tempos.size())
+                for (auto b = t.beat; b < tempos[i + 1].beat - 1.0e-9; b += 0.25)
+                    track.addEvent (juce::MidiMessage::tempoMetaEvent (tempoAt (bpmAt (juce::jmin (b + 0.125, tempos[i + 1].beat), bpm)))
+                                        .withTimeStamp ((b <= t.beat ? from : b) * ticks));
+            else
+                track.addEvent (juce::MidiMessage::tempoMetaEvent (tempoAt (t.bpm)).withTimeStamp (from * ticks));
+        }
         track.addEvent (juce::MidiMessage::timeSignatureMetaEvent (numerator, denominator));
+        for (const auto& m : meters)
+            track.addEvent (juce::MidiMessage::timeSignatureMetaEvent (m.numerator, m.denominator).withTimeStamp (m.beat * ticks));
         for (const auto& h : events())
         {
             const auto note = noteFor (h.slot);
@@ -138,6 +348,16 @@ namespace song
         auto xml = std::make_unique<juce::XmlElement> ("Song");
         xml->setAttribute ("num", numerator);
         xml->setAttribute ("den", denominator);
+        // 0.11.0: "beat:bpm:ramp" and "beat:numerator:denominator".
+        juce::StringArray t, m;
+        for (const auto& p : tempos)
+            t.add (juce::String (p.beat, 6) + ":" + juce::String (p.bpm, 4) + ":" + (p.ramp ? "1" : "0"));
+        for (const auto& x : meters)
+            m.add (juce::String (x.beat, 6) + ":" + juce::String (x.numerator) + ":" + juce::String (x.denominator));
+        if (! t.isEmpty())
+            xml->setAttribute ("tempos", t.joinIntoString (" "));
+        if (! m.isEmpty())
+            xml->setAttribute ("meters", m.joinIntoString (" "));
         for (const auto& b : blocks)
         {
             auto* e = xml->createNewChildElement ("Block");
@@ -161,6 +381,13 @@ namespace song
         Song s;
         s.numerator = juce::jlimit (1, 32, xml.getIntAttribute ("num", 4));
         s.denominator = juce::jlimit (1, 32, xml.getIntAttribute ("den", 4));
+        for (const auto& token : juce::StringArray::fromTokens (xml.getStringAttribute ("tempos"), " ", {}))
+            if (const auto f = juce::StringArray::fromTokens (token, ":", {}); f.size() == 3)
+                s.tempos[(size_t) s.addTempo (f[0].getDoubleValue(), f[1].getDoubleValue())].ramp = f[2] == "1";
+        for (const auto& token : juce::StringArray::fromTokens (xml.getStringAttribute ("meters"), " ", {}))
+            if (const auto f = juce::StringArray::fromTokens (token, ":", {}); f.size() == 3)
+                s.meters.push_back ({ f[0].getDoubleValue(), f[1].getIntValue(), f[2].getIntValue() });
+        s.tidyMeters();
         for (const auto* e : xml.getChildWithTagNameIterator ("Block"))
         {
             Block b;
@@ -352,8 +579,7 @@ namespace song
         if (index < 0 || index >= (int) blocks.size())
             return -1;
         auto& first = blocks[(size_t) index];
-        const auto bar = beatsPerBar();
-        const auto cut = first.start + std::round ((atBeat - first.start) / bar) * bar;
+        const auto cut = snap (atBeat);   // the song's bar line nearest (with its time signature changes)
         if (cut <= first.start + 1.0e-9 || cut >= first.end() - 1.0e-9)
             return -1;
         flatten (first);
@@ -393,16 +619,98 @@ namespace song
     {
         switch (part)
         {
-            case grooves::Part::intro: return juce::Colour (0xff8a8fa3);
-            case grooves::Part::verse: return juce::Colour (0xff3fb5c4);
-            case grooves::Part::preChorus: return juce::Colour (0xffd8c64a);
-            case grooves::Part::chorus: return juce::Colour (0xffb26ad0);
-            case grooves::Part::bridge: return juce::Colour (0xff7bc25a);
-            case grooves::Part::fill: return juce::Colour (0xffff7a1a);
-            case grooves::Part::ending: return juce::Colour (0xffe0483e);
-            case grooves::Part::countIn: return juce::Colour (0xff6b6569);
+            // The family's colours only (0.11.0): the red / pink / orange range, pearl white and onyx.
+            case grooves::Part::intro: return juce::Colour (0xffd6c6ce);      // pearl
+            case grooves::Part::verse: return juce::Colour (0xffff8a3d);      // orange
+            case grooves::Part::preChorus: return juce::Colour (0xffffb22e);  // amber
+            case grooves::Part::chorus: return juce::Colour (0xffff3d7a);     // hot pink
+            case grooves::Part::bridge: return juce::Colour (0xffffa0c0);     // light pink
+            case grooves::Part::fill: return juce::Colour (0xffe0103c);       // red
+            case grooves::Part::ending: return juce::Colour (0xffb3261e);     // oxblood
+            case grooves::Part::countIn: return juce::Colour (0xff6b6569);    // onyx
             case grooves::Part::beat: break;
         }
-        return juce::Colour (0xff4a7fd0);
+        return juce::Colour (0xffff6b5e);                                     // salmon
+    }
+}
+
+namespace song
+{
+    Song importMidi (const juce::MidiFile& file, const synth::drums::notemap::Map& layout, const juce::String& name, bool withTempo)
+    {
+        Song s;
+        const auto tpq = (double) file.getTimeFormat();
+        if (tpq <= 0.0)
+            return s;   // timed in SMPTE frames, not beats
+        juce::MidiMessageSequence all;
+        for (int t = 0; t < file.getNumTracks(); ++t)
+            all.addSequence (*file.getTrack (t), 0.0);
+        all.sort();
+
+        std::vector<Hit> hits;
+        std::vector<std::pair<double, juce::String>> markers;
+        auto end = 0.0;
+        for (const auto* e : all)
+        {
+            const auto& m = e->message;
+            const auto beat = m.getTimeStamp() / tpq;
+            end = juce::jmax (end, beat);
+            if (m.isNoteOn())
+            {
+                if (const auto slot = layout[(size_t) m.getNoteNumber()]; slot >= 0)
+                    hits.push_back ({ beat, slot, m.getFloatVelocity() });
+            }
+            else if (m.isTextMetaEvent() && (m.getMetaEventType() == 6 || m.getMetaEventType() == 7))
+            {
+                if (const auto text = m.getTextFromTextMetaEvent().trim(); text.isNotEmpty())
+                    markers.emplace_back (beat, text);
+            }
+            else if (withTempo && m.isTempoMetaEvent())
+            {
+                s.addTempo (beat, 60.0 / juce::jmax (1.0e-6, m.getTempoSecondsPerQuarterNote()));
+            }
+            else if (withTempo && m.isTimeSignatureMetaEvent())
+            {
+                int num = 4, den = 4;
+                m.getTimeSignatureInfo (num, den);
+                s.setMeter (beat, num, den);
+            }
+        }
+        if (hits.empty())
+            return {};
+        // Without its tempo the song keeps the DAW's; one tempo at the start isn't a change: kept as the song's tempo.
+        std::stable_sort (hits.begin(), hits.end(), [] (const Hit& a, const Hit& b) { return a.beat < b.beat; });
+        // Its length: to the bar line after its last note (or its end, if later).
+        const auto lines = s.barLines (juce::jmax (end, hits.back().beat) + 1.0e-6);
+        auto length = lines.back();
+        for (const auto line : lines)
+            if (line >= juce::jmax (hits.back().beat + 1.0e-6, end - 1.0e-6))
+            {
+                length = line;
+                break;
+            }
+
+        // Blocks: one from each marker to the next (the first from the start, if notes come before it).
+        std::stable_sort (markers.begin(), markers.end(), [] (const auto& a, const auto& b) { return a.first < b.first; });
+        std::vector<std::pair<double, juce::String>> starts;
+        if (markers.empty() || markers.front().first > hits.front().beat + 1.0e-6)
+            starts.emplace_back (0.0, name);
+        for (const auto& [beat, text] : markers)
+            if (beat < length - 1.0e-6 && (starts.empty() || beat > starts.back().first + 1.0e-6))
+                starts.emplace_back (beat, text);
+        for (size_t i = 0; i < starts.size(); ++i)
+        {
+            Block b;
+            b.name = starts[i].second;
+            b.part = grooves::partIn (b.name);
+            b.start = starts[i].first;
+            b.length = b.loopLength = (i + 1 < starts.size() ? starts[i + 1].first : length) - b.start;
+            for (const auto& h : hits)
+                if (h.beat >= b.start - 1.0e-9 && h.beat < b.end() - 1.0e-9)
+                    b.hits.push_back ({ h.beat - b.start, h.slot, h.velocity });
+            if (b.length > 1.0e-6)
+                s.blocks.push_back (std::move (b));
+        }
+        return s;
     }
 }

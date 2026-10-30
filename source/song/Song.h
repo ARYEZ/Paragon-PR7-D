@@ -47,18 +47,62 @@ namespace song
         }
     };
 
+    // TEMPO CHANGES (0.11.0): from `beat`, `bpm`; with `ramp`, gliding (evenly, beat by beat) to the next one's tempo.
+    struct TempoPoint
+    {
+        double beat = 0.0, bpm = 120.0;
+        bool ramp = false;
+        bool operator== (const TempoPoint& o) const noexcept
+        {
+            return juce::exactlyEqual (beat, o.beat) && juce::exactlyEqual (bpm, o.bpm) && ramp == o.ramp;
+        }
+    };
+    // TIME SIGNATURE CHANGES (0.11.0): from `beat` (a bar line), bars of numerator / denominator.
+    struct Meter
+    {
+        double beat = 0.0;
+        int numerator = 4, denominator = 4;
+        double beatsPerBar() const noexcept { return numerator * 4.0 / juce::jmax (1, denominator); }
+        bool operator== (const Meter& o) const noexcept
+        {
+            return juce::exactlyEqual (beat, o.beat) && numerator == o.numerator && denominator == o.denominator;
+        }
+    };
+
     struct Song
     {
-        int numerator = 4, denominator = 4;
+        int numerator = 4, denominator = 4;      // the first bars' time signature
         std::vector<Block> blocks;               // in time order, never overlapping
+        std::vector<Meter> meters;               // time signature changes after the start, in order, each on a bar line
+        std::vector<TempoPoint> tempos;          // in order; none: the DAW's tempo
 
-        double beatsPerBar() const noexcept { return numerator * 4.0 / juce::jmax (1, denominator); }
+        double beatsPerBar() const noexcept { return numerator * 4.0 / juce::jmax (1, denominator); }   // the first bars'
         double endBeat() const noexcept { return blocks.empty() ? 0.0 : blocks.back().end(); }
         bool isEmpty() const noexcept { return blocks.empty(); }
         bool operator== (const Song& o) const noexcept
         {
-            return numerator == o.numerator && denominator == o.denominator && blocks == o.blocks;
+            return numerator == o.numerator && denominator == o.denominator && blocks == o.blocks && meters == o.meters
+                && tempos == o.tempos;
         }
+
+        // BARS (0.11.0), with the time signature changes: the time signature at a beat; every bar line from the start
+        // to `upTo` (and the one after it); which bar a beat is in (0: the first).
+        Meter meterAt (double beat) const noexcept;
+        double beatsPerBarAt (double beat) const noexcept { return meterAt (beat).beatsPerBar(); }
+        std::vector<double> barLines (double upTo) const;
+        int barAt (double beat) const;
+        // A time signature change at the bar line nearest `beat` (one there: changed); removed; the first bars' set.
+        void setMeter (double beat, int numerator, int denominator);
+        void removeMeter (double beat);
+
+        // TEMPO (0.11.0): the tempo at a beat, and the time at a beat and back (seconds from the start); `daw`: the
+        // tempo when the song has no tempo changes.
+        double bpmAt (double beat, double daw) const noexcept;
+        double secondsAt (double beat, double daw) const noexcept;
+        double beatAtSeconds (double seconds, double daw) const noexcept;
+        int addTempo (double beat, double bpm);           // (one on that beat: changed) returns its index
+        void moveTempo (int index, double beat, double bpm);   // kept between its neighbours
+        void removeTempo (int index);
 
         // EDITING (each keeps the blocks in order and apart, as above). Beats are snapped to whole bars.
         int place (Block, double atBeat);                 // returns where it went (its index)
@@ -78,7 +122,8 @@ namespace song
 
         // Every hit the song plays (muted blocks left out), in time order, each block's groove repeated to fill it.
         std::vector<Hit> events() const;
-        // The whole song as a MIDI file: tempo `bpm`, its time signature, each drum on `noteFor`'s note (below 0: left out).
+        // The whole song as a MIDI file: its tempo changes (none: `bpm`; a glide written as steps a 16th apart), its time
+        // signatures, each drum on `noteFor`'s note (below 0: left out).
         juce::MidiFile toMidi (double bpm, const std::function<int (int slot)>& noteFor) const;
 
         std::unique_ptr<juce::XmlElement> toXml() const;
@@ -86,7 +131,13 @@ namespace song
 
     private:
         void settle (int keepFirst = -1);   // in order, then each block after the one before it
+        void tidyMeters();                  // in order, each on a bar line, none repeating the one before
     };
+
+    // IMPORT MIDI FILE (0.11.0): a whole song's MIDI (every track) through `layout` as the kit's drums: one block, or one a
+    // marker (a DAW's "Verse", "Chorus"...: named after it, its song part from the name); its tempo changes and time
+    // signatures if `withTempo`. Empty if the file has no notes the kit plays or isn't timed in beats.
+    Song importMidi (const juce::MidiFile&, const synth::drums::notemap::Map& layout, const juce::String& name, bool withTempo);
 
     // A block from a groove: its notes through `layout` as drums (those no drum plays left out), at `factor` (2x: the
     // notes twice as close) and each velocity times `velocityScale`; named after the file; its SONG PART from the names.

@@ -40,6 +40,24 @@ SongTrack::SongTrack (ParagonX1AudioProcessor& p) : processor (p)
     creator.setTooltip ("The song creator: a whole song from one groove and the grooves round it, by song structure.");
     creator.onClick = [this] { if (onOpenCreator != nullptr) onOpenCreator(); };
     addAndMakeVisible (creator);
+    track.setTooltip ("IMPORT MIDI FILE... (a whole song, its tempo and time signatures if you like), and removing all tempo "
+                      "or time signature changes.");
+    track.onClick = [this] { trackMenu().showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&track)); };
+    addAndMakeVisible (track);
+    blocksView.setTooltip ("The blocks: arrange the song.");
+    tempoView.setTooltip ("The song's tempo changes (used by PLAY and EXPORT MIDI; while your DAW plays, its tempo leads): "
+                          "double-click to add one, drag one to move it, right-click it to glide to the next or remove it.");
+    timeView.setTooltip ("The song's time signature changes: double-click or right-click a bar to set its time signature.");
+    for (auto* b : { &blocksView, &tempoView, &timeView })
+    {
+        b->setRadioGroupId (0x7e40);
+        b->setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
+        addAndMakeVisible (b);
+    }
+    blocksView.setToggleState (true, juce::dontSendNotification);
+    blocksView.onClick = [this] { setView (View::blocks); };
+    tempoView.onClick = [this] { setView (View::tempo); };
+    timeView.onClick = [this] { setView (View::time); };
     status.setFont (juce::FontOptions (11.0f));
     status.setColour (juce::Label::textColourId, ParagonColours::textDim);
     status.setInterceptsMouseClicks (false, false);
@@ -57,10 +75,15 @@ SongTrack::~SongTrack()
 //==============================================================================
 double SongTrack::beatsShown() const noexcept
 {
-    // At least 16 bars; the song and two bars after it when it's longer (the strip fits it all, no scrolling).
+    // At least 16 bars; the song and two bars after it when it's longer (the strip fits it all, no scrolling); to a bar line.
     const auto& s = processor.getSong();
-    const auto bar = s.beatsPerBar();
-    return juce::jmax (16.0, std::ceil (s.endBeat() / bar) + 2.0) * bar;
+    auto want = juce::jmax (16.0 * s.beatsPerBar(), s.endBeat() + 2.0 * s.beatsPerBarAt (s.endBeat()));
+    for (const auto& t : s.tempos)
+        want = juce::jmax (want, t.beat + s.beatsPerBarAt (t.beat));
+    for (const auto line : s.barLines (want))
+        if (line >= want - 1.0e-9)
+            return line;
+    return want;
 }
 
 double SongTrack::beatAt (float x) const noexcept
@@ -81,6 +104,11 @@ void SongTrack::resized()
     play.setBounds (top.removeFromLeft (64).reduced (2, 2));
     exportButton.setBounds (top.removeFromLeft (104).reduced (2, 2));
     creator.setBounds (top.removeFromLeft (96).reduced (2, 2));
+    track.setBounds (top.removeFromLeft (80).reduced (2, 2));
+    top.removeFromLeft (8);
+    blocksView.setBounds (top.removeFromLeft (62).reduced (2, 2));
+    tempoView.setBounds (top.removeFromLeft (62).reduced (2, 2));
+    timeView.setBounds (top.removeFromLeft (56).reduced (2, 2));
     status.setBounds (top.reduced (8, 0));
     area.removeFromTop (2);
     ruler = area.removeFromTop (rulerHeight);
@@ -106,13 +134,33 @@ void SongTrack::updateStatus()
         status.setText ("Drag grooves here from the GROOVES list (or MIDI files), or right-click a groove: ADD TO SONG.", juce::dontSendNotification);
         return;
     }
-    const auto bars = s.endBeat() / s.beatsPerBar();
-    const auto whole = std::abs (bars - std::round (bars)) < 1.0e-6;
-    status.setText (juce::String ((int) s.blocks.size()) + (s.blocks.size() == 1 ? " block, " : " blocks, ")
-                        + (whole ? juce::String (juce::roundToInt (bars)) : juce::String (bars, 2)) + " bars in "
-                        + juce::String (s.numerator) + "/" + juce::String (s.denominator)
-                        + ". Drag a block to move it, its right edge to lengthen it; right-click for more.",
-                    juce::dontSendNotification);
+    // Its bars (whole ones, with the time signature changes), its time signatures and tempo.
+    auto bars = 0;
+    for (const auto line : s.barLines (s.endBeat()))
+        bars += line < s.endBeat() - 1.0e-9 ? 1 : 0;
+    juce::String text;
+    text << (int) s.blocks.size() << (s.blocks.size() == 1 ? " block, " : " blocks, ") << bars << " bars in " << s.numerator << "/"
+         << s.denominator;
+    if (! s.meters.empty())
+        text << " (" << (int) s.meters.size() << (s.meters.size() == 1 ? " time change)" : " time changes)");
+    if (s.tempos.empty())
+        text << ", the DAW's tempo";
+    else
+    {
+        auto low = 1.0e9, high = 0.0;
+        for (const auto& t : s.tempos)
+        {
+            low = juce::jmin (low, t.bpm);
+            high = juce::jmax (high, t.bpm);
+        }
+        text << ", " << (juce::roundToInt (low) == juce::roundToInt (high) ? juce::String (juce::roundToInt (low))
+                                                                            : juce::String (juce::roundToInt (low)) + "-" + juce::String (juce::roundToInt (high)))
+             << " BPM";
+    }
+    text << (view == View::tempo ? ". Double-click: a tempo change; drag one; right-click it for more."
+             : view == View::time ? ". Double-click or right-click a bar: its time signature."
+                                  : ". Drag a block to move it, its right edge to lengthen it; right-click for more.");
+    status.setText (text, juce::dontSendNotification);
 }
 
 //==============================================================================
@@ -127,20 +175,32 @@ void SongTrack::paint (juce::Graphics& g)
     g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
     g.drawText ("SONG", 2, 0, 50, barHeight, juce::Justification::centredLeft, false);
 
-    // The lane and the bar lines, numbered (every 2nd or 4th when they're close).
+    // The lane and the bar lines (with the time signature changes), numbered (every 2nd or 4th when they're close); a
+    // change's time signature by its bar's number.
     g.setColour (juce::Colour (0xff0d0a0e));
     g.fillRoundedRectangle (lane.toFloat(), 4.0f);
     const auto every = pxPerBar < 14.0f ? 4 : pxPerBar < 28.0f ? 2 : 1;
     g.setFont (juce::FontOptions (10.0f));
-    for (int b = 0; b * bar < shown + 1.0e-9; ++b)
+    const auto lines = s.barLines (shown);
+    for (int b = 0; b < (int) lines.size() && lines[(size_t) b] < shown + 1.0e-9; ++b)
     {
-        const auto x = xOf (b * bar);
-        g.setColour (ParagonColours::panelEdge.withAlpha (b % every == 0 ? 1.0f : 0.45f));
+        const auto at = lines[(size_t) b];
+        const auto x = xOf (at);
+        const auto change = std::any_of (s.meters.begin(), s.meters.end(), [at] (const song::Meter& m) { return std::abs (m.beat - at) < 1.0e-9; })
+                         || (b == 0 && (view == View::time || ! s.meters.empty()));
+        g.setColour (change ? ParagonColours::text.withAlpha (0.7f) : ParagonColours::panelEdge.withAlpha (b % every == 0 ? 1.0f : 0.45f));
         g.drawVerticalLine (juce::roundToInt (x), (float) lane.getY(), (float) lane.getBottom());
-        if (b % every == 0 && b * bar < shown - 1.0e-9)
+        if ((b % every == 0 || change) && at < shown - 1.0e-9)
         {
             g.setColour (ParagonColours::textDim);
             g.drawText (juce::String (b + 1), juce::roundToInt (x) + 3, ruler.getY(), 30, ruler.getHeight(), juce::Justification::centredLeft, false);
+            if (change)
+            {
+                const auto m = s.meterAt (at);
+                g.setColour (ParagonColours::accent);
+                g.drawText (juce::String (m.numerator) + "/" + juce::String (m.denominator), juce::roundToInt (x) + 18, ruler.getY(), 34,
+                            ruler.getHeight(), juce::Justification::centredLeft, false);
+            }
         }
     }
 
@@ -184,7 +244,9 @@ void SongTrack::paint (juce::Graphics& g)
     {
         const auto& b = s.blocks[(size_t) chosen];
         const auto from = drag == Drag::move ? s.snap (dragBeat) : b.start;
-        const auto to = drag == Drag::move ? from + b.length : b.start + juce::jmax (bar, std::round ((dragBeat - b.start) / bar) * bar);
+        auto trial = s;
+        trial.resize (chosen, dragBeat - b.start);
+        const auto to = drag == Drag::move ? from + b.length : b.start + trial.blocks[(size_t) chosen].length;
         g.setColour (ParagonColours::accent);
         g.drawRoundedRectangle ({ xOf (from), (float) lane.getY() + 1.0f, xOf (to) - xOf (from), (float) lane.getHeight() - 2.0f }, 4.0f, 2.0f);
     }
@@ -193,10 +255,57 @@ void SongTrack::paint (juce::Graphics& g)
     {
         auto trial = s;
         song::Block probe;
-        probe.length = bar;
+        probe.length = s.beatsPerBarAt (dropBeat);
         const auto at = trial.blocks[(size_t) trial.place (probe, dropBeat)].start;
         g.setColour (ParagonColours::accent);
         g.fillRect (xOf (at) - 1.0f, (float) lane.getY(), 3.0f, (float) lane.getHeight());
+    }
+
+    // TEMPO: the blocks dimmed under the song's tempo line (its changes as handles, their tempos by them; a glide
+    // sloping to the next). TIME: the blocks dimmed.
+    if (view != View::blocks)
+    {
+        g.setColour (juce::Colour (0xff0d0a0e).withAlpha (0.6f));
+        g.fillRoundedRectangle (lane.toFloat(), 4.0f);
+    }
+    if (view == View::tempo)
+    {
+        const auto& t = tempoDraft.has_value() ? *tempoDraft : s;
+        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        if (t.tempos.empty())
+        {
+            g.setColour (ParagonColours::textDim);
+            const auto y = (float) lane.getCentreY();
+            const float dashes[] = { 4.0f, 4.0f };
+            g.drawDashedLine ({ (float) lane.getX(), y, (float) lane.getRight(), y }, dashes, 2, 1.0f);
+            g.drawText ("THE DAW'S TEMPO  (double-click to add a tempo change)", lane.withTrimmedLeft (8).withHeight (lane.getHeight() / 2 - 2),
+                        juce::Justification::bottomLeft, false);
+        }
+        else
+        {
+            juce::Path line;
+            line.startNewSubPath ((float) lane.getX(), pointOf ({ 0.0, t.tempos.front().bpm }).y);
+            for (size_t i = 0; i < t.tempos.size(); ++i)
+            {
+                const auto p = pointOf (t.tempos[i]);
+                line.lineTo (p.x, line.getCurrentPosition().y);   // steady up to it (a step, or the glide's end)
+                line.lineTo (p);
+                if (t.tempos[i].ramp && i + 1 < t.tempos.size())
+                    line.lineTo (pointOf (t.tempos[i + 1]));
+            }
+            line.lineTo ((float) lane.getRight(), line.getCurrentPosition().y);
+            g.setColour (ParagonColours::accent);
+            g.strokePath (line, juce::PathStrokeType (2.0f));
+            for (size_t i = 0; i < t.tempos.size(); ++i)
+            {
+                const auto p = pointOf (t.tempos[i]);
+                g.setColour ((int) i == dragTempo ? ParagonColours::glow : ParagonColours::accent);
+                g.fillEllipse (p.x - 5.0f, p.y - 5.0f, 10.0f, 10.0f);
+                g.setColour (ParagonColours::text);
+                g.drawText (juce::String (juce::roundToInt (t.tempos[i].bpm)) + (t.tempos[i].ramp ? " >" : ""), juce::roundToInt (p.x) + 7,
+                            juce::roundToInt (p.y) - 16, 60, 14, juce::Justification::centredLeft, false);
+            }
+        }
     }
 
     // PLAY's start (a mark on the bar numbers) and where the song is playing.
@@ -251,6 +360,27 @@ void SongTrack::mouseDown (const juce::MouseEvent& e)
     }
     if (! lane.contains (e.getPosition()))
         return;
+    if (view == View::tempo)
+    {
+        // A tempo change: dragged, or its menu.
+        if (const auto index = tempoAt (e.position); index >= 0)
+        {
+            if (e.mods.isPopupMenu())
+                tempoMenu (index).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
+            else
+            {
+                dragTempo = index;
+                tempoDraft = s;
+            }
+        }
+        return;
+    }
+    if (view == View::time)
+    {
+        if (e.mods.isPopupMenu())
+            meterMenu (beatAt (e.position.x)).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
+        return;
+    }
     auto block = s.blockAt (beatAt (e.position.x));
     if (block < 0 && nearRightEdge (s.blockAt (beatAt (e.position.x - 6.0f)), e.position))
         block = s.blockAt (beatAt (e.position.x - 6.0f));
@@ -271,6 +401,14 @@ void SongTrack::mouseDown (const juce::MouseEvent& e)
 
 void SongTrack::mouseDrag (const juce::MouseEvent& e)
 {
+    if (dragTempo >= 0 && tempoDraft.has_value())
+    {
+        // To the beat nearest, a whole BPM (between its neighbours: it can't pass them).
+        *tempoDraft = processor.getSong();
+        tempoDraft->moveTempo (dragTempo, std::round (beatAt (e.position.x)), std::round (bpmAtY (e.position.y)));
+        repaint();
+        return;
+    }
     if (drag == Drag::none || e.getDistanceFromDragStart() < 3)
         return;
     dragBeat = drag == Drag::move ? beatAt (e.position.x) - grabOffset : beatAt (e.position.x);
@@ -279,6 +417,16 @@ void SongTrack::mouseDrag (const juce::MouseEvent& e)
 
 void SongTrack::mouseUp (const juce::MouseEvent& e)
 {
+    if (dragTempo >= 0)
+    {
+        auto draft = std::move (tempoDraft);
+        tempoDraft.reset();
+        dragTempo = -1;
+        if (draft.has_value() && e.getDistanceFromDragStart() >= 2 && ! (*draft == processor.getSong()))
+            processor.setSong (std::move (*draft));
+        repaint();
+        return;
+    }
     const auto was = drag;
     drag = Drag::none;
     if (was == Drag::none || e.getDistanceFromDragStart() < 3 || chosen < 0)
@@ -416,6 +564,22 @@ void SongTrack::mouseDoubleClick (const juce::MouseEvent& e)
 {
     if (! lane.contains (e.getPosition()))
         return;
+    if (view == View::tempo)
+    {
+        // A tempo change on the nearest beat, at the tempo where it's clicked.
+        if (tempoAt (e.position) < 0)
+        {
+            const auto beat = std::round (beatAt (e.position.x));
+            const auto bpm = std::round (bpmAtY (e.position.y));
+            edit ([beat, bpm] (song::Song& s) { s.addTempo (beat, bpm); });
+        }
+        return;
+    }
+    if (view == View::time)
+    {
+        meterMenu (beatAt (e.position.x)).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
+        return;
+    }
     if (const auto block = processor.getSong().blockAt (beatAt (e.position.x)); block >= 0 && onEditBlock != nullptr)
     {
         chosen = block;
@@ -510,4 +674,136 @@ void SongTrack::timerCallback()
         shownPosition = at;
         repaint();
     }
+}
+
+//==============================================================================
+// TEMPO AND TIME (0.11.0)
+namespace
+{
+    constexpr double lowestBpm = 40.0, highestBpm = 240.0;   // the tempo view's range, bottom to top
+}
+
+void SongTrack::setView (View v)
+{
+    view = v;
+    blocksView.setToggleState (v == View::blocks, juce::dontSendNotification);
+    tempoView.setToggleState (v == View::tempo, juce::dontSendNotification);
+    timeView.setToggleState (v == View::time, juce::dontSendNotification);
+    dragTempo = -1;
+    tempoDraft.reset();
+    updateStatus();
+    repaint();
+}
+
+juce::Point<float> SongTrack::pointOf (const song::TempoPoint& t) const
+{
+    const auto top = (float) lane.getY() + 18.0f, bottom = (float) lane.getBottom() - 8.0f;
+    const auto y = bottom - (bottom - top) * (float) ((juce::jlimit (lowestBpm, highestBpm, t.bpm) - lowestBpm) / (highestBpm - lowestBpm));
+    return { xOf (t.beat), y };
+}
+
+double SongTrack::bpmAtY (float y) const noexcept
+{
+    const auto top = (float) lane.getY() + 18.0f, bottom = (float) lane.getBottom() - 8.0f;
+    return juce::jlimit (lowestBpm, highestBpm, lowestBpm + (highestBpm - lowestBpm) * (double) ((bottom - y) / juce::jmax (1.0f, bottom - top)));
+}
+
+int SongTrack::tempoAt (juce::Point<float> p) const
+{
+    const auto& s = processor.getSong();
+    for (int i = 0; i < (int) s.tempos.size(); ++i)
+        if (pointOf (s.tempos[(size_t) i]).getDistanceFrom (p) <= 8.0f)
+            return i;
+    return -1;
+}
+
+juce::PopupMenu SongTrack::tempoMenu (int index)
+{
+    juce::PopupMenu menu;
+    const auto& s = processor.getSong();
+    if (index < 0 || index >= (int) s.tempos.size())
+        return menu;
+    const auto& t = s.tempos[(size_t) index];
+    menu.addSectionHeader (juce::String (juce::roundToInt (t.bpm)) + " BPM from bar " + juce::String (s.barAt (t.beat) + 1)
+                           + ", beat " + juce::String (t.beat - s.barLines (t.beat)[(size_t) s.barAt (t.beat)] + 1.0, 2).trimCharactersAtEnd ("0").trimCharactersAtEnd ("."));
+    menu.addItem ("Ramp to the Next", index + 1 < (int) s.tempos.size(), t.ramp, [this, index]
+    {
+        edit ([index] (song::Song& song) { song.tempos[(size_t) index].ramp = ! song.tempos[(size_t) index].ramp; });
+    });
+    juce::PopupMenu set;
+    for (const auto bpm : { 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 180 })
+        set.addItem (juce::String (bpm) + " BPM", true, juce::roundToInt (t.bpm) == bpm, [this, index, bpm]
+        {
+            edit ([index, bpm] (song::Song& song) { song.moveTempo (index, song.tempos[(size_t) index].beat, bpm); });
+        });
+    menu.addSubMenu ("Tempo", set);
+    menu.addItem ("Remove", [this, index] { edit ([index] (song::Song& song) { song.removeTempo (index); }); });
+    return menu;
+}
+
+juce::PopupMenu SongTrack::meterMenu (double beat)
+{
+    juce::PopupMenu menu;
+    const auto& s = processor.getSong();
+    const auto at = s.snap (beat);
+    const auto m = s.meterAt (at);
+    menu.addSectionHeader ("From bar " + juce::String (s.barAt (at) + 1) + ": " + juce::String (m.numerator) + "/" + juce::String (m.denominator));
+    juce::PopupMenu beats, length;
+    for (int n = 1; n <= 15; ++n)
+        beats.addItem (juce::String (n), true, n == m.numerator, [this, at, n, den = m.denominator]
+        {
+            edit ([at, n, den] (song::Song& song) { song.setMeter (at, n, den); });
+        });
+    for (const auto d : { 2, 4, 8, 16 })
+        length.addItem (juce::String (d) + (d == 2 ? " (half notes)" : d == 4 ? " (quarter notes)" : d == 8 ? " (eighth notes)" : " (16th notes)"),
+                        true, d == m.denominator, [this, at, d, num = m.numerator]
+        {
+            edit ([at, d, num] (song::Song& song) { song.setMeter (at, num, d); });
+        });
+    menu.addSubMenu ("Beats a Bar", beats);
+    menu.addSubMenu ("Beat Length", length);
+    const auto changeHere = std::any_of (s.meters.begin(), s.meters.end(), [at] (const song::Meter& x) { return std::abs (x.beat - at) < 1.0e-9; });
+    menu.addItem ("Remove This Change", changeHere, false, [this, at] { edit ([at] (song::Song& song) { song.removeMeter (at); }); });
+    return menu;
+}
+
+juce::PopupMenu SongTrack::trackMenu()
+{
+    juce::PopupMenu menu;
+    const auto& s = processor.getSong();
+    menu.addItem ("Import MIDI File...", [this]
+    {
+        chooser = std::make_unique<juce::FileChooser> ("Import a MIDI file as the song (or after it)", juce::File(), "*.mid;*.midi");
+        chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this] (const juce::FileChooser& c)
+        {
+            const auto file = c.getResult();
+            if (! file.existsAsFile())
+                return;
+            const auto options = juce::MessageBoxOptions()
+                                     .withTitle ("Import " + file.getFileName())
+                                     .withMessage ("Use the file's tempo and time signatures? (Without them the song keeps its own, "
+                                                   "or your DAW's.)")
+                                     .withButton ("With Them")
+                                     .withButton ("Without")
+                                     .withButton ("Cancel")
+                                     .withAssociatedComponent (this);
+            juce::AlertWindow::showAsync (options, [this, file] (int result)
+            {
+                if (result == 1 || result == 2)
+                    importMidi (file, result == 1);
+            });
+        });
+    });
+    menu.addSeparator();
+    menu.addItem ("Remove All Tempo Changes (the DAW's tempo)", ! s.tempos.empty(), false, [this] { edit ([] (song::Song& song) { song.tempos.clear(); }); });
+    menu.addItem ("Remove All Time Signature Changes", ! s.meters.empty(), false, [this] { edit ([] (song::Song& song) { song.meters.clear(); }); });
+    return menu;
+}
+
+void SongTrack::importMidi (const juce::File& file, bool withTempo)
+{
+    if (processor.importSongMidi (file, withTempo) > 0)
+        chosen = -1;
+    updateStatus();
+    repaint();
 }

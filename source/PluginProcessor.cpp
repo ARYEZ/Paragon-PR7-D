@@ -2195,6 +2195,7 @@ void ParagonX1AudioProcessor::installSong (std::shared_ptr<const song::Song> new
     auto playback = std::make_shared<SongPlayback>();
     playback->events = newSong->events();
     playback->endBeat = newSong->endBeat();
+    playback->timing.tempos = newSong->tempos;
     songData = std::move (newSong);
     if (songPlayback != nullptr)
         retiredSongs.emplace_back (songPlayback, juce::Time::getMillisecondCounterHiRes());
@@ -2251,31 +2252,52 @@ int ParagonX1AudioProcessor::collectSongHits (int numSamples, double ppq, double
     // Where the song is in this piece: the DAW's position while it plays; else PLAY's clock (whole samples since PLAY,
     // as the preview's, so it doesn't drift); else nowhere.
     const auto* s = songForAudio.load();
-    const auto perSample = juce::jmax (1.0, bpm) / 60.0 / getSampleRate();
-    double from = 0.0;
+    const auto sampleRate = getSampleRate();
+    const auto perSample = juce::jmax (1.0, bpm) / 60.0 / sampleRate;
+    double from = 0.0, to = 0.0;
     auto local = false;
+    // With the song's TEMPO CHANGES (0.11.0, PLAY only: the DAW leads when it plays): seconds since PLAY's start, through
+    // the tempo map to beats (exact for glides too, and as drift-free as the whole-sample clock).
+    const auto timed = s != nullptr && ! s->timing.tempos.empty();
+    double secondsFrom = 0.0, samplesFrom = 0.0;   // with tempo changes: this piece's start (seconds, and samples from the song's start)
     if (ppq >= 0.0)
     {
         from = ppq;
+        to = from + numSamples * perSample;
         songLocal = false;   // the DAW started: it leads (PLAY doesn't carry on from its own place when the DAW stops)
     }
     else if (songLocal.load())
     {
         local = true;
+        const auto restartAt = [&] (double beat)
+        {
+            songBase = beat;
+            songSamples = 0;
+            songPerSample = perSample;
+            songTimed = timed;
+            songStartSeconds = timed ? s->timing.secondsAt (beat, bpm) : 0.0;
+        };
         if (const auto starts = songLocalStarts.load(); starts != songLocalSeen)
         {
             songLocalSeen = starts;
-            songBase = songLocalFrom.load();
-            songSamples = 0;
-            songPerSample = perSample;
+            restartAt (songLocalFrom.load());
         }
-        if (perSample != songPerSample)
+        if (timed != songTimed)
+            restartAt (juce::jmax (0.0, songPosition.load()));   // tempo changes added or all gone: carry on from here
+        if (timed)
         {
-            songBase += (double) songSamples * songPerSample;   // the tempo changed: carry on from here
-            songSamples = 0;
-            songPerSample = perSample;
+            secondsFrom = songStartSeconds + (double) songSamples / sampleRate;
+            samplesFrom = songStartSeconds * sampleRate + (double) songSamples;
+            from = s->timing.beatAtSeconds (secondsFrom, bpm);
+            to = s->timing.beatAtSeconds (secondsFrom + numSamples / sampleRate, bpm);
         }
-        from = songBase + (double) songSamples * perSample;
+        else
+        {
+            if (perSample != songPerSample)
+                restartAt (songBase + (double) songSamples * songPerSample);   // the DAW's tempo changed: on from here
+            from = songBase + (double) songSamples * perSample;
+            to = from + numSamples * perSample;
+        }
         songSamples += numSamples;
     }
     else
@@ -2283,13 +2305,26 @@ int ParagonX1AudioProcessor::collectSongHits (int numSamples, double ppq, double
         songPosition = -1.0;
         return 0;
     }
-    const auto to = from + numSamples * perSample;
     auto count = 0;
     if (s != nullptr)
     {
-        auto it = std::lower_bound (s->events.begin(), s->events.end(), from, [] (const auto& h, double b) { return h.beat < b; });
-        for (; it != s->events.end() && it->beat < to && count < room; ++it)
-            into[count++] = { juce::jlimit (0, numSamples - 1, (int) std::floor ((it->beat - from) / perSample + 1.0e-6)), it->slot, it->velocity };
+        // Each hit's sample worked out first, then played in the piece that sample is in: a hit right on the line between
+        // two pieces (where the DAW's position, rounded, can land a hair either side) is played once, on its own sample,
+        // never squeezed onto the last sample of the piece before. So the search starts half a sample early.
+        const auto margin = 0.5 * (to - from) / juce::jmax (1, numSamples);
+        auto it = std::lower_bound (s->events.begin(), s->events.end(), from - margin, [] (const auto& h, double b) { return h.beat < b; });
+        for (; it != s->events.end() && it->beat < to + margin && count < room; ++it)
+        {
+            // Its sample: by beats at the DAW's (or steady) tempo, by samples through the tempo changes (counted in samples
+            // from the song's start, not seconds: a hit on a whole sample stays on it).
+            const auto at = local && timed ? s->timing.secondsAt (it->beat, bpm) * sampleRate - samplesFrom : (it->beat - from) / perSample;
+            const auto sample = (int) std::floor (at + 1.0e-4);
+            if (sample < 0)
+                continue;   // played in the piece before
+            if (sample >= numSamples)
+                break;      // in the next piece
+            into[count++] = { sample, it->slot, it->velocity };
+        }
     }
     // PLAY stops at the song's end.
     if (local && (s == nullptr || to >= s->endBeat))
@@ -2431,4 +2466,46 @@ bool ParagonX1AudioProcessor::removeSongStructure (const juce::String& name)
     const auto before = mine.size();
     std::erase_if (mine, [&name] (const song::Structure& s) { return s.name == name; });
     return mine.size() < before && song::saveStructures (songStructuresFile(), mine);
+}
+
+int ParagonX1AudioProcessor::importSongMidi (const juce::File& file, bool withTempo)
+{
+    juce::FileInputStream in (file);
+    juce::MidiFile midi;
+    if (! in.openedOk() || ! midi.readFrom (in))
+        return 0;
+    auto imported = song::importMidi (midi, getNoteMap(), file.getFileNameWithoutExtension(), withTempo);
+    if (imported.isEmpty())
+        return 0;
+    auto s = *songData;
+    if (s.isEmpty())
+    {
+        // The song is the file's (its bars the DAW's when its own time signature isn't taken).
+        if (! withTempo)
+        {
+            imported.numerator = hostNumerator.load();
+            imported.denominator = hostDenominator.load();
+        }
+        const auto added = (int) imported.blocks.size();
+        setSong (std::move (imported));
+        return added;
+    }
+    // After the song there, from the next bar line: its blocks, and with its tempo, its changes moved along too.
+    const auto from = s.snap (s.endBeat() + s.beatsPerBarAt (s.endBeat()) * 0.49);
+    for (auto b : imported.blocks)
+    {
+        b.start += from;
+        s.blocks.push_back (std::move (b));
+    }
+    if (withTempo)
+    {
+        for (const auto& t : imported.tempos)
+            s.tempos[(size_t) s.addTempo (t.beat + from, t.bpm)].ramp = t.ramp;
+        s.setMeter (from, imported.numerator, imported.denominator);
+        for (const auto& m : imported.meters)
+            s.setMeter (m.beat + from, m.numerator, m.denominator);
+    }
+    const auto added = (int) imported.blocks.size();
+    setSong (std::move (s));
+    return added;
 }

@@ -2,6 +2,34 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.11.0
+
+**The song track, part 4a: tempo and time signature changes, and IMPORT MIDI FILE. And the family's colours only.** Our own design, inspired by the track menu in chapter 7 of the drum software manual you sent.
+
+- **The family's colours only** (as you asked): every colour in the plugin is now in the PR7 red / pink / orange range, or pearl white and onyx.
+  - **Song parts:** Intro pearl, Verse orange, Pre-Chorus amber, Chorus hot pink, Bridge light pink, Fill red, Ending oxblood, Count-In onyx, Beat salmon. They were cyan, yellow, purple, green and blue.
+  - **Sliders, toggles, selected text, scroll bars:** were JUCE's built-in blue (the VELOCITY sliders on GROOVES and EDIT BLOCK, the limiter's), now orange.
+  - **The limiter's "under the ceiling" readout and the sample editor's anchor:** were green, now pearl white. The level meter's warning segment and the lit key's text: amber and warm pearl instead of yellow.
+  - Checked on screenshots of every page (no pixel outside the range), and a test keeps it so.
+- **The song strip's views: BLOCKS, TEMPO and TIME** (beside TRACK...).
+  - **TEMPO:** the song's tempo as a line over the blocks. **Double-click** to add a tempo change (on the nearest beat, at the height you click), **drag** one to move it, **right-click** it: RAMP TO THE NEXT (a smooth glide to the next one's tempo), a TEMPO from 60 to 180, REMOVE.
+  - **TIME:** **double-click or right-click a bar:** BEATS A BAR (1 to 15) and BEAT LENGTH (2, 4, 8, 16), REMOVE THIS CHANGE. The bar numbers follow (a change shows its time signature by its bar's number), and blocks snap, lengthen and split on those bars. As in the manual, a time signature change doesn't change the grooves' notes.
+  - **Where the tempo changes count:** PLAY (with your DAW stopped) plays through them, each hit on its sample, a glide too; EXPORT MIDI writes them (a glide as steps a 16th note apart) with the time signatures. **While your DAW plays, its tempo leads** (draw tempo changes in your DAW for that).
+- **TRACK... > IMPORT MIDI FILE...:** a whole song's MIDI (all its tracks) through the kit's note map. It asks whether to take the file's **tempo and time signatures** too.
+  - **Markers** in the file (the "Verse", "Chorus"... a DAW writes) cut it into blocks, each named and coloured by its part; without markers it's one block (SPLIT HERE cuts it).
+  - An empty song becomes the file's song; otherwise it goes after the song, from the next bar line (its tempo changes moved along with it).
+  - TRACK... also has REMOVE ALL TEMPO CHANGES (back to your DAW's tempo) and REMOVE ALL TIME SIGNATURE CHANGES.
+- **Fixed: a song hit exactly on the line between two of the DAW's audio blocks** could be played one sample early (on the earlier block's last sample) when the DAW's position, rounded, landed a hair before it. Each hit is now placed by its own sample, in the block that sample is in.
+- **Tests:**
+  - time signature changes: bar lines, snapping, a change put on the nearest bar line, a change repeating the one before left out, later changes moved onto bar lines when the first bars change; resize and split on them;
+  - tempo: 8 beats at 120 and 4 at 60 = 8 s exactly; a glide 60 to 120 over 4 beats = 4 ln 2 s, half way 90 BPM, beats to seconds and back; saved and read back; in the MIDI file;
+  - heard: PLAY's kicks at 0, 2 s and 4 s through a step from 120 to 60; the glide's second kick at 4 ln 2 s; from bar 2; the DAW's 120 leading while it plays;
+  - import: markers to named, coloured blocks; with and without the tempo and time signatures; no markers; a file timed in SMPTE frames refused; after a song, its tempo moved along;
+  - the strip: a tempo change double-clicked in, dragged, ramped, set, removed; a time signature set from the menu and removed; the TRACK menu;
+  - the colours.
+
+Not checked here: how it sounds and feels; DAWs' MIDI files beyond ours (their markers, tempo maps). Next, part 4b: recording into the song, and bouncing it to audio.
+
 ## 0.10.0
 
 **The song track, part 3: the SONG CREATOR.** A whole drum track from one groove, in a couple of clicks. Our own design, inspired by the song creator in chapter 7 of the drum software manual you sent. That one finds a groove's "variations" in its makers' own database, which we can't read or ship; ours come from your linked folders.

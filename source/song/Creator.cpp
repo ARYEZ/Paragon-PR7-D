@@ -55,9 +55,8 @@ namespace song
     std::vector<Section> structureOf (const Song& s)
     {
         std::vector<Section> out;
-        const auto bar = s.beatsPerBar();
         for (const auto& b : s.blocks)
-            out.push_back ({ b.part, juce::jmax (1, juce::roundToInt (b.length / bar)) });
+            out.push_back ({ b.part, juce::jmax (1, juce::roundToInt (b.length / s.beatsPerBarAt (b.start))) });
         return out;
     }
 

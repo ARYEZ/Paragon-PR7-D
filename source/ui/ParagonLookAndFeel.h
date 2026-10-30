@@ -24,18 +24,20 @@ namespace ParagonColours
     inline const juce::Colour glow       { 0xffff4a3a };   // the red-orange edge light
 
     // Each block's colour in the signal chain, as in the mockup.
-    inline const juce::Colour comp       { 0xff35d6a8 };
+    // PR7-D 0.11.0: the family's colours only (the red / pink / orange range, pearl white and onyx): the effects' own
+    // colours moved into it (none of the out-of-range ones were drawn here; kept in range so none creeps in later).
+    inline const juce::Colour comp       { 0xffff6f91 };   // rose
     inline const juce::Colour drive      { 0xffffb22e };
     inline const juce::Colour amp        { 0xffff4b3e };
     inline const juce::Colour cab        { 0xffff5d6c };
-    inline const juce::Colour modulation { 0xffb86dff };
-    inline const juce::Colour delay      { 0xff45b4ff };
-    inline const juce::Colour reverb     { 0xff4fe3dd };
+    inline const juce::Colour modulation { 0xffff4fa8 };   // magenta-pink
+    inline const juce::Colour delay      { 0xffff8a5c };   // coral
+    inline const juce::Colour reverb     { 0xffffb3c8 };   // pale pink
     inline const juce::Colour eq         { 0xffff5a2c };
-    inline const juce::Colour filterPitch { 0xffb8f040 };   // lime
-    inline const juce::Colour glitch     { 0xffff4fd8 };   // hot magenta
-    inline const juce::Colour pitch      { 0xffbfe6ff };   // ice blue
-    inline const juce::Colour loFi       { 0xffe8d29a };   // old-radio cream   // the plugin's neon orange-red
+    inline const juce::Colour filterPitch { 0xffff9a2e };   // orange
+    inline const juce::Colour glitch     { 0xffff3d8b };   // hot pink
+    inline const juce::Colour pitch      { 0xfff4eef1 };   // pearl white
+    inline const juce::Colour loFi       { 0xffffc29a };   // peach   // the plugin's neon orange-red
 }
 
 class ParagonLookAndFeel final : public juce::LookAndFeel_V4

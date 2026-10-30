@@ -508,6 +508,18 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 view->getSongTrack().choose (-1);
                 processor.songBroadcaster.dispatchPendingMessages();   // the strip's line as the plugin shows it
             }
+            // =4 (0.11.0): tempo changes (96, gliding from bar 9 to 140 at bar 13) and 3/4 from bar 19, the TEMPO view.
+            if (env ("PARAGON_SNAPSHOT_SONG") == "4")
+            {
+                auto timed = processor.getSong();
+                timed.addTempo (0.0, 96.0);
+                timed.tempos[(size_t) timed.addTempo (32.0, 96.0)].ramp = true;
+                timed.addTempo (48.0, 140.0);
+                timed.setMeter (72.0, 3, 4);
+                processor.setSong (timed);
+                view->getSongTrack().setView (SongTrack::View::tempo);
+                processor.songBroadcaster.dispatchPendingMessages();
+            }
             // =2: EDIT BLOCK on the chorus, its snare chosen.
             if (env ("PARAGON_SNAPSHOT_SONG") == "2")
             {

@@ -59,6 +59,21 @@ public:
     std::function<void (int part, int index, double beat)> onCreatorDropped;
     std::function<void (const juce::File&)> onUseWithCreator;
     juce::TextButton& getCreatorButton() noexcept { return creator; }
+
+    // TEMPO AND TIME (0.11.0): the strip shows the BLOCKS (to arrange), the TEMPO (the song's tempo changes as a line over
+    // them: double-click adds one, drag one to move it, right-click for RAMP TO THE NEXT / REMOVE) or the TIME (the
+    // time signature changes: double-click or right-click a bar to set its time signature). TRACK...: IMPORT MIDI FILE...,
+    // REMOVE ALL TEMPO CHANGES, REMOVE ALL TIME SIGNATURE CHANGES.
+    enum class View { blocks, tempo, time };
+    void setView (View);
+    View getView() const noexcept { return view; }
+    juce::PopupMenu trackMenu();
+    juce::PopupMenu tempoMenu (int index);
+    juce::PopupMenu meterMenu (double beat);
+    int tempoAt (juce::Point<float>) const;          // the tempo change drawn there (-1: none)
+    juce::Point<float> pointOf (const song::TempoPoint&) const;
+    double bpmAtY (float y) const noexcept;
+    void importMidi (const juce::File&, bool withTempo);
     double getStartBeat() const noexcept { return startBeat; }
     juce::TextButton& getPlayButton() noexcept { return play; }
 
@@ -73,7 +88,11 @@ private:
     ParagonX1AudioProcessor& processor;
     juce::TextButton play { "PLAY" };
     MidiExportButton exportButton;
-    juce::TextButton creator { "CREATOR..." };
+    juce::TextButton creator { "CREATOR..." }, track { "TRACK..." }, blocksView { "BLOCKS" }, tempoView { "TEMPO" }, timeView { "TIME" };
+    View view = View::blocks;
+    int dragTempo = -1;                       // a tempo change being dragged
+    std::optional<song::Song> tempoDraft;     // ... the song as it would be (drawn while dragging)
+    std::unique_ptr<juce::FileChooser> chooser;
     juce::Label status;
     juce::Rectangle<int> lane, ruler;
     int chosen = -1;

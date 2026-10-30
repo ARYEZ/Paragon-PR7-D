@@ -493,9 +493,9 @@ void LimiterPage::paint (juce::Graphics& g)
         g.setColour (ParagonColours::textDim);
         g.drawText ("TRUE PEAK", left.removeFromTop (14), juce::Justification::centredLeft, false);
         g.drawText ("REDUCTION", readout.removeFromTop (14), juce::Justification::centredLeft, false);
-        // Green under the ceiling, orange over it, red over 0 dB.
+        // Pearl white under the ceiling, orange over it, red over 0 dB (the family's colours only).
         g.setColour (heldTruePeakDb > 0.0f ? juce::Colour (0xffff3b3b) : heldTruePeakDb > ceilingDb + 0.05f ? juce::Colour (0xffffa53b)
-                                                                                                           : juce::Colour (0xff57d68d));
+                                                                                                           : juce::Colour (0xfff4eef1));
         g.setFont (juce::FontOptions (17.0f, juce::Font::bold));
         g.drawText (dbText (heldTruePeakDb), left, juce::Justification::centredLeft, false);
         g.setColour (ParagonColours::text);

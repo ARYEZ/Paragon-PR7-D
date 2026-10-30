@@ -1028,3 +1028,339 @@ TEST_CASE ("SONG CREATOR panel: a source's columns, MAKE SONG / ADD TO END (undo
     CHECK (creator.structureMenu (creator.getChosenStructure()).getNumItems() == 5);   // header, make, add, rename, remove
     CHECK (creator.structureMenu (0).getNumItems() == 3);   // ours: no rename or remove
 }
+
+//==============================================================================
+// THE SONG TRACK part 4a (0.11.0): tempo and time signature changes, MIDI import.
+TEST_CASE ("SONG 0.11: time signature changes: bar lines, snapping, a change on a bar line, kept tidy; resize and split by them", "[song][song-time]")
+{
+    song::Song s;
+    s.setMeter (16.0, 3, 4);   // from bar 5: 3/4
+    CHECK (s.barLines (24.0) == std::vector<double> { 0.0, 4.0, 8.0, 12.0, 16.0, 19.0, 22.0, 25.0 });   // and the one after
+    CHECK (s.snap (18.0) == 19.0);
+    CHECK (s.snap (17.4) == 16.0);
+    CHECK (s.barAt (20.0) == 5);
+    CHECK (s.beatsPerBarAt (20.0) == 3.0);
+    CHECK (s.meterAt (15.9).numerator == 4);
+    s.setMeter (17.0, 6, 8);   // the nearest bar line is 16: that change replaced
+    REQUIRE (s.meters.size() == 1);
+    CHECK ((s.meters[0].beat == 16.0 && s.meters[0].numerator == 6 && s.meters[0].denominator == 8));
+    s.setMeter (22.0, 6, 8);   // the same as before it: no change
+    CHECK (s.meters.size() == 1);
+    s.setMeter (0.0, 2, 4);    // the first bars
+    CHECK ((s.numerator == 2 && s.denominator == 4));
+    CHECK (s.meters[0].beat == 16.0);   // still on a bar line (2/4 bars: 16 is one)
+    s.setMeter (0.0, 3, 4);    // now 16 isn't a bar line: the change moves to the nearest (15)
+    REQUIRE (s.meters.size() == 1);
+    CHECK (s.meters[0].beat == 15.0);
+    s.removeMeter (15.0);
+    CHECK (s.meters.empty());
+
+    // A block resized and split on the song's bar lines.
+    song::Song r;
+    r.place (block ("A", 4), 0.0);   // 16 beats
+    r.setMeter (8.0, 3, 4);           // bars: 0 4 8 11 14 17 ...
+    r.resize (0, 12.4);               // the nearest bar line to 12.4: 11
+    CHECK (r.blocks[0].length == 11.0);
+    CHECK (r.split (0, 9.0) == 1);     // the nearest bar line: 8
+    CHECK (r.blocks[1].start == 8.0);
+    CHECK (r.blocks[1].length == 3.0);
+}
+
+TEST_CASE ("SONG 0.11: tempo changes: steady and gliding, beats to seconds and back; adding, moving, removing", "[song][song-time]")
+{
+    song::Song s;
+    CHECK (s.bpmAt (3.0, 90.0) == 90.0);   // none: the DAW's
+    CHECK_THAT (s.secondsAt (3.0, 90.0), WithinAbs (2.0, 1e-12));
+    CHECK (s.addTempo (8.0, 60.0) == 0);
+    CHECK (s.addTempo (0.0, 120.0) == 0);   // in order
+    CHECK_THAT (s.secondsAt (8.0, 1.0), WithinAbs (4.0, 1e-9));    // 8 beats at 120
+    CHECK_THAT (s.secondsAt (12.0, 1.0), WithinAbs (8.0, 1e-9));   // and 4 at 60
+    CHECK_THAT (s.beatAtSeconds (8.0, 1.0), WithinAbs (12.0, 1e-9));
+    CHECK_THAT (s.beatAtSeconds (3.0, 1.0), WithinAbs (6.0, 1e-9));
+
+    // A glide from 60 to 120 over 4 beats: 4 ln 2 seconds (60 / k ln (b / a), k = 15 BPM a beat), half way 90 BPM.
+    song::Song g;
+    g.addTempo (0.0, 60.0);
+    g.addTempo (4.0, 120.0);
+    g.tempos[0].ramp = true;
+    CHECK_THAT (g.bpmAt (2.0, 1.0), WithinAbs (90.0, 1e-9));
+    CHECK_THAT (g.secondsAt (4.0, 1.0), WithinAbs (4.0 * std::log (2.0), 1e-9));
+    CHECK_THAT (g.secondsAt (6.0, 1.0), WithinAbs (4.0 * std::log (2.0) + 1.0, 1e-9));
+    for (const auto b : { 0.5, 1.7, 3.99, 4.0, 9.0 })
+        CHECK_THAT (g.beatAtSeconds (g.secondsAt (b, 1.0), 1.0), WithinAbs (b, 1e-9));
+
+    // Moved: kept between its neighbours; changed in place; removed.
+    s.addTempo (16.0, 140.0);
+    s.moveTempo (1, 40.0, 70.0);   // past its next one: stopped just short of it
+    CHECK (s.tempos[1].beat < 16.0);
+    CHECK (s.tempos[1].bpm == 70.0);
+    CHECK (s.addTempo (0.0, 100.0) == 0);   // one on that beat: changed
+    CHECK (s.tempos.size() == 3);
+    CHECK (s.tempos[0].bpm == 100.0);
+    s.removeTempo (1);
+    CHECK (s.tempos.size() == 2);
+
+    // Saved and read back; and in the MIDI file: the tempos (a glide as steps) and time signatures.
+    g.setMeter (8.0, 3, 4);
+    g.place (block ("A", 1, { { 0.0, BD } }), 0.0);
+    CHECK (song::Song::fromXml (*g.toXml()) == g);
+    const auto midi = g.toMidi (100.0, [] (int) { return 36; });
+    std::vector<std::pair<double, double>> tempos;
+    std::vector<std::pair<double, int>> sigs;
+    for (const auto* e : *midi.getTrack (0))
+    {
+        if (e->message.isTempoMetaEvent())
+            tempos.emplace_back (e->message.getTimeStamp() / 960.0, 60.0 / e->message.getTempoSecondsPerQuarterNote());
+        if (e->message.isTimeSignatureMetaEvent())
+        {
+            int n = 0, d = 0;
+            e->message.getTimeSignatureInfo (n, d);
+            sigs.emplace_back (e->message.getTimeStamp() / 960.0, n);
+        }
+    }
+    REQUIRE (tempos.size() == 17);   // 16 steps a 16th apart, then 120
+    CHECK (tempos.front().first == 0.0);
+    CHECK_THAT (tempos.front().second, WithinAbs (60.0 + 15.0 * 0.125, 0.01));
+    CHECK_THAT (tempos.back().second, WithinAbs (120.0, 0.01));
+    CHECK (sigs == std::vector<std::pair<double, int>> { { 0.0, 4 }, { 8.0, 3 } });
+}
+
+TEST_CASE ("SONG 0.11 heard: PLAY through tempo changes (a step, a glide), each hit on its sample; the DAW's tempo leads while it plays", "[song][song-time][song-player]")
+{
+    Plugin t;
+    t.host.playing = false;
+    song::Song s;
+    s.place (block ("A", 2, { { 0.0, BD }, { 4.0, BD }, { 6.0, BD } }), 0.0);
+    s.addTempo (0.0, 120.0);
+    s.addTempo (4.0, 60.0);
+    t.p.setSong (s);
+    t.p.playSong (0.0);
+    auto o = onsets (t.play (5.0));
+    REQUIRE (o.size() == 3);
+    CHECK (o[0] == 0);
+    CHECK (o[1] == 96000);     // 4 beats at 120: 2 s
+    CHECK (o[2] == 192000);    // and 2 at 60: 2 s more
+
+    // A glide 60 -> 120 over the first 4 beats: the second kick at 4 ln 2 s.
+    s.tempos[0] = { 0.0, 60.0, true };
+    s.tempos[1] = { 4.0, 120.0, false };
+    t.p.setSong (s);
+    t.p.playSong (0.0);
+    o = onsets (t.play (4.5));
+    REQUIRE (o.size() >= 2);
+    CHECK (std::abs (o[1] - (int) std::floor (4.0 * std::log (2.0) * sampleRate)) <= 1);
+    // From bar 2 (beat 4: 120 from there): the kick on 6 one beat in.
+    t.p.playSong (4.0);
+    o = onsets (t.play (1.0));
+    REQUIRE (! o.empty());
+    CHECK (o[0] == 0);
+    REQUIRE (o.size() >= 2);
+    CHECK (o[1] == 48000);   // two beats at 120 (6 - 4)
+
+    // While the DAW plays: its tempo (120), not the song's: the kick on 4 at 2 s.
+    t.p.stopSong();
+    t.host.playing = true;
+    t.host.ppq = 0.0;
+    o = onsets (t.play (2.5));
+    REQUIRE (o.size() >= 2);
+    CHECK (o[1] == 96000);
+}
+
+namespace
+{
+    // A song's MIDI as a DAW would write it: tempo, time signatures, markers, notes.
+    juce::MidiFile songFile (bool markers)
+    {
+        juce::MidiMessageSequence meta, notes;
+        meta.addEvent (juce::MidiMessage::tempoMetaEvent (juce::roundToInt (60.0e6 / 100.0)));
+        meta.addEvent (juce::MidiMessage::timeSignatureMetaEvent (4, 4));
+        meta.addEvent (juce::MidiMessage::timeSignatureMetaEvent (3, 4).withTimeStamp (16 * 480.0));
+        meta.addEvent (juce::MidiMessage::tempoMetaEvent (juce::roundToInt (60.0e6 / 140.0)).withTimeStamp (16 * 480.0));
+        if (markers)
+            for (const auto& [beat, text] : std::vector<std::pair<double, const char*>> { { 0.0, "Intro" }, { 8.0, "Verse 1" }, { 16.0, "Chorus" } })
+                meta.addEvent (juce::MidiMessage::textMetaEvent (6, text).withTimeStamp (beat * 480.0));
+        for (int b = 0; b < 24; ++b)
+        {
+            notes.addEvent (juce::MidiMessage::noteOn (10, 36, (juce::uint8) 100).withTimeStamp (b * 480.0));
+            notes.addEvent (juce::MidiMessage::noteOff (10, 36).withTimeStamp (b * 480.0 + 60.0));
+        }
+        notes.addEvent (juce::MidiMessage::noteOn (10, 99, (juce::uint8) 100).withTimeStamp (2 * 480.0));   // no drum
+        juce::MidiFile f;
+        f.setTicksPerQuarterNote (480);
+        f.addTrack (meta);
+        f.addTrack (notes);
+        return f;
+    }
+}
+
+TEST_CASE ("SONG 0.11: IMPORT MIDI FILE: a block a marker (named, coloured), its tempo and time signatures or not; after a song", "[song][song-time][import]")
+{
+    using grooves::Part;
+    auto map = generalMidi();
+    auto s = song::importMidi (songFile (true), map, "My Song", true);
+    REQUIRE (s.blocks.size() == 3);
+    CHECK (names (s).joinIntoString (",") == "Intro,Verse 1,Chorus");
+    CHECK (s.blocks[0].part == Part::intro);
+    CHECK (s.blocks[1].part == Part::verse);
+    CHECK (s.blocks[2].part == Part::chorus);
+    CHECK (starts (s) == std::vector<double> { 0.0, 8.0, 16.0 });
+    CHECK (s.blocks[2].length == 9.0);   // its last kick on beat 23: to the next 3/4 bar line (25)
+    CHECK (s.blocks[1].hits.size() == 8);
+    CHECK (s.tempos.size() == 2);
+    CHECK_THAT (s.tempos[1].bpm, WithinAbs (140.0, 0.01));
+    REQUIRE (s.meters.size() == 1);
+    CHECK ((s.meters[0].beat == 16.0 && s.meters[0].numerator == 3));
+
+    // Without its tempo: the song's own (none), 4/4 throughout: the end on beat 24's bar line.
+    s = song::importMidi (songFile (true), map, "My Song", false);
+    CHECK (s.tempos.empty());
+    CHECK (s.meters.empty());
+    CHECK (s.endBeat() == 24.0);
+    // No markers: one block, named for the file.
+    s = song::importMidi (songFile (false), map, "My Song", false);
+    REQUIRE (s.blocks.size() == 1);
+    CHECK (s.blocks[0].name == "My Song");
+    CHECK (s.blocks[0].hits.size() == 24);   // the note no drum plays left out
+    // Timed in SMPTE frames: nothing.
+    auto smpte = songFile (false);
+    smpte.setSmpteTimeFormat (25, 40);
+    CHECK (song::importMidi (smpte, map, "x", true).isEmpty());
+
+    // Through the processor (the kit's map: ROOT here, 36 its kick if ROOT is C1... any note it plays): an empty song is
+    // the file's; a second import goes after it, its tempo changes moved along with it.
+    Plugin t;
+    const auto file = t.folder.getChildFile ("Song.mid");
+    file.getParentDirectory().createDirectory();
+    {
+        juce::FileOutputStream out (file);
+        auto f = songFile (true);
+        // On the kit's own kick note, whatever the map.
+        juce::MidiFile mapped;
+        mapped.setTicksPerQuarterNote (480);
+        for (int tr = 0; tr < f.getNumTracks(); ++tr)
+        {
+            juce::MidiMessageSequence seq (*f.getTrack (tr));
+            for (auto* e : seq)
+                if (e->message.isNoteOnOrOff() && e->message.getNoteNumber() == 36)
+                    e->message.setNoteNumber (t.p.homeNote (BD));
+            mapped.addTrack (seq);
+        }
+        mapped.writeTo (out);
+    }
+    CHECK (t.p.importSongMidi (file, true) == 3);
+    CHECK (t.p.getSong().endBeat() == 25.0);
+    CHECK (t.p.getSong().tempos.size() == 2);
+    CHECK (t.p.importSongMidi (file, true) == 3);
+    const auto& both = t.p.getSong();
+    REQUIRE (both.blocks.size() == 6);
+    CHECK (both.blocks[3].start == 25.0);   // the next bar line after the first song
+    CHECK (both.tempos.size() == 4);
+    CHECK (both.tempos[2].beat == 25.0);
+    CHECK (both.meterAt (26.0).numerator == 4);   // the second song's 4/4 from its start
+    CHECK (both.meterAt (25.0 + 17.0).numerator == 3);
+    CHECK (t.p.importSongMidi (t.folder.getChildFile ("none.mid"), true) == 0);
+}
+
+TEST_CASE ("SONG 0.11 strip: TEMPO view: double-click adds, drag moves, right-click ramps or removes; TIME view's menu; TRACK menu", "[song][song-time][ui]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 4, { { 0.0, BD } }), 0.0);
+    t.p.setSong (s);
+    t.p.flushUndoStep();
+    SongTrack track (t.p);
+    track.setBounds (0, 0, 1400, 126);
+    track.setView (SongTrack::View::tempo);
+    CHECK (track.getView() == SongTrack::View::tempo);
+
+    const auto mouse = [&track] (juce::Point<float> at, juce::Point<float> from, juce::ModifierKeys mods)
+    {
+        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, mods, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                 &track, &track, juce::Time::getCurrentTime(), from, juce::Time::getCurrentTime(), 2, false);
+    };
+    const auto left = juce::ModifierKeys::leftButtonModifier;
+    // A double-click at beat 8, at 100 BPM's height: a tempo change there.
+    const auto at = track.pointOf ({ 8.0, 100.0 });
+    track.mouseDoubleClick (mouse (at, at, left));
+    REQUIRE (t.p.getSong().tempos.size() == 1);
+    CHECK (t.p.getSong().tempos[0].beat == 8.0);
+    CHECK (std::abs (t.p.getSong().tempos[0].bpm - 100.0) <= 1.0);
+    t.p.flushUndoStep();
+    // Dragged to beat 12 at 140 BPM.
+    const auto to = track.pointOf ({ 12.0, 140.0 });
+    track.mouseDown (mouse (at, at, left));
+    track.mouseDrag (mouse (to, at, left));
+    track.mouseUp (mouse (to, at, left));
+    CHECK (t.p.getSong().tempos[0].beat == 12.0);
+    CHECK (std::abs (t.p.getSong().tempos[0].bpm - 140.0) <= 1.0);
+    t.p.flushUndoStep();
+    // Another, then the first's menu: RAMP TO THE NEXT, then REMOVE.
+    t.p.setSong ([&] { auto x = t.p.getSong(); x.addTempo (0.0, 90.0); return x; }());
+    const auto run = [] (juce::PopupMenu menu, const juce::String& text)
+    {
+        for (juce::PopupMenu::MenuItemIterator it (menu, true); it.next();)
+            if (it.getItem().text == text && it.getItem().isEnabled && it.getItem().action != nullptr)
+            {
+                it.getItem().action();
+                return true;
+            }
+        return false;
+    };
+    CHECK (track.tempoAt (track.pointOf (t.p.getSong().tempos[0])) == 0);
+    CHECK (run (track.tempoMenu (0), "Ramp to the Next"));
+    CHECK (t.p.getSong().tempos[0].ramp);
+    CHECK (run (track.tempoMenu (0), "120 BPM"));
+    CHECK (t.p.getSong().tempos[0].bpm == 120.0);
+    CHECK (run (track.tempoMenu (0), "Remove"));
+    CHECK (t.p.getSong().tempos.size() == 1);
+
+    // TIME: from bar 3, 3 beats a bar, then 8ths; removed.
+    track.setView (SongTrack::View::time);
+    CHECK (run (track.meterMenu (8.3), "3"));
+    REQUIRE (t.p.getSong().meters.size() == 1);
+    CHECK (t.p.getSong().meters[0].beat == 8.0);
+    CHECK (run (track.meterMenu (8.0), "8 (eighth notes)"));
+    CHECK (t.p.getSong().meterAt (9.0).denominator == 8);
+    CHECK (run (track.meterMenu (8.0), "Remove This Change"));
+    CHECK (t.p.getSong().meters.empty());
+
+    // TRACK: removing all tempo changes.
+    CHECK (run (track.trackMenu(), "Remove All Tempo Changes (the DAW's tempo)"));
+    CHECK (t.p.getSong().tempos.empty());
+    CHECK (! run (track.trackMenu(), "Remove All Time Signature Changes"));   // none: greyed out
+}
+
+//==============================================================================
+// THE FAMILY's COLOURS (0.11.0, the owner: only the red / pink / orange range, pearl white and onyx).
+#include "ui/ParagonLookAndFeel.h"
+
+namespace
+{
+    bool inFamily (juce::Colour c)
+    {
+        // Greys, near black and near white (onyx, pearl) or a hue from pink (320) through red to orange (42).
+        const auto hue = c.getHue() * 360.0f;
+        return c.getSaturation() < 0.25f || c.getBrightness() < 0.15f || (c.getSaturation() < 0.12f && c.getBrightness() > 0.85f)
+            || hue >= 318.0f || hue <= 42.0f;
+    }
+}
+
+TEST_CASE ("COLOURS: the song parts' and the look-and-feel's (sliders, toggles, highlights) are the family's", "[song][colours][ui]")
+{
+    for (int k = 0; k < grooves::partNames.size(); ++k)
+    {
+        INFO (grooves::partNames[k]);
+        CHECK (inFamily (song::colourOf ((grooves::Part) k)));
+    }
+    ParagonLookAndFeel look;
+    for (const int id : { (int) juce::Slider::thumbColourId, (int) juce::Slider::trackColourId, (int) juce::Slider::rotarySliderFillColourId,
+                           (int) juce::ToggleButton::tickColourId, (int) juce::TextEditor::highlightColourId, (int) juce::ScrollBar::thumbColourId,
+                           (int) juce::ComboBox::arrowColourId, (int) juce::ListBox::backgroundColourId, (int) juce::TreeView::selectedItemBackgroundColourId })
+    {
+        INFO ("colour id " << juce::String::toHexString (id));
+        CHECK (inFamily (look.findColour (id)));
+    }
+    for (const auto c : { ParagonColours::comp, ParagonColours::modulation, ParagonColours::delay, ParagonColours::reverb,
+                          ParagonColours::filterPitch, ParagonColours::glitch, ParagonColours::pitch, ParagonColours::loFi })
+        CHECK (inFamily (c));
+}

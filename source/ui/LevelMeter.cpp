@@ -62,7 +62,7 @@ void LevelMeter::paint (juce::Graphics& g)
         const auto proportion = (float) (i + 1) / (float) numDots;
         const auto y = column.getBottom() - (float) (i + 1) * pitch;
         const auto dot = juce::Rectangle<float> (column.getX(), y + 1.5f, column.getWidth(), pitch - 2.5f);
-        const auto colour = proportion > zeroProportion ? juce::Colour (0xffffd04a) : ParagonColours::meterRed;   // over 0 dB: amber warning
+        const auto colour = proportion > zeroProportion ? juce::Colour (0xffffa53b) : ParagonColours::meterRed;   // over 0 dB: amber warning
         const auto lit = proportion <= litProportion + 1.0e-4f;
 
         if (lit)

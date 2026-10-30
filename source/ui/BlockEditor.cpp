@@ -303,7 +303,7 @@ void BlockEditor::paint (juce::Graphics& g)
         return;
     g.setColour (ParagonColours::text);
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    const auto bar = processor.getSong().beatsPerBar();
+    const auto bar = processor.getSong().beatsPerBarAt (b->start);
     const auto bars = b->loopLength / bar;
     const auto times = b->length / b->loopLength;
     auto title = "EDIT BLOCK   " + b->name + "   " + juce::String (bars, std::abs (bars - std::round (bars)) < 1.0e-6 ? 0 : 2)

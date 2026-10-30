@@ -21,12 +21,12 @@ namespace
     }
 
     // DELAY to the left (6c): a green line where the sequencer's step lands in the hit, as on Avenger's editor.
-    const juce::Colour anchorGreen { 0xff3ad17a };
+    const juce::Colour anchorColour { 0xfff4eef1 };   // pearl white (the family's colours only), against the orange wave
     void drawAnchor (juce::Graphics& g, float x, juce::Rectangle<float> area, const synth::drums::SlotSettings& s)
     {
-        g.setColour (anchorGreen.withAlpha (0.12f));
+        g.setColour (anchorColour.withAlpha (0.12f));
         g.fillRect (area.withRight (x));
-        g.setColour (anchorGreen);
+        g.setColour (anchorColour);
         g.fillRect (juce::Rectangle<float> (x - 1.0f, area.getY(), 2.0f, area.getHeight()));
         g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
         g.drawText ("ANCHOR  " + juce::String (s.anchorSeconds() * 1000.0, 0) + " ms", juce::Rectangle<float> (x + 4.0f, area.getY() + 2.0f, 140.0f, 14.0f),
@@ -37,7 +37,7 @@ namespace
     {
         if (s.delay <= 0.0f)
             return;
-        g.setColour (anchorGreen);
+        g.setColour (anchorColour);
         g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
         g.drawText ("PLAYS " + juce::String (s.delay * 1000.0f, 0) + " ms LATE", area.withHeight (14.0f).translated (0.0f, 2.0f),
                     juce::Justification::centredRight, false);

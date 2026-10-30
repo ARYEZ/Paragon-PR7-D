@@ -271,6 +271,10 @@ public:
     // EXPORT MIDI: the whole song on the kit's notes (each drum's home note in the map), at the DAW's tempo.
     juce::MidiFile songToMidi() const;
     juce::File songDragFile() const;
+    // IMPORT MIDI FILE (0.11.0): a whole song's MIDI through the kit's note map, as blocks (one per marker in it, else one)
+    // after the song there (from the next bar line; an empty song: the song); with its tempo changes and time
+    // signatures if `withTempo`. Returns how many blocks it added (0: nothing the kit plays, or not a MIDI file).
+    int importSongMidi (const juce::File&, bool withTempo);
     juce::ChangeBroadcaster songBroadcaster;   // the song changed (an edit, undo, a project loaded)
     // THE SONG's CLIPBOARD (0.9.0): a block (or some of its drums) copied, from the song or from a groove (its ticked
     // GROOVE PARTS), to paste as a block or onto blocks' drums. Message thread; not saved.
@@ -481,7 +485,12 @@ private:
 
     // THE SONG TRACK: the song (message thread) and its hits for the audio thread (as the preview's, kept a while when
     // replaced); PLAY's clock (whole samples since PLAY, as the preview's).
-    struct SongPlayback { std::vector<song::Hit> events; double endBeat = 0.0; };
+    struct SongPlayback
+    {
+        std::vector<song::Hit> events;
+        double endBeat = 0.0;
+        song::Song timing;   // 0.11.0: only its tempo changes (PLAY's clock through them; none: the DAW's tempo)
+    };
     void installSong (std::shared_ptr<const song::Song>);
     int collectSongHits (int numSamples, double ppq, double bpm, synth::drums::SlotHit* into, int room) noexcept;
     std::shared_ptr<const song::Song> songData = std::make_shared<const song::Song>();
@@ -495,6 +504,8 @@ private:
     int songLocalSeen = 0;
     juce::int64 songSamples = 0;   // audio thread: samples since PLAY (at songPerSample beats each, from songBase)
     double songBase = 0.0, songPerSample = 0.0;
+    double songStartSeconds = 0.0;   // audio thread, with tempo changes: PLAY's start, in seconds from the song's start
+    bool songTimed = false;          // ... and whether the clock goes by them
 
     // TAP TO FIND: the loop's clock (whole samples since it started, as the preview's), the metronome's click, the pads
     // waiting for the next block (a bit each), and what was tapped on its way to the page.

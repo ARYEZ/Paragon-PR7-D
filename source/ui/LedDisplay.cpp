@@ -278,7 +278,7 @@ void LedDisplay::paintTuner (juce::Graphics& g, juce::Rectangle<float> content, 
 {
     const auto& tuner = contents.tuner;
     const auto inTune = tuner.hasNote && std::abs (tuner.cents) < 3.0;
-    const juce::Colour inTuneColour { 0xff3dff9a };   // green: the one thing a tuner must make obvious
+    const juce::Colour inTuneColour { 0xfff4eef1 };   // pearl white (the family's colours only): bright against the red
     const auto noteColour = inTune ? inTuneColour : colour;
 
     // The note name, big, where the rig number usually is.

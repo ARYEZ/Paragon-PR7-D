@@ -10,6 +10,10 @@ ParagonLookAndFeel::ParagonLookAndFeel()
       blackItalic (juce::Typeface::createSystemTypefaceFor (ParagonFonts::InterDisplayBlackItalic_ttf,
                                                            ParagonFonts::InterDisplayBlackItalic_ttfSize))
 {
+    // The family's colours under everything JUCE draws by itself (PR7-D 0.11.0): the dark scheme's blue "fill" and
+    // "highlight" (slider thumbs and tracks, toggles, selected text, scroll bars...) as orange; onyx and pearl for the rest.
+    setColourScheme ({ ParagonColours::background, juce::Colour (0xff151217), juce::Colour (0xff050405), ParagonColours::panelEdge,
+                       ParagonColours::text, ParagonColours::accent, juce::Colours::white, ParagonColours::accentDim, juce::Colours::white });
     setColour (juce::ResizableWindow::backgroundColourId, ParagonColours::background);
     setColour (juce::Label::textColourId, ParagonColours::text);
     setColour (juce::Slider::textBoxTextColourId, ParagonColours::accent);
@@ -245,7 +249,7 @@ void ParagonLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& bu
     // Light lettering on a black key; white on a neon one (lit: a pale
     // gold, as the accent orange would vanish into the key).
     const auto neonKey = Finish::neonKeys();
-    g.setColour (button.isEnabled() ? (on ? (neonKey ? juce::Colour (0xffffe9a8) : ParagonColours::accent) : (neonKey ? juce::Colours::white : ParagonColours::text))
+    g.setColour (button.isEnabled() ? (on ? (neonKey ? juce::Colour (0xfffff0ea) : ParagonColours::accent) : (neonKey ? juce::Colours::white : ParagonColours::text))
                                     : (neonKey ? juce::Colours::white.withAlpha (0.5f) : ParagonColours::textDim));
     g.drawFittedText (button.getButtonText(), area.toNearestInt(), juce::Justification::centred, 1);
 }
