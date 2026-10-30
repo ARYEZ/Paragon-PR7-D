@@ -11,6 +11,7 @@
 #include "dsp/synth/Drums.h"
 #include "dsp/synth/NoteMap.h"
 #include "grooves/GrooveLibrary.h"
+#include "song/Song.h"
 #include "rigs/RigLibrary.h"
 #include "rigs/UndoHistory.h"
 #include "rigs/MidiLinks.h"
@@ -253,6 +254,24 @@ public:
     int popTaps (std::vector<Tap>& into);   // the taps recorded since the last call (message thread)
     static constexpr float metronomeLevel = 0.25f;   // the click's peak (about -12 dBFS): heard over the kit, not loud
 
+    // THE SONG TRACK (0.8.0): grooves laid out as blocks, played with the DAW's song position (its ppq) while the DAW
+    // plays, from PLAY's place while it's stopped. Kept in the project (not in presets); edits are undo steps.
+    const song::Song& getSong() const noexcept { return *songData; }
+    void setSong (song::Song);   // an edit: played from the next block, an undo step
+    // A block from a groove in linked folder `folder` (its notes through that folder's map, at the preview's TEMPO
+    // factor and VELOCITY), and that block put in the song at `beat` (-1: after the last block). Returns its index.
+    song::Block songBlockFrom (const grooves::Groove&, int folder) const;
+    int addToSong (const grooves::Groove&, int folder, double beat = -1.0);
+    int addBlockToSong (song::Block, double beat = -1.0);   // any block (a MIDI file dropped on the strip)
+    void playSong (double fromBeat = 0.0);   // with the DAW stopped: plays from there at the DAW's last tempo
+    void stopSong();
+    bool isSongPlaying() const noexcept { return songLocal.load(); }
+    double getSongPosition() const noexcept { return songPosition.load(); }   // beats into the song (-1: not playing)
+    // EXPORT MIDI: the whole song on the kit's notes (each drum's home note in the map), at the DAW's tempo.
+    juce::MidiFile songToMidi() const;
+    juce::File songDragFile() const;
+    juce::ChangeBroadcaster songBroadcaster;   // the song changed (an edit, undo, a project loaded)
+
     juce::AudioProcessorValueTreeState& getParameters() noexcept { return parameters; }
     LevelMeterSource& getOutputMeter() noexcept { return outputMeter; }
 
@@ -381,11 +400,13 @@ private:
         Rig rig;
         CurrentRig current;
         bool modified = false;   // restored too, but doesn't count as a change
+        std::shared_ptr<const song::Song> song;   // THE SONG TRACK (not in presets, but its edits are undone too)
 
         bool operator== (const Snapshot& other) const
         {
             return rig.parameters == other.rig.parameters && rig.drumSamples == other.rig.drumSamples
-                && rig.modulation == other.rig.modulation && current == other.current;
+                && rig.modulation == other.rig.modulation && current == other.current
+                && (song == other.song || (song != nullptr && other.song != nullptr && *song == *other.song));
         }
     };
     Snapshot takeSnapshot() const;
@@ -436,7 +457,23 @@ private:
     std::atomic<bool> grooveSongTempo { true };
     std::atomic<double> grooveFactor { 1.0 };
     std::atomic<float> grooveVelocity { 1.0f };
-    std::array<synth::drums::SlotHit, 256> grooveHits {};
+    std::array<synth::drums::SlotHit, 512> grooveHits {};   // the preview's hits, then the song's (sorted by sample)
+
+    // THE SONG TRACK: the song (message thread) and its hits for the audio thread (as the preview's, kept a while when
+    // replaced); PLAY's clock (whole samples since PLAY, as the preview's).
+    struct SongPlayback { std::vector<song::Hit> events; double endBeat = 0.0; };
+    void installSong (std::shared_ptr<const song::Song>);
+    int collectSongHits (int numSamples, double ppq, double bpm, synth::drums::SlotHit* into, int room) noexcept;
+    std::shared_ptr<const song::Song> songData = std::make_shared<const song::Song>();
+    std::shared_ptr<const SongPlayback> songPlayback;
+    std::atomic<const SongPlayback*> songForAudio { nullptr };
+    std::vector<std::pair<std::shared_ptr<const SongPlayback>, double>> retiredSongs;
+    std::atomic<bool> songLocal { false };
+    std::atomic<double> songLocalFrom { 0.0 }, songPosition { -1.0 };
+    std::atomic<int> songLocalStarts { 0 };   // PLAY pressed again: the clock starts over
+    int songLocalSeen = 0;
+    juce::int64 songSamples = 0;   // audio thread: samples since PLAY (at songPerSample beats each, from songBase)
+    double songBase = 0.0, songPerSample = 0.0;
 
     // TAP TO FIND: the loop's clock (whole samples since it started, as the preview's), the metronome's click, the pads
     // waiting for the next block (a bit each), and what was tapped on its way to the page.

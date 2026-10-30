@@ -123,6 +123,7 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     : audioProcessor (processorToShow),
       outputColumn ("OUTPUT", processorToShow.getParameters(), ParamIDs::outputGain, processorToShow.getOutputMeter()),
       keyboard (processorToShow, processorToShow.getKeyboardState(), juce::MidiKeyboardComponent::horizontalKeyboard),
+      songTrack (processorToShow),
       drumPage (processorToShow),
       groovesPage (processorToShow),
       fxPage (processorToShow),
@@ -180,6 +181,22 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     keyboard.setWantsKeyboardFocus (false);   // computer-key playing would fight the DAW's own shortcuts
     keyboard.setScrollButtonsVisible (false);  // all seven octaves fit
     addAndMakeVisible (keyboard);
+    // THE SONG TRACK: in the keyboard's place (KEYS | SONG switches); a groove dropped on it from the list is a block.
+    addChildComponent (songTrack);
+    songTrack.onGrooveDropped = [this] (int row, double beat) { groovesPage.addRowToSong (row, beat); };
+    for (auto* tab : { &keysTab, &songTab })
+    {
+        tab->setClickingTogglesState (false);
+        tab->setRadioGroupId (0x50e6);
+        tab->setColour (juce::TextButton::textColourOnId, ParagonColours::accent);   // the one showing, lit as the page tabs are
+        addAndMakeVisible (tab);
+    }
+    keysTab.setTooltip ("The on-screen keyboard: play the kit with the mouse.");
+    songTab.setTooltip ("The song track: grooves laid out as a song, played with your DAW.");
+    keysTab.onClick = [this] { showSong (false); };
+    songTab.onClick = [this] { showSong (true); };
+    keysTab.setToggleState (true, juce::dontSendNotification);
+    groovesPage.onAddedToSong = [this] { showSong (true); };
 
     addAndMakeVisible (drumPage);
     addChildComponent (groovesPage);
@@ -357,8 +374,13 @@ void MainView::resized()
 
     // Seven octaves from MIDI note 24, filling the strip (the width first: changing it moves the view).
     auto keys = keyboardArea.reduced (8, 6);
+    auto switches = keys.removeFromLeft (64);
+    keys.removeFromLeft (8);
+    keysTab.setBounds (switches.removeFromTop (switches.getHeight() / 2).reduced (0, 3));
+    songTab.setBounds (switches.reduced (0, 3));
+    songTrack.setBounds (keys);
     keyboard.setBounds (keys);
-    keyboard.setKeyWidth ((float) keys.getWidth() / 49.0f);
+    keyboard.setKeyWidth ((float) keys.getWidth() / 49.0f);   // seven octaves: 49 white keys
     keyboard.setLowestVisibleKey (24);
 
     fxPage.setBounds (pageArea);
@@ -366,4 +388,12 @@ void MainView::resized()
     groovesPage.setBounds (pageArea);
     rigBrowser.setBounds (pageArea);
     settingsPage.setBounds (pageArea);
+}
+
+void MainView::showSong (bool show)
+{
+    songTrack.setVisible (show);
+    keyboard.setVisible (! show);
+    keysTab.setToggleState (! show, juce::dontSendNotification);
+    songTab.setToggleState (show, juce::dontSendNotification);
 }

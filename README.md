@@ -24,6 +24,7 @@ PR7-D is built in stages, each one released:
 | **3** | Note maps: Root, a groove-library layout, General MIDI, and your own | **Works (0.2.0)** |
 | **4** | Multiple outputs: 16 stereo outputs; each drum, insert bus and send return chooses one | **Works (0.3.0)** |
 | **5** | The groove player: browse, filter, preview and drag MIDI grooves from your own folders | **Parts 1-4 work (0.7.0)**: folders, list, search, filter columns, preview, drag out, into the sequencer, tap to find, groove parts |
+| **6** | The song track: grooves laid out as a song, played with your DAW | **Part 1 works (0.8.0)**: blocks from grooves or MIDI files, move, lengthen, duplicate, mute, song parts, change tempo, PLAY, EXPORT MIDI |
 
 ## Using it
 
@@ -53,6 +54,10 @@ PR7-D is built in stages, each one released:
   over a two-bar loop with a metronome, and the closest grooves come first (MATCH); drop a MIDI file on the page, or
   right-click a groove (FIND SIMILAR), to search with theirs. GROOVE PARTS: tick the parts of the chosen groove (kick,
   snare, hi-hat...) to hear, drag or LAYER ONTO a pattern just those, over the pattern's other drums.
+- **SONG** (beside the on-screen keyboard: KEYS | SONG): grooves as blocks in a song. Drag a groove from the list (or a
+  MIDI file) onto it, or right-click a groove: ADD TO SONG. Drag blocks to move them, their right edge to repeat the
+  groove; right-click for DUPLICATE, REMOVE, MUTE, SONG PART and CHANGE TEMPO. It plays with your DAW (bar 1 is the
+  DAW's bar 1), or with PLAY when the DAW is stopped. EXPORT MIDI: the whole song as one file. Saved with the project.
 - **SEQUENCER** (beside DRUM): four patterns, **A** to **D**, drawn on a grid level with the kit's rows. Each note
   has its own velocity, pan, pitch, gate, roll and reverse. **SONG** plays with your DAW; **KEY** plays a pattern while
   one of the four keys under the kit is held (with the Root map). **EXPORT MIDI**: click to save, or drag onto a track.

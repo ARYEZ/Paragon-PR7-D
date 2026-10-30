@@ -717,6 +717,19 @@ std::optional<grooves::Groove> GroovesPage::readRow (int row) const
     return grooves::read (e.file, processor.grooveLayout (e.folder));
 }
 
+bool GroovesPage::addRowToSong (int row, double beat)
+{
+    const auto g = readRow (row);
+    if (! g.has_value())
+        return false;
+    processor.addToSong (*g, results[(size_t) row].folder, beat);
+    message = g->name + " is in the song now";
+    messageUntil = juce::Time::getMillisecondCounterHiRes() + 3000.0;
+    if (onAddedToSong != nullptr)
+        onAddedToSong();
+    return true;
+}
+
 void GroovesPage::playRow (int row, bool loop)
 {
     if (const auto g = readRow (row))
@@ -884,6 +897,7 @@ void GroovesPage::cellClicked (int row, int column, const juce::MouseEvent& e)
         // Right-click: find more like it, or make it a favourite.
         juce::PopupMenu menu;
         const auto file = results[(size_t) row].file;
+        menu.addItem ("Add to Song", [this, row] { addRowToSong (row); });
         menu.addItem ("Find Similar (its rhythm)", [this, row] { findSimilar (row); });
         menu.addItem (library.isFavourite (file) ? "Not a Favourite" : "Favourite", [this, file]
         {

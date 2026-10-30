@@ -757,8 +757,12 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
                 }
         }
         const auto ppq = hostPpq >= 0.0 ? hostPpq + (start + done) / getSampleRate() * bpm / 60.0 : -1.0;
+        // The preview's hits and the song's, in sample order (the kit plays them in turn).
         const auto numGrooveHits = collectGrooveHits (n);
-        drumKit.process (out, n, drums, start + done, kit, sequencer, ppq, bpm, grooveHits.data(), numGrooveHits);
+        const auto numHits = numGrooveHits + collectSongHits (n, ppq, bpm, grooveHits.data() + numGrooveHits, (int) grooveHits.size() - numGrooveHits);
+        if (numGrooveHits > 0 && numHits > numGrooveHits)
+            std::sort (grooveHits.begin(), grooveHits.begin() + numHits, [] (const auto& a, const auto& b) { return a.offset < b.offset; });
+        drumKit.process (out, n, drums, start + done, kit, sequencer, ppq, bpm, grooveHits.data(), numHits);
         if (numChannels == 1)
             for (int i = 0; i < n; ++i)
                 left[done + i] = 0.5f * (left[done + i] + scratchRight[i]);
@@ -867,6 +871,7 @@ void ParagonX1AudioProcessor::retireOldData()
     std::erase_if (retiredMatrices, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
     std::erase_if (retiredSamples, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
     std::erase_if (retiredGrooves, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
+    std::erase_if (retiredSongs, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
 }
 
 void ParagonX1AudioProcessor::compileMatrix()
@@ -1470,7 +1475,7 @@ void ParagonX1AudioProcessor::parameterGestureChanged (int, bool gestureIsStarti
 
 ParagonX1AudioProcessor::Snapshot ParagonX1AudioProcessor::takeSnapshot() const
 {
-    return { captureRig(), currentRig, rigModified.load() };
+    return { captureRig(), currentRig, rigModified.load(), songData };
 }
 
 void ParagonX1AudioProcessor::recordCheckpointIfReady()
@@ -1486,6 +1491,8 @@ void ParagonX1AudioProcessor::recordCheckpointIfReady()
 void ParagonX1AudioProcessor::restoreSnapshot (const Snapshot& snapshot)
 {
     applyRig (snapshot.rig);
+    if (snapshot.song != nullptr && ! (*snapshot.song == *songData))
+        installSong (snapshot.song);
     currentRig = snapshot.current;
     rigModified = snapshot.modified;
     rigBroadcaster.sendChangeMessage();
@@ -1726,6 +1733,8 @@ void ParagonX1AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     if (! midiLinks.isEmpty())
         state.appendChild (juce::ValueTree::fromXml (*midiLinks.toXml()), nullptr);
     state.appendChild (juce::ValueTree (noteMapKey, { { "keys", synth::drums::notemap::encode (customMap) } }), nullptr);
+    if (! songData->isEmpty())
+        state.appendChild (juce::ValueTree::fromXml (*songData->toXml()), nullptr);
 
     if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
@@ -1775,6 +1784,15 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
         setCustomMap (synth::drums::notemap::decode (saved["keys"].toString()));
         state.removeChild (saved, nullptr);
     }
+    // THE SONG TRACK: the project's (none saved: an empty song).
+    auto newSong = std::make_shared<song::Song>();
+    if (auto saved = state.getChildWithName ("Song"); saved.isValid())
+    {
+        if (const auto songXml = saved.createXml())
+            *newSong = song::Song::fromXml (*songXml);
+        state.removeChild (saved, nullptr);
+    }
+    installSong (std::move (newSong));
     parameters.replaceState (state);
     matrix = newMatrix;
     compileMatrix();
@@ -2165,4 +2183,137 @@ void ParagonX1AudioProcessor::controllerForTest (int controller, float value)
     juce::AudioBuffer<float> buffer (2, 64);
     buffer.clear();
     processBlock (buffer, midi);
+}
+
+//==============================================================================
+// THE SONG TRACK (0.8.0)
+void ParagonX1AudioProcessor::installSong (std::shared_ptr<const song::Song> newSong)
+{
+    // Its hits worked out here (each block's groove repeated to fill it), for the audio thread to step through.
+    auto playback = std::make_shared<SongPlayback>();
+    playback->events = newSong->events();
+    playback->endBeat = newSong->endBeat();
+    songData = std::move (newSong);
+    if (songPlayback != nullptr)
+        retiredSongs.emplace_back (songPlayback, juce::Time::getMillisecondCounterHiRes());
+    songPlayback = playback;
+    songForAudio = songPlayback.get();
+    songBroadcaster.sendChangeMessage();
+}
+
+void ParagonX1AudioProcessor::setSong (song::Song newSong)
+{
+    installSong (std::make_shared<const song::Song> (std::move (newSong)));
+    requestCheckpoint();
+}
+
+song::Block ParagonX1AudioProcessor::songBlockFrom (const grooves::Groove& groove, int folder) const
+{
+    const auto p = grooveFolders->getPreview();
+    return song::blockFrom (groove, grooveLayout (folder), p.factor, p.velocity);
+}
+
+int ParagonX1AudioProcessor::addToSong (const grooves::Groove& groove, int folder, double beat)
+{
+    return addBlockToSong (songBlockFrom (groove, folder), beat);
+}
+
+int ParagonX1AudioProcessor::addBlockToSong (song::Block block, double beat)
+{
+    auto edited = *songData;
+    if (edited.isEmpty())
+    {
+        // The first block: the song's bars are the DAW's.
+        edited.numerator = hostNumerator.load();
+        edited.denominator = hostDenominator.load();
+    }
+    const auto index = edited.place (std::move (block), beat < 0.0 ? edited.endBeat() : beat);
+    setSong (std::move (edited));
+    return index;
+}
+
+void ParagonX1AudioProcessor::playSong (double fromBeat)
+{
+    songLocalFrom = juce::jmax (0.0, fromBeat);
+    ++songLocalStarts;
+    songLocal = true;
+}
+
+void ParagonX1AudioProcessor::stopSong()
+{
+    songLocal = false;
+}
+
+int ParagonX1AudioProcessor::collectSongHits (int numSamples, double ppq, double bpm, synth::drums::SlotHit* into, int room) noexcept
+{
+    // Where the song is in this piece: the DAW's position while it plays; else PLAY's clock (whole samples since PLAY,
+    // as the preview's, so it doesn't drift); else nowhere.
+    const auto* s = songForAudio.load();
+    const auto perSample = juce::jmax (1.0, bpm) / 60.0 / getSampleRate();
+    double from = 0.0;
+    auto local = false;
+    if (ppq >= 0.0)
+    {
+        from = ppq;
+        songLocal = false;   // the DAW started: it leads (PLAY doesn't carry on from its own place when the DAW stops)
+    }
+    else if (songLocal.load())
+    {
+        local = true;
+        if (const auto starts = songLocalStarts.load(); starts != songLocalSeen)
+        {
+            songLocalSeen = starts;
+            songBase = songLocalFrom.load();
+            songSamples = 0;
+            songPerSample = perSample;
+        }
+        if (perSample != songPerSample)
+        {
+            songBase += (double) songSamples * songPerSample;   // the tempo changed: carry on from here
+            songSamples = 0;
+            songPerSample = perSample;
+        }
+        from = songBase + (double) songSamples * perSample;
+        songSamples += numSamples;
+    }
+    else
+    {
+        songPosition = -1.0;
+        return 0;
+    }
+    const auto to = from + numSamples * perSample;
+    auto count = 0;
+    if (s != nullptr)
+    {
+        auto it = std::lower_bound (s->events.begin(), s->events.end(), from, [] (const auto& h, double b) { return h.beat < b; });
+        for (; it != s->events.end() && it->beat < to && count < room; ++it)
+            into[count++] = { juce::jlimit (0, numSamples - 1, (int) std::floor ((it->beat - from) / perSample + 1.0e-6)), it->slot, it->velocity };
+    }
+    // PLAY stops at the song's end.
+    if (local && (s == nullptr || to >= s->endBeat))
+    {
+        songLocal = false;
+        songPosition = -1.0;
+    }
+    else
+    {
+        songPosition = to;
+    }
+    return count;
+}
+
+juce::MidiFile ParagonX1AudioProcessor::songToMidi() const
+{
+    return songData->toMidi (hostBpm.load(), [this] (int slot) { return homeNote (slot); });
+}
+
+juce::File ParagonX1AudioProcessor::songDragFile() const
+{
+    const auto folderOut = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("PR7-D Grooves");
+    folderOut.createDirectory();
+    const auto file = folderOut.getChildFile ("PR7-D Song.mid");
+    file.deleteFile();
+    if (juce::FileOutputStream out (file); out.openedOk())
+        songToMidi().writeTo (out);
+    return file;
 }

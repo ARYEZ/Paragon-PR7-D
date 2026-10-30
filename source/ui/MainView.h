@@ -11,6 +11,7 @@
 #include "ui/RigBrowser.h"
 #include "ui/DrumPage.h"
 #include "ui/GroovesPage.h"
+#include "ui/SongTrack.h"
 #include "ui/FxPage.h"
 
 // A side strip: a title, a gain knob with its value underneath, and a level meter.
@@ -91,6 +92,10 @@ public:
     GroovesPage& getGroovesPage() noexcept { return groovesPage; }
     SettingsPage& getSettingsPage() noexcept { return settingsPage; }
     KitKeyboard& getKeyboard() noexcept { return keyboard; }
+    SongTrack& getSongTrack() noexcept { return songTrack; }
+    // THE SONG TRACK (0.8.0): the strip under the pages shows the keyboard or the song (KEYS | SONG beside it).
+    void showSong (bool);
+    bool isShowingSong() const noexcept { return songTrack.isVisible(); }
 
     // ControlHost: the knobs' MIDI learn.
     int linkedController (const juce::String& parameterId) const override;
@@ -124,6 +129,8 @@ private:
 
     GainColumn outputColumn;
     KitKeyboard keyboard;
+    SongTrack songTrack;
+    juce::TextButton keysTab { "KEYS" }, songTab { "SONG" };
     // What the knobs show (links, learning), as last drawn: a change repaints them.
     MidiLinks shownLinks;
     juce::String shownLearning;

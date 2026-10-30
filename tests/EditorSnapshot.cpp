@@ -463,6 +463,41 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         for (int b = 0; b < 300; ++b)
             processor.processBlock (buffer, midi);
         grooves.refresh();
+        // THE SONG TRACK: a song of the demo pack's Rock grooves (the first verse two times round, a fill, the chorus,
+        // the second verse muted, the bridge), shown in the keyboard's place, playing with the DAW in the chorus.
+        if (env ("PARAGON_SNAPSHOT_SONG") == "1")
+        {
+            processor.stopGroove();
+            for (const auto* name : { "Verse 01", "Fill 01", "Chorus 01", "Verse 02", "Fill 01", "Bridge 01" })
+                if (const auto g = grooves::read (groovePack.getChildFile ("Rock 96 BPM").getChildFile (juce::String (name) + ".mid"), processor.grooveLayout (0)))
+                    processor.addToSong (*g, 0);
+            auto edited = processor.getSong();
+            edited.resize (0, 32.0);
+            edited.blocks[3].muted = true;
+            processor.setSong (edited);
+            view->showSong (true);
+            view->getSongTrack().choose (2);
+            struct Host final : juce::AudioPlayHead
+            {
+                double ppq = 42.5;
+                juce::Optional<PositionInfo> getPosition() const override
+                {
+                    PositionInfo info;
+                    info.setBpm (96.0);
+                    info.setPpqPosition (ppq);
+                    info.setIsPlaying (true);
+                    return info;
+                }
+            };
+            static Host host;
+            processor.setPlayHead (&host);
+            for (int b = 0; b < 20; ++b)
+            {
+                processor.processBlock (buffer, midi);
+                host.ppq += 256.0 / 48000.0 * 96.0 / 60.0;
+            }
+            processor.setPlayHead (nullptr);
+        }
     }
     if (page == "presets")
         view->showPage (MainView::Page::presets);

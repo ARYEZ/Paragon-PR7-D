@@ -2,6 +2,47 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.8.0
+
+**The song track, part 1.** Lay grooves out as a whole song, bar by bar, and it plays along with your DAW. Our own design, inspired by the song track in chapter 7 of the drum software manual you sent.
+
+- **SONG** (left of the on-screen keyboard): **KEYS** shows the keyboard, **SONG** the song track in its place.
+- **Putting grooves in:**
+  - **Drag a groove** from the GROOVES list onto the song track: it becomes a block (its name, coloured by its kind).
+  - Or **right-click a groove: ADD TO SONG**. It goes after the last block, and the song track opens.
+  - Or **drop MIDI files** on it from your computer. They play through the kit's own note map.
+  - A block is a copy of the groove as the kit's drums, at the GROOVES page's TEMPO factor (1/2x, 2x...) and VELOCITY. Changing the groove file later doesn't change the song.
+  - The song takes your DAW's time signature when its first block goes in.
+- **Arranging:**
+  - Blocks snap to bars and never overlap. **Dropped on a block**, a groove goes before or after it (whichever edge is nearer), and the blocks after it move along to make room. **Past the end**, it stays where you drop it (a gap before it).
+  - **Drag a block** to move it.
+  - **Drag its right edge** to make it longer: the groove repeats (a faint line shows where it starts again), and the blocks after it move along. Shorter leaves a gap.
+  - **Click a block** to choose it; **DELETE** removes it.
+  - **Right-click a block:**
+    - DUPLICATE (the copy right after it) and REMOVE;
+    - MUTE (greyed, silent);
+    - SONG PART (Intro, Verse, Chorus, Fill... each its own colour);
+    - CHANGE TEMPO (1/2x, 2/3x, 3/2x, 2x: its notes closer together or further apart, its length too).
+- **Playing:**
+  - **While your DAW plays**, the song plays with it: bar 1 of the song is your DAW's bar 1, each hit on its exact sample, and it follows when you jump or loop.
+  - With the DAW stopped, **PLAY** plays it from the mark on the bar numbers (click them to move it), at the DAW's last tempo; it stops at the song's end. Starting the DAW ends PLAY: the DAW leads.
+  - The red line shows where it's playing. The drum sequencer and the groove preview can play at the same time (your choice).
+- **EXPORT MIDI:** the whole song as one MIDI file, each drum on its note in the kit's map (as the sequencer's export). Click to save, or drag it onto a DAW track.
+- **Saved with your project**, not in presets (loading a preset keeps the song). **Undo** takes back each edit.
+- **Tests:**
+  - the placing rules (dropped on a block's first or second half, past the end, longer, shorter, moved, duplicated, removed, in 3/4);
+  - each block's groove repeated to fill it and cut at its end; MUTE; CHANGE TEMPO;
+  - a groove as a block through the folder's map, with the factor and velocity, its kind from its name;
+  - the song saved and read back exactly; its MIDI file (notes on the right ticks, tempo, time signature);
+  - played with the DAW: a block at bar 3 heard exactly 4 s in at 120 BPM (sample 192000), the snare 1.5 beats later on its sample, and the DAW starting part way in at 90 BPM;
+  - PLAY from bar 2 with the DAW stopped, each hit on its sample, stopping at the end; STOP; the DAW starting ending PLAY;
+  - undo and redo; the project saved and loaded; a preset loaded keeping the song; EXPORT MIDI's notes;
+  - the strip: a MIDI file dropped, DELETE, the menu's items each doing what it says, and ADD TO SONG from the GROOVES page.
+
+What can't be checked here: how it sounds, how it feels to drag blocks in your DAW, and real groove packs.
+
+Not in this part (next, if you want them, in this order): editing inside a block (its parts from other grooves, a drum taken out, velocity, quantize, cutting a block in two); making a song from one groove folder's verses, choruses and fills (a song made for you); tempo and time-signature changes within the song. The manual's chapter 7 describes all of these.
+
 ## 0.7.0
 
 **The groove player, part 4: GROOVE PARTS.** Hear, drag or lay in just part of a groove: the hats of one over the kick and snare of another. Our own design, inspired by the groove parts of commercial drum software.

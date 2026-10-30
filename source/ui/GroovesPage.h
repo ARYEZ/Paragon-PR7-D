@@ -50,6 +50,10 @@ public:
     unsigned getDrumParts() const noexcept { return chosenParts; }
     std::array<int, grooves::numDrumParts> getPartCounts() const noexcept { return partCounts; }
     void layerOnto (int pattern);
+    // THE SONG TRACK (0.8.0): a groove as a block in the song at `beat` (-1: after the last), as dropping it on the strip
+    // or ADD TO SONG does; then onAddedToSong (MainView shows the song).
+    bool addRowToSong (int row, double beat = -1.0);
+    std::function<void()> onAddedToSong;
 
     // A MIDI file dropped on the page: a search with its first two bars.
     bool isInterestedInFileDrag (const juce::StringArray&) override;
