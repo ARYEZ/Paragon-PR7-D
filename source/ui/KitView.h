@@ -54,6 +54,17 @@ public:
 private:
     juce::String describe (int slot) const;
     juce::Rectangle<int> areaOf (int piece) const;   // where a piece's glow is drawn in the view
+    void prepare (float scale);                       // the pictures at the size shown (0.15.1)
+
+    struct Shown
+    {
+        float scale = 0.0f;
+        juce::Rectangle<float> area;
+        juce::Image kit;
+        std::array<juce::Image, numPieces> lit;
+        std::array<juce::Point<int>, numPieces> litAt {};   // in screen pixels from the picture's corner
+    };
+    Shown shownAt;
 
     ParagonX1AudioProcessor& processor;
     std::array<float, numPieces> glow {};

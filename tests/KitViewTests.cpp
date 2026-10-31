@@ -180,3 +180,50 @@ TEST_CASE ("KIT VIEW: its pictures keep to the family's colours", "[kitview][col
     for (int k = 0; k < KitView::numPieces; ++k)
         check (pics.lit[(size_t) k], KitView::pieceName (k));
 }
+
+TEST_CASE ("KIT VIEW: drawn from its pictures shrunk once, it looks as drawn directly, at any display scale", "[kitview]")
+{
+    // 0.15.1: the pictures are shrunk to the screen's pixels once and copied after that (shrinking them on every
+    // redraw was most of the window's CPU while drums played). The view must still show them where and as they were.
+    TempFolder temp;
+    Plugin p (temp.folder);
+    KitView view (p.processor);
+    view.setSize (848, 612);
+    view.setSelected (3);   // the clap: no piece glows
+    CHECK (view.isOpaque());
+    const auto& pics = KitView::pictures();
+    for (const auto scale : { 1.0f, 1.5f, 2.0f })
+    {
+        INFO ("scale " << scale);
+        const auto w = juce::roundToInt (848 * scale), h = juce::roundToInt (612 * scale);
+        juce::Image drawn (juce::Image::RGB, w, h, true), direct (juce::Image::RGB, w, h, true);
+        {
+            juce::Graphics g (drawn);
+            g.addTransform (juce::AffineTransform::scale (scale));
+            view.paintEntireComponent (g, false);
+        }
+        {
+            juce::Graphics g (direct);
+            g.addTransform (juce::AffineTransform::scale (scale));
+            g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+            g.drawImage (pics.kit, view.pictureArea());
+        }
+        // Inside the edges' fade and above the label line: each pixel as drawn directly (a shift of a pixel would
+        // show at every edge of the kit).
+        const auto inner = (view.pictureArea().reduced (60.0f) * scale).getSmallestIntegerContainer();
+        double total = 0.0;
+        int count = 0, worst = 0;
+        for (int y = inner.getY(); y < inner.getBottom(); y += 2)
+            for (int x = inner.getX(); x < inner.getRight(); x += 2)
+            {
+                const auto a = drawn.getPixelAt (x, y), b = direct.getPixelAt (x, y);
+                const auto d = std::abs ((int) a.getRed() - (int) b.getRed()) + std::abs ((int) a.getGreen() - (int) b.getGreen())
+                               + std::abs ((int) a.getBlue() - (int) b.getBlue());
+                total += d;
+                worst = juce::jmax (worst, d);
+                ++count;
+            }
+        CHECK (total / count < 1.0);
+        CHECK (worst < 60);
+    }
+}

@@ -30,7 +30,8 @@ void LevelMeter::timerCallback()
     if (! juce::approximatelyEqual (newDb, displayedDb))
     {
         displayedDb = newDb;
-        repaint();
+        // 0.15.1: only the column of dots (with their glow) changes, not the dB scale beside it.
+        repaint (getLocalBounds().reduced (0, 6).removeFromRight (6).expanded (3, 2));
     }
 }
 

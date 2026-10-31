@@ -2,6 +2,19 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.15.1
+
+**Fixed: the plugin's window used far too much CPU while drums played** (since 0.14.0's KIT VIEW). The sound was never the problem (measured: well under 3% of real time for a beat on the default kit); the drawing was.
+
+- **The kit view** shrank its 1280-pixel picture and each glowing piece's picture to fit the window, with high-quality smoothing, **every time it redrew**: 30 times a second for each piece glowing, more pixels again with Windows' display scaling. It also had the window's background painted underneath it each time, though it covers it.
+  - Now the pictures are shrunk **once**, to the window's real size in the screen's own pixels (150% or 200% display scaling included), and only copied after that, lined up on whole pixels (between two, every pixel would be smoothed again). The view tells the window it covers what's behind it.
+  - Measured here: redrawing a glowing piece went from about 1 ms to under 0.1 ms (0.17 ms at 150% scaling), the whole kit view from 10 ms to under 1 ms, the whole window on the KIT VIEW from 36 ms to 19 ms. A beat lighting four drums cost about 12% of a core in drawing; now about 1%.
+  - It looks the same: a test compares it, at 100%, 150% and 200% scaling, with the pictures drawn the old way (a half-pixel shift, now on whole pixels, is the only change).
+- **The GROOVES list** redrew every row 15 times a second while a groove played; now only the playing row (the whole list when another groove starts).
+- **The OUTPUT meter** redraws only its column of lights, not its numbers.
+
+Not checked here: the real figure on your computer. If your DAW's or Windows' CPU meter still runs high, tell me which (the DAW's audio meter, or Task Manager) and with which page showing, and whether it drops when the plugin's window is closed.
+
 ## 0.15.0
 
 **GROOVES reads groove databases.** Some drum software installs its MIDI grooves not as .mid files but inside one database file per pack, named `midiDB`. Until now GROOVES only looked for .mid files, so a folder of those packs listed nothing. It reads them now, from your own computer when you link the folder; nothing of them is copied into the plugin or your presets.

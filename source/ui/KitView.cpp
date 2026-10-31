@@ -87,6 +87,42 @@ const KitView::Pictures& KitView::pictures()
 KitView::KitView (ParagonX1AudioProcessor& p) : processor (p)
 {
     setRepaintsOnMouseActivity (false);
+    setOpaque (true);   // it fills itself: what's behind it needn't be drawn when a piece glows (0.15.1)
+}
+
+// 0.15.1: the pictures shrunk to the size they're shown, in the screen's own pixels (Windows' display scaling too),
+// once, and only copied after that: shrinking the 1280-pixel kit and each glow smoothly on every redraw cost
+// milliseconds a frame, 30 frames a second per glowing piece.
+void KitView::prepare (float scale)
+{
+    const auto& pics = pictures();
+    const auto area = pictureArea();
+    const auto size = (area * scale).getSmallestIntegerContainer();
+    if (! pics.kit.isValid() || size.isEmpty() || (juce::exactlyEqual (scale, shownAt.scale) && area == shownAt.area))
+        return;
+    shownAt.scale = scale;
+    shownAt.area = area;
+    const auto toScreen = (float) size.getWidth() / (float) pics.kit.getWidth();   // kit pixels -> screen pixels
+    shownAt.kit = juce::Image (juce::Image::RGB, size.getWidth(), size.getHeight(), false);
+    {
+        juce::Graphics g (shownAt.kit);
+        g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+        g.drawImage (pics.kit, shownAt.kit.getBounds().toFloat());
+    }
+    for (int k = 0; k < numPieces; ++k)
+    {
+        const auto& lit = pics.lit[(size_t) k];
+        if (! lit.isValid())
+            continue;
+        const auto exact = pics.litArea[(size_t) k].toFloat() * toScreen;
+        const auto whole = exact.getSmallestIntegerContainer();
+        auto& image = shownAt.lit[(size_t) k];
+        image = juce::Image (juce::Image::ARGB, juce::jmax (1, whole.getWidth()), juce::jmax (1, whole.getHeight()), true);
+        juce::Graphics g (image);
+        g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+        g.drawImage (lit, exact.translated ((float) -whole.getX(), (float) -whole.getY()));
+        shownAt.litAt[(size_t) k] = whole.getPosition();
+    }
 }
 
 juce::Rectangle<float> KitView::pictureArea() const
@@ -213,16 +249,21 @@ juce::Rectangle<int> KitView::areaOf (int piece) const
 
 void KitView::paint (juce::Graphics& g)
 {
-    const auto& pics = pictures();
-    const auto area = pictureArea();
-    g.setColour (ParagonColours::background);
-    g.fillRoundedRectangle (getLocalBounds().toFloat(), 4.0f);
-    if (! pics.kit.isValid())
+    g.fillAll (ParagonColours::background);
+    const auto scale = (float) g.getInternalContext().getPhysicalPixelScaleFactor();
+    prepare (scale);
+    if (! shownAt.kit.isValid())
         return;
+    const auto area = shownAt.area;
 
-    g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
-    g.drawImage (pics.kit, area);
-    const auto scale = area.getWidth() / (float) pics.kit.getWidth();
+    // Screen pixels -> the view: copied, not resampled. The context's own scale cancels this one, and the picture's
+    // corner sits on a whole screen pixel (between two, every pixel would be smoothed again).
+    const auto origin = (area.getTopLeft() * scale).roundToInt();
+    const auto place = [&] (juce::Point<int> at)
+    {
+        return juce::AffineTransform::translation ((float) (origin.x + at.x), (float) (origin.y + at.y)).scaled (1.0f / scale);
+    };
+    g.drawImageTransformed (shownAt.kit, place ({}));
     for (int k = 0; k < numPieces; ++k)
     {
         auto level = glow[(size_t) k];
@@ -230,12 +271,11 @@ void KitView::paint (juce::Graphics& g)
             level = juce::jmax (level, chosenGlow);
         if (pieceOf (hovered) == k)
             level = juce::jmax (level, hoverGlow);
-        const auto& lit = pics.lit[(size_t) k];
+        const auto& lit = shownAt.lit[(size_t) k];
         if (level <= 0.0f || ! lit.isValid())
             continue;
-        const auto at = pics.litArea[(size_t) k].toFloat();
         g.setOpacity (juce::jmin (1.0f, level));
-        g.drawImage (lit, { area.getX() + at.getX() * scale, area.getY() + at.getY() * scale, at.getWidth() * scale, at.getHeight() * scale });
+        g.drawImageTransformed (lit, place (shownAt.litAt[(size_t) k]));
     }
     g.setOpacity (1.0f);
 
@@ -252,7 +292,9 @@ void KitView::paint (juce::Graphics& g)
     edge (area.withWidth (fade), area.getTopLeft(), area.getTopLeft().translated (fade, 0.0f));
     edge (area.withTrimmedLeft (area.getWidth() - fade), area.getTopRight(), area.getTopRight().translated (-fade, 0.0f));
 
-    // What's under the mouse (or chosen), at the bottom left.
+    // What's under the mouse (or chosen), at the bottom left (only when that line is being drawn).
+    if (! g.clipRegionIntersects (getLocalBounds().reduced (14, 10).removeFromBottom (18)))
+        return;
     const auto shown = hovered >= 0 ? hovered : selected;
     g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
     g.setColour (ParagonColours::text.withAlpha (0.9f));

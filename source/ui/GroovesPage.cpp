@@ -706,11 +706,20 @@ void GroovesPage::timerCallback()
     const auto position = processor.getGroovePosition();
     playing.setText (position >= 0.0 && file != juce::File() ? "PLAYING: " + file.getFileNameWithoutExtension() : juce::String(),
                      juce::dontSendNotification);
-    if (file != shownPlaying || std::abs (position - shownPosition) > 1.0e-3)
+    const auto nowPlaying = position >= 0.0 ? file : juce::File();
+    if (nowPlaying != shownPlaying)
     {
-        shownPlaying = position >= 0.0 ? file : juce::File();
+        shownPlaying = nowPlaying;
         shownPosition = position;
-        table.repaint();
+        table.repaint();   // another groove (or none): its row and the one before
+    }
+    else if (std::abs (position - shownPosition) > 1.0e-3)
+    {
+        // 0.15.1: only the playing row moves; the whole list 15 times a second cost more than needed.
+        shownPosition = position;
+        for (int row = 0; row < (int) results.size(); ++row)
+            if (results[(size_t) row].file == shownPlaying)
+                table.repaintRow (row);
     }
 }
 
