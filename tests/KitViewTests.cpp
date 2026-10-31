@@ -196,34 +196,45 @@ TEST_CASE ("KIT VIEW: drawn from its pictures shrunk once, it looks as drawn dir
     {
         INFO ("scale " << scale);
         const auto w = juce::roundToInt (848 * scale), h = juce::roundToInt (612 * scale);
-        juce::Image drawn (juce::Image::RGB, w, h, true), direct (juce::Image::RGB, w, h, true);
+        const auto render = [&] (std::function<void (juce::Graphics&)> draw)
         {
-            juce::Graphics g (drawn);
+            juce::Image image (juce::Image::RGB, w, h, true);
+            juce::Graphics g (image);
             g.addTransform (juce::AffineTransform::scale (scale));
-            view.paintEntireComponent (g, false);
-        }
+            draw (g);
+            return image;
+        };
+        const auto drawn = render ([&] (juce::Graphics& g) { view.paintEntireComponent (g, false); });
+        const auto directAt = [&] (float shift)
         {
-            juce::Graphics g (direct);
-            g.addTransform (juce::AffineTransform::scale (scale));
-            g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
-            g.drawImage (pics.kit, view.pictureArea());
-        }
-        // Inside the edges' fade and above the label line: each pixel as drawn directly (a shift of a pixel would
-        // show at every edge of the kit).
-        const auto inner = (view.pictureArea().reduced (60.0f) * scale).getSmallestIntegerContainer();
-        double total = 0.0;
-        int count = 0, worst = 0;
-        for (int y = inner.getY(); y < inner.getBottom(); y += 2)
-            for (int x = inner.getX(); x < inner.getRight(); x += 2)
+            return render ([&] (juce::Graphics& g)
             {
-                const auto a = drawn.getPixelAt (x, y), b = direct.getPixelAt (x, y);
-                const auto d = std::abs ((int) a.getRed() - (int) b.getRed()) + std::abs ((int) a.getGreen() - (int) b.getGreen())
-                               + std::abs ((int) a.getBlue() - (int) b.getBlue());
-                total += d;
-                worst = juce::jmax (worst, d);
-                ++count;
-            }
-        CHECK (total / count < 1.0);
-        CHECK (worst < 60);
+                g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+                g.drawImage (pics.kit, view.pictureArea().translated (shift, 0.0f));
+            });
+        };
+        const auto direct = directAt (0.0f), shifted = directAt (1.0f / scale);   // one screen pixel to the right
+        // Inside the edges' fade and above the label line, the mean difference per pixel (red + green + blue).
+        const auto inner = (view.pictureArea().reduced (60.0f) * scale).getSmallestIntegerContainer();
+        const auto meanDifference = [&inner] (const juce::Image& a, const juce::Image& b)
+        {
+            double total = 0.0;
+            int count = 0;
+            for (int y = inner.getY(); y < inner.getBottom(); y += 2)
+                for (int x = inner.getX(); x < inner.getRight(); x += 2)
+                {
+                    const auto p = a.getPixelAt (x, y), q = b.getPixelAt (x, y);
+                    total += std::abs ((int) p.getRed() - (int) q.getRed()) + std::abs ((int) p.getGreen() - (int) q.getGreen())
+                             + std::abs ((int) p.getBlue() - (int) q.getBlue());
+                    ++count;
+                }
+            return total / count;
+        };
+        // Smoothing differs a little from computer to computer (most when enlarging, at 2x); a picture a pixel out of
+        // place differs far more. Ours must be much nearer the direct drawing than a one-pixel shift is.
+        const auto ours = meanDifference (drawn, direct), oneOff = meanDifference (shifted, direct);
+        INFO ("ours " << ours << ", a pixel out " << oneOff);
+        CHECK (ours < 2.5);
+        CHECK (ours < oneOff / 3.0);
     }
 }
