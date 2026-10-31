@@ -550,7 +550,7 @@ void DrumHitDisplay::filesDropped (const juce::StringArray& files, int, int)
 }
 
 //==============================================================================
-DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), envelope (p), sequencer (p), kitView (p)
+DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), envelope (p), sequencer (p), kitView (p), articulations (p)
 {
     auto& state = p.getParameters();
     const auto kitControl = [&] (const char* id, const juce::String& label, const juce::String& tip)
@@ -654,6 +654,9 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), en
     sequencer.getGrid().onRowTouched = [this] (int row) { select (row); };
     addChildComponent (kitView);
     kitView.onChoose = [this] (int slot, juce::ModifierKeys mods) { clickRow (slot, mods); };
+    addChildComponent (articulations);
+    articulations.onChoose = [this] (int slot) { clickRow (slot, {}); };
+    articulations.onChooseAll = [this] (const std::vector<int>& slots) { chooseSlots (slots); };
     for (auto* tab : { &kitTab, &drumTab, &sequencerTab })
     {
         DrumSeqPanel::style (*tab);
@@ -687,6 +690,7 @@ void DrumPage::showView (View v)
     refreshPictures();
     sequencer.setVisible (v == View::sequencer);
     kitView.setVisible (v == View::kit);
+    articulations.setVisible (v == View::kit);
     (v == View::kit ? kitTab : drum ? drumTab : sequencerTab).setToggleState (true, juce::dontSendNotification);
     kitTab.toFront (false);
     drumTab.toFront (false);
@@ -728,6 +732,17 @@ void DrumPage::clickRow (int slot, juce::ModifierKeys mods)
         anchor = slot;
     }
     select (slot);
+}
+
+void DrumPage::chooseSlots (const std::vector<int>& slots)
+{
+    if (slots.empty())
+        return;
+    const auto has = [&slots] (int slot) { return std::find (slots.begin(), slots.end(), slot) != slots.end(); };
+    for (auto& row : rows)
+        row->setChosen (has (row->getSlot()));
+    anchor = slots.front();
+    select (has (selected) ? selected : slots.front());
 }
 
 std::vector<int> DrumPage::getChosen() const
@@ -865,6 +880,8 @@ void DrumPage::select (int slot)
         row->setSelected (row->getSlot() == selected);
     sequencer.getGrid().setHighlightedRow (selected);
     kitView.setSelected (selected);
+    articulations.showSlot (selected, getChosen());
+    placeArticulations();
     envelope.setTarget (MultiPointEditor::Kind::drumEnvelope, selected);
     listenToRouting();
     display.setSlot (selected);
@@ -945,6 +962,14 @@ void DrumPage::updateLights()
         row->setPlayhead (age >= 0.0f && kit.isSounding (row->getSlot()) ? age : -1.0f);
     }
     kitView.updateLights();
+    articulations.updateLights();
+}
+
+void DrumPage::placeArticulations()
+{
+    // In the kit view's top left corner, above the hi-hat: empty sky in the picture.
+    const auto area = kitView.getBounds();
+    articulations.setBounds (area.getX() + 6, area.getY() + 4, juce::jmin (236, area.getWidth() / 3), articulations.wantedHeight());
 }
 
 void DrumPage::chooseSample()
@@ -1037,6 +1062,7 @@ void DrumPage::resized()
     drumTab.setBounds (tabs.removeFromRight (74).withSizeKeepingCentre (70, 24));
     kitTab.setBounds (tabs.removeFromRight (94).withSizeKeepingCentre (90, 24));
     kitView.setBounds (drumArea.reduced (14, 10).withTrimmedTop (36));
+    placeArticulations();
     sequencer.setBounds (drumArea);
     const auto inner = drumArea.reduced (14, 0);
     sequencer.setGridArea ({ inner.getX() - drumArea.getX(), rowsTop - drumArea.getY(), inner.getWidth(), rowHeight * synth::drums::numSlots });

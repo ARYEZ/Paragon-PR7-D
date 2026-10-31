@@ -37,7 +37,7 @@ namespace synth
 
 namespace synth::drums
 {
-    inline constexpr int numSlots = 20;
+    inline constexpr int numSlots = 23;   // 12 in PR7-K, 20 from PR7-D 0.2.0, 23 from 0.17.0 (articulations)
 
     // Saved by index (drum{k}Model): only ever append. RIDE, BELL, TAMBOURINE and SHAKER came in PR7-D 0.2.0.
     enum class Model { kick, snare, clap, closedHat, openHat, tom, rim, cowbell, cymbal, sample, ride, bell, tambourine, shaker };
@@ -77,7 +77,111 @@ namespace synth::drums
         { Model::openHat,   0.0f, 0.25f, 0.5f, 0.5f, 1, "HH" },    // the half-open hat
         { Model::tambourine, 0.0f, 0.5f, 0.5f, 0.5f, 0, "TMB" },
         { Model::shaker,    0.0f, 0.5f, 0.5f, 0.5f, 0, "SHK" },
+        // PR7-D 0.17.0, articulations (ROOT + 20 to + 22): the ride's edge (the ride hit across its edge, crashing:
+        // darker and longer than a crash), and two more steps of the hi-hat's openness, between the closed hat (CH),
+        // the half-open (HH) and the open (OH): OPEN 1 just loosened, OPEN 3 nearly open.
+        { Model::cymbal,   -6.0f, 0.75f, 0.35f, 0.6f, 0, "RE" },   // the ride's edge
+        { Model::openHat,   0.0f, 0.15f, 0.5f, 0.5f, 1, "HO1" },  // the hat, open 1
+        { Model::openHat,   0.0f, 0.38f, 0.5f, 0.5f, 1, "HO3" },  // the hat, open 3
     }};
+
+    // THE PIECES AND THEIR ARTICULATIONS (PR7-D 0.17.0). Inspired by drum software where each drum of the kit is one
+    // instrument with several ways of playing it (the snare's centre, rimshot and sidestick...), each with its own
+    // notes, level and on / off. Here each articulation is one of the kit's slots, as it always was (so presets,
+    // patterns and songs keep working), gathered into pieces: what the kit view, the articulation list and the
+    // stand-ins below work with. Names are ours.
+    struct Articulation
+    {
+        int slot;
+        const char* name;     // e.g. "Rimshot"
+    };
+    struct Piece
+    {
+        const char* name;     // e.g. "SNARE"
+        std::array<Articulation, 6> articulations;
+        int count;
+    };
+    inline constexpr int numPieces = 14;
+    inline constexpr std::array<Piece, numPieces> pieces {{
+        { "KICK",        {{ { 0, "Hit" } }}, 1 },
+        { "SNARE",       {{ { 2, "Center" }, { 4, "Rimshot" }, { 1, "Sidestick" } }}, 3 },
+        { "HI-HAT",      {{ { 6, "Closed" }, { 21, "Open 1" }, { 17, "Open 2" }, { 22, "Open 3" }, { 10, "Open 4" }, { 8, "Pedal" } }}, 6 },
+        { "RACK TOM",    {{ { 9, "Hit" } }}, 1 },
+        { "FLOOR TOM 1", {{ { 7, "Hit" } }}, 1 },
+        { "FLOOR TOM 2", {{ { 5, "Hit" } }}, 1 },
+        { "CRASH 1",     {{ { 11, "Hit" } }}, 1 },
+        { "CRASH 2",     {{ { 14, "Hit" } }}, 1 },
+        { "RIDE",        {{ { 12, "Bow" }, { 13, "Bell" }, { 20, "Edge" } }}, 3 },
+        { "CHINA",       {{ { 15, "Hit" } }}, 1 },
+        { "SPLASH",      {{ { 16, "Hit" } }}, 1 },
+        { "CLAP",        {{ { 3, "Hit" } }}, 1 },
+        { "TAMBOURINE",  {{ { 18, "Hit" } }}, 1 },
+        { "SHAKER",      {{ { 19, "Hit" } }}, 1 },
+    }};
+
+    // The piece a slot belongs to, and which of its articulations it is.
+    inline int pieceOfSlot (int slot) noexcept
+    {
+        for (int p = 0; p < numPieces; ++p)
+            for (int a = 0; a < pieces[(size_t) p].count; ++a)
+                if (pieces[(size_t) p].articulations[(size_t) a].slot == slot)
+                    return p;
+        return -1;
+    }
+    inline juce::String articulationName (int slot)
+    {
+        if (const auto p = pieceOfSlot (slot); p >= 0)
+            for (int a = 0; a < pieces[(size_t) p].count; ++a)
+                if (pieces[(size_t) p].articulations[(size_t) a].slot == slot)
+                    return juce::String (pieces[(size_t) p].name) + (pieces[(size_t) p].count > 1 ? " " + juce::String (pieces[(size_t) p].articulations[(size_t) a].name).toUpperCase() : juce::String());
+        return {};
+    }
+
+    // STAND-INS: when an articulation is switched off (its ON), what plays its notes instead: the nearest one that's
+    // on, in this order (our own choices: the next openness step first, then the piece's main articulation, then a
+    // similar piece, as a drummer would play it on a smaller kit). -1 ends a list.
+    inline constexpr std::array<std::array<std::int8_t, 6>, numSlots> standIns {{
+        { -1, -1, -1, -1, -1, -1 },          // BD
+        { 2, 4, -1, -1, -1, -1 },            // RIM (sidestick): the snare, its rimshot
+        { 4, 1, -1, -1, -1, -1 },            // SD
+        { -1, -1, -1, -1, -1, -1 },          // CLP
+        { 2, 1, -1, -1, -1, -1 },            // SD2 (rimshot)
+        { 7, 9, -1, -1, -1, -1 },            // LT (floor tom 2): floor tom 1, the rack tom
+        { 21, 8, 17, -1, -1, -1 },           // CH: open 1, the pedal
+        { 5, 9, -1, -1, -1, -1 },            // MT (floor tom 1)
+        { 6, 21, -1, -1, -1, -1 },           // PH: closed
+        { 7, 5, -1, -1, -1, -1 },            // HT (rack tom)
+        { 22, 17, 21, 6, -1, -1 },           // OH (open 4): open 3, 2, 1, closed
+        { 14, 16, 15, -1, -1, -1 },          // CY: crash 2, the splash, the china
+        { 20, 13, -1, -1, -1, -1 },          // RD (bow): its edge, its bell
+        { 12, 20, -1, -1, -1, -1 },          // RB (bell): the bow
+        { 11, 16, 15, -1, -1, -1 },          // CR2: crash 1
+        { 14, 11, -1, -1, -1, -1 },          // CHN: the crashes
+        { 11, 14, -1, -1, -1, -1 },          // SPL: the crashes
+        { 21, 22, 10, 6, -1, -1 },           // HH (open 2): open 1, 3, 4, closed
+        { -1, -1, -1, -1, -1, -1 },          // TMB
+        { -1, -1, -1, -1, -1, -1 },          // SHK
+        { 12, 14, 11, -1, -1, -1 },          // RE (ride edge): the bow, the crashes
+        { 17, 6, 22, 10, -1, -1 },           // HO1: open 2, closed, open 3, 4
+        { 10, 17, 21, 6, -1, -1 },           // HO3: open 4, 2, 1, closed
+    }};
+
+    // THE HI-HAT PEDAL (PR7-D 0.17.0): a controller's hi-hat pedal sends CC 4, 127 fully closed, 0 fully open. A note
+    // mapped to HI-HAT (PEDAL) plays the openness step the pedal is at: closed at `steps[0]` and above, open 1 from
+    // steps[1], open 2 from steps[2], open 3 from steps[3], below that open 4. Before any CC 4 arrives the pedal
+    // counts as closed (so grooves, which use a note for each openness, play as written).
+    inline constexpr std::array<int, 5> pedalSteps { 6, 21, 17, 22, 10 };   // closed ... open 4
+    inline int pedalStepSlot (int cc, const std::array<int, 4>& steps) noexcept
+    {
+        for (int i = 0; i < 4; ++i)
+            if (cc >= steps[(size_t) i])
+                return pedalSteps[(size_t) i];
+        return pedalSteps[4];
+    }
+    // MUTE TAIL (PR7-D 0.17.0): how a cymbal is grabbed to stop it ringing (a held key let go, or pressing harder on a
+    // pad that sends aftertouch). Saved by index (drum{k}MuteTail): only append.
+    enum class MuteTail { off, noteOff, aftertouch };
+    inline const juce::StringArray muteTailNames { "Off", "Note Off", "Aftertouch" };
 
     // A loaded sample: one or two channels at its own rate.
     struct Sample
@@ -130,6 +234,9 @@ namespace synth::drums
         float lowPass = 20000.0f, highPass = 20.0f;   // 6 dB/oct, Hz (20 kHz / 20 Hz: off)
         const mod::Shape* envelope = nullptr;         // the drawn envelope across the hit (null: none)
         float envelopeSeconds = 0.0f;      // a drum synth's hit length, which its envelope spans (SAMPLE: START to END)
+        // ARTICULATIONS (0.17.0).
+        bool active = true;                // ON: off, its notes play its stand-in (standIns)
+        MuteTail muteTail = MuteTail::off;
 
         bool filtered() const noexcept { return lowPass < 19999.0f || highPass > 20.01f; }
         // The sequencer's lead for the anchor (seconds early).
@@ -169,12 +276,32 @@ namespace synth::drums
         float gain = 1.0f;                 // the kit's LEVEL
         std::array<bool, 2> sendOn {};     // DELAY, REVERB switched on
         std::array<SlotSettings, numSlots> slots;
+        std::array<int, 4> pedalSteps { 102, 77, 51, 26 };   // THE HI-HAT PEDAL's steps (CC 4 values, see above)
 
-        int slotFor (int note) const noexcept
+        // In `keys`, a note that plays the hi-hat at the pedal's openness.
+        static constexpr std::int8_t hatPedal = 100;
+
+        // The slot a note plays (-1: none), the pedal at `pedal` (CC 4, 127 closed), before stand-ins.
+        int slotFor (int note, int pedal = 127) const noexcept
         {
             if (mapped)
-                return note >= 0 && note < 128 ? keys[(size_t) note] : -1;
+            {
+                const auto k = note >= 0 && note < 128 ? keys[(size_t) note] : (std::int8_t) -1;
+                return k == hatPedal ? pedalStepSlot (pedal, pedalSteps) : k;
+            }
             return note >= rootKey && note < rootKey + numSlots ? note - rootKey : -1;
+        }
+        // What plays for a slot: itself if ON, else its first stand-in that's ON, else nothing (-1).
+        int playsAs (int slot) const noexcept
+        {
+            if (slot < 0 || slot >= numSlots)
+                return -1;
+            if (slots[(size_t) slot].active)
+                return slot;
+            for (const auto s : standIns[(size_t) slot])
+                if (s >= 0 && slots[(size_t) s].active)
+                    return s;
+            return -1;
         }
     };
 
@@ -301,8 +428,12 @@ namespace synth::drums
         }
         // A reversed hit's length, in seconds (0: nothing to reverse).
         static double reverseSeconds (const SlotSettings&, float notePitch, double sampleRate) noexcept;
-        // A hit straight away (for tests and the page's preview): velocity 0 to 1.
+        // A hit straight away (for tests and the page's preview): velocity 0 to 1. Its stand-in plays if it's off.
         void trigger (int slot, float velocity, const KitSettings&) noexcept;
+        // MUTE TAIL: the slot's piece's ringing hits grabbed (they stop over about 80 ms).
+        void grab (int slot) noexcept;
+        // THE HI-HAT PEDAL: the last CC 4 (127 closed) heard, for the page's meter.
+        int getPedal() const noexcept { return pedal.load(); }
 
         int getNumActiveVoices() const noexcept;
         bool isSounding (int slot) const noexcept;
@@ -351,6 +482,7 @@ namespace synth::drums
         std::array<double, numSlots> lastHit {};        // seconds since each slot's last hit (-1: none)
         std::uint64_t ages = 0;
         std::uint32_t noiseSeed = 0x2545f491u;
+        std::atomic<int> pedal { 127 };   // CC 4: before any arrives, closed
         int blockSize = 0;
     };
 }

@@ -26,7 +26,14 @@ namespace ParamIDs
     // THE NOTE MAP (PR7-D 0.2.0, version hint 24): which notes play which drum (notemap::layoutNames). Global, like
     // OUTPUT: it suits the player's controller and grooves, not a sound, so presets leave it alone.
     inline constexpr auto drumsMap      = "drumsMap";
-    inline constexpr int numDrums = 20;   // 12 until PR7-D 0.2.0 (drum13 to drum20: version hint 24)
+    inline constexpr int numDrums = 23;   // 12 until PR7-D 0.2.0 (drum13 to drum20: version hint 24), 20 until 0.17.0
+                                          // (drum21 to drum23, the articulations: hint 26)
+    // THE HI-HAT PEDAL (0.17.0, hint 26): the CC 4 values where the hat's openness steps begin (closed, open 1, open 2,
+    // open 3; below the last, open 4). Global, like the note map: they suit the player's pedal, not a sound.
+    // Presets, kits and projects saved before 0.17.0 load with the three drums it added switched off (their notes play
+    // the drums they played before, through the stand-ins), so they sound as they did.
+    inline const juce::StringArray articulationsAddedOff { "drum21On", "drum22On", "drum23On" };
+    inline const juce::StringArray drumsPedalSteps { "drumsPedal1", "drumsPedal2", "drumsPedal3", "drumsPedal4" };
     inline juce::String drum (int slot, const char* what) { return "drum" + juce::String (slot + 1) + what; }
     // THE OUTPUTS (PR7-D 0.3.0, version hint 25): the plugin's stereo outputs, MAIN first. Each drum, insert bus and
     // send return chooses one ("drum<n>Output", "ins<n>Output", delayOutput, reverbOutput), by index: only append.
@@ -38,7 +45,8 @@ namespace ParamIDs
                                                     "Choke", "Insert", "SendDelay", "SendReverb",
                                                     "SampleStart", "SampleEnd",     // 0.21.1 (version hint 21): appended
                                                     "Gain", "Mono", "Delay", "LowPass", "HighPass",     // 6c (hint 23)
-                                                    "Output" };   // PR7-D 0.3.0 (hint 25): outputNames' index
+                                                    "Output",     // PR7-D 0.3.0 (hint 25): outputNames' index
+                                                    "On", "MuteTail" };   // 0.17.0 (hint 26): the articulation's ON, MUTE TAIL
     consteval int drumSetting (std::string_view what)
     {
         for (int i = 0; i < (int) std::size (drumSettings); ++i)
@@ -255,6 +263,7 @@ namespace ParamIDs
     inline const juce::StringArray notInRigs = []
     {
         juce::StringArray ids { outputGain, bypass, limitUnity, limitDelta, drumsMap, delayOutput, reverbOutput };
+        ids.addArray (drumsPedalSteps);
         for (int k = 0; k < numDrums; ++k)
             ids.add (drum (k, "Output"));
         for (int b = 0; b < numInsertBuses; ++b)

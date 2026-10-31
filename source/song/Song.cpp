@@ -428,7 +428,7 @@ namespace song
         b.loopLength = juce::jmax (0.25, g.lengthBeats * scale);
         b.length = b.loopLength;
         for (const auto& h : g.hits)
-            if (const auto slot = h.note >= 0 && h.note < 128 ? layout[(size_t) h.note] : -1; slot >= 0 && h.beat * scale < b.loopLength)
+            if (const auto slot = synth::drums::notemap::slotOf (layout, h.note); slot >= 0 && h.beat * scale < b.loopLength)
                 b.hits.push_back ({ h.beat * scale, slot, juce::jlimit (0.0f, 1.0f, h.velocity * velocityScale) });
         return b;
     }
@@ -663,7 +663,7 @@ namespace song
             end = juce::jmax (end, beat);
             if (m.isNoteOn())
             {
-                if (const auto slot = layout[(size_t) m.getNoteNumber()]; slot >= 0)
+                if (const auto slot = synth::drums::notemap::slotOf (layout, m.getNoteNumber()); slot >= 0)
                     hits.push_back ({ beat, slot, m.getFloatVelocity() });
             }
             else if (m.isTextMetaEvent() && (m.getMetaEventType() == 6 || m.getMetaEventType() == 7))

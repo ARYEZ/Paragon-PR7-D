@@ -1,5 +1,7 @@
 #include "Rig.h"
 
+#include "Parameters.h"
+
 namespace
 {
     // Bump when the file layout changes in a way older code can't read.
@@ -9,7 +11,8 @@ namespace
     // occasional parameter whose default changes (older plugins ignore it).
     // PR7-D counts afresh from its siblings' numbering:
     // 1: PR7-D 0.1.0 (PR7-K 0.24.0's drum and effect parameters).
-    constexpr int parameterVersion = 1;
+    // 2: PR7-D 0.17.0 (the articulations: older presets load with drums 21 to 23 off).
+    constexpr int parameterVersion = 2;
 
     const juce::Identifier rigTag { "ParagonRig" };
     const juce::Identifier parameterTag { "Param" };
@@ -96,6 +99,10 @@ std::optional<Rig> Rig::fromXml (const juce::XmlElement& xml)
     }
     if (const auto* modulation = xml.getChildByName ("Modulation"))
         rig.modulation = ModMatrix::fromXml (*modulation);
+
+    if (xml.getIntAttribute ("parameterVersion", 1) < 2)
+        for (const auto& id : ParamIDs::articulationsAddedOff)
+            rig.parameters[id] = 0.0f;
 
     return rig;
 }

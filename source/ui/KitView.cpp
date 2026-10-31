@@ -1,6 +1,7 @@
 #include "ui/KitView.h"
 
 #include "KitImages.h"
+#include "dsp/synth/NoteMap.h"
 #include "ui/ParagonLookAndFeel.h"
 
 namespace
@@ -9,8 +10,46 @@ namespace
                                                               "crash", "crash2", "ride", "china", "splash", "tambourine" };
 
     // Each slot's piece (synth::drums::slotDefaults' order): BD, RIM, SD, CLP, SD2, LT, CH, MT, PH, HT, OH, CY,
-    // RD, RB, CR2, CHN, SPL, HH, TMB, SHK.
-    constexpr int slotPieces[synth::drums::numSlots] = { 0, 1, 1, -1, 1, 4, 5, 3, 5, 2, 5, 6, 8, 8, 7, 9, 10, 5, 11, -1 };
+    // RD, RB, CR2, CHN, SPL, HH, TMB, SHK, then 0.17.0's RE (the ride's edge), HO1 and HO3 (the hat's openness).
+    constexpr int slotPieces[] = { 0, 1, 1, -1, 1, 4, 5, 3, 5, 2, 5, 6, 8, 8, 7, 9, 10, 5, 11, -1, 8, 5, 5 };
+    static_assert (std::size (slotPieces) == synth::drums::numSlots);
+
+    // 0.17.0: the ride's edge, a ring round the outside of its bow in the click map (the renders have bow and bell
+    // only): bow pixels further out than 0.84 of the way from its middle to its rim, as the ellipse the cymbal makes
+    // from the seat.
+    void addRideEdge (juce::Image& zones)
+    {
+        using namespace synth::drums::notemap;
+        if (! zones.isValid())
+            return;
+        juce::Image::BitmapData pixels (zones, juce::Image::BitmapData::readWrite);
+        const auto zoneAt = [&pixels] (int x, int y) { return (int) pixels.getPixelColour (x, y).getRed() - 1; };
+        int left = pixels.width, right = -1, top = pixels.height, bottom = -1;
+        for (int y = 0; y < pixels.height; ++y)
+            for (int x = 0; x < pixels.width; ++x)
+                if (const auto z = zoneAt (x, y); z == RD || z == RB)
+                {
+                    left = juce::jmin (left, x);
+                    right = juce::jmax (right, x);
+                    top = juce::jmin (top, y);
+                    bottom = juce::jmax (bottom, y);
+                }
+        if (right <= left || bottom <= top)
+            return;
+        const auto cx = 0.5 * (left + right), cy = 0.5 * (top + bottom);
+        const auto rx = 0.5 * (right - left + 1), ry = 0.5 * (bottom - top + 1);
+        for (int y = top; y <= bottom; ++y)
+            for (int x = left; x <= right; ++x)
+                if (zoneAt (x, y) == RD)
+                {
+                    const auto dx = (x - cx) / rx, dy = (y - cy) / ry;
+                    if (dx * dx + dy * dy > 0.84 * 0.84)
+                    {
+                        const auto c = pixels.getPixelColour (x, y);
+                        pixels.setPixelColour (x, y, juce::Colour ((juce::uint8) (RE + 1), c.getGreen(), c.getBlue(), c.getAlpha()));
+                    }
+                }
+    }
 
     constexpr float chosenGlow = 0.3f, hoverGlow = 0.18f;
 
@@ -63,6 +102,7 @@ const KitView::Pictures& KitView::pictures()
         Pictures p;
         p.kit = load ("kit_jpg");
         p.zones = load ("kitzones_png");
+        addRideEdge (p.zones);
         // kitlayout.txt: a line per piece, "<name> <x> <y> <width> <height>", where its glow goes in the kit's pixels.
         int size = 0;
         const auto* text = KitImages::getNamedResource ("kitlayout_txt", size);
@@ -309,10 +349,11 @@ juce::String KitView::describe (int slot) const
     if (slot < 0 || slot >= synth::drums::numSlots)
         return {};
     const auto home = processor.homeNote (slot);
+    // 0.17.0: the piece and articulation ("RIDE EDGE"), and if it's switched off, what plays for it.
     const auto kit = processor.getKitSettings();
-    const auto model = (int) kit.slots[(size_t) slot].model;
-    return juce::String (synth::drums::slotDefaults[(size_t) slot].key) + "  "
-           + synth::drums::modelNames[model].toUpperCase()
+    const auto playsAs = kit.playsAs (slot);
+    return juce::String (synth::drums::slotDefaults[(size_t) slot].key) + "  " + synth::drums::articulationName (slot)
+           + (playsAs != slot ? (playsAs >= 0 ? "  (OFF: " + synth::drums::articulationName (playsAs) + " PLAYS)" : juce::String ("  (OFF)")) : juce::String())
            + (home >= 0 ? "  " + juce::MidiMessage::getMidiNoteName (home, true, true, 4) : juce::String());
 }
 

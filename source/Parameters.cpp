@@ -19,6 +19,7 @@ namespace
     constexpr int stage6c = 23;  // 0.23.0: the sample editor
     constexpr int pr7d020 = 24;  // PR7-D 0.2.0: drums 13 to 20, the note map
     constexpr int pr7d030 = 25;  // PR7-D 0.3.0: the outputs (also in RackParameters.cpp)
+    constexpr int pr7d0170 = 26; // PR7-D 0.17.0: drums 21 to 23, ON, MUTE TAIL, the hi-hat pedal
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -97,11 +98,19 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         add (layout, drumsLevel, "Drums Level", { -24.0f, 12.0f, 0.1f }, 0.0f, asDb, stage6a);
         add (layout, drumsVelocity, "Drums Velocity", { 0.0f, 1.0f }, 1.0f, asPercent, stage6a);
         addChoice (layout, drumsMap, "Drums Note Map", synth::drums::notemap::layoutNames, 0, pr7d020);
+        {
+            const synth::drums::KitSettings defaults;
+            for (int i = 0; i < 4; ++i)
+                add (layout, drumsPedalSteps[i], "Hi-Hat Pedal Step " + juce::String (i + 1), { 0.0f, 127.0f, 1.0f },
+                     (float) defaults.pedalSteps[(size_t) i], [] (float v, int) { return juce::String (juce::roundToInt (v)); }, pr7d0170);
+        }
         for (int k = 0; k < numDrums; ++k)
         {
-            // PR7-K's 12 drums keep their version hints; the 8 PR7-D added take 0.2.0's.
-            const auto added = k >= 12;
-            const auto hint = added ? pr7d020 : stage6a, hintStart = added ? pr7d020 : stage6aStart, hintEditor = added ? pr7d020 : stage6c;
+            // PR7-K's 12 drums keep their version hints; the 8 PR7-D added take 0.2.0's, the 3 after them 0.17.0's.
+            const auto added = k >= 12, articulation = k >= 20;
+            const auto hint = articulation ? pr7d0170 : added ? pr7d020 : stage6a;
+            const auto hintStart = articulation ? pr7d0170 : added ? pr7d020 : stage6aStart;
+            const auto hintEditor = articulation ? pr7d0170 : added ? pr7d020 : stage6c;
             const auto& d = synth::drums::slotDefaults[(size_t) k];
             const auto name = "Drum " + juce::String (k + 1) + " ";
             addChoice (layout, drum (k, "Model"), name + "Model", synth::drums::modelNames, (int) d.model, hint);
@@ -125,7 +134,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
             add (layout, drum (k, "Delay"), name + "Delay", delayRange, 0.0f, asDrumDelay, hintEditor);
             add (layout, drum (k, "LowPass"), name + "Low Pass", logRange (20.0, 20000.0), 20000.0f, asLowPass, hintEditor);
             add (layout, drum (k, "HighPass"), name + "High Pass", logRange (20.0, 20000.0), 20.0f, asHighPass, hintEditor);
-            addChoice (layout, drum (k, "Output"), name + "Output", outputNames, 0, pr7d030);
+            addChoice (layout, drum (k, "Output"), name + "Output", outputNames, 0, articulation ? pr7d0170 : pr7d030);
+            // ARTICULATIONS (0.17.0).
+            addSwitch (layout, drum (k, "On"), name + "On", true, pr7d0170);
+            addChoice (layout, drum (k, "MuteTail"), name + "Mute Tail", synth::drums::muteTailNames, 0, pr7d0170);
         }
 
         // THE DRUM SEQUENCER (stage 6b).

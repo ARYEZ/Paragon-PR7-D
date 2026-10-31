@@ -2,6 +2,42 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.17.0
+
+**Articulations: each drum of the kit is now a piece played several ways**, as you asked (inspired by the reference drum software's articulation list, from the Drums chapter and chapter 9's MIDI In / E-Drums section; our own look and words).
+
+- **The ARTICULATIONS list**, over the KIT VIEW's top left, shows the chosen drum's piece:
+  - **SNARE:** center, rimshot, sidestick. **HI-HAT:** closed, open 1, open 2, open 3, open 4, pedal. **RIDE:** bow, bell, edge. The other pieces have one articulation each.
+  - Click a name to choose it and hear it. **ALL** chooses every one, so the DRUM page's settings go to all of them (as the reference's Select All does).
+  - Each has its note in the current map and a **level** (drag it; double-click for 0 dB).
+  - **The dot switches one off.** Its notes then play the nearest one that's on, named beside it ("OPEN 3 → OPEN 4"), and that row lights as it plays. This is our version of the reference's substitution: a groove asking for an articulation you've switched off still plays something sensible.
+- **Three new drums** (the kit is now 23):
+  - **RE**, the ride's edge (crashing the ride): darker and longer than a crash. On the kit view, it's the outer ring of the ride.
+  - **HO1** and **HO3**: two more steps of hat openness. The hat now goes closed, open 1, open 2 (the half-open HH), open 3, open 4 (fully open OH). Each step rings longer than the one before.
+- **GROOVE LIBRARY map:**
+  - Note 59 now plays the ride's edge. Your packs use it in their "ride crash" grooves, so this one is checked.
+  - Notes 24, 25 and 26 play open 1, open 2 and open 3. **That order is my guess:** your rock pack rides mostly on 25, then 24, then 26. If you can send the map with each note's name (the one you sent before only grouped them), I'll put them right.
+- **THE HI-HAT PEDAL (CC 4),** as in chapter 9:
+  - A controller's hi-hat pedal opens the hat step by step on the **pedal note**: note 7 in Groove Library (the reference's default "edge trigger"), or any note you set to **HI-HAT (PEDAL)** in a Custom map.
+  - The list's **PEDAL** bar shows where the pedal is, live. Drag its marks to set where each step begins (127 is closed).
+  - With no pedal sending, the pedal note plays closed, exactly as before. Grooves aren't affected: as the manual says, groove packs use a note for each openness, not CC 4.
+  - The steps aren't saved in presets. They suit your pedal, like the note map does.
+- **MUTE TAIL (grab the cymbal),** in the list for cymbals:
+  - **NOTE OFF:** letting the key go grabs the cymbal. **AFTERTOUCH:** pressing an e-drum pad harder grabs it. **OFF** (the default) lets it ring as before.
+  - A grab stops the whole cymbal: grabbing the ride stops its bell and edge too.
+  - Unlike the reference, which plays a recorded grab, ours is a quick fade (80 ms). A grab sound needs the sample engine.
+- **Your older presets, kits and projects sound exactly as before.** They load with the three new drums off, so their notes play what they played before. Your **Groove Library** grooves change in one way: notes 24 and 25 now play the half-open hat (open 2) instead of the fully open one. Switch on HO1 and HO3 in the hi-hat's list to hear all five steps.
+- **Also:** the kit view names the articulation under the mouse ("RD RIDE EDGE"), and says what plays when one is off. A Custom map's note menu lists articulation names.
+- **Tests:** every drum in exactly one piece; a switched-off articulation sounds identical to its stand-in, down the stand-in chain and across pieces; the pedal's steps at their boundaries, remembered between blocks, moved, kept out of presets; a grab stopping the ride and its bell, over 60 dB down, by note-off or aftertouch, and OFF ringing on; old presets, projects and kits loading with the three off and the edge note playing the bow; the new drums' lengths and levels; the list's rows, ALL, ON, stand-in names, pedal marks that can't pass each other, and MUTE TAIL for a whole piece.
+
+**Left for the next articulations release, as agreed:**
+- CC zones for positional pads;
+- a velocity curve per articulation;
+- MIDI mapping presets and the analyzer;
+- calibrating the hi-hat pedal.
+
+**Not checked here:** how the new drums sound to your ears, and the pedal and aftertouch with your own controller.
+
 ## 0.16.0
 
 **GROOVES rebuilt to work the way the reference drum software's groove tab works** (our own look and words). Everything the page did before still works; it's arranged and browsed differently.

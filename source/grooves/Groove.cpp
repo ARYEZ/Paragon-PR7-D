@@ -12,8 +12,8 @@ namespace grooves
             switch (slot)
             {
                 case CH: return PowerHand::closedHat;
-                case OH: case HH: return PowerHand::openHat;
-                case RD: case RB: return PowerHand::ride;
+                case OH: case HH: case HO1: case HO3: return PowerHand::openHat;
+                case RD: case RB: case RE: return PowerHand::ride;
                 case CY: case CR2: case CHN: case SPL: return PowerHand::crash;
                 case TMB: case SHK: return PowerHand::percussion;
                 default: return PowerHand::none;   // the feet (kick, pedal hat), snares, toms, the clap
@@ -28,9 +28,9 @@ namespace grooves
         {
             case BD: return (int) DrumPart::kick;
             case SD: case SD2: case RIM: return (int) DrumPart::snare;
-            case CH: case OH: case HH: return (int) DrumPart::hats;
+            case CH: case OH: case HH: case HO1: case HO3: return (int) DrumPart::hats;
             case PH: return (int) DrumPart::pedal;
-            case RD: case RB: return (int) DrumPart::ride;
+            case RD: case RB: case RE: return (int) DrumPart::ride;
             case LT: case MT: case HT: return (int) DrumPart::toms;
             case CY: case CR2: case CHN: case SPL: return (int) DrumPart::crash;
             case CLP: case TMB: case SHK: return (int) DrumPart::percussion;
@@ -187,7 +187,7 @@ namespace grooves
         {
             velocity += h.velocity;
             if (h.note >= 0 && h.note < 128)
-                ++counts[(size_t) handOf (layout[(size_t) h.note])];
+                ++counts[(size_t) handOf (synth::drums::notemap::slotOf (layout, h.note))];
         }
         counts[0] = 0;
         if (const auto most = std::max_element (counts.begin(), counts.end()); *most > 0)

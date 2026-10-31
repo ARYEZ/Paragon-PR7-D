@@ -315,7 +315,7 @@ TEST_CASE ("DRUMS: the kit's keys: C to B from its root, one-shots, nothing outs
     CHECK_FALSE (rig.kit.isSounding (0));
 
     Rig outside;
-    outside.play (0.2, { { 35, 1.0f, 0.0 }, { 56, 1.0f, 0.0 } });   // just under the kit, and just over its 20 keys
+    outside.play (0.2, { { 35, 1.0f, 0.0 }, { 59, 1.0f, 0.0 } });   // just under the kit, and just over its 23 keys
     CHECK (outside.kit.getNumActiveVoices() == 0);
     CHECK (Rig::peak (outside.left) == 0.0f);
 

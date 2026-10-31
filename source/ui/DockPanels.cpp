@@ -43,7 +43,9 @@ NoteMapList::NoteMapList (ParagonX1AudioProcessor& p) : processor (p)
         row->box = std::make_unique<juce::ComboBox>();
         row->box->addItem ("-", 1);
         for (int k = 0; k < synth::drums::numSlots; ++k)
-            row->box->addItem (juce::String (synth::drums::slotDefaults[(size_t) k].key) + "   (drum " + juce::String (k + 1) + ")", k + 2);
+            row->box->addItem (juce::String (synth::drums::slotDefaults[(size_t) k].key) + "   " + synth::drums::articulationName (k), k + 2);
+        // 0.17.0: the hi-hat at the openness the pedal (CC 4) is at.
+        row->box->addItem ("HI-HAT (PEDAL)   by CC 4", synth::drums::notemap::PEDAL + 2);
         row->box->setTooltip ("The drum note " + juce::String (n) + " plays. Changing it makes the map CUSTOM: a copy of the layout "
                               "you're on, with your change.");
         row->box->onChange = [this, n]
@@ -105,7 +107,7 @@ void NoteMapList::Row::resized()
 SettingsPage::SettingsPage (ParagonX1AudioProcessor& p)
     : processor (p),
       mapChoice (p.getParameters(), ParamIDs::drumsMap, "MAP",
-                 "Which notes play which drum. ROOT: the 20 keys from ROOT, in order. GROOVE LIBRARY: the layout popular drum "
+                 "Which notes play which drum. ROOT: the 23 keys from ROOT, in order. GROOVE LIBRARY: the layout popular drum "
                  "software's groove libraries are written in. GENERAL MIDI: the General MIDI drum map. CUSTOM: your own (change "
                  "any note in the list). Not part of a preset: it suits your controller and grooves."),
       mapList (p)
@@ -239,7 +241,7 @@ void SettingsPage::paint (juce::Graphics& g)
 
     const auto root = juce::roundToInt (processor.getParameters().getRawParameterValue (ParamIDs::drumsRoot)->load());
     const auto note = [] (int n) { return juce::MidiMessage::getMidiNoteName (n, true, true, 4); };
-    section (keysArea, "THE KEYS", "Which notes play which drum. ROOT: the 20 keys from ROOT (now " + note (root) + " to "
+    section (keysArea, "THE KEYS", "Which notes play which drum. ROOT: the 23 keys from ROOT (now " + note (root) + " to "
                                        + note (root + synth::drums::numSlots - 1) + "; ROOT is on the DRUMS page), and with the "
                                          "sequencer's TRIGGER on KEY the four keys below them start its patterns. The other layouts use those "
                                          "notes for drums. Notes that play nothing are left dim.");

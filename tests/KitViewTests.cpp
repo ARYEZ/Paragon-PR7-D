@@ -37,7 +37,8 @@ namespace
     };
 
     // The slots with a part on the kit (the clap and the shaker have none).
-    const std::vector<int> onTheKit { 0, 1, 2, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 18 };
+    // 0.17.0: the ride's edge (20) a ring round its bow; the hat's openness steps are chosen in the articulations.
+    const std::vector<int> onTheKit { 0, 1, 2, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 18, 20 };
 
     // A pixel's hue in degrees, and whether it's coloured enough to count (the family's rule is about colours, not
     // the near-black onyx or pearl greys).

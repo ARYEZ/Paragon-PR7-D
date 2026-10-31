@@ -1652,7 +1652,7 @@ void GroovesPage::selectedRowsChanged (int row)
         partsOf = g->file;
         const auto map = processor.grooveLayout (results[(size_t) row].folder);
         for (const auto& h : g->hits)
-            if (const auto part = grooves::drumPartOf (h.note >= 0 && h.note < 128 ? map[(size_t) h.note] : -1); part >= 0)
+            if (const auto part = grooves::drumPartOf (synth::drums::notemap::slotOf (map, h.note)); part >= 0)
                 ++partCounts[(size_t) part];
     }
     partsList->refresh();

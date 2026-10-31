@@ -12,11 +12,12 @@ namespace
     using namespace synth::drums::notemap;
 
     // The owner's map (from that software's published layout), drum by drum, as given: the layout must play each note
-    // on the drum written here.
-    struct Expected { Slot slot; std::vector<int> notes; };
+    // on the drum written here. 0.17.0 split the articulations out: the ride's edge (59), the hat's openness steps
+    // (24 open 1, 25 open 2, 26 open 3) and its pedal note (7: the openness CC 4 sets, closed with no pedal).
+    struct Expected { std::int8_t slot; std::vector<int> notes; };
     std::vector<Expected> ownersMap()
     {
-        std::vector<int> ride { 29, 30, 51, 52, 54, 59 };
+        std::vector<int> ride { 29, 30, 51, 52, 54 };
         for (int n = 83; n <= 93; ++n) if (n != 86) ride.push_back (n);
         for (int n = 96; n <= 105; ++n) ride.push_back (n);
         for (int n = 108; n <= 118; ++n) ride.push_back (n);
@@ -25,9 +26,14 @@ namespace
             { SD, { 6, 33, 38, 39, 66, 68, 69, 70, 125 } },
             { SD2, { 40, 71, 126 } },
             { RIM, { 37, 67, 76, 127 } },
-            { CH, { 7, 8, 9, 11, 18, 19, 20, 22, 42, 61, 62, 63, 64, 65, 119, 122 } },
+            { CH, { 8, 9, 11, 18, 19, 20, 22, 42, 61, 62, 63, 64, 65, 119, 122 } },
+            { PEDAL, { 7 } },
             { PH, { 10, 21, 23, 44 } },
-            { OH, { 12, 13, 14, 15, 16, 17, 24, 25, 26, 46, 60, 120, 121, 123, 124 } },
+            { OH, { 12, 13, 14, 15, 16, 17, 46, 60, 120, 121, 123, 124 } },
+            { HO1, { 24 } },
+            { HH, { 25 } },
+            { HO3, { 26 } },
+            { RE, { 59 } },
             { HT, { 47, 48, 79, 80, 81, 82 } },
             { MT, { 43, 45, 74, 75, 77, 78 } },
             { LT, { 41, 72, 73 } },
@@ -112,7 +118,12 @@ TEST_CASE ("NOTE MAP in the plugin: each layout's notes play their drums; ROOT a
 
     p.layout (Layout::grooveLibrary);
     CHECK (p.sounding (22) == std::vector<int> { CH });
-    CHECK (p.sounding (24) == std::vector<int> { OH });
+    CHECK (p.sounding (24) == std::vector<int> { HO1 });   // 0.17.0: the hat's openness steps
+    CHECK (p.sounding (25) == std::vector<int> { HH });
+    CHECK (p.sounding (26) == std::vector<int> { HO3 });
+    CHECK (p.sounding (46) == std::vector<int> { OH });
+    CHECK (p.sounding (59) == std::vector<int> { RE });    // the ride's edge
+    CHECK (p.sounding (7) == std::vector<int> { CH });     // HI-HAT (PEDAL), no pedal heard: closed
     CHECK (p.sounding (53) == std::vector<int> { RB });
     CHECK (p.sounding (40) == std::vector<int> { SD2 });   // the rimshot
     CHECK (p.sounding (3) == std::vector<int> { TMB });

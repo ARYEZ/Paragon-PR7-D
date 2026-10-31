@@ -12,8 +12,8 @@ namespace grooves
         {
             case BD: return (int) Lane::kick;
             case SD: case SD2: case RIM: return (int) Lane::snare;
-            case CH: case OH: case HH: return (int) Lane::hats;
-            case RD: case RB: return (int) Lane::ride;
+            case CH: case OH: case HH: case HO1: case HO3: return (int) Lane::hats;
+            case RD: case RB: case RE: return (int) Lane::ride;
             case LT: case MT: case HT: return (int) Lane::toms;
             case CY: case CR2: case CHN: case SPL: return (int) Lane::crash;
             default: return -1;   // the pedal hat (a foot), the clap, percussion
@@ -70,7 +70,7 @@ namespace grooves
         {
             if (h.beat >= Rhythm::maxBeats || h.note < 0 || h.note > 127)
                 continue;
-            if (const auto lane = laneOf (layout[(size_t) h.note]); lane >= 0)
+            if (const auto lane = laneOf (synth::drums::notemap::slotOf (layout, h.note)); lane >= 0)
                 r.beats[(size_t) lane].push_back (h.beat);
         }
         return r;

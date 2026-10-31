@@ -26,6 +26,7 @@ PR7-D is built in stages, each one released:
 | **5** | The groove player: browse, filter, preview and drag MIDI grooves from your own folders | **Works (0.16.0)**: browser in columns with back / forward, filter columns with your packs' labels, active-filter chips, search suggestions, preview, drag out, into the sequencer, tap to find, groove parts, User MIDI; grooves kept in `midiDB` database files too (0.16.0: rebuilt to work like the reference's groove tab) |
 | **6** | The song track: grooves laid out as a song, played with your DAW | **Works (0.12.0)**: blocks from grooves or MIDI files, move, lengthen, duplicate, mute, song parts, change tempo, PLAY, EXPORT MIDI; editing inside a block (paste or remove drums, quantize, velocity, split, merge, EDIT BLOCK); the SONG CREATOR; tempo and time signature changes; IMPORT MIDI FILE; RECORD; BOUNCE to audio; FOLLOW DAW |
 | **7** | The kit view: a drawn kit (our own 3D kit, black with glowing rings) to click and play | **Works (0.14.0)**: click a drum to choose and hear it; each piece glows as it plays |
+| **8** | Articulations: each drum of the kit a piece played several ways | **Works (0.17.0)**: the articulation list (ALL, ON, level), the ride's edge, five hat openness steps, stand-ins for articulations switched off, the hi-hat pedal (CC 4), cymbals grabbed by note-off or aftertouch |
 
 ## Using it
 
@@ -33,13 +34,23 @@ PR7-D is built in stages, each one released:
   - **KIT VIEW** (the right-hand panel's first tab): the kit from the drummer's seat, our own 3D kit in the PR7
     colours (black drums lit by glowing rings, pink on the hi-hat's side through red to orange on the ride's). **Click a
     drum to choose it and hear it** (SHIFT / CTRL choose several, as on the rows): the snare's head, hoop (rimshot) and
-    shell (sidestick); the ride's bow and bell; the hi-hat and its pedal; toms, cymbals, kick and a tambourine. Each
-    piece glows as it plays, from your DAW, the sequencer, a groove or the song. The clap and shaker are on the rows only.
-  - **The kit:** 20 drums: kick, rim, snare, clap, a second snare, three toms, closed, pedal and open hat, cymbal,
-    ride, ride bell, second crash, china, splash, half-open hat, tambourine, shaker. Each is one of our own drum synths
+    shell (sidestick); the ride's bow, bell and edge; the hi-hat and its pedal; toms, cymbals, kick and a tambourine.
+    Each piece glows as it plays, from your DAW, the sequencer, a groove or the song. The clap and shaker are on the
+    rows only.
+  - **ARTICULATIONS** (0.17.0, over the kit view's top left): the chosen drum's piece and the ways it's played (the
+    snare's center, rimshot and sidestick; the hi-hat closed, open 1 to 4 and pedal; the ride's bow, bell and edge).
+    Click a name to choose it and hear it, **ALL** to choose every one (the DRUM page's settings then go to all of
+    them); the dot switches one **off** (its notes then play the nearest one that's on, named beside it: a lighter kit,
+    or old presets as they were); drag its **level**. The hi-hat's **PEDAL (CC 4)**: a controller's pedal opens the
+    hat step by step on its pedal note (note 7 in Groove Library, or any note set to HI-HAT (PEDAL) in a Custom map);
+    drag the marks to set where each step begins. Cymbals: **MUTE TAIL**, grab it to stop it ringing, by letting the
+    key go (NOTE OFF) or by pressing a pad harder (AFTERTOUCH).
+  - **The kit:** 23 drums: kick, rim, snare, clap, a second snare, three toms, closed, pedal and open hat, cymbal,
+    ride, ride bell, second crash, china, splash, half-open hat, tambourine, shaker, and (0.17.0) the ride's edge and
+    two more hi-hat openness steps. Each is one of our own drum synths
     (kick, snare, clap, hats, tom, rim, cowbell, cymbal, ride, bell, tambourine, shaker) or a **SAMPLE** you load (drop
     an audio file on its row).
-  - **Which notes play them:** the MAP in SETTINGS. **Root** puts the 20 on the keys from **ROOT** (C2 at first);
+  - **Which notes play them:** the MAP in SETTINGS. **Root** puts the 23 on the keys from **ROOT** (C2 at first);
     **Groove Library** and **General MIDI** follow those layouts, so grooves made for them play as written; **Custom**
     is your own, note by note.
   - **OUTPUT** sends a drum to one of the plugin's 16 stereo outputs (MAIN, OUT 2 to 16), to mix it on its own

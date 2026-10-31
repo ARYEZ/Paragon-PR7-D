@@ -2,6 +2,7 @@
 
 #include "PluginProcessor.h"
 #include "dsp/synth/Drums.h"
+#include "ui/ArticulationPanel.h"
 #include "ui/DrumSeqPage.h"
 #include "ui/KitView.h"
 #include "ui/MultiPointEditor.h"
@@ -124,6 +125,8 @@ public:
     View getView() const noexcept { return view; }
     DrumSeqPanel& getSequencer() noexcept { return sequencer; }
     KitView& getKitView() noexcept { return kitView; }
+    ArticulationPanel& getArticulations() noexcept { return articulations; }   // over the KIT VIEW (0.17.0)
+    void chooseSlots (const std::vector<int>& slots);   // several drums chosen at once (ALL in the articulations)
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -161,5 +164,7 @@ private:
     View view = View::kit;
     DrumSeqPanel sequencer;
     KitView kitView;
+    ArticulationPanel articulations;
+    void placeArticulations();
     juce::TextButton kitTab { "KIT VIEW" }, drumTab { "DRUM" }, sequencerTab { "SEQUENCER" };
 };

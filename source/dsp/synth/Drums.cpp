@@ -880,8 +880,21 @@ namespace synth::drums
             startHit (slot, velocity, settings);
     }
 
-    void Kit::startHit (int slot, float velocity, const KitSettings& settings, const HitOptions& options) noexcept
+    void Kit::grab (int slot) noexcept
     {
+        // A cymbal grabbed stops all of it: the ride's bow, bell and edge alike.
+        const auto piece = pieceOfSlot (slot);
+        for (auto& v : voices)
+            if (v.active && v.fadeStep <= 0.0f && (v.slot == slot || (piece >= 0 && pieceOfSlot (v.slot) == piece)))
+                v.fadeOut (0.08);
+    }
+
+    void Kit::startHit (int asked, float velocity, const KitSettings& settings, const HitOptions& options) noexcept
+    {
+        // ARTICULATIONS (0.17.0): an articulation switched off plays its stand-in.
+        const auto slot = settings.playsAs (asked);
+        if (slot < 0)
+            return;
         const auto& s = settings.slots[(size_t) slot];
         lastHit[(size_t) slot] = 0.0;
         // A slot that's silent starts at its MUTE / SOLO level (it glides only while it sounds).
@@ -1066,6 +1079,24 @@ namespace synth::drums
                     break;
                 playHitsBefore (position);
                 const auto message = metadata.getMessage();
+                // THE HI-HAT PEDAL: CC 4 (127 closed).
+                if (message.isController() && message.getControllerNumber() == 4)
+                {
+                    pedal = message.getControllerValue();
+                    continue;
+                }
+                // MUTE TAIL: a cymbal grabbed by a note let go or by aftertouch, as its slot asks.
+                if (message.isNoteOff() || message.isAftertouch())
+                {
+                    const auto played = settings.playsAs (settings.slotFor (message.getNoteNumber(), pedal.load()));
+                    const auto wanted = message.isNoteOff() ? MuteTail::noteOff : MuteTail::aftertouch;
+                    if (played >= 0 && settings.slots[(size_t) played].muteTail == wanted
+                        && (message.isNoteOff() || message.getAfterTouchValue() > 0))
+                    {
+                        renderTo (position);
+                        grab (played);
+                    }
+                }
                 if (! message.isNoteOnOrOff())
                     continue;
                 if (const auto pattern = keyed && ! settings.mapped ? patternForKey (message.getNoteNumber(), settings.rootKey) : -1; pattern >= 0)
@@ -1074,7 +1105,7 @@ namespace synth::drums
                     patternKey (pattern, message.isNoteOn(), message.getFloatVelocity());
                     continue;
                 }
-                const auto slot = settings.slotFor (message.getNoteNumber());
+                const auto slot = settings.slotFor (message.getNoteNumber(), pedal.load());
                 if (slot < 0 || ! message.isNoteOn())
                     continue;
                 renderTo (position);

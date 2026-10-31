@@ -22,7 +22,7 @@ namespace
     const juce::Identifier modulationKey { "Modulation" };
     const juce::Identifier midiLinksKey { "MidiLinks" };
     const juce::Identifier noteMapKey { "NoteMap" };
-    constexpr int parameterVersion = 1;
+    constexpr int parameterVersion = 2;   // 2: 0.17.0 (the articulations: older projects load with drums 21 to 23 off)
 }
 
 //==============================================================================
@@ -1112,7 +1112,11 @@ synth::drums::KitSettings ParagonX1AudioProcessor::getKitSettings() const noexce
         if (const auto* compiled = matrixForAudio.load())
             s.envelope = &compiled->drumEnvelopes[k];
         s.envelopeSeconds = hitLengths[k].load();
+        s.active = get (drumSetting ("On")) > 0.5f;
+        s.muteTail = (synth::drums::MuteTail) juce::jlimit (0, synth::drums::muteTailNames.size() - 1, juce::roundToInt (get (drumSetting ("MuteTail"))));
     }
+    for (int i = 0; i < 4; ++i)
+        kit.pedalSteps[(size_t) i] = juce::roundToInt (param (ParamIDs::drumsPedalSteps[i].toRawUTF8()));
     return kit;
 }
 
@@ -1227,7 +1231,7 @@ juce::Array<juce::File> ParagonX1AudioProcessor::listDrumSequences() const { ret
 std::unique_ptr<juce::XmlElement> ParagonX1AudioProcessor::captureDrumKit() const
 {
     auto xml = std::make_unique<juce::XmlElement> ("DrumKit");
-    xml->setAttribute ("version", 1);
+    xml->setAttribute ("version", 2);   // 2: 0.17.0 (older kits load with drums 21 to 23 off)
     for (auto* parameter : AudioProcessor::getParameters())
         if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter); ranged != nullptr && isKitParameter (ranged->paramID))
         {
@@ -1285,6 +1289,9 @@ bool ParagonX1AudioProcessor::applyDrumKit (const juce::XmlElement& xml)
     std::map<juce::String, float> values;
     for (const auto* e : xml.getChildWithTagNameIterator ("Param"))
         values[e->getStringAttribute ("id")] = (float) e->getDoubleAttribute ("value");
+    if (xml.getIntAttribute ("version", 1) < 2)
+        for (const auto& id : ParamIDs::articulationsAddedOff)
+            values[id] = 0.0f;
     for (auto* parameter : AudioProcessor::getParameters())
         if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter); ranged != nullptr && isKitParameter (ranged->paramID))
         {
@@ -1798,6 +1805,19 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
         state.removeChild (saved, nullptr);
     }
     installSong (std::move (newSong));
+    // Before 0.17.0: the articulations it added start off, so the project sounds as it did.
+    if ((int) state.getProperty (parameterVersionKey, 1) < 2)
+        for (const auto& id : ParamIDs::articulationsAddedOff)
+        {
+            auto param = state.getChildWithProperty ("id", id);
+            if (! param.isValid())
+            {
+                param = juce::ValueTree ("PARAM");
+                param.setProperty ("id", id, nullptr);
+                state.appendChild (param, nullptr);
+            }
+            param.setProperty ("value", 0.0f, nullptr);
+        }
     parameters.replaceState (state);
     matrix = newMatrix;
     compileMatrix();
@@ -1836,7 +1856,7 @@ void ParagonX1AudioProcessor::playGroove (const grooves::Groove& groove, int fol
     auto preview = std::make_shared<GroovePreview>();
     const auto map = grooveLayout (folder);
     for (const auto& h : groove.hits)
-        if (const auto slot = h.note >= 0 && h.note < 128 ? map[(size_t) h.note] : -1; slot >= 0 && grooves::inParts (parts, slot))
+        if (const auto slot = synth::drums::notemap::slotOf (map, h.note); slot >= 0 && grooves::inParts (parts, slot))
             preview->hits.push_back ({ h.beat, slot, h.velocity });
     preview->lengthBeats = juce::jmax (0.25, groove.lengthBeats);
     preview->endBeat = juce::jmax (preview->lengthBeats, groove.hits.empty() ? 0.0 : groove.hits.back().beat + 1.0e-6);
@@ -1935,7 +1955,7 @@ std::function<int (int)> ParagonX1AudioProcessor::grooveNoteFor (int folder, uns
         const auto map = grooveLayout (folder);
         return [map, parts, rest = grooveNoteFor (folder)] (int note)
         {
-            const auto slot = note >= 0 && note < 128 ? map[(size_t) note] : -1;
+            const auto slot = synth::drums::notemap::slotOf (map, note);
             return grooves::inParts (parts, slot) ? rest (note) : -1;
         };
     }
@@ -1951,7 +1971,7 @@ std::function<int (int)> ParagonX1AudioProcessor::grooveNoteFor (int folder, uns
         home[(size_t) k] = homeNote (k);
     return [map, home] (int note)
     {
-        const auto slot = note >= 0 && note < 128 ? map[(size_t) note] : -1;
+        const auto slot = synth::drums::notemap::slotOf (map, note);
         return slot >= 0 ? home[(size_t) slot] : -1;
     };
 }
@@ -1981,7 +2001,7 @@ ParagonX1AudioProcessor::GrooveToPattern ParagonX1AudioProcessor::grooveToPatter
     ds::Pattern made;
     for (const auto& h : groove.hits)
     {
-        const auto slot = h.note >= 0 && h.note < 128 ? map[(size_t) h.note] : -1;
+        const auto slot = synth::drums::notemap::slotOf (map, h.note);
         const auto beat = h.beat * scale;
         if (slot < 0)
             ++result.noDrum;
@@ -2037,7 +2057,7 @@ ParagonX1AudioProcessor::GrooveToPattern ParagonX1AudioProcessor::layerParts (co
     for (auto repeat = 0.0; repeat < length - 1.0e-9; repeat += partLength)
         for (const auto& h : groove.hits)
         {
-            const auto slot = h.note >= 0 && h.note < 128 ? map[(size_t) h.note] : -1;
+            const auto slot = synth::drums::notemap::slotOf (map, h.note);
             if (! grooves::inParts (parts, slot))
             {
                 result.noDrum += repeat == 0.0 && slot < 0 ? 1 : 0;
@@ -2114,7 +2134,7 @@ void ParagonX1AudioProcessor::mapNote (int note, int slot)
     if (note < 0 || note > 127)
         return;
     auto map = getNoteMap();   // under another layout: that layout, copied to CUSTOM
-    map[(size_t) note] = (std::int8_t) (slot >= 0 && slot < synth::drums::numSlots ? slot : -1);
+    map[(size_t) note] = (std::int8_t) ((slot >= 0 && slot < synth::drums::numSlots) || slot == synth::drums::notemap::PEDAL ? slot : -1);
     setCustomMap (map);
     if (auto* layout = parameters.getParameter (ParamIDs::drumsMap); layout != nullptr && getMapLayout() != synth::drums::notemap::Layout::custom)
         layout->setValueNotifyingHost (layout->convertTo0to1 ((float) synth::drums::notemap::Layout::custom));

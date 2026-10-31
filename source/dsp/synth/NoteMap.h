@@ -7,7 +7,7 @@
 
 // THE NOTE MAP (PR7-D 0.2.0): which MIDI note plays which drum.
 //
-//   ROOT          the 20 keys from ROOT play the slots in order (C the kick ... the first 12 as on General MIDI kits'
+//   ROOT          the 23 keys from ROOT play the slots in order (C the kick ... the first 12 as on General MIDI kits'
 //                 octave, as PR7-K played them); the four keys under ROOT start the sequencer's patterns on KEY.
 //   GROOVE LIBRARY  the extended layout of popular drum software's groove libraries, so their MIDI grooves play as
 //                 written: several notes per drum (its articulations), from note 1 to 127. Inspired by that layout,
@@ -26,8 +26,20 @@ namespace synth::drums::notemap
     using Map = std::array<std::int8_t, 128>;   // each note's slot, -1: none
 
     // The slots by name (slotDefaults' order).
-    enum Slot : std::int8_t { BD, RIM, SD, CLP, SD2, LT, CH, MT, PH, HT, OH, CY, RD, RB, CR2, CHN, SPL, HH, TMB, SHK };
-    static_assert (SHK == numSlots - 1);
+    enum Slot : std::int8_t { BD, RIM, SD, CLP, SD2, LT, CH, MT, PH, HT, OH, CY, RD, RB, CR2, CHN, SPL, HH, TMB, SHK,
+                              RE, HO1, HO3 };   // 0.17.0
+    static_assert (HO3 == numSlots - 1);
+    // A note that plays the hi-hat at the pedal's openness (CC 4): KitSettings::hatPedal.
+    inline constexpr std::int8_t PEDAL = KitSettings::hatPedal;
+
+    // The slot a note plays in a map (-1: none), for grooves and songs (no pedal there: HI-HAT (PEDAL) is closed).
+    inline int slotOf (const Map& m, int note) noexcept
+    {
+        if (note < 0 || note >= 128)
+            return -1;
+        const auto k = m[(size_t) note];
+        return k == PEDAL ? (int) CH : (int) k;
+    }
 
     inline Map empty()
     {
@@ -65,6 +77,12 @@ namespace synth::drums::notemap
     // of the same layout calls a crash too; ride notes to RD but 53, the bell (General MIDI's ride bell, kept there by
     // the same open-source map). Its hat openness levels go to CH (closed), PH (pedal) and OH (open); HH, CR2, CHN and
     // SPL are left for CUSTOM until a real groove file shows which notes they are.
+    //
+    // 0.17.0, articulations: 59 is the ride's edge (the owner's packs use it in their "ride crash" grooves); the hat's
+    // 24, 25 and 26 are its openness steps OPEN 1, OPEN 2 (HH) and OPEN 3 (OUR GUESS at their order: the rock pack's
+    // open-hat grooves ride mostly on 25, 24 next, 26 least); the rest of its open notes play OPEN 4 (OH). Note 7 is
+    // the HI-HAT (PEDAL) note, as that software's default "edge trigger": the openness the pedal (CC 4) is at, closed
+    // when no pedal is sending, which is how it played before.
     inline Map grooveLibrary()
     {
         using namespace detail;
@@ -75,13 +93,18 @@ namespace synth::drums::notemap
         set (m, SD, { 6, 33, 38, 39, 66, 68, 69, 70, 125 });
         set (m, SD2, { 40, 71, 126 });
         set (m, RIM, { 37, 67, 76, 127 });
-        set (m, CH, { 7, 8, 9, 11, 18, 19, 20, 22, 42, 61, 62, 63, 64, 65, 119, 122 });
+        set (m, CH, { 8, 9, 11, 18, 19, 20, 22, 42, 61, 62, 63, 64, 65, 119, 122 });
+        set (m, PEDAL, { 7 });
         set (m, PH, { 10, 21, 23, 44 });
-        set (m, OH, { 12, 13, 14, 15, 16, 17, 24, 25, 26, 46, 60, 120, 121, 123, 124 });
+        set (m, OH, { 12, 13, 14, 15, 16, 17, 46, 60, 120, 121, 123, 124 });
+        set (m, HO1, { 24 });
+        set (m, HH, { 25 });
+        set (m, HO3, { 26 });
         set (m, HT, { 47, 48, 79, 80, 81, 82 });
         set (m, MT, { 43, 45, 74, 75, 77, 78 });
         set (m, LT, { 41, 72, 73 });
-        set (m, RD, { 29, 30, 51, 52, 54, 59 });
+        set (m, RD, { 29, 30, 51, 52, 54 });
+        set (m, RE, { 59 });
         range (m, RD, 83, 93);
         range (m, RD, 96, 105);
         range (m, RD, 108, 118);
@@ -126,7 +149,8 @@ namespace synth::drums::notemap
             return root + slot >= 0 && root + slot < 128 ? root + slot : -1;
         if (layout == Layout::grooveLibrary || layout == Layout::generalMidi)
         {
-            constexpr std::array<int, numSlots> preferred { 36, 37, 38, 39, 40, 41, 42, 45, 44, 48, 46, 49, 51, 53, 57, 52, 55, -1, 54, 69 };
+            constexpr std::array<int, numSlots> preferred { 36, 37, 38, 39, 40, 41, 42, 45, 44, 48, 46, 49, 51, 53, 57, 52, 55, 25, 54, 69,
+                                                            59, 24, 26 };
             const auto n = preferred[(size_t) juce::jlimit (0, numSlots - 1, slot)];
             if (n >= 0 && m[(size_t) n] == slot)
                 return n;
@@ -153,7 +177,7 @@ namespace synth::drums::notemap
         {
             const auto note = item.upToFirstOccurrenceOf (":", false, false).getIntValue();
             const auto slot = item.fromFirstOccurrenceOf (":", false, false).getIntValue();
-            if (note >= 0 && note < 128 && slot >= 0 && slot < numSlots && item.containsChar (':'))
+            if (note >= 0 && note < 128 && ((slot >= 0 && slot < numSlots) || slot == PEDAL) && item.containsChar (':'))
                 m[(size_t) note] = (std::int8_t) slot;
         }
         return m;

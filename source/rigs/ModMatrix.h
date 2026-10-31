@@ -103,7 +103,7 @@ struct ModMatrix
     // THE DRUM SEQUENCER's patterns A to D; each pattern's notes on the heap.
     std::vector<synth::drumseq::Pattern> drumPatterns = std::vector<synth::drumseq::Pattern> ((size_t) synth::drumseq::numPatterns);
     // THE SAMPLE EDITOR's envelopes, one per drum slot.
-    static constexpr int numDrumSlots = 20;
+    static constexpr int numDrumSlots = 23;
     std::vector<ModShapeData> drumEnvelopes = std::vector<ModShapeData> ((size_t) numDrumSlots, ModShapeData::flatDrumEnvelope());
 
     bool operator== (const ModMatrix& o) const noexcept { return drumPatterns == o.drumPatterns && drumEnvelopes == o.drumEnvelopes; }
