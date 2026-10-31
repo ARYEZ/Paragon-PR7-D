@@ -144,9 +144,10 @@ TEST_CASE ("GROOVE DATABASE: its grooves list in GROOVES, in its folders", "[gro
     CHECK (waltz->bpm == 90.0);
     CHECK (waltz->bars == 2);
 
-    // A second scan takes them from the index (the database unchanged): the same list.
+    // A second scan takes them from the index (the database unchanged, so not even opened): the same list, none read.
     library.scanNow();
     CHECK (library.getEntries().size() == 43);
+    CHECK (library.getNumScanned() == 0);
     CHECK (library.query (f.groove ("Straight 4-4/Rock Song 100 BPM/Grooves"), "", false, grooves::Sort::name, 120.0, 4, 4).size() >= 41);
 }
 

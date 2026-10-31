@@ -120,7 +120,7 @@ private:
     ParagonX1AudioProcessor& processor;
     grooves::Library& library;
 
-    juce::TextButton addFolder { "ADD FOLDER..." }, removeFolder { "REMOVE" }, subfolders { "SUBFOLDERS" },
+    juce::TextButton addFolder { "ADD FOLDER..." }, removeFolder { "REMOVE" }, subfolders { "SUBFOLDERS" }, refreshButton { "REFRESH" },
                      favouritesOnly { "ONLY" }, stop { "STOP" };
     juce::ComboBox layout, sort, tempoSource, factor, dragAs;
     juce::Label layoutLabel { {}, "FILES' MAP" }, sortLabel { {}, "SORT" }, tempoLabel { {}, "TEMPO" }, velocityLabel { {}, "VELOCITY" },

@@ -2,6 +2,20 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.15.2
+
+**Fixed: every PR7-D added to a song read your whole groove library again** (10,000 files in your folders). Each PR7-D keeps its own list of grooves, and the first time its GROOVES page opened it checked every file in your linked folders against the saved list, though the PR7-D before it had just done the same. It also loaded that saved list on the window's own thread, so the window could freeze while it did.
+
+- **Your folders are checked once each time your DAW starts**, by the first PR7-D whose GROOVES page opens, in the background, with the list shown at once from what was read before. Every PR7-D you add after that lists the grooves straight away and checks nothing.
+  - Measured here with 10,000 grooves: a new PR7-D used to hold the window for about 0.2 s and then check for about a second (several times that on a Windows disk with a virus scanner looking at each file); now it takes under a millisecond of the window's time and lists all 10,000 a quarter of a second later, reading none.
+- **Only new or changed files are read** (as before), and now the status line says so: "10000 grooves (checking for new ones)", instead of counting all 10,000 as if reading them.
+- **A groove database that hasn't changed isn't even opened** during the check: its grooves come from the saved list.
+- **The saved list isn't rewritten when nothing changed** (with 10,000 grooves it's megabytes).
+- **A first read cut short isn't lost:** if a PR7-D is removed while reading your folders for the first time, what it read is kept, and the next one carries on from there.
+- **New: REFRESH** (beside SUBFOLDERS): check your folders now, if you add grooves while your DAW is open. Adding or removing a folder, or changing its map, checks as before.
+
+Not checked here: the time on your computer (it depends on your disk and virus scanner). The first PR7-D after starting your DAW still checks once, in the background, while the list is already there to use.
+
 ## 0.15.1
 
 **Fixed: the plugin's window used far too much CPU while drums played** (since 0.14.0's KIT VIEW). The sound was never the problem (measured: well under 3% of real time for a beat on the default kit); the drawing was.

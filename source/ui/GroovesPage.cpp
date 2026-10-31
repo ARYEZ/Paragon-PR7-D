@@ -257,6 +257,9 @@ GroovesPage::GroovesPage (ParagonX1AudioProcessor& p) : processor (p), library (
     subfolders.setClickingTogglesState (true);
     subfolders.setToggleState (library.getSubfolders(), juce::dontSendNotification);
     subfolders.onClick = [this] { library.setSubfolders (subfolders.getToggleState()); requery(); };
+    refreshButton.setTooltip ("Check your folders for grooves added, changed or removed since they were last read (PR7-D checks once "
+                              "each time your DAW starts; only new or changed files are read).");
+    refreshButton.onClick = [this] { library.scan(); };
     favouritesOnly.setTooltip ("Only your favourites (click a groove's star to make it one).");
     favouritesOnly.setClickingTogglesState (true);
     favouritesOnly.onClick = [this] { requery(); };
@@ -335,7 +338,7 @@ GroovesPage::GroovesPage (ParagonX1AudioProcessor& p) : processor (p), library (
     header.setStretchToFitActive (true);   // the columns share the list's width (no scrolling sideways)
     table.setMultipleSelectionEnabled (false);
 
-    for (juce::Component* c : { (juce::Component*) &addFolder, (juce::Component*) &removeFolder, (juce::Component*) &subfolders,
+    for (juce::Component* c : { (juce::Component*) &addFolder, (juce::Component*) &removeFolder, (juce::Component*) &subfolders, (juce::Component*) &refreshButton,
                                 (juce::Component*) &layoutLabel, (juce::Component*) &layout, (juce::Component*) &search,
                                 (juce::Component*) &favouritesOnly, (juce::Component*) &sortLabel, (juce::Component*) &sort,
                                 (juce::Component*) &status, (juce::Component*) &tempoLabel, (juce::Component*) &tempoSource,
@@ -421,14 +424,15 @@ GroovesPage::~GroovesPage()
 
 void GroovesPage::visibilityChanged()
 {
-    // The folders are read again the first time the page is shown (what was read last time is listed meanwhile).
+    // The first time the page is shown: what was read before is listed (read in the background, not here: 10,000
+    // grooves take a moment), and the folders are checked for changes, once a DAW session (0.15.2: every PR7-D added
+    // to a song used to check them all again).
     if (isShowing() && ! scannedOnce)
     {
         scannedOnce = true;
-        library.loadIndex();
         refresh();
         if (! library.getFolders().empty())
-            library.scan();
+            library.scan (true);
     }
 }
 
@@ -694,8 +698,12 @@ void GroovesPage::timerCallback()
 {
     if (juce::Time::getMillisecondCounterHiRes() < messageUntil)
         status.setText (message, juce::dontSendNotification);
-    else if (library.isScanning())
+    else if (library.isScanning() && results.empty() && library.getNumEntries() == 0)
         status.setText ("Reading your grooves... " + juce::String (library.getNumScanned()) + " files", juce::dontSendNotification);
+    else if (library.isScanning())
+        status.setText (juce::String (results.size()) + (results.size() == 1 ? " groove" : " grooves") + " (checking for new ones"
+                            + (library.getNumScanned() > 0 ? ": " + juce::String (library.getNumScanned()) + " read" : juce::String()) + ")",
+                        juce::dontSendNotification);
     else if (library.getFolders().empty())
         status.setText ("No groove folders yet: ADD FOLDER... links one of yours", juce::dontSendNotification);
     else
@@ -1052,9 +1060,10 @@ void GroovesPage::resized()
     place (top, addFolder, 130);
     place (top, removeFolder, 86);
     place (top, subfolders, 106);
+    place (top, refreshButton, 90);
     place (top, layoutLabel, 74, 6);
     place (top, layout, 150, 24);
-    place (top, search, 230);
+    place (top, search, 150);
     auto star = top.removeFromLeft (70);
     favouritesOnly.setBounds (star.withSizeKeepingCentre (70, 30));
     top.removeFromLeft (16);

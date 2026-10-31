@@ -97,12 +97,14 @@ namespace grooves
         // What was read last time, listed at once (once; a scan brings it up to date). The page calls it on opening.
         void loadIndex();
 
-        // READING. scan() starts reading in the background (listeners hear when it's done, and as it goes);
-        // scanNow() reads on this thread (tests).
-        void scan();
+        // READING. scan() starts reading in the background (listeners hear when it's done, and as it goes): it lists
+        // what was read before at once, then checks the folders for new or changed files, reading only those.
+        // `onlyIfNeeded` (0.15.2, the page opening): not if this DAW session has checked these folders already, with
+        // this index (every PR7-D in a song shares that: only the first checks). scanNow() checks on this thread.
+        void scan (bool onlyIfNeeded = false);
         void scanNow();
         bool isScanning() const noexcept { return scanning.load(); }
-        int getNumScanned() const noexcept { return scanned.load(); }
+        int getNumScanned() const noexcept { return scanned.load(); }   // files read anew (not known from before)
 
         // THE GROOVES (a copy: safe while the scan replaces them).
         std::vector<Entry> getEntries() const;
@@ -138,7 +140,9 @@ namespace grooves
     private:
         void load();
         void save() const;
-        void read (const std::atomic<bool>* stop);
+        void read (const std::atomic<bool>* stop, bool check);
+        juce::String foldersChecked() const;
+        bool checkedThisSessionAlready() const;
         void stopScan();   // the folders are only changed with no scan running
         class Scanner;
 

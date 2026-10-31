@@ -323,6 +323,81 @@ TEST_CASE ("GROOVE LIBRARY: the scan runs in the background", "[grooves]")
     CHECK (library.getNumEntries() == 4);
 }
 
+TEST_CASE ("GROOVE LIBRARY 0.15.2: a second PR7-D in the same session lists what was read and doesn't check the folders again", "[grooves]")
+{
+    // Every PR7-D added to a song has its own library; before 0.15.2 each one checked every file again when its
+    // GROOVES page opened (10,000 files in the owner's folders).
+    TempGrooves t;
+    const auto waitFor = [] (grooves::Library& l)
+    {
+        for (int i = 0; i < 500 && l.isScanning(); ++i)
+            juce::Thread::sleep (10);
+    };
+    {
+        grooves::Library first (t.settings, t.index);
+        first.addFolder (t.pack);
+        waitFor (first);
+        first.scanNow();   // checked: nothing new, so nothing read again
+        CHECK (first.getNumScanned() == 0);
+        CHECK (first.getNumEntries() == 4);
+    }
+
+    // A groove changes on disk after that check.
+    t.write ("Ride Beat.mid", midiFile (rockBeat (51), 70.0, 4, 4));
+    t.pack.getChildFile ("Ride Beat.mid").setLastModificationTime (juce::Time::getCurrentTime() + juce::RelativeTime::minutes (1));
+
+    // The next PR7-D's page opening: listed from what was read (in the background), no check this session.
+    grooves::Library second (t.settings, t.index);
+    CHECK (second.getNumEntries() == 0);
+    second.scan (true);
+    waitFor (second);
+    CHECK (second.getNumEntries() == 4);
+    CHECK (second.getNumScanned() == 0);
+    const auto ride = [&second]
+    {
+        const auto found = second.query ({}, "ride", false, grooves::Sort::name, 120.0, 4, 4);
+        return found.empty() ? 0.0 : found[0].bpm;
+    };
+    CHECK_THAT (ride(), ! WithinAbs (70.0, 0.01));   // the change not seen yet...
+    second.scan (true);
+    waitFor (second);
+    CHECK (second.getNumScanned() == 0);             // ...and not looked for again
+
+    // REFRESH: the folders checked; only the changed file read.
+    second.scan();
+    waitFor (second);
+    CHECK (second.getNumScanned() == 1);
+    CHECK_THAT (ride(), WithinAbs (70.0, 0.01));
+
+    // Folders changed: a check is needed again (a third PR7-D with the folder's map changed checks it).
+    second.setLayout (0, synth::drums::notemap::Layout::generalMidi);
+    waitFor (second);
+    grooves::Library third (t.settings, t.index);
+    third.scan (true);
+    waitFor (third);
+    CHECK (third.getNumEntries() == 4);
+}
+
+TEST_CASE ("GROOVE LIBRARY 0.15.2: a check that finds nothing new leaves the index as it was", "[grooves]")
+{
+    TempGrooves t;
+    grooves::Library library (t.settings, t.index);
+    library.addFolder (t.pack);
+    for (int i = 0; i < 500 && library.isScanning(); ++i)
+        juce::Thread::sleep (10);
+    REQUIRE (t.index.existsAsFile());
+    const auto earlier = juce::Time::getCurrentTime() - juce::RelativeTime::hours (1);
+    t.index.setLastModificationTime (earlier);
+    library.scanNow();
+    CHECK (library.getNumScanned() == 0);
+    CHECK (std::abs (t.index.getLastModificationTime().toMilliseconds() - earlier.toMilliseconds()) < 2000);   // not rewritten
+    // A file removed: written again, without it.
+    t.pack.getChildFile ("Ride Beat.mid").deleteFile();
+    library.scanNow();
+    CHECK (library.getNumEntries() == 3);
+    CHECK (t.index.getLastModificationTime() > earlier + juce::RelativeTime::minutes (30));
+}
+
 TEST_CASE ("GROOVES 0.5: FEEL from where the off-beat hits fall; TYPE from the names", "[grooves][filters]")
 {
     // Straight eighths and sixteenths: straight. A shuffle (the hat on the beat and two thirds of it): swung.

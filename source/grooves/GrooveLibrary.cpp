@@ -2,6 +2,8 @@
 #include "grooves/GrooveDatabase.h"
 
 #include <map>
+#include <mutex>
+#include <set>
 
 namespace grooves
 {
@@ -74,14 +76,35 @@ namespace grooves
         }
     }
 
+    namespace
+    {
+        // 0.15.2: what this DAW session has already checked, by index file: the folders and maps checked, and the
+        // index as that check left it. Every PR7-D in a song shares it, so only the first checks the folders.
+        std::mutex sessionLock;
+        std::map<juce::String, juce::String> checkedThisSession;
+
+        juce::String indexStamp (const juce::File& index)
+        {
+            return juce::String (index.getSize()) + ":" + juce::String (index.getLastModificationTime().toMilliseconds());
+        }
+    }
+
+    juce::String Library::foldersChecked() const
+    {
+        juce::String s (subfolders ? "1" : "0");
+        for (const auto& f : folders)
+            s << "|" << f.folder.getFullPathName() << ":" << (int) f.layout;
+        return s;
+    }
+
     class Library::Scanner final : public juce::Thread
     {
     public:
-        explicit Scanner (Library& l) : juce::Thread ("PR7-D grooves"), library (l) {}
+        Scanner (Library& l, bool c) : juce::Thread ("PR7-D grooves"), library (l), check (c) {}
         ~Scanner() override { stopThread (10000); }
         void run() override
         {
-            library.read (&stop);
+            library.read (&stop, check);
             library.scanning = false;
             library.sendChangeMessage();
         }
@@ -89,6 +112,7 @@ namespace grooves
 
     private:
         Library& library;
+        bool check;
         std::atomic<bool> stop { false };
     };
 
@@ -237,12 +261,22 @@ namespace grooves
         scanning = false;
     }
 
-    void Library::scan()
+    bool Library::checkedThisSessionAlready() const
+    {
+        std::lock_guard<std::mutex> guard (sessionLock);
+        const auto known = checkedThisSession.find (indexFile.getFullPathName());
+        return known != checkedThisSession.end() && known->second == foldersChecked() + "#" + indexStamp (indexFile);
+    }
+
+    void Library::scan (bool onlyIfNeeded)
     {
         stopScan();
+        const auto check = ! (onlyIfNeeded && checkedThisSessionAlready());
+        if (! check && indexLoaded)
+            return;   // listed, and checked this session (by this PR7-D or another)
         scanning = true;
         scanned = 0;
-        scanner = std::make_unique<Scanner> (*this);
+        scanner = std::make_unique<Scanner> (*this, check);
         scanner->startThread (juce::Thread::Priority::low);
     }
 
@@ -251,12 +285,12 @@ namespace grooves
         stopScan();
         scanning = true;
         scanned = 0;
-        read (nullptr);
+        read (nullptr, true);
         scanning = false;
         sendChangeMessage();
     }
 
-    void Library::read (const std::atomic<bool>* stop)
+    void Library::read (const std::atomic<bool>* stop, bool check)
     {
         // What was read before, by path: a file whose size, date and folder map haven't changed isn't read again.
         std::map<juce::String, std::pair<juce::String, Entry>> before;
@@ -264,7 +298,37 @@ namespace grooves
             for (const auto* x : xml->getChildWithTagNameIterator ("G"))
                 before[x->getStringAttribute ("path")] = { x->getStringAttribute ("stamp"), fromXml (*x) };
 
+        // 0.15.2: listed at once from what was read before (off the window's thread), then checked.
+        if (! indexLoaded)
+        {
+            std::vector<Entry> known;
+            for (const auto& [path, item] : before)
+            {
+                auto e = item.second;
+                for (int f = 0; f < (int) folders.size(); ++f)
+                    if (e.file.isAChildOf (folders[(size_t) f].folder))
+                    {
+                        e.folder = f;
+                        e.name = e.file.getFileNameWithoutExtension();
+                        e.family = e.file.getParentDirectory().getFileName();
+                        e.part = partOf (e.file);
+                        known.push_back (std::move (e));
+                        break;
+                    }
+            }
+            {
+                std::lock_guard<std::mutex> guard (lock);
+                entries = std::move (known);
+            }
+            indexLoaded = true;
+            sendChangeMessage();
+        }
+        if (! check || (stop != nullptr && stop->load()))
+            return;
+
         std::vector<Entry> found;
+        std::set<juce::String> seen;
+        auto changed = false;   // anything read anew (else the index stays as it is)
         juce::XmlElement index ("GrooveIndex");
         for (int f = 0; f < (int) folders.size(); ++f)
         {
@@ -277,17 +341,21 @@ namespace grooves
                 if (const auto known = before.find (file.getFullPathName()); known != before.end() && known->second.first == key)
                     e = known->second.second;
                 else if (const auto g = readIt())
+                {
                     e = entryOf (*g, f, map);
+                    changed = true;
+                    if ((++scanned % 200) == 0)
+                        sendChangeMessage();
+                }
                 else
                     return;   // not a groove: no notes, or not a MIDI file
+                seen.insert (file.getFullPathName());
                 e.folder = f;
                 e.name = file.getFileNameWithoutExtension();
                 e.family = file.getParentDirectory().getFileName();
                 e.part = partOf (file);
                 index.addChildElement (toXml (e, key).release());
                 found.push_back (std::move (e));
-                if ((++scanned % 200) == 0)
-                    sendChangeMessage();
             };
             for (const auto& item : juce::RangedDirectoryIterator (linked.folder, true, juce::String ("*.mid;*.midi;") + db::wildcard, juce::File::findFiles))
             {
@@ -300,8 +368,20 @@ namespace grooves
                     // own size and date.
                     if (! db::isDatabase (file))
                         continue;
-                    const auto contents = db::load (file);
                     const auto key = "db:" + stamp (file, linked.layout);
+                    // 0.15.2: unchanged (its size and date as read before): its grooves as listed, without reading it.
+                    const auto inside = file.getFullPathName() + juce::File::getSeparatorString();
+                    std::vector<juce::File> listed;
+                    for (auto it = before.lower_bound (inside); it != before.end() && it->first.startsWith (inside); ++it)
+                        if (it->second.first == key)
+                            listed.push_back (juce::File (it->first));
+                    if (! listed.empty())
+                    {
+                        for (const auto& groove : listed)
+                            add (groove, key, [] { return std::optional<Groove>(); });
+                        continue;
+                    }
+                    const auto contents = db::load (file);
                     for (const auto& groove : contents->items)
                     {
                         if ((stop != nullptr && stop->load()) || (int) found.size() >= maxFiles)
@@ -317,15 +397,30 @@ namespace grooves
                 add (file, stamp (file, linked.layout), [&] { return grooves::read (file, map); });
             }
         }
+        indexFile.getParentDirectory().createDirectory();
         if (stop != nullptr && stop->load())
-            return;   // stopped for a newer scan: it'll list them
+        {
+            // Stopped (another scan, or this PR7-D removed): what it read anew is kept, with the rest as before, so the
+            // next one carries on from here.
+            if (changed)
+            {
+                for (const auto& [path, item] : before)
+                    if (seen.count (path) == 0)
+                        index.addChildElement (toXml (item.second, item.first).release());
+                index.writeTo (indexFile);
+            }
+            return;
+        }
         {
             std::lock_guard<std::mutex> guard (lock);
             entries = std::move (found);
             indexLoaded = true;   // what's listed is newer than the index
         }
-        indexFile.getParentDirectory().createDirectory();
-        index.writeTo (indexFile);
+        // Written only when something changed (a file read anew, or one gone): 10,000 grooves are megabytes.
+        if (changed || seen.size() != before.size() || ! indexFile.existsAsFile())
+            index.writeTo (indexFile);
+        std::lock_guard<std::mutex> guard (sessionLock);
+        checkedThisSession[indexFile.getFullPathName()] = foldersChecked() + "#" + indexStamp (indexFile);
     }
 
     std::vector<Entry> Library::getEntries() const
