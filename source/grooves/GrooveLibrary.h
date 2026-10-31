@@ -31,18 +31,34 @@ namespace grooves
         Part part = Part::beat;      // from the names (worked out when listed)
         std::shared_ptr<const Rhythm> rhythm;   // TAP TO FIND (0.6.0): its rhythm (shared: entries are copied a lot)
         float match = -1.0f;         // with a tap search: how close, 0 to 1 (else -1)
+        // 0.16.0: what a groove database says of it (none for plain MIDI files), each "Group:Value" ("Genre:Pop/Rock",
+        // "Play Style:Double Kick", "Type:Half Time", "Power Hand:Ride Crash"), and its place in the pack's own order
+        // (lower first; 0 for most).
+        juce::StringArray tags;
+        int priority = 0;
+
+        juce::StringArray tagged (const juce::String& group) const;   // the values of one group of its tags
 
         juce::String signature() const { return juce::String (numerator) + "/" + juce::String (denominator); }
         double lengthBeats() const noexcept { return bars * numerator * 4.0 / denominator; }
     };
 
-    // THE FILTER COLUMNS (0.5.0): each groove's value in each, as text.
-    enum class Column { type, feel, time, hand, tempo };
-    inline constexpr int numColumns = 5;
-    inline const juce::StringArray columnNames { "TYPE", "FEEL", "TIME", "POWER HAND", "TEMPO" };
-    juce::String valueOf (const Entry&, Column);
-    // The values a column can have, in the order it lists them (TIME: whichever signatures there are, listed as found).
-    juce::StringArray valuesOf (Column);
+    // THE FILTER COLUMNS (0.5.0; 0.16.0 as groove packs label their grooves): each groove's values in each, as text. A
+    // groove can have several in a column (TYPE: "Beat", "Straight", "Half Time", "Soft Hits"...) or none (GENRE and
+    // PLAY STYLE come only from groove databases).
+    // - GENRE, PLAY STYLE: the database's labels.
+    // - TYPE: the database's; a MIDI file's from its notes and names: Straight or Swing (FEEL), and Beat, Fill or Ending.
+    // - TIME: the time signature. POWER HAND: the database's, else ours from the notes.
+    // - TEMPO: in steps of 20 BPM. SECTION: from the names (Intro, Verse, Chorus...): our own, as before.
+    enum class Column { genre, playStyle, type, time, hand, tempo, section };
+    inline constexpr int numColumns = 7;
+    inline const juce::StringArray columnNames { "GENRE", "PLAY STYLE", "TYPE", "TIME", "POWER HAND", "TEMPO", "SECTION" };
+    inline constexpr std::array<bool, numColumns> shownByDefault { true, true, true, true, true, false, false };
+    juce::StringArray valuesOf (const Entry&, Column);
+    juce::String valueOf (const Entry&, Column);   // its values, joined (", ")
+    // The order a column lists the values it knows (others follow, alphabetically; TIME, simplest first).
+    juce::StringArray orderOf (Column);
+    juce::StringArray sortedValues (Column, juce::StringArray values);
 
     // Values chosen in each column (a groove passes with any of them) and values excluded (it passes with none of them);
     // the columns together (it passes them all).
@@ -58,8 +74,21 @@ namespace grooves
         {
             for (int c = 0; c < numColumns; ++c)
             {
-                const auto v = valueOf (e, (Column) c);
-                if ((! include[(size_t) c].isEmpty() && ! include[(size_t) c].contains (v)) || exclude[(size_t) c].contains (v))
+                const auto& in = include[(size_t) c];
+                const auto& out = exclude[(size_t) c];
+                if (in.isEmpty() && out.isEmpty())
+                    continue;
+                const auto values = valuesOf (e, (Column) c);
+                // TYPE's values describe different things at once (how it's felt, what it is, how hard): every one
+                // chosen must be there. The other columns: any one.
+                if (c == (int) Column::type)
+                {
+                    if (! std::all_of (in.begin(), in.end(), [&values] (const juce::String& v) { return values.contains (v); }))
+                        return false;
+                }
+                else if (! in.isEmpty() && ! std::any_of (values.begin(), values.end(), [&in] (const juce::String& v) { return in.contains (v); }))
+                    return false;
+                if (std::any_of (values.begin(), values.end(), [&out] (const juce::String& v) { return out.contains (v); }))
                     return false;
             }
             return true;
@@ -71,10 +100,24 @@ namespace grooves
         juce::File folder;
         // Which drum each note in its files is ("FILES' MAP"): groove packs are written for different layouts.
         synth::drums::notemap::Layout layout = synth::drums::notemap::Layout::grooveLibrary;
+        bool user = false;       // 0.16.0: the USER MIDI folder (PR7-D's own, in the presets folder: files dropped in)
+        bool excluded = false;   // 0.16.0: left out of searches and filters (listed only when browsing inside it)
     };
 
     enum class Sort { name, songTempo, songSignature };
     inline const juce::StringArray sortNames { "Name", "Nearest Song Tempo", "Song Time Signature First" };
+    // 0.16.0: the sorting ticks, together: the song's time signature first, then nearest the song's tempo, then the
+    // packs' own order (simplest first: a database's priority, else the gentler groove), then by folder and name.
+    struct SortOrder
+    {
+        bool priority = false, songTempo = false, songSignature = false;
+        SortOrder() = default;
+        SortOrder (Sort s) : songTempo (s == Sort::songTempo), songSignature (s == Sort::songSignature) {}
+        bool operator== (const SortOrder& o) const noexcept
+        {
+            return priority == o.priority && songTempo == o.songTempo && songSignature == o.songSignature;
+        }
+    };
 
     class Library final : public juce::ChangeBroadcaster
     {
@@ -93,6 +136,19 @@ namespace grooves
         void setSubfolders (bool);
         // How a folder's files' notes become drums: its map (CUSTOM: the plugin's own, `custom`; ROOT from `root`).
         synth::drums::notemap::Map layoutFor (int folder, const synth::drums::notemap::Map& custom, int root) const;
+
+        // THE USER MIDI FOLDER (0.16.0): PR7-D's own (made if missing), always listed, last; files dropped onto it (or a
+        // folder inside it) are copied in and read. Not removed with removeFolder.
+        void setUserFolder (const juce::File&);
+        int getUserFolder() const noexcept;   // its index (-1: none)
+        int addToUserFolder (const juce::StringArray& files, const juce::File& into);   // how many MIDI files copied
+        // Left out of searches and filters (0.16.0, any folder): its grooves listed only when browsing inside it.
+        void setExcluded (int folder, bool);
+        // Whether a folder's MIDI files on disk differ from what was read (a quick look: how many, and none newer than
+        // the last check): the USER MIDI folder's, which files are dropped into from outside.
+        bool needsSync (int folder) const;
+        // The groove packs (the folder inside each groove database) among what's listed.
+        std::vector<juce::File> getPacks() const;
 
         // What was read last time, listed at once (once; a scan brings it up to date). The page calls it on opening.
         void loadIndex();
@@ -115,7 +171,7 @@ namespace grooves
         // TAP TO FIND (0.6.0): with `tap`, every groove gets its match to the tapped rhythm on the `grid`, and the list
         // is sorted by it, closest first (instead of `sort`).
         struct TapSearch { Rhythm rhythm; double grid = 0.5; };
-        std::vector<Entry> query (const juce::File& within, const juce::String& text, bool favouritesOnly, Sort sort,
+        std::vector<Entry> query (const juce::File& within, const juce::String& text, bool favouritesOnly, SortOrder sort,
                                   double songBpm, int songNumerator, int songDenominator, const Filters& filters = {},
                                   const TapSearch* tap = nullptr) const;
 
@@ -130,7 +186,10 @@ namespace grooves
             TempoFactor factor = TempoFactor::normal;
             float velocity = 1.0f;            // 0.25 to 1.75: every hit's velocity scaled
             bool forThisKit = true;           // dragged out: on this kit's notes (else as the file has them)
-            Sort sort = Sort::name;
+            Sort sort = Sort::name;           // (before 0.16.0: one choice; read into sortOrder)
+            SortOrder sortOrder;
+            // 0.16.0: which filter columns and result columns show (by name: "GENRE", "NAME"...); empty: the defaults.
+            juce::StringArray filterColumns, resultColumns;
         };
         Preview getPreview() const noexcept { return preview; }
         void setPreview (const Preview&);
@@ -150,6 +209,7 @@ namespace grooves
         std::vector<LinkedFolder> folders;
         bool subfolders = true;
         juce::StringArray favourites;   // full paths, sorted
+        juce::Time lastChecked;         // the last check of the folders finished (needsSync)
         Preview preview;
 
         std::atomic<bool> indexLoaded { false };   // set by a scan too

@@ -2,6 +2,40 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.16.0
+
+**GROOVES rebuilt to work the way the reference drum software's groove tab works** (our own look and words). Everything the page did before still works; it's arranged and browsed differently.
+
+- **The header:** MENU, back and forward, ORIGINAL TEMPO (grooves at the tempo they were played at, or your song's), TEMPO (1/2x to 3/2x), VELOCITY, STOP.
+  - **MENU:** FOLDERS (show MIDI from subfolders, add a linked folder, check all folders), VISIBLE FILTER COLUMNS, VISIBLE RESULT COLUMNS, SORTING, GROOVES DRAGGED OUT (for this kit, or as written).
+  - **Back and forward** retrace the folders you've browsed, like a web browser.
+- **The browser, in columns, left to right** (in place of the tree):
+  - the first: GROOVE PACKS (each pack in your groove databases), USER LIBRARIES (User MIDI) and LINKED FOLDERS;
+  - then each chosen folder's folders, two levels to a column: a folder with folders inside is a heading with them listed under it (a pack's styles, each with its songs; a song's sections). Three columns show at once.
+  - Each folder is a filter: choosing one lists everything in it (and its folders, with SHOW MIDI FROM SUBFOLDERS on).
+  - The chosen folder's arrow (or a right-click) opens its menu: NOTE MAP, LEAVE OUT OF SEARCHES, ADD FOLDER... (in User MIDI), OPEN IN EXPLORER, SYNC FILE CHANGES, REMOVE LINKED FOLDER.
+- **USER MIDI**, PR7-D's own folder (Documents\Paragon PR7-D\User MIDI): drop MIDI files (or folders of them) on it, or on a folder inside it, and they're copied in and read. Files put there another way show an orange dot beside it until you SYNC FILE CHANGES.
+- **FIND SIMILAR:** TAP TO FIND... and a drop zone for a MIDI file. After a search by rhythm, the drop zone shows the rhythm searched with, and its cross clears it.
+- **The filter columns:** GENRE, PLAY STYLE, TYPE, TIME and POWER HAND (TEMPO and SECTION when you show them).
+  - **Your packs' own labels:** genre, play style (Standard, Double Kick...), type (Beat, Fill, Straight, Swing, Half Time, Soft / Medium / Hard Hits...) and power hand come from your groove databases, as you asked. Plain MIDI files have none of those: their TYPE is ours (Straight or Swing, and Beat, Fill or Ending), their power hand worked out from the notes.
+  - Each column shows how many of its values are chosen and how many the grooves here have. Values none of them has stay listed, greyed. Right-click a column's name to show or hide columns.
+  - In TYPE, every value you choose must be there (its values describe different things: swung AND a fill); in the others, any one.
+  - Our former TYPE (Intro, Verse, Chorus... from the names) is now SECTION; POWER HAND says "Hi-Hat Closed" / "Hi-Hat Open", as the packs do.
+- **The active filters:** SEARCH, CLEAR ALL FILTERS, and a chip for each filter at work, in the order you chose them: the folder, a rhythm search, the search words, each value (excluded ones red, as NOT ...), favourites. Click a chip to take it away. When TEMPO or VELOCITY differs from as played, a chip offers RESET.
+- **SEARCH suggests as you type:** matching filter values first (TYPE: Fill, GENRE: Rock...), then grooves' names. Pick one, or press Enter on an exact match, and it becomes a filter. Words also search the grooves' folders and labels.
+- **The results:**
+  - the row under the mouse shows a play button: click to loop it (again to stop); double-click a groove to play it once; a plain click chooses it (for GROOVE PARTS);
+  - FAMILY, INTENSITY, POWER HAND, SIGN., BARS, TEMPO, and GENRE, PLAY STYLE, TYPE, SECTION when shown (MENU > VISIBLE RESULT COLUMNS); MATCH during a search by rhythm;
+  - click a column's name to sort by it; click the star's column to list only favourites;
+  - **SORTING** (MENU), ticks that combine: your song's time signature first, nearest your song's tempo, the packs' own order (a pack's simpler grooves first; for MIDI files, the gentler first);
+  - **right-click:** COPY, SEARCH WITH TAGS (the groove's labels as the filters), SEARCH WITH TAP TO FIND (its rhythm), SHOW IN BROWSER (the browser opened to its folder), USE WITH SONG CREATOR, and ours: ADD TO SONG, TO SEQUENCER, FAVOURITE.
+- **GROOVE PARTS** beside the results, with TO SEQUENCER and LAYER ONTO under it; the GROOVE PARTS button folds it away.
+- **Left for later, as agreed:** opening the page in its own window. Not copied: the reference's web shop.
+- **Your packs are read again once** after installing (for their labels): only the groove databases, not your MIDI files.
+- **Tests:** the browser's columns (a pack, a folder with folders, two levels deep), back and forward, SHOW IN BROWSER; chips in order and taken away; greyed values; the RESET chip; suggestions and taking one; SEARCH WITH TAGS; User MIDI (files copied in, the out-of-step check, it can't be removed, leaving a folder out of searches); a test database's labels in the columns and kept in the index, a label filter, the packs' order, the song-first sorting.
+
+Not checked here: how it feels with your real packs and 10,000 grooves (the browser lists folders as you open them; the filter values are gathered once each time the library changes).
+
 ## 0.15.2
 
 **Fixed: every PR7-D added to a song read your whole groove library again** (10,000 files in your folders). Each PR7-D keeps its own list of grooves, and the first time its GROOVES page opened it checked every file in your linked folders against the saved list, though the PR7-D before it had just done the same. It also loaded that saved list on the window's own thread, so the window could freeze while it did.

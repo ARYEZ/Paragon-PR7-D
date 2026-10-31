@@ -231,11 +231,11 @@ TEST_CASE ("GROOVE DRAG: the file on this kit's notes, or as written; velocity a
     CHECK (notesIn()->hits[1].note == 22);
 }
 
-TEST_CASE ("GROOVES page: the tree opens the way to the folder chosen; a folder filters the list", "[grooves][groove-player][ui]")
+TEST_CASE ("GROOVES page: the browser's columns lead to the folder chosen, which filters the list; back and forward retrace it", "[grooves][groove-player][ui]")
 {
     Plugin t;
     const auto pack = t.folder.getChildFile ("Pack");
-    for (const auto* path : { "Rock 96 BPM/Verse 01.mid", "Rock 96 BPM/Fill 01.mid", "Funk/Verse 01.mid" })
+    for (const auto* path : { "Rock 96 BPM/Verse 01.mid", "Rock 96 BPM/Fill 01.mid", "Funk/Verse 01.mid", "Ballads/Slow 68 BPM/Verse 01.mid" })
     {
         juce::MidiMessageSequence track;
         track.addEvent (juce::MidiMessage::noteOn (10, 36, (juce::uint8) 100));
@@ -253,19 +253,63 @@ TEST_CASE ("GROOVES page: the tree opens the way to the folder chosen; a folder 
     GroovesPage page (t.p);
     page.setSize (1476, 672);
     page.refresh();
-    CHECK (page.getResults().size() == 3);
+    CHECK (page.getResults().size() == 4);
+    const auto labels = [] (const std::vector<GroovesPage::BrowserRow>& rows)
+    {
+        juce::StringArray out;
+        for (const auto& r : rows)
+            out.add ((r.heading ? "# " : "") + r.label);
+        return out;
+    };
+
+    // The first column: USER MIDI (PR7-D's own) and the linked folder.
+    auto columns = page.getBrowserColumns();
+    REQUIRE (columns.size() == 1);
+    CHECK (labels (columns[0]) == juce::StringArray { "# USER LIBRARIES", "User MIDI", "# LINKED FOLDERS", "Pack" });
+
+    // The pack: its folders in the next column, two levels to it (those without folders under the pack's name, a
+    // folder with folders as a heading over them).
+    page.chooseFolder (pack);
+    columns = page.getBrowserColumns();
+    REQUIRE (columns.size() == 2);
+    CHECK (labels (columns[1]) == juce::StringArray { "# Pack", "Funk", "Rock 96 BPM", "# Ballads", "Slow 68 BPM" });
+    CHECK (page.getResults().size() == 4);
     page.chooseFolder (pack.getChildFile ("Rock 96 BPM"));
     CHECK (page.getResults().size() == 2);
-    page.refresh();   // rebuilt: the same folder chosen, the way to it open
-    auto* selected = page.getTree().getSelectedItem (0);
-    REQUIRE (selected != nullptr);
-    CHECK (selected->getUniqueName() == pack.getChildFile ("Rock 96 BPM").getFullPathName());
-    CHECK (selected->getParentItem()->isOpen());
+    CHECK (page.getChips().contains ("FOLDER: Rock 96 BPM"));
+    page.refresh();   // rebuilt: the same folder chosen
+    CHECK (page.getFolder() == pack.getChildFile ("Rock 96 BPM"));
     CHECK (page.getResults().size() == 2);
+    // A folder two levels down: chosen in the pack's column, under its heading.
+    page.chooseFolder (pack.getChildFile ("Ballads/Slow 68 BPM"));
+    CHECK (page.getResults().size() == 1);
+    CHECK (page.getBrowserColumns().size() == 2);
+
+    // Back and forward.
+    CHECK (page.goBack());
+    CHECK (page.getFolder() == pack.getChildFile ("Rock 96 BPM"));
+    CHECK (page.goBack());
+    CHECK (page.getFolder() == pack);
+    CHECK (page.goForward());
+    CHECK (page.getFolder() == pack.getChildFile ("Rock 96 BPM"));
+
     page.setSearch ("fill");
     CHECK (page.getResults().size() == 1);
     page.playRow (0, true);
     CHECK (t.p.getGrooveFile().getFileName() == "Fill 01.mid");
+
+    // SHOW IN BROWSER: from everywhere, back to its folder, the groove chosen.
+    page.clearFilters();
+    CHECK (page.getFolder() == juce::File());
+    CHECK (page.getResults().size() == 4);
+    int slow = -1;
+    for (int r = 0; r < (int) page.getResults().size(); ++r)
+        if (page.getResults()[(size_t) r].family == "Slow 68 BPM")
+            slow = r;
+    REQUIRE (slow >= 0);
+    page.showInBrowser (slow);
+    CHECK (page.getFolder() == pack.getChildFile ("Ballads/Slow 68 BPM"));
+    CHECK (page.getTable().getSelectedRow() == 0);
 
     // The window closing stops it.
     {
@@ -275,6 +319,158 @@ TEST_CASE ("GROOVES page: the tree opens the way to the folder chosen; a folder 
         CHECK (t.p.getGrooveFile() != juce::File());
     }
     CHECK (t.p.getGrooveFile() == juce::File());
+}
+
+TEST_CASE ("GROOVES page: USER MIDI takes MIDI files dropped on it; a folder can be left out of searches", "[grooves][groove-player][ui]")
+{
+    Plugin t;
+    auto& library = t.p.getGrooveLibrary();
+    const auto user = library.getUserFolder();
+    REQUIRE (user >= 0);
+    const auto userFolder = library.getFolders()[(size_t) user].folder;
+    CHECK (userFolder == t.folder.getChildFile ("User MIDI"));
+    CHECK (userFolder.isDirectory());
+
+    // A pack linked after it: USER MIDI stays last; it can't be removed.
+    const auto pack = t.folder.getChildFile ("Pack");
+    pack.createDirectory();
+    juce::MidiMessageSequence track;
+    track.addEvent (juce::MidiMessage::noteOn (10, 36, (juce::uint8) 100));
+    track.addEvent (juce::MidiMessage::noteOff (10, 36).withTimeStamp (60));
+    juce::MidiFile midi;
+    midi.setTicksPerQuarterNote (480);
+    midi.addTrack (track);
+    const auto outside = t.folder.getChildFile ("Elsewhere/Mine 01.mid");
+    outside.getParentDirectory().createDirectory();
+    for (const auto& f : { pack.getChildFile ("Beat.mid"), outside })
+    {
+        juce::FileOutputStream out (f);
+        out.setPosition (0);
+        out.truncate();
+        midi.writeTo (out);
+    }
+    REQUIRE (library.addFolder (pack));
+    CHECK (library.getFolders().back().user);
+    library.removeFolder (library.getUserFolder());
+    CHECK (library.getUserFolder() >= 0);
+    library.scanNow();
+    CHECK (library.getEntries().size() == 1);
+
+    // Dropped onto it: copied in, read; out of step until then.
+    CHECK_FALSE (library.needsSync (library.getUserFolder()));
+    outside.copyFileTo (userFolder.getChildFile ("Copied by hand.mid"));
+    CHECK (library.needsSync (library.getUserFolder()));   // (a file put there from outside: the orange dot)
+    library.scanNow();
+    CHECK_FALSE (library.needsSync (library.getUserFolder()));
+    CHECK (library.addToUserFolder ({ outside.getFullPathName() }, userFolder) == 1);
+    library.scanNow();
+    CHECK (library.getEntries().size() == 3);
+    CHECK (userFolder.getChildFile ("Mine 01.mid").existsAsFile());
+
+    // LEAVE OUT OF SEARCHES: its grooves listed only when browsing inside it.
+    GroovesPage page (t.p);
+    page.setSize (1476, 672);
+    page.refresh();
+    CHECK (page.getResults().size() == 3);
+    library.setExcluded (library.getUserFolder(), true);
+    page.refresh();
+    CHECK (page.getResults().size() == 1);
+    page.chooseFolder (userFolder);
+    CHECK (page.getResults().size() == 2);
+}
+
+TEST_CASE ("GROOVES page: chips for every active filter, suggestions as you type, search with tags", "[grooves][groove-player][ui]")
+{
+    Plugin t;
+    const auto pack = t.folder.getChildFile ("Pack");
+    const auto write = [&pack] (const juce::String& path, std::vector<std::pair<double, int>> notes)
+    {
+        juce::MidiMessageSequence track;
+        for (const auto& [beat, note] : notes)
+        {
+            track.addEvent (juce::MidiMessage::noteOn (10, note, (juce::uint8) 100).withTimeStamp (beat * 480));
+            track.addEvent (juce::MidiMessage::noteOff (10, note).withTimeStamp (beat * 480 + 60));
+        }
+        juce::MidiFile file;
+        file.setTicksPerQuarterNote (480);
+        track.updateMatchedPairs();
+        file.addTrack (track);
+        const auto f = pack.getChildFile (path);
+        f.getParentDirectory().createDirectory();
+        juce::FileOutputStream out (f);
+        file.writeTo (out);
+    };
+    write ("Rock/Verse 01.mid", { { 0.0, 36 }, { 0.5, 42 }, { 1.0, 38 }, { 1.5, 42 } });
+    write ("Rock/Fill 01.mid", { { 0.0, 36 }, { 2.0, 38 }, { 3.0, 49 } });
+    write ("Shuffle/Verse 02.mid", { { 0.0, 36 }, { 2.0 / 3.0, 42 }, { 1.0, 38 }, { 5.0 / 3.0, 42 } });
+    REQUIRE (t.p.getGrooveLibrary().addFolder (pack));
+    t.p.getGrooveLibrary().scanNow();
+    GroovesPage page (t.p);
+    page.setSize (1476, 672);
+    page.refresh();
+    using grooves::Column;
+
+    // Chips: the folder, each filter (excluded ones NOT ...), the search; a click on one takes it away.
+    page.chooseFolder (pack.getChildFile ("Rock"));
+    page.toggleFilter (Column::section, "Verse", false);
+    page.toggleFilter (Column::type, "Swing", true);
+    CHECK (page.getChips() == juce::StringArray { "FOLDER: Rock", "SECTION: Verse", "NOT TYPE: Swing" });
+    CHECK (page.getResults().size() == 1);
+    page.removeChip (1);
+    CHECK (page.getChips() == juce::StringArray { "FOLDER: Rock", "NOT TYPE: Swing" });
+    CHECK (page.getResults().size() == 2);
+    page.removeChip (0);
+    CHECK (page.getFolder() == juce::File());
+    // Values none of the grooves here has stay listed, greyed (counted 0).
+    page.toggleFilter (Column::type, "Swing", true);
+    page.chooseFolder (pack.getChildFile ("Rock"));
+    CHECK (page.getColumnValues (Column::type).contains ("Swing (0)"));
+    page.clearFilters();
+    CHECK (page.getChips().isEmpty());
+
+    // The preview changed from as played: a chip to reset it.
+    page.setOriginalTempo (true);
+    auto pr = t.p.getGrooveLibrary().getPreview();
+    CHECK_FALSE (pr.songTempo);
+    pr.factor = grooves::TempoFactor::twice;
+    t.p.getGrooveLibrary().setPreview (pr);
+    page.refresh();
+    REQUIRE (page.getChips().size() == 1);
+    CHECK (page.getChips()[0].startsWith ("TEMPO 2x"));
+    page.removeChip (0);
+    CHECK (t.p.getGrooveLibrary().getPreview().factor == grooves::TempoFactor::normal);
+    CHECK (page.getChips().isEmpty());
+
+    // Suggestions: filter values first, then grooves' names; one taken is a filter (and a chip).
+    page.setSearch ("fil");
+    CHECK (page.getResults().size() == 1);
+    const auto suggested = page.getSuggestions();
+    REQUIRE (suggested.size() >= 3);
+    CHECK (suggested.contains ("TYPE: Fill"));
+    CHECK (suggested.contains ("SECTION: Fill"));
+    CHECK (suggested.contains ("Fill 01"));
+    page.acceptSuggestion (suggested.indexOf ("TYPE: Fill"));
+    CHECK (page.getChips() == juce::StringArray { "TYPE: Fill" });
+    CHECK (page.getResults().size() == 1);
+    page.clearFilters();
+
+    // SEARCH WITH TAGS: a groove's values (TYPE, TIME, POWER HAND...) as the filters.
+    int shuffle = -1;
+    for (int r = 0; r < (int) page.getResults().size(); ++r)
+        if (page.getResults()[(size_t) r].family == "Shuffle")
+            shuffle = r;
+    REQUIRE (shuffle >= 0);
+    page.searchWithTags (shuffle);
+    CHECK (page.getFilters().include[(size_t) Column::type] == juce::StringArray { "Swing", "Beat" });
+    CHECK (page.getFilters().include[(size_t) Column::time] == juce::StringArray { "4/4" });
+    REQUIRE (page.getResults().size() == 1);
+    CHECK (page.getResults()[0].family == "Shuffle");
+
+    // A filter column hidden and shown again; at least one stays.
+    page.showFilterColumn (Column::genre, false);
+    CHECK_FALSE (page.isFilterColumnShown (Column::genre));
+    page.showFilterColumn (Column::genre, true);
+    CHECK (page.isFilterColumnShown (Column::genre));
 }
 
 namespace
@@ -415,16 +611,16 @@ TEST_CASE ("GROOVES page 0.5: the filter columns list what the grooves have; cho
     page.refresh();
     REQUIRE (page.getResults().size() == 3);
     using grooves::Column;
-    CHECK (page.getColumnValues (Column::type) == juce::StringArray { "Verse (2)", "Fill (1)" });
-    CHECK (page.getColumnValues (Column::feel) == juce::StringArray { "Straight (2)", "Swung (1)" });
+    CHECK (page.getColumnValues (Column::section) == juce::StringArray { "Verse (2)", "Fill (1)" });
+    CHECK (page.getColumnValues (Column::type) == juce::StringArray { "Straight (2)", "Swing (1)", "Beat (2)", "Fill (1)" });
     CHECK (page.getColumnValues (Column::tempo) == juce::StringArray { "80-99 (2)", "120-139 (1)" });
 
-    page.toggleFilter (Column::type, "Verse", false);
+    page.toggleFilter (Column::section, "Verse", false);
     CHECK (page.getResults().size() == 2);
-    page.toggleFilter (Column::feel, "Swung", true);   // excluded
+    page.toggleFilter (Column::type, "Swing", true);   // excluded
     REQUIRE (page.getResults().size() == 1);
     CHECK (page.getResults()[0].name == "Verse 01");
-    page.toggleFilter (Column::feel, "Swung", true);   // let go
+    page.toggleFilter (Column::type, "Swing", true);   // let go
     CHECK (page.getResults().size() == 2);
     page.clearFilters();
     CHECK (page.getResults().size() == 3);

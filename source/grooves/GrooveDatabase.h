@@ -32,6 +32,10 @@ namespace grooves::db
         {
             juce::File file;                     // its path inside the database (see above)
             juce::MemoryBlock midi;              // a standard MIDI file of it: tempo, time signature, notes, length
+            // 0.16.0: what the database says of it, each "Group:Value": its genre ("Genre:..."), its tags by their
+            // group ("Play Style:...", "Type:..."), its power hand ("Power Hand:..."); and its priority (lower first).
+            juce::StringArray tags;
+            int priority = 0;
         };
         std::vector<Item> items;
         std::vector<juce::File> folders;         // every folder inside the database, the pack's own first

@@ -7,6 +7,7 @@
 #include "PluginTestUtils.h"
 #include "grooves/GrooveDatabase.h"
 #include "grooves/SqliteReader.h"
+#include "ui/GroovesPage.h"
 
 using Catch::Matchers::WithinAbs;
 
@@ -261,4 +262,76 @@ TEST_CASE ("GROOVE DATABASE: a file that isn't one, or a damaged one, lists noth
         library.scanNow();
         CHECK (library.getEntries().size() <= 43);
     }
+}
+
+TEST_CASE ("GROOVE DATABASE: its own labels fill the filter columns; the packs' order sorts the quiet ones first", "[groove-db]")
+{
+    // 0.16.0: genre, play style, type and power hand as the database labels them (the owner's choice).
+    Folder f;
+    Plugin t;
+    auto& library = t.p.getGrooveLibrary();
+    REQUIRE (library.addFolder (f.packs));
+    library.scanNow();
+    const auto entries = library.getEntries();
+    const auto entry = [&entries] (const juce::String& family, const juce::String& name) -> const grooves::Entry*
+    {
+        for (const auto& e : entries)
+            if (e.family == family && e.name == name)
+                return &e;
+        return nullptr;
+    };
+    using grooves::Column;
+    const auto* first = entry ("Grooves", "Grooves 01");
+    const auto* fill = entry ("Fills", "Fills 01");
+    REQUIRE (first != nullptr);
+    REQUIRE (fill != nullptr);
+    CHECK (grooves::valuesOf (*first, Column::genre) == juce::StringArray { "Rock" });
+    CHECK (grooves::valuesOf (*first, Column::playStyle) == juce::StringArray { "Standard" });
+    CHECK (grooves::valuesOf (*first, Column::type) == juce::StringArray { "Beat", "Straight", "Medium Hits" });
+    CHECK (grooves::valuesOf (*first, Column::hand) == juce::StringArray { "Hi-Hat Closed" });
+    CHECK (grooves::valuesOf (*fill, Column::type) == juce::StringArray { "Fill", "Straight", "Hard Hits" });
+    CHECK (grooves::valuesOf (*fill, Column::hand) == juce::StringArray { "Snare" });   // the database's word, not ours
+
+    // Kept with what was read: a new library lists them from the index, labels and all.
+    {
+        grooves::Library again (t.presets.getChildFile ("Grooves.xml"), t.presets.getChildFile ("Groove Index.xml"));
+        again.loadIndex();
+        bool found = false;
+        for (const auto& e : again.getEntries())
+            if (e.name == "Grooves 40")
+            {
+                found = true;
+                CHECK (grooves::valuesOf (e, Column::playStyle) == juce::StringArray { "Double Kick" });
+                CHECK (e.priority == 9);
+            }
+        CHECK (found);
+    }
+
+    // Filtered by a label; the pack's own order puts its esoteric ones (Grooves 39, 40) last.
+    grooves::Filters doubleKick;
+    doubleKick.include[(size_t) Column::playStyle] = { "Double Kick" };
+    CHECK (library.query ({}, {}, false, {}, 120.0, 4, 4, doubleKick).size() == 2);
+    grooves::SortOrder order;
+    order.priority = true;
+    const auto sorted = library.query (f.groove ("Straight 4-4/Rock Song 100 BPM/Grooves"), {}, false, order, 120.0, 4, 4);
+    REQUIRE (sorted.size() == 41);
+    CHECK (sorted[sorted.size() - 1].priority == 9);
+    CHECK (sorted[sorted.size() - 2].priority == 9);
+    CHECK (sorted[0].priority == 0);
+    // Song tempo and time signature first, together: the waltz (3/4, 90) first in a 3/4 song at 90.
+    grooves::SortOrder song;
+    song.songTempo = song.songSignature = true;
+    CHECK (library.query ({}, {}, false, song, 90.0, 3, 4)[0].signature() == "3/4");
+
+    // The browser's first column: the pack, under GROOVE PACKS.
+    GroovesPage page (t.p);
+    page.setSize (1476, 672);
+    page.refresh();
+    const auto columns = page.getBrowserColumns();
+    REQUIRE (! columns.empty());
+    CHECK (columns[0][0].label == "GROOVE PACKS");
+    CHECK (columns[0][1].label == "Demo Grooves");
+    page.chooseFolder (f.groove ("Straight 4-4/Rock Song 100 BPM/Fills"));
+    CHECK (page.getResults().size() == 1);
+    CHECK (page.getBrowserColumns().size() == 3);   // the pack's styles, then the song's folders
 }

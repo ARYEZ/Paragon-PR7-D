@@ -83,6 +83,7 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
     // THE GROOVE PLAYER: its folders and what was read from them (the GROOVES page reads them again when it opens).
     grooveFolders = std::make_unique<grooves::Library> (rigLibrary->getFolder().getChildFile ("Grooves.xml"),
                                                         rigLibrary->getFolder().getChildFile ("Groove Index.xml"));
+    grooveFolders->setUserFolder (rigLibrary->getFolder().getChildFile ("User MIDI"));   // 0.16.0: always there, last
     applyGroovePreview();
     // THE NOTE MAP: a new instance starts with the saved CUSTOM map, if one was saved (else the groove libraries' layout).
     {
@@ -1535,6 +1536,7 @@ void ParagonX1AudioProcessor::useRigFolder (const juce::File& folder)
     rack->setFolder (folder);
     stopGroove();
     grooveFolders = std::make_unique<grooves::Library> (folder.getChildFile ("Grooves.xml"), folder.getChildFile ("Groove Index.xml"));
+    grooveFolders->setUserFolder (folder.getChildFile ("User MIDI"));
     applyGroovePreview();
     rigBroadcaster.sendChangeMessage();
 }

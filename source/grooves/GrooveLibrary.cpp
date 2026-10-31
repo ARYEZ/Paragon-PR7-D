@@ -35,6 +35,10 @@ namespace grooves
             x->setAttribute ("feel", (int) e.feel);
             if (e.rhythm != nullptr)
                 x->setAttribute ("rhythm", e.rhythm->encode());
+            if (! e.tags.isEmpty())
+                x->setAttribute ("tags", e.tags.joinIntoString ("|"));
+            if (e.priority != 0)
+                x->setAttribute ("prio", e.priority);
             return x;
         }
 
@@ -52,6 +56,9 @@ namespace grooves
             e.numHits = x.getIntAttribute ("hits");
             e.feel = (Feel) juce::jlimit (0, feelNames.size() - 1, x.getIntAttribute ("feel"));
             e.rhythm = std::make_shared<const Rhythm> (Rhythm::decode (x.getStringAttribute ("rhythm")));
+            e.tags = juce::StringArray::fromTokens (x.getStringAttribute ("tags"), "|", "");
+            e.tags.removeEmptyStrings();
+            e.priority = x.getIntAttribute ("prio");
             return e;
         }
 
@@ -161,7 +168,8 @@ namespace grooves
         subfolders = xml->getBoolAttribute ("subfolders", true);
         for (const auto* f : xml->getChildWithTagNameIterator ("Folder"))
             folders.push_back ({ juce::File (f->getStringAttribute ("path")),
-                                 (Layout) juce::jlimit (0, synth::drums::notemap::layoutNames.size() - 1, f->getIntAttribute ("map", (int) Layout::grooveLibrary)) });
+                                 (Layout) juce::jlimit (0, synth::drums::notemap::layoutNames.size() - 1, f->getIntAttribute ("map", (int) Layout::grooveLibrary)),
+                                 f->getBoolAttribute ("user"), f->getBoolAttribute ("excluded") });
         for (const auto* f : xml->getChildWithTagNameIterator ("Favourite"))
             favourites.addIfNotAlreadyThere (f->getStringAttribute ("path"));
         favourites.sort (false);
@@ -172,6 +180,17 @@ namespace grooves
             preview.velocity = (float) juce::jlimit (0.25, 1.75, p->getDoubleAttribute ("velocity", 1.0));
             preview.forThisKit = p->getBoolAttribute ("forThisKit", true);
             preview.sort = (Sort) juce::jlimit (0, sortNames.size() - 1, p->getIntAttribute ("sort", 0));
+            preview.sortOrder = SortOrder (preview.sort);   // before 0.16.0: the one choice
+            if (p->hasAttribute ("sortPriority"))
+            {
+                preview.sortOrder.priority = p->getBoolAttribute ("sortPriority");
+                preview.sortOrder.songTempo = p->getBoolAttribute ("sortTempo");
+                preview.sortOrder.songSignature = p->getBoolAttribute ("sortSignature");
+            }
+            preview.filterColumns = juce::StringArray::fromTokens (p->getStringAttribute ("filterColumns"), ",", "");
+            preview.filterColumns.removeEmptyStrings();
+            preview.resultColumns = juce::StringArray::fromTokens (p->getStringAttribute ("resultColumns"), ",", "");
+            preview.resultColumns.removeEmptyStrings();
         }
     }
 
@@ -184,6 +203,10 @@ namespace grooves
             auto* e = xml.createNewChildElement ("Folder");
             e->setAttribute ("path", f.folder.getFullPathName());
             e->setAttribute ("map", (int) f.layout);
+            if (f.user)
+                e->setAttribute ("user", true);
+            if (f.excluded)
+                e->setAttribute ("excluded", true);
         }
         for (const auto& path : favourites)
             xml.createNewChildElement ("Favourite")->setAttribute ("path", path);
@@ -193,6 +216,13 @@ namespace grooves
         p->setAttribute ("velocity", (double) preview.velocity);
         p->setAttribute ("forThisKit", preview.forThisKit);
         p->setAttribute ("sort", (int) preview.sort);
+        p->setAttribute ("sortPriority", preview.sortOrder.priority);
+        p->setAttribute ("sortTempo", preview.sortOrder.songTempo);
+        p->setAttribute ("sortSignature", preview.sortOrder.songSignature);
+        if (! preview.filterColumns.isEmpty())
+            p->setAttribute ("filterColumns", preview.filterColumns.joinIntoString (","));
+        if (! preview.resultColumns.isEmpty())
+            p->setAttribute ("resultColumns", preview.resultColumns.joinIntoString (","));
         settingsFile.getParentDirectory().createDirectory();
         xml.writeTo (settingsFile);
     }
@@ -205,15 +235,124 @@ namespace grooves
             if (f.folder == folder || folder.isAChildOf (f.folder))
                 return false;   // already there (inside another, its files are listed already)
         stopScan();   // the folders change under it
-        folders.push_back ({ folder, Layout::grooveLibrary });
+        // Before the USER MIDI folder, which stays last.
+        const auto at = ! folders.empty() && folders.back().user ? folders.end() - 1 : folders.end();
+        folders.insert (at, { folder, Layout::grooveLibrary });
         save();
         scan();
         return true;
     }
 
+    void Library::setUserFolder (const juce::File& folder)
+    {
+        folder.createDirectory();
+        for (auto& f : folders)
+            if (f.user)
+            {
+                if (f.folder == folder)
+                    return;
+                f.folder = folder;   // (the presets folder moved)
+                save();
+                return;
+            }
+        folders.push_back ({ folder, Layout::grooveLibrary, true, false });
+        save();
+    }
+
+    int Library::getUserFolder() const noexcept
+    {
+        for (int i = 0; i < (int) folders.size(); ++i)
+            if (folders[(size_t) i].user)
+                return i;
+        return -1;
+    }
+
+    int Library::addToUserFolder (const juce::StringArray& files, const juce::File& into)
+    {
+        const auto user = getUserFolder();
+        if (user < 0)
+            return 0;
+        const auto& root = folders[(size_t) user].folder;
+        const auto target = into == root || into.isAChildOf (root) ? into : root;
+        target.createDirectory();
+        auto copied = 0;
+        for (const auto& path : files)
+        {
+            const juce::File source (path);
+            if (source.isDirectory())
+            {
+                // A folder: its MIDI files, as a folder of the same name.
+                const auto inside = target.getChildFile (source.getFileName());
+                juce::StringArray found;
+                for (const auto& item : juce::RangedDirectoryIterator (source, true, "*.mid;*.midi", juce::File::findFiles))
+                    found.add (item.getFile().getFullPathName());
+                for (const auto& f : found)
+                {
+                    const auto copy = inside.getChildFile (juce::File (f).getRelativePathFrom (source));
+                    copy.getParentDirectory().createDirectory();
+                    if (juce::File (f).copyFileTo (copy.getNonexistentSibling (false)))
+                        ++copied;
+                }
+            }
+            else if (source.hasFileExtension ("mid;midi") && source.copyFileTo (target.getChildFile (source.getFileName()).getNonexistentSibling (false)))
+                ++copied;
+        }
+        if (copied > 0)
+            scan();
+        return copied;
+    }
+
+    void Library::setExcluded (int folder, bool on)
+    {
+        if (folder < 0 || folder >= (int) folders.size() || folders[(size_t) folder].excluded == on)
+            return;
+        folders[(size_t) folder].excluded = on;
+        save();
+        sendChangeMessage();
+    }
+
+    bool Library::needsSync (int folder) const
+    {
+        if (folder < 0 || folder >= (int) folders.size() || isScanning())
+            return false;
+        const auto& root = folders[(size_t) folder].folder;
+        auto onDisk = 0;
+        for (const auto& item : juce::RangedDirectoryIterator (root, true, "*.mid;*.midi", juce::File::findFiles))
+        {
+            ++onDisk;
+            if (item.getModificationTime() > lastChecked)
+                return true;   // added or changed since the last check
+        }
+        std::lock_guard<std::mutex> guard (lock);
+        const auto listed = std::count_if (entries.begin(), entries.end(), [&root] (const Entry& e) { return e.file.isAChildOf (root); });
+        return onDisk != (int) listed;
+    }
+
+    std::vector<juce::File> Library::getPacks() const
+    {
+        // A groove's path inside a database is <database file>/<pack>/...: the pack is the folder right inside the
+        // database, found by walking up to the first path that exists on disk (the database).
+        std::set<juce::String> seen;
+        std::vector<juce::File> packs;
+        std::lock_guard<std::mutex> guard (lock);
+        for (const auto& e : entries)
+        {
+            if (! e.file.getFullPathName().containsIgnoreCase ("mididb"))
+                continue;
+            auto f = e.file.getParentDirectory();
+            while (f.getParentDirectory() != f && ! f.getParentDirectory().getFileName().equalsIgnoreCase ("mididb")
+                   && ! f.getParentDirectory().getFileName().endsWithIgnoreCase (".mididb"))
+                f = f.getParentDirectory();
+            if (f.getParentDirectory() != f && seen.insert (f.getFullPathName()).second)
+                packs.push_back (f);
+        }
+        std::sort (packs.begin(), packs.end(), [] (const juce::File& a, const juce::File& b) { return a.getFileName().compareNatural (b.getFileName()) < 0; });
+        return packs;
+    }
+
     void Library::removeFolder (int index)
     {
-        if (index < 0 || index >= (int) folders.size())
+        if (index < 0 || index >= (int) folders.size() || folders[(size_t) index].user)
             return;
         stopScan();
         folders.erase (folders.begin() + index);
@@ -335,7 +474,7 @@ namespace grooves
             const auto& linked = folders[(size_t) f];
             // CUSTOM and ROOT files: their power hand from the factory layout (the plugin's own map can change any time).
             const auto map = layoutFor (f, synth::drums::notemap::grooveLibrary(), 36);
-            const auto add = [&] (const juce::File& file, const juce::String& key, auto readIt)
+            const auto add = [&] (const juce::File& file, const juce::String& key, auto readIt, const db::Contents::Item* item = nullptr)
             {
                 Entry e;
                 if (const auto known = before.find (file.getFullPathName()); known != before.end() && known->second.first == key)
@@ -343,6 +482,11 @@ namespace grooves
                 else if (const auto g = readIt())
                 {
                     e = entryOf (*g, f, map);
+                    if (item != nullptr)
+                    {
+                        e.tags = item->tags;
+                        e.priority = item->priority;
+                    }
                     changed = true;
                     if ((++scanned % 200) == 0)
                         sendChangeMessage();
@@ -368,7 +512,7 @@ namespace grooves
                     // own size and date.
                     if (! db::isDatabase (file))
                         continue;
-                    const auto key = "db:" + stamp (file, linked.layout);
+                    const auto key = "db4:" + stamp (file, linked.layout);   // (4: with the database's labels, 0.16.0)
                     // 0.15.2: unchanged (its size and date as read before): its grooves as listed, without reading it.
                     const auto inside = file.getFullPathName() + juce::File::getSeparatorString();
                     std::vector<juce::File> listed;
@@ -390,7 +534,7 @@ namespace grooves
                         {
                             juce::MemoryInputStream in (groove.midi, false);
                             return grooves::read (in, groove.file, map);
-                        });
+                        }, &groove);
                     }
                     continue;
                 }
@@ -419,6 +563,7 @@ namespace grooves
         // Written only when something changed (a file read anew, or one gone): 10,000 grooves are megabytes.
         if (changed || seen.size() != before.size() || ! indexFile.existsAsFile())
             index.writeTo (indexFile);
+        lastChecked = juce::Time::getCurrentTime();
         std::lock_guard<std::mutex> guard (sessionLock);
         checkedThisSession[indexFile.getFullPathName()] = foldersChecked() + "#" + indexStamp (indexFile);
     }
@@ -435,42 +580,93 @@ namespace grooves
         return (int) entries.size();
     }
 
-    juce::String valueOf (const Entry& e, Column c)
+    juce::StringArray Entry::tagged (const juce::String& group) const
+    {
+        juce::StringArray values;
+        const auto prefix = group + ":";
+        for (const auto& t : tags)
+            if (t.startsWith (prefix))
+                values.add (t.substring (prefix.length()));
+        return values;
+    }
+
+    juce::StringArray valuesOf (const Entry& e, Column c)
     {
         switch (c)
         {
-            case Column::type: return partNames[(int) e.part];
-            case Column::feel: return feelNames[(int) e.feel];
-            case Column::time: return e.signature();
-            case Column::hand: return powerHandNames[(int) e.hand];
+            case Column::genre: return e.tagged ("Genre");
+            case Column::playStyle: return e.tagged ("Play Style");
+            case Column::type:
+            {
+                if (auto labelled = e.tagged ("Type"); ! labelled.isEmpty())
+                    return labelled;
+                // A MIDI file's, ours: how it's felt, and what it is.
+                const auto kind = e.part == Part::fill ? "Fill" : e.part == Part::ending ? "Ending" : "Beat";
+                return { e.feel == Feel::swung ? "Swing" : "Straight", kind };
+            }
+            case Column::time: return { e.signature() };
+            case Column::hand:
+            {
+                if (auto labelled = e.tagged ("Power Hand"); ! labelled.isEmpty())
+                    return labelled;
+                return e.hand == PowerHand::none ? juce::StringArray() : juce::StringArray { powerHandNames[(int) e.hand] };
+            }
             case Column::tempo:
             {
                 if (! e.bpmKnown)
-                    return "Unknown";
+                    return { "Unknown" };
                 const auto bpm = juce::roundToInt (e.bpm);
-                if (bpm < 80) return "Below 80";
-                if (bpm >= 160) return "160 and up";
+                if (bpm < 80) return { "Below 80" };
+                if (bpm >= 160) return { "160 and up" };
                 const auto low = bpm / 20 * 20;
-                return juce::String (low) + "-" + juce::String (low + 19);
+                return { juce::String (low) + "-" + juce::String (low + 19) };
             }
+            case Column::section: return { partNames[(int) e.part] };
         }
         return {};
     }
 
-    juce::StringArray valuesOf (Column c)
+    juce::String valueOf (const Entry& e, Column c)
+    {
+        return valuesOf (e, c).joinIntoString (", ");
+    }
+
+    juce::StringArray orderOf (Column c)
     {
         switch (c)
         {
-            case Column::type: return partNames;
-            case Column::feel: return feelNames;
-            case Column::time: return {};
-            case Column::hand: return powerHandNames;
+            case Column::type:
+                return { "Straight", "Swing", "Beat", "Fill", "Ending", "Normal Time", "Half Time", "Double Time",
+                         "Soft Hits", "Medium Hits", "Hard Hits" };
+            case Column::playStyle: return { "Standard" };
+            case Column::hand: return { "Hi-Hat Closed", "Hi-Hat Open", "Hi-Hat Pedal", "Ride", "Ride Crash", "Crash", "China", "Splash", "Percussion" };
             case Column::tempo: return { "Below 80", "80-99", "100-119", "120-139", "140-159", "160 and up", "Unknown" };
+            case Column::section: return partNames;
+            case Column::genre:
+            case Column::time: break;
         }
         return {};
     }
 
-    std::vector<Entry> Library::query (const juce::File& within, const juce::String& text, bool favouritesOnly, Sort sort,
+    juce::StringArray sortedValues (Column c, juce::StringArray values)
+    {
+        const auto order = orderOf (c);
+        std::sort (values.begin(), values.end(), [&] (const juce::String& a, const juce::String& b)
+        {
+            if (c == Column::time)
+            {
+                const auto da = a.fromFirstOccurrenceOf ("/", false, false).getIntValue(), db = b.fromFirstOccurrenceOf ("/", false, false).getIntValue();
+                return da != db ? da < db : a.getIntValue() < b.getIntValue();
+            }
+            const auto ia = order.indexOf (a), ib = order.indexOf (b);
+            if (ia != ib)
+                return ia < 0 ? false : ib < 0 ? true : ia < ib;
+            return a.compareNatural (b) < 0;
+        });
+        return values;
+    }
+
+    std::vector<Entry> Library::query (const juce::File& within, const juce::String& text, bool favouritesOnly, SortOrder sort,
                                        double songBpm, int songNumerator, int songDenominator, const Filters& filters,
                                        const TapSearch* tap) const
     {
@@ -480,13 +676,20 @@ namespace grooves
         std::vector<Entry> result;
         {
             std::lock_guard<std::mutex> guard (lock);
+            // Folders left out of searches (0.16.0): only when browsing inside them.
+            std::vector<juce::File> leftOut;
+            for (const auto& f : folders)
+                if (f.excluded && ! (within == f.folder || within.isAChildOf (f.folder)))
+                    leftOut.push_back (f.folder);
             for (const auto& e : entries)
             {
                 if (within != juce::File() && ! (subfolders ? e.file.isAChildOf (within) : e.file.getParentDirectory() == within))
                     continue;
                 if (favouritesOnly && ! favourites.contains (e.file.getFullPathName()))
                     continue;
-                const auto haystack = (e.name + " " + e.family).toLowerCase();
+                if (std::any_of (leftOut.begin(), leftOut.end(), [&e] (const juce::File& f) { return e.file.isAChildOf (f); }))
+                    continue;
+                const auto haystack = (e.name + " " + e.family + " " + e.file.getParentDirectory().getParentDirectory().getFileName()).toLowerCase();
                 if (! std::all_of (words.begin(), words.end(), [&] (const juce::String& w) { return haystack.contains (w); }))
                     continue;
                 if (! filters.passes (e))
@@ -510,27 +713,30 @@ namespace grooves
             });
             return result;
         }
-        switch (sort)
+        std::sort (result.begin(), result.end(), [&] (const Entry& a, const Entry& b)
         {
-            case Sort::name:
-                std::sort (result.begin(), result.end(), byName);
-                break;
-            case Sort::songTempo:
-                std::sort (result.begin(), result.end(), [&] (const Entry& a, const Entry& b)
-                {
-                    const auto da = std::abs (a.bpm - songBpm), db = std::abs (b.bpm - songBpm);
-                    return da != db ? da < db : byName (a, b);
-                });
-                break;
-            case Sort::songSignature:
-                std::sort (result.begin(), result.end(), [&] (const Entry& a, const Entry& b)
-                {
-                    const auto ma = a.numerator == songNumerator && a.denominator == songDenominator;
-                    const auto mb = b.numerator == songNumerator && b.denominator == songDenominator;
-                    return ma != mb ? ma : byName (a, b);
-                });
-                break;
-        }
+            if (sort.songSignature)
+            {
+                const auto ma = a.numerator == songNumerator && a.denominator == songDenominator;
+                const auto mb = b.numerator == songNumerator && b.denominator == songDenominator;
+                if (ma != mb)
+                    return ma;
+            }
+            if (sort.songTempo)
+            {
+                const auto da = std::abs (a.bpm - songBpm), db = std::abs (b.bpm - songBpm);
+                if (std::abs (da - db) > 1.0e-6)
+                    return da < db;
+            }
+            if (sort.priority)
+            {
+                if (a.priority != b.priority)
+                    return a.priority < b.priority;
+                if (std::abs (a.intensity - b.intensity) > 1.0e-6f)
+                    return a.intensity < b.intensity;   // the gentler groove first (our own measure)
+            }
+            return byName (a, b);
+        });
         return result;
     }
 

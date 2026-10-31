@@ -472,11 +472,14 @@ TEST_CASE ("GROOVE LIBRARY 0.5: filter columns: any of the values chosen in a co
                 return grooves::valueOf (e, c);
         return juce::String ("?");
     };
-    CHECK (value ("Rock 96 BPM", "Verse 01", Column::type) == "Verse");
-    CHECK (value ("Rock 96 BPM", "Fill 01", Column::type) == "Fill");
-    CHECK (value ("Pack", "Ride Beat", Column::type) == "Beat");
-    CHECK (value ("Swing", "Fill 02", Column::feel) == "Swung");
-    CHECK (value ("Rock 96 BPM", "Verse 01", Column::feel) == "Straight");
+    // SECTION: from the names (as TYPE was before 0.16.0).
+    CHECK (value ("Rock 96 BPM", "Verse 01", Column::section) == "Verse");
+    CHECK (value ("Rock 96 BPM", "Fill 01", Column::section) == "Fill");
+    CHECK (value ("Pack", "Ride Beat", Column::section) == "Beat");
+    // TYPE (0.16.0), a MIDI file's: how it's felt and what it is, both.
+    CHECK (value ("Swing", "Fill 02", Column::type) == "Swing, Fill");
+    CHECK (value ("Rock 96 BPM", "Verse 01", Column::type) == "Straight, Beat");
+    CHECK (value ("Rock 96 BPM", "Verse 01", Column::genre) == "");   // only groove databases have genres
     CHECK (value ("6-8", "Verse 01", Column::time) == "6/8");
     CHECK (value ("Pack", "Ride Beat", Column::hand) == "Ride");
     CHECK (value ("Rock 96 BPM", "Verse 01", Column::tempo) == "80-99");
@@ -485,14 +488,18 @@ TEST_CASE ("GROOVE LIBRARY 0.5: filter columns: any of the values chosen in a co
     CHECK (value ("Loose", "Verse 03", Column::tempo) == "Unknown");
 
     grooves::Filters f;
-    f.include[(size_t) Column::type] = { "Fill" };
+    f.include[(size_t) Column::section] = { "Fill" };
     CHECK (q (f) == juce::StringArray { "Rock 96 BPM/Fill 01", "Swing/Fill 02" });
-    f.include[(size_t) Column::type].add ("Verse");   // any of them
+    f.include[(size_t) Column::section].add ("Verse");   // any of them
     CHECK (q (f).size() == 5);
-    f.exclude[(size_t) Column::time] = { "6/8" };     // none excluded
+    f.exclude[(size_t) Column::time] = { "6/8" };        // none excluded
     CHECK (q (f).size() == 4);
-    f.include[(size_t) Column::feel] = { "Swung" };   // and every column
+    f.include[(size_t) Column::type] = { "Swing" };      // and every column
     CHECK (q (f) == juce::StringArray { "Swing/Fill 02" });
+    // TYPE: every value chosen there (its values say different things).
+    grooves::Filters t2;
+    t2.include[(size_t) Column::type] = { "Straight", "Fill" };
+    CHECK (q (t2) == juce::StringArray { "Rock 96 BPM/Fill 01" });
     CHECK_FALSE (f.isEmpty());
     CHECK (grooves::Filters().isEmpty());
 }

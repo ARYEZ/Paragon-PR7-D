@@ -458,8 +458,8 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         }
         else
         {
-            grooves.toggleFilter (grooves::Column::type, "Verse", false);
-            grooves.toggleFilter (grooves::Column::type, "Chorus", false);
+            grooves.toggleFilter (grooves::Column::section, "Verse", false);
+            grooves.toggleFilter (grooves::Column::section, "Chorus", false);
             grooves.toggleFilter (grooves::Column::tempo, "Below 80", true);
             grooves.playRow (1, true);
             grooves.getTable().selectRow (1);

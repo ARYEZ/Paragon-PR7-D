@@ -101,11 +101,35 @@ namespace grooves::db
                 });
             }
 
+            // 0.16.0: the labels the database gives its grooves (shown in the filter columns as they are).
+            const auto genres = names (d, "GENRE", "Name");
+            const auto kitPieces = names (d, "KITPIECES", "Name");
+            const auto groups = names (d, "TAGGROUP", "Name");
+            std::map<juce::int64, juce::String> tagNames;   // tag id -> "Group:Name"
+            {
+                const Columns c { d.columnsOf ("TAGS") };
+                d.forEachRow ("TAGS", [&] (juce::int64, const std::vector<sqlite::Value>& row)
+                {
+                    const auto group = groups.count (at (row, c ("GroupID")).asInt()) ? groups.at (at (row, c ("GroupID")).asInt()) : juce::String ("Type");
+                    if (const auto name = at (row, c ("Name")).text.trim(); name.isNotEmpty())
+                        tagNames[at (row, c ("ID")).asInt()] = group.trim() + ":" + name;
+                });
+            }
+            std::map<juce::int64, juce::StringArray> tagsOf;
+            {
+                const Columns c { d.columnsOf ("REL_ENT_TAGS") };
+                d.forEachRow ("REL_ENT_TAGS", [&] (juce::int64, const std::vector<sqlite::Value>& row)
+                {
+                    if (const auto tag = tagNames.find (at (row, c ("TagID")).asInt()); tag != tagNames.end())
+                        tagsOf[at (row, c ("EntID")).asInt()].addIfNotAlreadyThere (tag->second);
+                });
+            }
+
             struct Groove
             {
-                juce::int64 id = 0, path = 0, header = 0, library = 0, signature = 0, fileName = 0;
+                juce::int64 id = 0, path = 0, header = 0, library = 0, signature = 0, fileName = 0, genre = 0, hand = 0;
                 juce::String name;
-                int tempo = 0, length = 0;
+                int tempo = 0, length = 0, priority = 0;
             };
             std::vector<Groove> grooves;
             {
@@ -122,6 +146,9 @@ namespace grooves::db
                     g.fileName = at (row, c ("FilenameID")).asInt();
                     g.tempo = (int) at (row, c ("Tempo")).asInt();
                     g.length = (int) at (row, c ("Length")).asInt();
+                    g.genre = at (row, c ("GenreID")).asInt();
+                    g.hand = at (row, c ("PowerHandID")).asInt();
+                    g.priority = (int) at (row, c ("Prio")).asInt();
                     grooves.push_back (std::move (g));
                 });
             }
@@ -223,6 +250,13 @@ namespace grooves::db
                 midi.addTrack (track);
                 Contents::Item item;
                 item.file = groove;
+                if (genres.count (g.genre) && genres.at (g.genre).isNotEmpty())
+                    item.tags.add ("Genre:" + genres.at (g.genre));
+                if (const auto tags = tagsOf.find (g.id); tags != tagsOf.end())
+                    item.tags.addArray (tags->second);
+                if (kitPieces.count (g.hand) && kitPieces.at (g.hand).isNotEmpty())
+                    item.tags.add ("Power Hand:" + kitPieces.at (g.hand));
+                item.priority = g.priority;
                 juce::MemoryOutputStream out (item.midi, false);
                 midi.writeTo (out, 0);
                 out.flush();

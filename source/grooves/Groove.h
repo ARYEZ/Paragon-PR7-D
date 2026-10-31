@@ -15,7 +15,8 @@ namespace grooves
 {
     // What the riding hand plays most (the "power hand"), worked out from the notes through the folder's layout.
     enum class PowerHand { none, closedHat, openHat, ride, crash, percussion };
-    inline const juce::StringArray powerHandNames { "-", "Closed Hat", "Open Hat", "Ride", "Crash", "Percussion" };
+    // (0.16.0: named as groove packs' databases name them, so the two list together.)
+    inline const juce::StringArray powerHandNames { "-", "Hi-Hat Closed", "Hi-Hat Open", "Ride", "Crash", "Percussion" };
 
     // FEEL (0.5.0): how its off-beat hits fall, on the half / quarter-beat grid or the triplet grid (a swing or shuffle).
     enum class Feel { straight, swung };
