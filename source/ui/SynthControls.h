@@ -35,6 +35,7 @@ public:
     // Compact: no name above (for a strip beside a panel's title). A switch
     // shows its name beside its LED instead; a menu fills the space.
     void setCompact (bool);
+    void setLabelText (const juce::String& text) { label.setText (text, juce::dontSendNotification); }   // its name above
     const juce::String& getParameterId() const noexcept { return parameterId; }
 
     void resized() override;

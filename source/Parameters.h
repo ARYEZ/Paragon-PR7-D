@@ -63,7 +63,9 @@ namespace ParamIDs
                                                     "On", "MuteTail",     // 0.17.0 (hint 26): the articulation's ON, MUTE TAIL
                                                     "VelMin", "VelMax",   // 0.18.0 (hint 27): its VELOCITY GATE (0 to 127)
                                                     // 0.19.0 (hint 28): THE SAMPLE ENGINE's hit variation and limits
-                                                    "Randomize", "Adjacent", "VelToVol", "LayerLimit", "Voices" };
+                                                    "Randomize", "Adjacent", "VelToVol", "LayerLimit", "Voices",
+                                                    // 0.24.0 (hint 32): THE ACOUSTIC MODELS' strike POSITION, SHELL, VARIATION
+                                                    "Position", "Shell", "Variation" };
     consteval int drumSetting (std::string_view what)
     {
         for (int i = 0; i < (int) std::size (drumSettings); ++i)

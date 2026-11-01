@@ -42,9 +42,12 @@ namespace synth::drums
     inline constexpr int numSlots = 23;   // 12 in PR7-K, 20 from PR7-D 0.2.0, 23 from 0.17.0 (articulations)
 
     // Saved by index (drum{k}Model): only ever append. RIDE, BELL, TAMBOURINE and SHAKER came in PR7-D 0.2.0.
-    enum class Model { kick, snare, clap, closedHat, openHat, tom, rim, cowbell, cymbal, sample, ride, bell, tambourine, shaker };
+    // ACOUSTIC KICK, SNARE and TOM came in 0.24.0: physically modelled drums (see Voice::startAcoustic).
+    enum class Model { kick, snare, clap, closedHat, openHat, tom, rim, cowbell, cymbal, sample, ride, bell, tambourine, shaker,
+                       acousticKick, acousticSnare, acousticTom };
     inline const juce::StringArray modelNames { "Kick", "Snare", "Clap", "Closed Hat", "Open Hat", "Tom", "Rim", "Cowbell", "Cymbal", "Sample",
-                                                "Ride", "Bell", "Tambourine", "Shaker" };
+                                                "Ride", "Bell", "Tambourine", "Shaker", "Acoustic Kick", "Acoustic Snare", "Acoustic Tom" };
+    inline constexpr bool isAcoustic (Model m) noexcept { return m == Model::acousticKick || m == Model::acousticSnare || m == Model::acousticTom; }
     inline const juce::StringArray chokeNames { "None", "1", "2", "3", "4" };   // drum{k}Choke, by index: only append
 
     // The new kit, slot by slot (the first 12 C to B from ROOT, then the 8 added in 0.2.0): what each starts as, and a
@@ -284,6 +287,9 @@ namespace synth::drums
         bool randomize = true, adjacent = true, velocityToVolume = true;
         int layerLimit = 0;                // 0: every hit
         int voices = 6;                    // this drum's hits sounding at once (the oldest fades past it)
+        // THE ACOUSTIC MODELS (0.24.0): where the head is struck (0 the centre, 1 the edge), the shell's ring (the
+        // kick: its front head), and how much each hit differs from the last (a drummer's hits aren't identical).
+        float position = 0.3f, shell = 0.4f, variation = 0.3f;
 
         bool filtered() const noexcept { return lowPass < 19999.0f || highPass > 20.01f; }
         // The sequencer's lead for the anchor (seconds early).
@@ -460,6 +466,23 @@ namespace synth::drums
         Svf f1, f2, f3;
         Noise noise;
         std::array<double, 2> pingPhase {};   // RIDE's stick ping, beside the metal
+        // THE ACOUSTIC MODELS (0.24.0): the head's (and shell's, front head's) modes, each a sine at its frequency
+        // dying at its own rate; the stick's or beater's contact as their shared rise; the pitch glide of a hard hit;
+        // the snare wires following the head.
+        struct Modes
+        {
+            static constexpr int max = 28;
+            int count = 0;
+            // Each a decaying sine made by a two-term recurrence (y = c y1 - r2 y2): two multiplies a sample. Its
+            // tuning (c, for the glide) and its envelope (env, for skipping it once inaudible) every 16 samples.
+            std::array<double, max> hz {};
+            std::array<float, max> amp {}, env {}, coef {}, coef16 {}, glides {}, y1 {}, y2 {}, c {}, r2 {};
+            int countdown = 0;
+            float rise = 0.0f, riseCoef = 0.0f, glide = 0.0f, glideEnv = 0.0f, glideCoef = 0.0f;
+            float wires = 0.0f, wireThreshold = 0.0f, stick = 0.0f;
+            float loudest = 1.0f;   // its loudest mode now (amplitude x envelope): it ends once that's inaudible
+        };
+        Modes modes;
 
         // SAMPLE's.
         const Sample* sample = nullptr;
@@ -487,6 +510,7 @@ namespace synth::drums
 
     private:
         void setTone (double tone, double rate) noexcept;   // SAMPLE's TONE: a low-pass below the middle, a high-pass above
+        void startAcoustic (const SlotSettings&, float velocityGain, double rate) noexcept;   // 0.24.0
         void startShape (const SlotSettings&, double regionSamples) noexcept;
         bool advanceShape() noexcept;      // the envelope's next sample; false once it has ended at nothing
         float next() noexcept;             // the mono models

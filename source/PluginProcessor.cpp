@@ -1552,6 +1552,9 @@ synth::drums::KitSettings ParagonX1AudioProcessor::getKitSettings() const noexce
         s.velocityToVolume = get (drumSetting ("VelToVol")) > 0.5f;
         s.layerLimit = juce::roundToInt (get (drumSetting ("LayerLimit")));
         s.voices = juce::jlimit (1, synth::drums::Kit::maxVoices, juce::roundToInt (get (drumSetting ("Voices"))));
+        s.position = get (drumSetting ("Position"));
+        s.shell = get (drumSetting ("Shell"));
+        s.variation = get (drumSetting ("Variation"));
         s.velMin = get (drumSetting ("VelMin")) / 127.0f - 1.0e-4f;
         s.velMax = get (drumSetting ("VelMax")) / 127.0f + 1.0e-4f;
         s.envelopeSeconds = hitLengths[k].load();

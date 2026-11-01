@@ -640,11 +640,14 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), en
     slotControl (slotControls, "Model", "DRUM", "What this slot is: one of our own drum synths, or SAMPLE (a file you load). Our own "
                                                 "designs from the classic analog ideas, not copies of any drum machine.");
     slotControl (slotControls, "Pitch", "PITCH", "Its pitch, in semitones (and hundredths).");
-    slotControl (slotControls, "Decay", "DECAY", "How long it rings. SAMPLE: the whole sample from the middle up; below, it's cut shorter.");
+    slotControl (slotControls, "Decay", "DECAY", "How long it rings. SAMPLE: the whole sample from the middle up; below, it's cut shorter. "
+                                                 "ACOUSTIC drums: the muffling (left: a pillow or a towel on the head, the high overtones dying first).");
     slotControl (slotControls, "Tone", "TONE", "Its brightness. KICK and TOM: how far the pitch drops at the hit. RIM: high ring against low. "
-                                               "SAMPLE: darker below the middle, thinner above.");
+                                               "SAMPLE: darker below the middle, thinner above. ACOUSTIC drums: what strikes the head (BEATER / STICK): soft felt "
+                                               "(dark, round) to hard plastic or wood (bright, clicky).");
     slotControl (slotControls, "Snap", "SNAP", "Its attack: the kick's beater click, the snare's wires, the clap's slaps, the hats' sizzle, "
-                                               "the cowbell's strike. SAMPLE: a softer attack below the middle, a spike above.");
+                                               "the cowbell's strike. SAMPLE: a softer attack below the middle, a spike above. ACOUSTIC drums: the kick's "
+                                               "beater CLICK, the snare's WIRES, the tom's stick ATTACK.");
     slotControl (slotControls, "Level", "VOLUME", "This drum's level.");
     slotControl (slotControls, "Pan", "PAN", "Left to right.");
     slotControl (slotControls, "Gain", "GAIN", "More level than VOLUME gives (or less): for samples recorded very loud or very quiet.");
@@ -667,6 +670,14 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), en
     slotControl (routingControls, "HighPass", "HP", "High-pass, 6 dB an octave: thins the drum (hats out of the kick's way). "
                                                     "All the way down: off.");
 
+    // THE ACOUSTIC MODELS (0.24.0): shown beside the shaping knobs while the drum is one of them.
+    slotControl (acousticControls, "Position", "POSITION", "Where the stick or beater lands: the centre (left: fat, round, fewer overtones) "
+                                                           "to near the edge (right: thinner, ringier, more overtones).");
+    slotControl (acousticControls, "Shell", "SHELL", "The kick: its FRONT HEAD (more: a longer, rounder boom; less: like a port cut in it). "
+                                                     "Snare and toms: the shell's own ring.");
+    slotControl (acousticControls, "Variation", "VARIATION", "How much each hit differs from the last, as a drummer's do: where it lands, how "
+                                                             "hard, the contact, the tuning. 0: every hit the same.");
+
     // THE VELOCITY GATE (0.18.0), beside the curve.
     slotControl (velocityControls, "VelMin", "GATE LOW", "The softest hit (as it comes in, 0 to 127) that plays this drum: softer ones don't. "
                                                          "Raise it to keep a layer for hard hits only.");
@@ -681,7 +692,7 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), en
     slotControl (instrumentControls, "LayerLimit", "LAYER LIMIT", "How many of each layer's hits are used (ALL: every one). Fewer: more repeats.");
     slotControl (instrumentControls, "Voices", "VOICES", "How many of this drum's hits ring at once; past that the oldest fades.");
 
-    for (auto* list : { &kitControls, &slotControls, &routingControls, &velocityControls, &instrumentControls })
+    for (auto* list : { &kitControls, &slotControls, &routingControls, &velocityControls, &instrumentControls, &acousticControls })
         for (auto& c : *list)
             addAndMakeVisible (*c);
 
@@ -988,7 +999,7 @@ bool DrumPage::isAudioFile (const juce::String& path)
 std::vector<ParamControl*> DrumPage::getSlotControls()
 {
     std::vector<ParamControl*> result;
-    for (auto* list : { &slotControls, &routingControls })
+    for (auto* list : { &slotControls, &routingControls, &acousticControls })
         for (auto& c : *list)
             result.push_back (c.get());
     return result;
@@ -1000,7 +1011,7 @@ void DrumPage::select (int slot)
     if (! rows[(size_t) selected]->isChosen())
         for (auto& row : rows)
             row->setChosen (row->getSlot() == selected);   // chosen from elsewhere (the sequencer): alone
-    for (auto* list : { &slotControls, &routingControls, &velocityControls, &instrumentControls })
+    for (auto* list : { &slotControls, &routingControls, &velocityControls, &instrumentControls, &acousticControls })
         for (auto& c : *list)
         {
             const auto what = c->getParameterId().fromFirstOccurrenceOf ("drum", false, false).trimCharactersAtStart ("0123456789");
@@ -1110,6 +1121,27 @@ void DrumPage::updateDrumPanels()
     }
     for (auto& c : instrumentControls)
         c->setVisible (drum && ! velocityMode && showingInstrument);
+    // THE ACOUSTIC MODELS (0.24.0): their knobs while the drum is one of them, and TONE / SNAP named for what they are.
+    {
+        using synth::drums::Model;
+        const auto model = (Model) juce::roundToInt (processor.getParameters().getRawParameterValue (ParamIDs::drum (selected, "Model"))->load());
+        const auto acoustic = synth::drums::isAcoustic (model);
+        if (acoustic != showingAcoustic)
+        {
+            showingAcoustic = acoustic;
+            resized();
+        }
+        for (auto& c : acousticControls)
+            c->setVisible (drum && acoustic);
+        if ((int) model != labelledModel)
+        {
+            labelledModel = (int) model;
+            const auto kick = model == Model::acousticKick, snare = model == Model::acousticSnare;
+            slotControls[3]->setLabelText (! acoustic ? "TONE" : kick ? "BEATER" : "STICK");
+            slotControls[4]->setLabelText (! acoustic ? "SNAP" : kick ? "CLICK" : snare ? "WIRES" : "ATTACK");
+            acousticControls[1]->setLabelText (kick ? "FRONT HEAD" : "SHELL");
+        }
+    }
     display.setVisible (drum && ! velocityMode);
     envelope.setVisible (drum && ! velocityMode);
     for (juce::Component* c : { (juce::Component*) &velocityEditor, (juce::Component*) &softButton, (juce::Component*) &gateButton,
@@ -1376,9 +1408,12 @@ void DrumPage::resized()
     std::vector<juce::Component*> shaping, routes;
     for (size_t i = 1; i < slotControls.size(); ++i)
         shaping.push_back (slotControls[i].get());
+    if (showingAcoustic)   // after TONE and SNAP: POSITION, SHELL, VARIATION
+        for (size_t i = 0; i < acousticControls.size(); ++i)
+            shaping.insert (shaping.begin() + 4 + (std::ptrdiff_t) i, acousticControls[i].get());
     for (auto& c : routingControls)
         routes.push_back (c.get());
-    SynthPanel::layoutRow (knobs, shaping, 110);
+    SynthPanel::layoutRow (knobs, shaping, juce::jmin (110, knobs.getWidth() / juce::jmax (1, (int) shaping.size())));
     SynthPanel::layoutRow (routing, routes);   // nine: shared out across the row
 
     std::fill (pictureKeys.begin(), pictureKeys.end(), juce::String());   // sized afresh

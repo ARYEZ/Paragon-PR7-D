@@ -156,7 +156,10 @@ private:
     int selected = 0;
     std::vector<std::unique_ptr<DrumRow>> rows;
     std::array<juce::String, synth::drums::numSlots> pictureKeys;
-    std::vector<std::unique_ptr<ParamControl>> kitControls, slotControls, routingControls, velocityControls, instrumentControls;
+    std::vector<std::unique_ptr<ParamControl>> kitControls, slotControls, routingControls, velocityControls, instrumentControls,
+                                                acousticControls;   // 0.24.0: POSITION, SHELL, VARIATION (the acoustic models)
+    bool showingAcoustic = false;
+    int labelledModel = -1;   // the model the shaping knobs' names are for
     bool showingInstrument = false;   // the chosen drum holds an instrument (THE SAMPLE ENGINE, 0.19.0): its controls show
     void showLoadMenu();
     void importSfzKit();

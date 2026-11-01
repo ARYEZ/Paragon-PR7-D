@@ -306,7 +306,7 @@ TEST_CASE ("Rigs are sorted by bank and number, and < > wrap round", "[rigs]")
     CHECK (library.step (&entries.front(), -1) == &entries.back());
     CHECK (library.step (nullptr, 1) == &entries.front());
 
-    CHECK (library.nextFreeNumber (0) == 6);   // the factory presets fill A01 to A05
+    CHECK (library.nextFreeNumber (0) == 7);   // the factory presets fill A01 to A06 (0.24.0: A06 Djent Kit)
 }
 
 TEST_CASE ("Saving and loading a preset restores the sound but not the global settings", "[rigs]")
@@ -396,10 +396,10 @@ TEST_CASE ("< and > step through the presets in order", "[rigs]")
 {
     RigRig r;
     r.processor.loadRig (r.entryNamed ("Init"));
-    REQUIRE (r.processor.saveCurrentRigAs ("Second"));   // filed after bank A's factory presets, at A06
-    REQUIRE (r.processor.saveCurrentRigAs ("Third"));    // A07
-    CHECK (r.entryNamed ("Second").rig.getSlotName() == "A06");
-    r.processor.loadRig (r.entryNamed ("Dirty Beat"));   // A05
+    REQUIRE (r.processor.saveCurrentRigAs ("Second"));   // filed after bank A's factory presets, at A07
+    REQUIRE (r.processor.saveCurrentRigAs ("Third"));    // A08
+    CHECK (r.entryNamed ("Second").rig.getSlotName() == "A07");
+    r.processor.loadRig (r.entryNamed ("Djent Kit"));   // A06, the last factory one
     r.processor.stepRig (1);
     CHECK (r.processor.getCurrentRig().name == "Second");
     r.processor.stepRig (1);

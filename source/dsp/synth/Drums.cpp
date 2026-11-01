@@ -13,8 +13,37 @@ namespace synth::drums
         constexpr double twoPi = juce::MathConstants<double>::twoPi;
 
         // Each model's level, so a hit at the defaults peaks near -3 dBFS (measured in the tests).
-        constexpr std::array<float, 14> modelLevel { 0.651f, 0.716f, 1.373f, 2.314f, 2.006f, 0.550f, 0.824f, 0.770f, 1.119f, 1.0f,
-                                                     1.097f, 0.549f, 1.017f, 1.099f };
+        constexpr std::array<float, 17> modelLevel { 0.651f, 0.716f, 1.373f, 2.314f, 2.006f, 0.550f, 0.824f, 0.770f, 1.119f, 1.0f,
+                                                     1.097f, 0.549f, 1.017f, 1.099f,
+                                                     0.656f, 0.804f, 0.887f };   // 0.24.0: the acoustic kick, snare, tom
+
+        // THE ACOUSTIC MODELS (0.24.0). An ideal circular drumhead rings in modes (m nodal diameters, n nodal circles),
+        // each at a frequency set by a zero of the Bessel function J_m: j_mn / j_01 times the lowest. The first 24, in
+        // order (standard values).
+        struct HeadMode { int m; double j; };
+        constexpr std::array<HeadMode, 24> headModes {{
+            { 0, 2.4048 }, { 1, 3.8317 }, { 2, 5.1356 }, { 0, 5.5201 }, { 3, 6.3802 }, { 1, 7.0156 }, { 4, 7.5883 }, { 2, 8.4172 },
+            { 0, 8.6537 }, { 5, 8.7715 }, { 3, 9.7610 }, { 6, 9.9361 }, { 1, 10.1735 }, { 4, 11.0647 }, { 7, 11.0864 }, { 2, 11.6198 },
+            { 0, 11.7915 }, { 8, 12.2251 }, { 5, 12.3386 }, { 3, 13.0152 }, { 1, 13.3237 }, { 9, 13.3543 }, { 6, 13.5893 }, { 2, 14.7960 },
+        }};
+
+        // J_m (x), from its power series (x below about 16 here, where doubles keep it to well under 1e-9).
+        double besselJ (int m, double x) noexcept
+        {
+            const auto half = 0.5 * x;
+            auto term = 1.0;
+            for (int i = 1; i <= m; ++i)
+                term *= half / i;
+            auto sum = term;
+            for (int k = 1; k < 60; ++k)
+            {
+                term *= -half * half / (k * (double) (k + m));
+                sum += term;
+                if (std::abs (term) < 1.0e-14 * (1.0 + std::abs (sum)))
+                    break;
+            }
+            return sum;
+        }
 
         // The six metal oscillators (hats, cymbal): unrelated pitches, so their harmonics clash like metal. The
         // classic analog-machine idea; these are our own numbers.
@@ -293,6 +322,12 @@ namespace synth::drums
 
         switch (model)
         {
+            case Model::acousticKick:
+            case Model::acousticSnare:
+            case Model::acousticTom:
+                startAcoustic (s, velocityGain, rate);
+                break;
+
             case Model::kick:
                 // A sine falling from (1 + BEND) times its pitch to 52 Hz; TONE sets how far it falls; SNAP the
                 // beater's click (high-passed noise, 1.5 ms).
@@ -483,6 +518,112 @@ namespace synth::drums
             startShape (s, model == Model::sample ? endPosition - startPosition : 0.0);
     }
 
+    void Voice::startAcoustic (const SlotSettings& s, float velocityGain, double rate) noexcept
+    {
+        // THE ACOUSTIC MODELS (0.24.0): modal synthesis of a drum from its physics, our own design and numbers (no
+        // recordings). The head's modes are the ideal membrane's (headModes), their spacing pulled in a little for the
+        // air and the second head (a real drum's are closer than the ideal's), each:
+        //   - excited by where it's struck: a mode's shape there, J_m (j r) (its norm divided out); a mode with
+        //     nodal diameters (m > 0) radiates less (it pushes air both ways), so it's weighted down;
+        //   - shaped by what strikes it: the stick or beater's contact time (TONE: soft felt about 3.5 ms to hard
+        //     plastic or wood about 0.3 ms, shorter on a hard hit) passes the modes below about 1 / contact and
+        //     rolls off the rest (a smoothed pulse spectrum); the contact is also the hit's rise;
+        //   - dying at its own rate: DECAY (the muffling) sets the lowest mode's time, higher ones die faster the
+        //     more it's muffled;
+        //   - bent by a hard hit: the head's tension rises with its swing, so the pitch starts high and settles
+        //     (how much: the velocity squared).
+        // Then the drum's own parts: the kick's front head (SHELL: two modes a little above the batter's, ringing
+        // longer), a snare's or tom's shell (three fixed modes), the beater's click or the stick's (SNAP on the kick and
+        // tom), the snare wires (SNAP: noise buzzing with the head, stopping once its swing falls below their
+        // tension). VARIATION moves where and how hard each hit lands, its contact and its tuning a little.
+        auto& md = modes;
+        md = {};
+        const auto twelfthRoot = [] (double semitones) { return std::exp2 (semitones / 12.0); };
+        const auto rand = [this] { return (double) noise.white(); };   // -1 to 1 (the hit's own seed)
+        const auto variation = (double) juce::jlimit (0.0f, 1.0f, s.variation);
+        const auto kick = model == Model::acousticKick, snare = model == Model::acousticSnare;
+        // How hard it's struck, from its level (the velocity and its curve): 0 to 1.
+        auto hardness = juce::jlimit (0.05, 1.0, std::sqrt ((double) velocityGain) * (1.0 + 0.08 * variation * rand()));
+        const auto radius = juce::jlimit (0.02, 0.95, 0.02 + 0.9 * (double) s.position + 0.06 * variation * rand());
+        const auto f0 = (kick ? 50.0 : snare ? 190.0 : 100.0) * twelfthRoot (s.pitch + 0.1 * variation * rand());
+        const auto stretch = kick ? 0.8 : snare ? 0.9 : 0.82;
+        const auto count = kick ? 16 : snare ? 24 : 20;
+        const auto d = (double) juce::jlimit (0.0f, 1.0f, s.decay);
+        const auto muffle = 1.0 - d;
+        const auto t0 = kick ? 0.05 + 0.9 * d * d : snare ? 0.08 + 0.6 * d * d : 0.15 + 2.2 * d * d;
+        auto contact = 0.0035 * std::pow (0.08, (double) juce::jlimit (0.0f, 1.0f, s.tone)) * std::pow (hardness, -0.5)
+                     * (1.0 + 0.15 * variation * rand());
+        contact = juce::jlimit (0.0002, 0.006, contact);
+        const auto spectrum = [contact] (double hz) { return 1.0 / std::sqrt (1.0 + std::pow (hz * contact * 1.5, 4.0)); };
+        const auto nyquistSafe = 0.45 * rate;
+
+        auto total = 0.0;   // the head's modes' amplitudes so far
+        const auto add = [&] (double hz, double amp, double seconds, float glides)
+        {
+            if (md.count >= Modes::max || hz >= nyquistSafe || std::abs (amp) < 1.0e-3 * juce::jmax (1.0e-9, total))
+                return;   // (a mode a thousandth of the rest so far: never heard)
+            const auto k = (size_t) md.count++;
+            md.hz[k] = hz;
+            md.amp[k] = (float) amp;
+            md.env[k] = 1.0f;
+            md.coef[k] = decayCoefficient (juce::jmax (0.005, seconds), rate);
+            md.coef16[k] = std::pow (md.coef[k], 16.0f);
+            md.glides[k] = glides;
+            // A sine from nothing: x[0] = 0, x[-1] = -sin (w) / r (so x[1] = r sin (w)).
+            const auto w = twoPi * hz / rate;
+            md.y1[k] = 0.0f;
+            md.y2[k] = (float) (-std::sin (w) / md.coef[k]);
+            md.c[k] = (float) (2.0 * md.coef[k] * std::cos (w));
+            md.r2[k] = md.coef[k] * md.coef[k];
+        };
+        for (int i = 0; i < count; ++i)
+        {
+            const auto& mode = headModes[(size_t) i];
+            const auto ratio = 1.0 + (mode.j / headModes[0].j - 1.0) * stretch;
+            const auto hz = f0 * ratio;
+            const auto shape = besselJ (mode.m, mode.j * radius) / std::abs (besselJ (mode.m + 1, mode.j));
+            const auto radiation = mode.m == 0 ? 1.0 : mode.m == 1 ? 0.6 : 0.4;
+            const auto amp = std::abs (shape) * radiation * spectrum (hz) / std::sqrt (ratio);
+            add (hz, amp, t0 / (1.0 + (0.4 + 2.5 * muffle) * (ratio - 1.0)), 1.0f);
+            total += amp;
+        }
+        const auto shell = (double) juce::jlimit (0.0f, 1.0f, s.shell);
+        if (kick)
+        {
+            // The front head: tuned a little above the batter, its own modes ringing on longer (a port in it would
+            // shorten them: less SHELL).
+            add (f0 * 1.06, total * 0.35 * shell, t0 * 1.6 + 0.1, 0.5f);
+            add (f0 * 1.06 * (1.0 + (headModes[3].j / headModes[0].j - 1.0) * stretch), total * 0.08 * shell, t0 * 0.8 + 0.05, 0.5f);
+        }
+        else
+        {
+            // The shell's own ring, fixed against the head's pitch (our ratios).
+            for (const auto& [ratio, level] : { std::pair { 1.85, 0.12 }, std::pair { 3.4, 0.08 }, std::pair { 5.6, 0.05 } })
+                add (f0 * ratio, total * level * shell * spectrum (f0 * ratio), 0.12 + 0.1 * d, 0.0f);
+        }
+        // Normalised (the hit's loudness is the model's level and the velocity's), sines starting at nothing.
+        const auto scale = total > 0.0 ? 1.0 / total : 1.0;
+        for (int k = 0; k < md.count; ++k)
+            md.amp[(size_t) k] *= (float) scale;
+        md.riseCoef = (float) (1.0 - std::exp (-1.0 / juce::jmax (1.0, 0.35 * contact * rate)));
+        md.glide = (float) ((kick ? 0.12 : snare ? 0.04 : 0.10) * hardness * hardness);
+        md.glideEnv = 1.0f;
+        md.glideCoef = decayCoefficient (0.5 * t0, rate);
+
+        // The click: the beater's (kick: SNAP, brighter with a harder beater) or the stick's (snare, tom).
+        const auto snap = juce::jlimit (0.0f, 1.0f, s.snap);
+        click = 1.0f;
+        clickCoef = decayCoefficient (1.5 * contact + 0.0008, rate);
+        f1.set (kick ? 1800.0 + 3000.0 * s.tone : snare ? 3000.0 : 2500.0, 1.2, rate);
+        // (A soft hit's click is quieter still against its body: the contact is gentler.)
+        noiseLevel = (float) hardness * (kick ? 2.0f * snap : snare ? 0.4f : 0.8f * snap);
+        // The snare wires: noise high-passed at 2 kHz and low-passed by TONE, buzzing with the head's swing.
+        md.wires = snare ? snap : 0.0f;
+        md.wireThreshold = 0.04f;
+        f2.set (2000.0, 0.7, rate);
+        f3.set (3000.0 + 9000.0 * s.tone, 0.7, rate);
+    }
+
     void Voice::startShape (const SlotSettings& s, double regionSamples) noexcept
     {
         // The envelope runs across the hit from 0 to 1: a sample's own content (START to END, whatever its pitch,
@@ -530,6 +671,59 @@ namespace synth::drums
         float out = 0.0f;
         switch (model)
         {
+            case Model::acousticKick:
+            case Model::acousticSnare:
+            case Model::acousticTom:
+            {
+                auto& md = modes;
+                md.glideEnv *= md.glideCoef;
+                md.rise += (1.0f - md.rise) * md.riseCoef;
+                // Every 16 samples: each mode's tuning for the glide, its envelope, and which are still heard.
+                if (--md.countdown <= 0)
+                {
+                    md.countdown = 16;
+                    const auto bend = (double) (md.glide * md.glideEnv);
+                    auto loudest = 0.0f;
+                    for (int k = 0; k < md.count; ++k)
+                    {
+                        const auto i = (size_t) k;
+                        md.c[i] = (float) (2.0 * md.coef[i] * std::cos (twoPi * md.hz[i] * (1.0 + bend * md.glides[i]) / sampleRate));
+                        loudest = juce::jmax (loudest, md.amp[i] * md.env[i]);
+                        md.env[i] *= md.coef16[i];
+                    }
+                    md.loudest = loudest;
+                }
+                auto sum = 0.0f;
+                for (int k = 0; k < md.count; ++k)
+                {
+                    const auto i = (size_t) k;
+                    if (md.amp[i] * md.env[i] < 1.0e-6f)
+                        continue;   // faded below hearing (-120 dB): skipped
+                    const auto y = md.c[i] * md.y1[i] - md.r2[i] * md.y2[i];
+                    md.y2[i] = md.y1[i];
+                    md.y1[i] = y;
+                    sum += md.amp[i] * y;
+                }
+                out = sum * md.rise;
+                // The click: band-passed noise as long as the contact.
+                if (click > 1.0e-5f)
+                {
+                    f1.process (noise.white());
+                    out += f1.bp * click * noiseLevel;
+                    click *= clickCoef;
+                }
+                // The wires: buzzing while the head swings past their tension (its lowest mode's envelope), louder
+                // as it swings out.
+                if (md.wires > 0.0f && md.count > 0)
+                {
+                    const auto swing = (md.env[0] * md.rise - md.wireThreshold) / (1.0f - md.wireThreshold);
+                    f2.process (noise.white());
+                    f3.process (f2.hp);
+                    if (swing > 0.0f)
+                        out += f3.lp * swing * md.wires * (0.6f + 0.4f * juce::jmin (1.0f, std::abs (md.y1[0]) / juce::jmax (1.0e-6f, md.env[0])));
+                }
+                break;
+            }
             case Model::kick:
             {
                 pitchEnv *= pitchCoef;
@@ -699,6 +893,13 @@ namespace synth::drums
         constexpr auto quiet = 1.0e-4f;   // -80 dB
         switch (model)
         {
+            case Model::acousticKick:
+            case Model::acousticSnare:
+            case Model::acousticTom:
+            {
+                // Its loudest mode 80 dB under full scale, this hit's own level counted (a soft hit ends sooner).
+                return click < quiet && modes.loudest * level < quiet;
+            }
             case Model::kick:    return env < quiet && click < quiet;
             case Model::snare:   return env < quiet && env2 < quiet;
             case Model::clap:    return burst >= (int) clapBursts.size() && env2 < quiet && env < quiet;

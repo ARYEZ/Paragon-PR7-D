@@ -160,5 +160,87 @@ std::vector<Rig> makeFactoryRigs()
         .set (ParamIDs::ins (0, "SendDelay"), 0.0f).set (ParamIDs::ins (0, "SendReverb"), 0.25f);
     add (dirty);
 
+    // A06 (0.24.0): a djent kit built from scratch with the acoustic models, nobody's samples. The kick tuned up a
+    // little, muffled (short DECAY) and struck by a hard beater (TONE) with lots of click (SNAP) near the centre; the
+    // snare tuned high, tight, its wires crisp; the toms deep and open; the rimshot (SD2) the same snare struck at
+    // the edge; the cymbals still the drum synths (modelled ones come next). Our own settings: tune them by ear.
+    Builder djent ("Djent Kit", 6, { "Kit", "Sequencer", "Acoustic" },
+                   "Modelled drums, built from the physics with no samples: a tight, clicky kick (hard beater, heavily muffled), "
+                   "a high, cracking snare, three deep toms, and the synth cymbals with a china. The master's compressor (FET) and "
+                   "LIMITER hold it together. The sequencer has four grooves: A syncopated half time, B double-kick sixteenths, "
+                   "C a ghost-note groove, D a tom fill. Our own settings, not tuned by ear yet.");
+    {
+        using synth::drums::Model;
+        constexpr int bd = 0, sd = 2, sd2 = 4, lt = 5, ch = 6, mt = 7, ht = 9, oh = 10, cy = 11, rd = 12, chn = 15;
+        djent.drum (bd, "Model", (float) (int) Model::acousticKick).drum (bd, "Pitch", 2.0f).drum (bd, "Decay", 0.28f)
+             .drum (bd, "Tone", 0.92f).drum (bd, "Snap", 0.85f).drum (bd, "Position", 0.12f).drum (bd, "Shell", 0.2f)
+             .drum (bd, "Variation", 0.15f).drum (bd, "Mono", 1.0f);
+        djent.drum (sd, "Model", (float) (int) Model::acousticSnare).drum (sd, "Pitch", 5.0f).drum (sd, "Decay", 0.35f)
+             .drum (sd, "Tone", 0.8f).drum (sd, "Snap", 0.55f).drum (sd, "Position", 0.25f).drum (sd, "Shell", 0.45f)
+             .drum (sd, "Variation", 0.2f);
+        djent.drum (sd2, "Model", (float) (int) Model::acousticSnare).drum (sd2, "Pitch", 5.0f).drum (sd2, "Decay", 0.4f)
+             .drum (sd2, "Tone", 0.95f).drum (sd2, "Snap", 0.5f).drum (sd2, "Position", 0.85f).drum (sd2, "Shell", 0.7f)
+             .drum (sd2, "Variation", 0.2f);
+        for (const auto& [slot, pitch, pan] : { std::tuple { ht, 4.0f, 0.25f }, std::tuple { mt, 0.0f, 0.0f }, std::tuple { lt, -5.0f, -0.3f } })
+            djent.drum (slot, "Model", (float) (int) Model::acousticTom).drum (slot, "Pitch", pitch).drum (slot, "Decay", 0.5f)
+                 .drum (slot, "Tone", 0.7f).drum (slot, "Snap", 0.45f).drum (slot, "Position", 0.3f).drum (slot, "Shell", 0.35f)
+                 .drum (slot, "Variation", 0.2f).drum (slot, "Pan", pan);
+        djent.drum (ch, "HighPass", 500.0f).drum (ch, "Pan", 0.3f).drum (oh, "Pan", 0.3f).drum (oh, "HighPass", 400.0f)
+             .drum (cy, "Pan", -0.35f).drum (rd, "Pan", -0.4f).drum (chn, "Pan", 0.45f).drum (chn, "Level", -4.0f);
+        djent.set (ParamIDs::compOn, 1.0f).set (ParamIDs::compThreshold, -16.0f).set (ParamIDs::compRatio, 4.0f)
+             .set (ParamIDs::compAttack, 8.0f).set (ParamIDs::compRelease, 120.0f).set (ParamIDs::compMakeUp, 3.0f)
+             .set (ParamIDs::compCharacter, 2.0f)
+             .set (ParamIDs::limitOn, 1.0f).set (ParamIDs::dseqOn, 1.0f);
+
+        using synth::drumseq::Note;
+        auto& patterns = djent.rig.modulation.drumPatterns;
+        const auto note = [] (synth::drumseq::Pattern& p, int row, double start, float velocity = 1.0f) -> Note&
+        {
+            Note n;
+            n.row = row;
+            n.start = start;
+            n.velocity = velocity;
+            p.notes.push_back (n);
+            return p.notes.back();
+        };
+        // A: the kick following a syncopated (palm-muted guitar) rhythm, the snare on 3 (half time), the china on
+        // the quarters.
+        auto& a = patterns[0];
+        for (const auto k : { 0.0, 1.0, 3.0, 6.0, 7.0, 10.0, 11.0, 13.0, 14.0 })
+            note (a, bd, k, k == 1.0 || k == 7.0 || k == 11.0 ? 0.85f : 1.0f);
+        note (a, sd, 8.0);
+        for (int k = 0; k < 16; k += 4)
+            note (a, chn, k, k == 0 ? 0.9f : 0.7f);
+        // B: double-kick sixteenths under a backbeat, the ride on the eighths.
+        auto& b = patterns[1];
+        for (int k = 0; k < 16; ++k)
+            note (b, bd, k, k % 2 == 0 ? 1.0f : 0.85f);
+        note (b, sd, 4.0);
+        note (b, sd, 12.0);
+        for (int k = 0; k < 16; k += 2)
+            note (b, rd, k, k % 4 == 0 ? 0.85f : 0.6f);
+        // C: a groove with ghost notes, the hats on the eighths, a rimshot on the last backbeat.
+        auto& c = patterns[2];
+        for (const auto k : { 0.0, 3.0, 6.0, 10.0 })
+            note (c, bd, k);
+        note (c, sd, 4.0);
+        note (c, sd2, 12.0);
+        for (const auto k : { 7.0, 9.0, 14.0 })
+            note (c, sd, k, 0.25f);
+        for (int k = 0; k < 16; k += 2)
+            note (c, ch, k, k % 4 == 0 ? 0.85f : 0.55f);
+        // D: a tom fill down the kit, the china on the next downbeat's place.
+        auto& d = patterns[3];
+        note (d, bd, 0.0);
+        note (d, sd, 4.0);
+        for (const auto& [k, tom] : { std::pair { 8.0, ht }, std::pair { 9.0, ht }, std::pair { 10.0, mt }, std::pair { 11.0, mt },
+                                     std::pair { 12.0, lt }, std::pair { 13.0, lt }, std::pair { 14.0, lt } })
+            note (d, tom, k, k == 8.0 || k == 10.0 || k == 12.0 ? 1.0f : 0.8f);
+        note (d, sd, 15.0);
+        note (d, bd, 15.0);
+        note (d, cy, 15.0, 0.6f);
+    }
+    add (djent);
+
     return rigs;
 }

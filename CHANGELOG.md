@@ -2,6 +2,43 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.24.0
+
+**Modelled acoustic drums, built from the physics, and a djent kit made from scratch** (the start of your plan to rely on nobody's samples). As you chose: drums first, added as new models, so every existing preset sounds exactly as before.
+
+- **Three new drum models: ACOUSTIC KICK, ACOUSTIC SNARE, ACOUSTIC TOM.** Choose them in any drum's DRUM menu. They aren't samples or analog-style tones. Each is computed from how a real drum vibrates (our own design, built from published drum physics, no recordings):
+  - **The head rings in many frequencies at once** (up to 24), in the ratios a real circular drumhead has, pulled a little closer together as the air and the second head make them.
+  - **Where you hit matters (POSITION):** the centre is fat and round (the overtones with a node through the middle stay quiet); towards the edge it gets thinner and ringier.
+  - **What you hit with matters (BEATER on the kick, STICK on snare and toms):** soft felt is dark and round; hard plastic or wood is bright and clicky.
+  - **How hard you hit matters:** a harder hit is brighter, and its pitch starts a little high and settles (a struck head tightens as it swings), as a hard-hit tom does.
+  - **DECAY is the muffling:** less of it is a pillow in the kick or a towel on the snare, the high overtones dying first.
+  - **The kick:** its beater CLICK, and its FRONT HEAD ringing on beside the batter. Less front head is like a port cut in it.
+  - **The snare:** its WIRES buzz with the head and stop once its swing falls below their tension, before the head stops ringing, as real wires do; the shell's own ring.
+  - **The toms:** their stick ATTACK, the shell's ring.
+  - **VARIATION:** each hit lands a little differently (where, how hard, the contact, a few cents of tuning), so fast fills don't sound like a machine gun. 0 makes every hit identical.
+- **The DRUM view** shows POSITION, SHELL (FRONT HEAD on the kick) and VARIATION while one of these is chosen, and names TONE and SNAP for what they do on that drum.
+- **A06 Djent Kit** (a new factory preset):
+  - a tight, clicky kick (hard beater, heavily muffled, tuned up a little);
+  - a high, cracking snare, with a rimshot (the same snare hit at the edge, harder);
+  - three deep toms;
+  - the synth cymbals with a china (modelled cymbals come next);
+  - the master compressor (FET, letting the attack through) and the limiter.
+  - Its four grooves: A syncopated half time, B double-kick sixteenths, C a ghost-note groove, D a tom fill.
+- **CPU:** six acoustic drums each hit every sixteenth note take about 7% of one core here. Each mode is computed with two multiplies a sample, and a hit stops once it's inaudible.
+- **Honest limits:**
+  - I can't listen. Everything is checked against the physics with measurements, but whether it sounds right is your call. Tell me in plain words what's off ("kick too boomy", "snare needs more crack") and I'll adjust.
+  - The djent kit's settings are my starting point, not tuned by ear.
+  - Cymbals and hi-hats are still the old synth models until 0.25.0; synth drums still don't go through the mixer's channels until 0.26.0 (mics and room).
+- **Tests:**
+  - the snare's mode frequencies, and PITCH moving them;
+  - a centre strike missing the off-centre modes;
+  - a harder striker and a harder hit being brighter;
+  - a hard hit's pitch glide (and none on a soft one);
+  - muffling killing the high modes first;
+  - the kick's front head ringing on, its click;
+  - the snare wires stopping while the head still rings;
+  - VARIATION, the preset, the CPU, every model at -3 dBFS.
+
 ## 0.23.0
 
 **Route Instrument Microphones, and channels of your own** (from chapter 9.4.1 you sent; our own look and words). As you chose: up to 8 new user channels.

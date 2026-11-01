@@ -55,6 +55,9 @@ PR7-D is built in stages, each one released:
     round-robins, sorted by loudness or by numbered names); an SFZ instrument; or a whole SFZ kit onto every drum.
     With an instrument: its layers drawn by velocity, RANDOMIZE, ADJACENT layers, VEL > VOL, LAYER LIMIT, VOICES.
     Presets and projects remember where the files are and load them again.
+- **ACOUSTIC KICK, SNARE, TOM** (0.24.0): modelled drums computed from the physics, no samples: the head's modes,
+  strike POSITION, what strikes it (BEATER / STICK), how hard (brighter, a pitch glide), muffling (DECAY), the kick's
+  CLICK and FRONT HEAD, the snare's WIRES, the shell, VARIATION between hits. Factory preset A06 Djent Kit.
 - **MIXER** (0.20.0): a multi-mic kit's mic channels (kick in / out, snare top / bottom, hi-hat, toms, cymbals,
   overheads, room, ambience, other): BLEED, PAN, fader and meter, M / S / polarity, OUTPUT; click a channel's name for
   its PROPERTIES (close-mic audio and the bleed from each drum: on, level, polarity; TIME OFFSET; RELEASE). Synth drums

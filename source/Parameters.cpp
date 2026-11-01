@@ -25,6 +25,7 @@ namespace
     constexpr int pr7d0200 = 29; // PR7-D 0.20.0: the mixer's mic channels
     constexpr int pr7d0210 = 30; // PR7-D 0.21.0: the mixer's buses, routes and mute mode
     constexpr int pr7d0230 = 31; // PR7-D 0.23.0: the mixer's user channels
+    constexpr int pr7d0240 = 32; // PR7-D 0.24.0: the acoustic models' position, shell, variation
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -156,6 +157,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
                  [] (float v, int) { return v < 0.5f ? juce::String ("All") : juce::String (juce::roundToInt (v)); }, pr7d0190);
             add (layout, drum (k, "Voices"), name + "Voices", { 1.0f, 48.0f, 1.0f }, (float) synth::drums::Kit::maxPerSlot,
                  [] (float v, int) { return juce::String (juce::roundToInt (v)); }, pr7d0190);
+            const synth::drums::SlotSettings acoustic;
+            add (layout, drum (k, "Position"), name + "Position", { 0.0f, 1.0f }, acoustic.position, asPercent, pr7d0240);
+            add (layout, drum (k, "Shell"), name + "Shell", { 0.0f, 1.0f }, acoustic.shell, asPercent, pr7d0240);
+            add (layout, drum (k, "Variation"), name + "Variation", { 0.0f, 1.0f }, acoustic.variation, asPercent, pr7d0240);
         }
 
         // THE MIXER (0.20.0): the mic channels.
