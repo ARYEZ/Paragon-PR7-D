@@ -37,7 +37,12 @@ namespace ParamIDs
     // THE MIXER (0.20.0, hint 29): each mic channel's settings, "mix<n>" plus a setting (n = 1 to 13, mixer::Channel + 1).
     // OUTPUT is global, like the drums' (notInRigs).
     inline juce::String mix (int channel, const char* what) { return "mix" + juce::String (channel + 1) + what; }
-    inline constexpr const char* mixSettings[] = { "Level", "Pan", "Mute", "Solo", "Phase", "Bleed", "BleedOn", "Offset", "Release", "Output" };
+    inline constexpr const char* mixSettings[] = { "Level", "Pan", "Mute", "Solo", "Phase", "Bleed", "BleedOn", "Offset", "Release", "Output",
+                                                   "Route" };   // 0.21.0 (hint 30): mixer::routeNames' index, in presets
+    // THE MIXER's BUSES (0.21.0, hint 30): "mixBus<n>" plus a setting (n = 1 to 8). OUTPUT global, ROUTE in presets.
+    inline juce::String mixBus (int bus, const char* what) { return "mixBus" + juce::String (bus + 1) + what; }
+    inline constexpr const char* busSettings[] = { "Level", "Pan", "Mute", "Solo", "Phase", "Output", "Route" };
+    inline constexpr auto mixMuteMode = "mixMuteMode";   // mixer::muteModeNames' index (in presets)
 
     // MIDI IN CHANNEL (0.18.0, hint 27): which channel the DAW's or a controller's MIDI plays the kit on ("Any", 1-16).
     // Global, like the note map.
@@ -279,6 +284,8 @@ namespace ParamIDs
         ids.add (drumsMidiChannel);
         for (int c = 0; c < 13; ++c)
             ids.add (mix (c, "Output"));
+        for (int b = 0; b < 8; ++b)
+            ids.add (mixBus (b, "Output"));
         for (int k = 0; k < numDrums; ++k)
             ids.add (drum (k, "Output"));
         for (int b = 0; b < numInsertBuses; ++b)

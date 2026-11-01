@@ -28,6 +28,7 @@
 //                                    PARAGON_SNAPSHOT_INSTRUMENT=1: the snare from a folder of 16 hits, its layers)
 //   PARAGON_SNAPSHOT_PAGE=fx         THE RACK (PARAGON_SNAPSHOT_RACK=1: at work on a beat, the sends and bus A too; PARAGON_SNAPSHOT_FX=eq|dominion|comp|limiter|sends|delay|reverb|modfx|mod|mod2|lofi|inserts|insdrive|insglitch|insmod|inslofi: that view, the inserts' on bus PARAGON_SNAPSHOT_BUS=1-4)
 //   PARAGON_SNAPSHOT_PAGE=mixer      THE MIXER (0.20.0) with a multi-mic kit, a hit just played
+//                                    (PARAGON_SNAPSHOT_MIXERBUS=1: buses and sends, the snare top's SENDS; =2 the buses)
 //   PARAGON_SNAPSHOT_NOTES=1         the kick, snare and closed hat's keys held on the keyboard (they light)
 //   PARAGON_SNAPSHOT_MIDI=1          demo MIDI links and a knob learning (with PAGE=settings: the links list)
 TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
@@ -695,6 +696,56 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         processor.setModMatrix (matrix);
         view->showPage (MainView::Page::mixer);
         view->getMixerPage().selectChannel (synth::mixer::snareTop);
+        // 0.21.0: PARAGON_SNAPSHOT_MIXERBUS=1 the snare's mics into BUS 1, sends to BUS 2 and the DELAY, BUS 1 to the
+        // REVERB, the snare top's SENDS shown; =2 scrolled to the buses, BUS 1 chosen.
+        if (const auto bus = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_MIXERBUS", {}).getIntValue(); bus > 0)
+        {
+            using namespace synth::mixer;
+            const auto set = [&processor] (const juce::String& id, float value)
+            {
+                if (auto* parameter = processor.getParameters().getParameter (id))
+                    parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+            };
+            set (ParamIDs::reverbOn, 1.0f);
+            set (ParamIDs::delayOn, 1.0f);
+            processor.setMixerRoute (snareTop, 1);
+            processor.setMixerRoute (snareBottom, 1);
+            processor.setMixerRoute (numChannels + 1, firstFxRoute);
+            set (ParamIDs::mixBus (0, "Level"), -3.0f);
+            set (ParamIDs::mixBus (1, "Level"), -8.0f);
+            set (ParamIDs::mixBus (1, "Pan"), 0.3f);
+            auto withSends = processor.getModMatrix();
+            Send toBus2;
+            toBus2.target = 2;
+            toBus2.mode = SendMode::preFader;
+            toBus2.directDb = -4.0f;
+            toBus2.bleedDb = -10.0f;
+            toBus2.link = false;
+            toBus2.bleedPan = -0.5f;
+            withSends.send (snareTop, 0) = toBus2;
+            Send toDelay;
+            toDelay.target = delayTarget;
+            toDelay.directDb = -12.0f;
+            toDelay.bleedOn = false;
+            withSends.send (snareTop, 1) = toDelay;
+            Send toReverb;
+            toReverb.target = reverbTarget;
+            toReverb.directDb = -6.0f;
+            withSends.send (numChannels, 0) = toReverb;
+            withSends.send (room, 0) = toReverb;
+            processor.setModMatrix (withSends);
+            auto& mixerPage = view->getMixerPage();
+            if (bus == 1)
+            {
+                mixerPage.showTab (MixerPage::Tab::sends);
+            }
+            else
+            {
+                mixerPage.selectStrip (numChannels);
+                view->resized();
+                mixerPage.scrollToStrip (numChannels - 5);
+            }
+        }
         juce::AudioBuffer<float> buffer (2, 512);
         juce::MidiBuffer midi;
         midi.addEvent (juce::MidiMessage::noteOn (1, 38, (juce::uint8) 110), 0);

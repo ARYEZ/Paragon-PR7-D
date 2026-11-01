@@ -324,3 +324,311 @@ TEST_CASE ("MIXER: VOICES counts hits, not mics; presets keep the channels and t
     page.setBleed (0, -4.0f, false, true);
     CHECK (p.processor->getModMatrix().bleed (mixer::room, 0).gainDb == Catch::Approx (-4.0f));
 }
+
+namespace
+{
+    // A send as the page would set it.
+    void setSend (Plugin& p, int strip, int slot, const mixer::Send& send)
+    {
+        auto m = p.processor->getModMatrix();
+        m.send (strip, slot) = send;
+        p.processor->setModMatrix (m);
+    }
+    mixer::Send sendTo (int target, float directDb = 0.0f, mixer::SendMode mode = mixer::SendMode::postFader)
+    {
+        mixer::Send s;
+        s.target = target;
+        s.directDb = directDb;
+        s.bleedDb = directDb;
+        s.mode = mode;
+        return s;
+    }
+    constexpr int busStrip (int bus) { return mixer::numChannels + bus; }
+}
+
+TEST_CASE ("MIXER BUSES: a channel routed into a bus, the bus's fader, mute, polarity and output; bus into a later bus only",
+           "[mixer]")
+{
+    TempFolder temp;
+    Plugin p (temp.folder.getChildFile ("Presets"), true);
+    p.processor->importSfzKit (writeKit (temp.folder), drums::notemap::Layout::generalMidi);
+    REQUIRE (p.processor->waitForInstruments());
+    p.set (ParamIDs::drumsMap, (float) drums::notemap::Layout::generalMidi);
+    p.set (ParamIDs::drum (2, "VelToVol"), 0.0f);
+    const auto top = p.level (38, 300.0), room = p.level (38, 2000.0);
+    REQUIRE (top > 0.05);
+
+    // The snare top into BUS 1, at 0 dB: the same in MAIN.
+    p.processor->setMixerRoute (mixer::snareTop, 1);
+    CHECK (p.processor->getMixerRoute (mixer::snareTop) == 1);
+    CHECK (p.level (38, 300.0) == Catch::Approx (top).epsilon (0.02));
+    // The bus 6 dB down: the snare top alone.
+    p.set (ParamIDs::mixBus (0, "Level"), -6.0f);
+    CHECK (p.level (38, 300.0) == Catch::Approx (top * 0.501).epsilon (0.02));
+    CHECK (p.level (38, 2000.0) == Catch::Approx (room).epsilon (0.02));
+    // Its pan hard left: nothing on the right.
+    p.set (ParamIDs::mixBus (0, "Level"), 0.0f);
+    p.set (ParamIDs::mixBus (0, "Pan"), -1.0f);
+    {
+        const auto out = p.play (38);
+        CHECK (levelAt (out[1], 300.0, 2400, 9600) < top * 0.001);
+        CHECK (levelAt (out[0], 300.0, 2400, 9600) == Catch::Approx (top).epsilon (0.02));
+    }
+    p.set (ParamIDs::mixBus (0, "Pan"), 0.0f);
+    // MUTE the bus: the snare top gone, the room still there.
+    p.set (ParamIDs::mixBus (0, "Mute"), 1.0f);
+    CHECK (p.level (38, 300.0) < top * 0.001);
+    CHECK (p.level (38, 2000.0) == Catch::Approx (room).epsilon (0.02));
+    p.set (ParamIDs::mixBus (0, "Mute"), 0.0f);
+    // Polarity: the bus upside down (the snare top soloed, so only it).
+    p.set (ParamIDs::mix (mixer::snareTop, "Solo"), 1.0f);
+    const auto up = p.play (38)[0];
+    p.set (ParamIDs::mixBus (0, "Phase"), 1.0f);
+    const auto down = p.play (38)[0];
+    for (size_t i = 100; i < 4000; i += 97)
+        CHECK (down[i] == Catch::Approx (-up[i]).margin (1.0e-5));
+    p.set (ParamIDs::mixBus (0, "Phase"), 0.0f);
+    p.set (ParamIDs::mix (mixer::snareTop, "Solo"), 0.0f);
+
+    // BUS 1 into BUS 2, and BUS 2 down 6 dB: the snare top down 6 dB.
+    p.processor->setMixerRoute (busStrip (0), 2);
+    p.set (ParamIDs::mixBus (1, "Level"), -6.0f);
+    CHECK (p.level (38, 300.0) == Catch::Approx (top * 0.501).epsilon (0.02));
+    // BUS 2 can't go back into BUS 1 (it would loop): refused.
+    p.processor->setMixerRoute (busStrip (1), 1);
+    CHECK (p.processor->getMixerRoute (busStrip (1)) == 0);
+    // ... nor if it's set some other way (an old preset): the bus plays to its output instead.
+    p.set (ParamIDs::mixBus (1, "Route"), 1.0f);
+    CHECK (p.level (38, 300.0) == Catch::Approx (top * 0.501).epsilon (0.02));
+    p.set (ParamIDs::mixBus (1, "Route"), 0.0f);
+
+    // BUS 2's OUTPUT to OUT 2: the snare top there, not in MAIN.
+    p.processor->setMixerOutput (busStrip (1), 1);
+    const auto out = p.play (38);
+    const auto out2 = p.processor->getChannelIndexInProcessBlockBuffer (false, 1, 0);
+    REQUIRE (out2 >= 0);
+    CHECK (levelAt (out[(size_t) out2], 300.0, 2400, 9600) == Catch::Approx (top * 0.501).epsilon (0.02));
+    CHECK (levelAt (out[0], 300.0, 2400, 9600) < top * 0.001);
+    CHECK (levelAt (out[0], 2000.0, 2400, 9600) == Catch::Approx (room).epsilon (0.02));
+    CHECK (ParamIDs::notInRigs.contains (ParamIDs::mixBus (1, "Output")));
+    CHECK (! ParamIDs::notInRigs.contains (ParamIDs::mixBus (1, "Route")));
+    CHECK (! ParamIDs::notInRigs.contains (ParamIDs::mix (0, "Route")));
+    // Choosing an output takes the channel off its bus.
+    p.processor->setMixerOutput (mixer::snareTop, 0);
+    CHECK (p.processor->getMixerRoute (mixer::snareTop) == 0);
+
+    // SOLO among the buses: BUS 3 soloed silences BUS 1's snare top; the channels straight to MAIN still play.
+    p.processor->setMixerRoute (mixer::snareTop, 1);
+    p.processor->setMixerRoute (busStrip (0), 0);
+    p.set (ParamIDs::mixBus (2, "Solo"), 1.0f);
+    CHECK (p.level (38, 300.0) < top * 0.001);
+    CHECK (p.level (38, 2000.0) == Catch::Approx (room).epsilon (0.02));
+}
+
+TEST_CASE ("MIXER SENDS: pre / post fader, direct and bleed apart with their own pans, MUTE MODE, into DELAY, REVERB and an FX bus",
+           "[mixer]")
+{
+    TempFolder temp;
+    Plugin p (temp.folder.getChildFile ("Presets"), true);
+    p.processor->importSfzKit (writeKit (temp.folder), drums::notemap::Layout::generalMidi);
+    REQUIRE (p.processor->waitForInstruments());
+    p.set (ParamIDs::drumsMap, (float) drums::notemap::Layout::generalMidi);
+    p.set (ParamIDs::drum (2, "VelToVol"), 0.0f);
+    const auto top = p.level (38, 300.0), bleed = p.level (38, 500.0);
+    REQUIRE (top > 0.05);
+
+    // The snare top sent at -6 dB into BUS 1 (to MAIN): the sine 1.5 times as loud (in phase).
+    setSend (p, mixer::snareTop, 0, sendTo (1, -6.0f));
+    CHECK (p.level (38, 300.0) == Catch::Approx (top * 1.501).epsilon (0.02));
+    // POST FADER: the channel's fader down to -inf takes the send with it; PRE FADER: the send alone.
+    p.set (ParamIDs::mix (mixer::snareTop, "Level"), -60.0f);
+    CHECK (p.level (38, 300.0) < top * 0.001);
+    setSend (p, mixer::snareTop, 0, sendTo (1, -6.0f, mixer::SendMode::preFader));
+    CHECK (p.level (38, 300.0) == Catch::Approx (top * 0.501).epsilon (0.02));
+    p.set (ParamIDs::mix (mixer::snareTop, "Level"), 0.0f);
+
+    // MUTE MODE. PRE SEND (as before): a muted channel's sends are silent too.
+    p.set (ParamIDs::mix (mixer::snareTop, "Mute"), 1.0f);
+    CHECK (p.level (38, 300.0) < top * 0.001);
+    // POST SEND: its pre-fader send goes on (the snare's "reverb alone"); a post-fader one doesn't.
+    p.set (ParamIDs::mixMuteMode, 1.0f);
+    CHECK (p.level (38, 300.0) == Catch::Approx (top * 0.501).epsilon (0.02));
+    setSend (p, mixer::snareTop, 0, sendTo (1, -6.0f));
+    CHECK (p.level (38, 300.0) < top * 0.001);
+    p.set (ParamIDs::mix (mixer::snareTop, "Mute"), 0.0f);
+    p.set (ParamIDs::mixMuteMode, 0.0f);
+    setSend (p, mixer::snareTop, 0, {});
+
+    // DIRECT and BLEED: KICK IN carries the snare as bleed (500 Hz). Muted with POST SEND, a pre-fader send to BUS 1:
+    // its bleed level, on and pan apart from its direct sound's.
+    p.set (ParamIDs::mix (mixer::kickIn, "Mute"), 1.0f);
+    p.set (ParamIDs::mixMuteMode, 1.0f);
+    auto send = sendTo (1, 0.0f, mixer::SendMode::preFader);
+    send.bleedOn = false;
+    setSend (p, mixer::kickIn, 0, send);
+    CHECK (p.level (38, 500.0) < bleed * 0.001);
+    CHECK (p.level (36, 100.0) > 0.05);   // the kick's own sound in it, still sent
+    send.bleedOn = true;
+    send.bleedDb = -12.0f;
+    setSend (p, mixer::kickIn, 0, send);
+    CHECK (p.level (38, 500.0) == Catch::Approx (bleed * 0.251).epsilon (0.02));
+    send.bleedDb = 0.0f;
+    send.bleedPan = 1.0f;   // the bleed hard right
+    setSend (p, mixer::kickIn, 0, send);
+    {
+        const auto out = p.play (38);
+        CHECK (levelAt (out[0], 500.0, 2400, 9600) < bleed * 0.001);
+        CHECK (levelAt (out[1], 500.0, 2400, 9600) == Catch::Approx (bleed).epsilon (0.02));
+    }
+    setSend (p, mixer::kickIn, 0, {});
+    p.set (ParamIDs::mix (mixer::kickIn, "Mute"), 0.0f);
+    p.set (ParamIDs::mixMuteMode, 0.0f);
+
+    // REVERB: the snare top sent there (the REVERB on): sound after the 1 s sine has stopped; without the send, none.
+    p.set (ParamIDs::reverbOn, 1.0f);
+    const auto tail = [&]
+    {
+        const auto out = p.play (38, 1.6);
+        return rms (out[0], (size_t) (1.15 * sampleRate), (size_t) (1.5 * sampleRate));
+    };
+    const auto dry = tail();
+    setSend (p, mixer::snareTop, 0, sendTo (mixer::reverbTarget));
+    const auto wet = tail();
+    INFO ("dry tail " << dry << ", wet tail " << wet);
+    CHECK (dry < 1.0e-4);
+    CHECK (wet > 1.0e-3);
+    // ... and with the REVERB off, the send is silent (nothing to hear it).
+    p.set (ParamIDs::reverbOn, 0.0f);
+    CHECK (p.level (38, 300.0) == Catch::Approx (top).epsilon (0.02));
+    setSend (p, mixer::snareTop, 0, {});
+
+    // An FX BUS: the snare top routed into FX bus A, whose OUTPUT is OUT 2: the snare top there.
+    p.set (ParamIDs::ins (0, "Output"), 1.0f);
+    p.processor->setMixerRoute (mixer::snareTop, mixer::firstFxRoute);
+    const auto out = p.play (38);
+    const auto out2 = p.processor->getChannelIndexInProcessBlockBuffer (false, 1, 0);
+    REQUIRE (out2 >= 0);
+    CHECK (levelAt (out[(size_t) out2], 300.0, 2400, 9600) > top * 0.5);
+    CHECK (levelAt (out[0], 300.0, 2400, 9600) < top * 0.001);
+    // A send into FX bus A as well as the channel to MAIN: in both.
+    p.processor->setMixerRoute (mixer::snareTop, 0);
+    setSend (p, mixer::snareTop, 1, sendTo (mixer::firstFxRoute));
+    const auto both = p.play (38);
+    CHECK (levelAt (both[(size_t) out2], 300.0, 2400, 9600) > top * 0.5);
+    CHECK (levelAt (both[0], 300.0, 2400, 9600) == Catch::Approx (top).epsilon (0.02));
+}
+
+TEST_CASE ("MIXER MENU: STEREO REVERSE, STEREO and MULTICHANNEL OUTPUTS; presets keep the sends, routes and mute mode, not outputs",
+           "[mixer]")
+{
+    TempFolder temp;
+    Plugin p (temp.folder.getChildFile ("Presets"), true);
+    auto& state = p.processor->getParameters();
+    const auto value = [&state] (const juce::String& id) { return state.getRawParameterValue (id)->load(); };
+
+    p.set (ParamIDs::mix (mixer::hiHat, "Pan"), -0.4f);
+    p.set (ParamIDs::mixBus (3, "Pan"), 0.7f);
+    auto send = sendTo (2);
+    send.directPan = 0.5f;
+    send.bleedPan = -0.25f;
+    setSend (p, mixer::room, 1, send);
+    p.processor->mixerStereoReverse();
+    CHECK (value (ParamIDs::mix (mixer::hiHat, "Pan")) == Catch::Approx (0.4f));
+    CHECK (value (ParamIDs::mixBus (3, "Pan")) == Catch::Approx (-0.7f));
+    CHECK (value (ParamIDs::mix (mixer::kickIn, "Pan")) == Catch::Approx (0.0f));
+    CHECK (p.processor->getModMatrix().send (mixer::room, 1).directPan == Catch::Approx (-0.5f));
+    CHECK (p.processor->getModMatrix().send (mixer::room, 1).bleedPan == Catch::Approx (0.25f));
+
+    // MULTICHANNEL: by instrument; STEREO: everything to MAIN, off the buses.
+    p.processor->setMixerRoute (mixer::tom2, 3);
+    p.processor->applyMixerOutputs (true);
+    CHECK (p.processor->getMixerOutput (mixer::kickOut) == 1);
+    CHECK (p.processor->getMixerOutput (mixer::snareBottom) == 2);
+    CHECK (p.processor->getMixerOutput (mixer::tom2) == 4);
+    CHECK (p.processor->getMixerRoute (mixer::tom2) == 0);
+    CHECK (p.processor->getMixerOutput (mixer::ambience) == 7);
+    CHECK (p.processor->getMixerOutput (busStrip (0)) == 0);
+    p.processor->applyMixerOutputs (false);
+    for (int strip = 0; strip < mixer::numStrips; ++strip)
+        CHECK (p.processor->getMixerOutput (strip) == 0);
+
+    // A preset: routes, mute mode and sends kept; outputs left with the project.
+    p.processor->setMixerRoute (mixer::snareTop, 4);
+    p.processor->setMixerRoute (busStrip (3), 6);
+    p.set (ParamIDs::mixMuteMode, 1.0f);
+    p.processor->setMixerOutput (busStrip (5), 3);
+    RigLibrary::Entry entry;
+    entry.rig = *Rig::fromXml (*p.processor->captureRig().toXml());
+    p.processor->setMixerRoute (mixer::snareTop, 0);
+    p.processor->setMixerRoute (busStrip (3), 0);
+    p.set (ParamIDs::mixMuteMode, 0.0f);
+    setSend (p, mixer::room, 1, {});
+    p.processor->setMixerOutput (busStrip (5), 5);
+    p.processor->loadRig (entry);
+    CHECK (p.processor->getMixerRoute (mixer::snareTop) == 4);
+    CHECK (p.processor->getMixerRoute (busStrip (3)) == 6);
+    CHECK (value (ParamIDs::mixMuteMode) == Catch::Approx (1.0f));
+    CHECK (p.processor->getModMatrix().send (mixer::room, 1).target == 2);
+    CHECK (p.processor->getMixerOutput (busStrip (5)) == 5);
+    // The sends as XML and back.
+    const auto xml = p.processor->getModMatrix().toXml();
+    CHECK (ModMatrix::fromXml (*xml) == p.processor->getModMatrix());
+}
+
+TEST_CASE ("MIXER page 0.21.0: bus strips, MICS / BUSES, the OUTPUT and SEND buttons' words, a send set from its editor, MENU...",
+           "[mixer]")
+{
+    TempFolder temp;
+    Plugin p (temp.folder.getChildFile ("Presets"));
+    MixerPage page (*p.processor);
+    page.setSize (1400, 650);
+
+    // Every channel and bus shown; MICS off leaves the buses (the chosen channel gives way to the first bus).
+    for (int strip = 0; strip < mixer::numStrips; ++strip)
+        CHECK (page.isStripShown (strip));
+    page.selectChannel (mixer::snareTop);
+    page.showGroups (false, true);
+    CHECK (! page.isStripShown (mixer::snareTop));
+    CHECK (page.isStripShown (busStrip (0)));
+    CHECK (page.getSelectedStrip() == busStrip (0));
+    CHECK (page.getTab() == MixerPage::Tab::sends);   // a bus: its sends
+    page.showGroups (true, true);
+
+    // OUTPUT's words: the output, or the bus / FX bus it's routed into.
+    CHECK (page.describeOutput (mixer::room) == "Main");
+    p.processor->setMixerRoute (mixer::room, 3);
+    CHECK (page.describeOutput (mixer::room) == "Bus 3");
+    p.processor->setMixerRoute (mixer::room, mixer::firstFxRoute + 1);
+    CHECK (page.describeOutput (mixer::room) == "FX Bus B");
+    p.processor->setMixerOutput (mixer::room, 4);
+    CHECK (page.describeOutput (mixer::room) == "Out 5");
+
+    // A send's target from its slot's menu: one undo step; a bus can't send into an earlier bus; OFF clears it.
+    page.setSendTarget (mixer::overheads, 1, mixer::reverbTarget);
+    CHECK (page.describeSend (mixer::overheads, 1) == "Reverb");
+    CHECK (page.describeSend (mixer::overheads, 0) == "+ SEND");
+    page.setSendTarget (busStrip (4), 0, 2);
+    CHECK (! p.processor->getModMatrix().send (busStrip (4), 0).isOn());
+    page.setSendTarget (busStrip (4), 0, 7);
+    CHECK (p.processor->getModMatrix().send (busStrip (4), 0).target == 7);
+    page.setSendTarget (busStrip (4), 0, 0);
+    CHECK (p.processor->getModMatrix().send (busStrip (4), 0) == mixer::Send {});
+
+    // The editor's send for the chosen channel.
+    page.selectChannel (mixer::kickIn);
+    page.showTab (MixerPage::Tab::sends);
+    auto send = sendTo (mixer::firstFxRoute, -3.0f, mixer::SendMode::preFader);
+    send.bleedOn = false;
+    page.setSend (1, send);
+    CHECK (p.processor->getModMatrix().send (mixer::kickIn, 1) == send);
+
+    // MENU...: POST SEND, STEREO OUTPUTS, MULTICHANNEL OUTPUTS (with a note on the DAW's outputs).
+    page.runMenuItem (MixerPage::postSend);
+    CHECK (p.processor->getParameters().getRawParameterValue (ParamIDs::mixMuteMode)->load() == Catch::Approx (1.0f));
+    page.runMenuItem (MixerPage::multichannelOutputs);
+    CHECK (page.describeOutput (mixer::snareBottom) == "Out 3");
+    CHECK (page.getNote().contains ("DAW"));
+    page.runMenuItem (MixerPage::stereoOutputs);
+    CHECK (page.describeOutput (mixer::snareBottom) == "Main");
+    page.update();
+}

@@ -3,14 +3,17 @@
 #include "PluginProcessor.h"
 #include "dsp/synth/Mixer.h"
 
-// THE MIXER page (PR7-D 0.20.0): a multi-mic kit's mic channels, as a sampled drum kit's mixer has them (inspired by
-// the reference's mixer chapter; our own look and words). A strip per channel, left to right:
-//   - BLEED: on, and its level (every other drum heard through this mic, together);
+// THE MIXER page (PR7-D 0.20.0, buses and sends 0.21.0): a multi-mic kit's mic channels and the mixer's buses, as a
+// sampled drum kit's mixer has them (inspired by the reference's mixer chapter; our own look and words). A strip per
+// channel, then per bus, scrolling sideways (MICS / BUSES show or hide each group), top to bottom:
+//   - BLEED (mic channels): on, and its level (every other drum heard through this mic, together);
+//   - two SENDS: where each sends a copy (a bus, an FX bus, DELAY, REVERB); click one to choose;
 //   - PAN, the FADER (with its meter), M (mute), S (solo), the polarity (flip);
-//   - OUTPUT (MAIN or OUT 2 to 16), and its name (click it to choose the channel).
-// Beside them, the chosen channel's PROPERTIES: BLEED FROM INSTRUMENTS (each drum that bleeds into it: on, level,
-// polarity) and CLOSE MIC AUDIO (the drums it's meant for), TIME OFFSET (the channel later, up to 10 ms, to line
-// overheads up with close mics), RELEASE (each hit faded after this long: shorter room tails, a gated sound).
+//   - OUTPUT: MAIN, OUT 2 to 16, a bus (a bus: only a later one) or an FX bus; and its name (click it to choose it).
+// Beside them, the chosen strip's PROPERTIES. BLEED (mic channels): BLEED FROM INSTRUMENTS (each drum that bleeds
+// into it: on, level, polarity) and CLOSE MIC AUDIO (the drums it's meant for), TIME OFFSET, RELEASE. SENDS: each
+// send's target, POST / PRE FADER, its DIRECT and BLEED sound's on, level and pan, LINK.
+// MENU...: MUTE MODE (pre / post send), STEREO REVERSE, STEREO OUTPUTS, MULTICHANNEL OUTPUTS.
 // Channels no loaded kit plays into are dimmed. Only multi-mic drums use the mixer; the rest go their own way.
 class MixerPage final : public juce::Component,
                         private juce::Timer
@@ -19,12 +22,30 @@ public:
     explicit MixerPage (ParagonX1AudioProcessor&);
     ~MixerPage() override;
 
-    void selectChannel (int channel);
+    enum class Tab { bleed, sends };
+
+    void selectChannel (int channel) { selectStrip (channel); }
+    void selectStrip (int strip);                    // a channel, or numChannels + a bus
     int getSelectedChannel() const noexcept { return selected; }
+    int getSelectedStrip() const noexcept { return selected; }
+    void showTab (Tab);
+    Tab getTab() const noexcept { return tab; }
+    void showGroups (bool mics, bool buses);         // MICS / BUSES
+    bool isStripShown (int strip) const;
+    void scrollToStrip (int strip);
     juce::Array<int> getChannelsInUse() const;      // the channels a loaded kit plays into
     // For tests: a bleed cell set as its row's controls would (one undo step).
     void setBleed (int piece, float gainDb, bool invert, bool on);
-    void update();   // the meters, and which channels are in use (the timer; snapshots)
+    // The chosen strip's send (as its editor sets it), and a strip's send's target (as its slot's menu does); each
+    // one undo step when final.
+    void setSend (int slot, const synth::mixer::Send&, bool final = true);
+    void setSendTarget (int strip, int slot, int target);
+    juce::String describeOutput (int strip) const;   // what its OUTPUT button says
+    juce::String describeSend (int strip, int slot) const;
+    void runMenuItem (int item);                     // MENU...'s (tests)
+    enum MenuItem { preSend = 1, postSend, stereoReverse, stereoOutputs, multichannelOutputs };
+    juce::String getNote() const { return note; }
+    void update();   // the meters, the buttons' words, which channels are in use (the timer; snapshots)
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -32,16 +53,28 @@ public:
 private:
     void timerCallback() override;
     void refreshProperties();
+    void showOutputMenu (int strip, juce::Component& from);
+    void showSendMenu (int strip, int slot, juce::Component& from);
+    void showMixerMenu();
 
     class Strip;
     class PieceRow;
+    class SendEditor;
     ParagonX1AudioProcessor& processor;
+    juce::Viewport viewport;
+    juce::Component holder;   // the strips, in the viewport
     std::vector<std::unique_ptr<Strip>> strips;
     std::vector<std::unique_ptr<PieceRow>> rows;
+    std::vector<std::unique_ptr<SendEditor>> sendEditors;
+    juce::TextButton micsButton { "MICS" }, busesButton { "BUSES" }, menuButton { "MENU..." },
+                     bleedTab { "BLEED" }, sendsTab { "SENDS" };
     juce::Slider offset { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight },
                  release { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> offsetAttachment, releaseAttachment;
-    juce::Rectangle<int> stripsArea, propertiesArea;
+    juce::Rectangle<int> stripsArea, propertiesArea, propertiesBody;
     int selected = synth::mixer::snareTop;
+    Tab tab = Tab::bleed;
     juce::Array<int> inUse;
+    juce::String note;
+    std::array<synth::mixer::Send, synth::mixer::numSendSlots> shownSends {};   // what the send editors show
 };

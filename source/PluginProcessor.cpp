@@ -69,6 +69,13 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
             mixParameters[(size_t) c][s] = parameters.getRawParameterValue (ParamIDs::mix (c, ParamIDs::mixSettings[s]));
             jassert (mixParameters[(size_t) c][s] != nullptr);
         }
+    for (int b = 0; b < synth::mixer::numBuses; ++b)
+        for (size_t s = 0; s < std::size (ParamIDs::busSettings); ++s)
+        {
+            busParameters[(size_t) b][s] = parameters.getRawParameterValue (ParamIDs::mixBus (b, ParamIDs::busSettings[s]));
+            jassert (busParameters[(size_t) b][s] != nullptr);
+        }
+    muteModeParameter = parameters.getRawParameterValue (ParamIDs::mixMuteMode);
     compileMatrix();   // the patterns and envelopes, ready from the start
     for (auto* list : { &samplesForAudio, &reversesForAudio })
         for (auto& sample : *list)
@@ -730,6 +737,22 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
     for (const auto& slot : kit.slots)
         if (slot.insertBus >= 1 && slot.insertBus <= synth::numInsertBuses)
             rack->buses[(size_t) slot.insertBus - 1].used = true;
+    // THE MIXER's routes and sends into an FX BUS (0.21.0) need it ready too.
+    {
+        const auto useFx = [this] (int target)
+        {
+            if (const auto f = synth::mixer::fxBusOfTarget (target); f >= 0 && f < (int) rack->buses.size())
+                rack->buses[(size_t) f].used = true;
+        };
+        for (const auto& ch : kit.channels)
+            useFx (ch.route);
+        for (const auto& bus : kit.buses)
+            useFx (bus.route);
+        if (kit.sends != nullptr)
+            for (const auto& strip : *kit.sends)
+                for (const auto& send : strip)
+                    useFx (send.target);
+    }
     if (sendsReady)
     {
         for (auto& send : rack->sends)
@@ -904,6 +927,9 @@ void ParagonX1AudioProcessor::compileMatrix()
     for (int c = 0; c < synth::mixer::numChannels; ++c)
         for (int p = 0; p < synth::mixer::numPieces; ++p)
             compiled->bleed[(size_t) c][(size_t) p] = matrix.bleed (c, p);
+    for (int strip = 0; strip < synth::mixer::numStrips; ++strip)
+        for (int slot = 0; slot < synth::mixer::numSendSlots; ++slot)
+            compiled->sends[(size_t) strip][(size_t) slot] = matrix.send (strip, slot);
     if (compiledMatrix != nullptr)
         retiredMatrices.emplace_back (compiledMatrix, juce::Time::getMillisecondCounterHiRes());
     compiledMatrix = compiled;
@@ -1158,6 +1184,90 @@ std::shared_ptr<const synth::drums::Sample> ParagonX1AudioProcessor::getDrumSamp
     return drumSamples[(size_t) juce::jlimit (0, ParamIDs::numDrums - 1, slot)];
 }
 
+void ParagonX1AudioProcessor::setParameterNow (const juce::String& id, float value)
+{
+    if (auto* parameter = parameters.getParameter (id))
+    {
+        parameter->beginChangeGesture();
+        parameter->setValueNotifyingHost (parameter->convertTo0to1 (value));
+        parameter->endChangeGesture();
+    }
+}
+
+namespace
+{
+    juce::String mixerStripId (int strip, const char* what)
+    {
+        return strip < synth::mixer::numChannels ? ParamIDs::mix (strip, what) : ParamIDs::mixBus (strip - synth::mixer::numChannels, what);
+    }
+}
+
+int ParagonX1AudioProcessor::getMixerRoute (int strip) const
+{
+    const auto* value = parameters.getRawParameterValue (mixerStripId (juce::jlimit (0, synth::mixer::numStrips - 1, strip), "Route"));
+    return value != nullptr ? juce::roundToInt (value->load()) : 0;
+}
+
+int ParagonX1AudioProcessor::getMixerOutput (int strip) const
+{
+    const auto* value = parameters.getRawParameterValue (mixerStripId (juce::jlimit (0, synth::mixer::numStrips - 1, strip), "Output"));
+    return value != nullptr ? juce::roundToInt (value->load()) : 0;
+}
+
+void ParagonX1AudioProcessor::setMixerRoute (int strip, int route)
+{
+    strip = juce::jlimit (0, synth::mixer::numStrips - 1, strip);
+    // A bus only into a later one.
+    if (const auto b = synth::mixer::busOfTarget (route); b >= 0 && ! synth::mixer::canFeedBus (strip, b))
+        return;
+    setParameterNow (mixerStripId (strip, "Route"), (float) juce::jlimit (0, synth::mixer::routeNames.size() - 1, route));
+}
+
+void ParagonX1AudioProcessor::setMixerOutput (int strip, int output)
+{
+    strip = juce::jlimit (0, synth::mixer::numStrips - 1, strip);
+    setParameterNow (mixerStripId (strip, "Route"), 0.0f);
+    setParameterNow (mixerStripId (strip, "Output"), (float) juce::jlimit (0, synth::numOutputs - 1, output));
+}
+
+void ParagonX1AudioProcessor::mixerStereoReverse()
+{
+    for (int strip = 0; strip < synth::mixer::numStrips; ++strip)
+        if (const auto* value = parameters.getRawParameterValue (mixerStripId (strip, "Pan")); value != nullptr && std::abs (value->load()) > 1.0e-6f)
+            setParameterNow (mixerStripId (strip, "Pan"), -value->load());
+    auto m = matrix;
+    for (auto& send : m.mixerSends)
+    {
+        send.directPan = -send.directPan;
+        send.bleedPan = -send.bleedPan;
+    }
+    setModMatrix (m);
+    requestCheckpoint();
+}
+
+int ParagonX1AudioProcessor::multichannelOutputOf (int channel) noexcept
+{
+    using namespace synth::mixer;
+    switch (channel)
+    {
+        case kickIn: case kickOut:         return 1;   // OUT 2
+        case snareTop: case snareBottom:   return 2;
+        case hiHat:                        return 3;
+        case tom1: case tom2: case tom3:   return 4;
+        case cymbals:                      return 5;
+        case overheads:                    return 6;
+        case room: case ambience:          return 7;
+        default:                           return 8;   // OTHER: OUT 9
+    }
+}
+
+void ParagonX1AudioProcessor::applyMixerOutputs (bool multichannel)
+{
+    for (int strip = 0; strip < synth::mixer::numStrips; ++strip)
+        setMixerOutput (strip, multichannel && strip < synth::mixer::numChannels ? multichannelOutputOf (strip) : 0);
+    requestCheckpoint();
+}
+
 void ParagonX1AudioProcessor::previewDrum (int slot) noexcept
 {
     if (slot >= 0 && slot < ParamIDs::numDrums)
@@ -1368,9 +1478,28 @@ synth::drums::KitSettings ParagonX1AudioProcessor::getKitSettings() const noexce
         ch.offsetSeconds = get ("Offset") * 0.001;
         ch.releaseSeconds = get ("Release") * 0.001;
         ch.output = juce::jlimit (0, synth::numOutputs - 1, juce::roundToInt (get ("Output")));
+        ch.route = juce::jlimit (0, synth::mixer::routeNames.size() - 1, juce::roundToInt (get ("Route")));
     }
+    // 0.21.0: the buses (ParamIDs::busSettings' order) and MUTE MODE.
+    for (int b = 0; b < synth::mixer::numBuses; ++b)
+    {
+        auto& bus = kit.buses[(size_t) b];
+        const auto& values = busParameters[(size_t) b];
+        const auto level = values[0]->load();
+        bus.gain = level <= -59.95f ? 0.0f : juce::Decibels::decibelsToGain (level);
+        bus.pan = values[1]->load();
+        bus.mute = values[2]->load() > 0.5f;
+        bus.solo = values[3]->load() > 0.5f;
+        bus.invert = values[4]->load() > 0.5f;
+        bus.output = juce::jlimit (0, synth::numOutputs - 1, juce::roundToInt (values[5]->load()));
+        bus.route = juce::jlimit (0, synth::mixer::routeNames.size() - 1, juce::roundToInt (values[6]->load()));
+    }
+    kit.muteMode = muteModeParameter->load() > 0.5f ? synth::mixer::MuteMode::postSend : synth::mixer::MuteMode::preSend;
     if (const auto* compiled = matrixForAudio.load())
+    {
         kit.bleed = &compiled->bleed;
+        kit.sends = &compiled->sends;
+    }
     // MIDI IN (0.18.0).
     kit.channel = juce::jlimit (0, 16, juce::roundToInt (param (ParamIDs::drumsMidiChannel)));
     if (const auto* in = midiInForAudio.load())

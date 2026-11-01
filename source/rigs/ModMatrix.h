@@ -114,11 +114,16 @@ struct ModMatrix
     std::vector<synth::mixer::BleedCell> mixerBleed = std::vector<synth::mixer::BleedCell> ((size_t) (synth::mixer::numChannels * synth::mixer::numPieces));
     synth::mixer::BleedCell& bleed (int channel, int piece) { return mixerBleed[(size_t) (channel * synth::mixer::numPieces + piece)]; }
     const synth::mixer::BleedCell& bleed (int channel, int piece) const { return mixerBleed[(size_t) (channel * synth::mixer::numPieces + piece)]; }
+    // 0.21.0, THE MIXER's SENDS: each strip's (the channels, then the buses) two sends (XML "Send" strip / slot, only
+    // those changed).
+    std::vector<synth::mixer::Send> mixerSends = std::vector<synth::mixer::Send> ((size_t) (synth::mixer::numStrips * synth::mixer::numSendSlots));
+    synth::mixer::Send& send (int strip, int slot) { return mixerSends[(size_t) (strip * synth::mixer::numSendSlots + slot)]; }
+    const synth::mixer::Send& send (int strip, int slot) const { return mixerSends[(size_t) (strip * synth::mixer::numSendSlots + slot)]; }
 
     bool operator== (const ModMatrix& o) const noexcept
     {
         return drumPatterns == o.drumPatterns && drumEnvelopes == o.drumEnvelopes && drumVelocityCurves == o.drumVelocityCurves
-            && mixerBleed == o.mixerBleed;
+            && mixerBleed == o.mixerBleed && mixerSends == o.mixerSends;
     }
     bool isEmpty() const noexcept { return *this == ModMatrix {}; }
 
@@ -154,6 +159,23 @@ struct ModMatrix
                     e->setAttribute ("invert", cell.invert);
                     e->setAttribute ("on", cell.on);
                 }
+        for (int strip = 0; strip < synth::mixer::numStrips; ++strip)
+            for (int slot = 0; slot < synth::mixer::numSendSlots; ++slot)
+                if (const auto& d = send (strip, slot); ! (d == synth::mixer::Send {}))
+                {
+                    auto* e = xml->createNewChildElement ("Send");
+                    e->setAttribute ("strip", strip + 1);
+                    e->setAttribute ("slot", slot + 1);
+                    e->setAttribute ("target", d.target);
+                    e->setAttribute ("direct", d.directDb);
+                    e->setAttribute ("bleed", d.bleedDb);
+                    e->setAttribute ("directPan", d.directPan);
+                    e->setAttribute ("bleedPan", d.bleedPan);
+                    e->setAttribute ("directOn", d.directOn);
+                    e->setAttribute ("bleedOn", d.bleedOn);
+                    e->setAttribute ("link", d.link);
+                    e->setAttribute ("mode", (int) d.mode);
+                }
         for (int p = 0; p < (int) drumPatterns.size(); ++p)
             if (! drumPatterns[(size_t) p].isEmpty())
             {
@@ -180,6 +202,24 @@ struct ModMatrix
             const auto c = e->getIntAttribute ("channel") - 1, p = e->getIntAttribute ("piece") - 1;
             if (c >= 0 && c < synth::mixer::numChannels && p >= 0 && p < synth::mixer::numPieces)
                 m.bleed (c, p) = { (float) juce::jlimit (-60.0, 12.0, e->getDoubleAttribute ("gain")), e->getBoolAttribute ("invert"), e->getBoolAttribute ("on", true) };
+        }
+        for (const auto* e : xml.getChildWithTagNameIterator ("Send"))
+        {
+            const auto strip = e->getIntAttribute ("strip") - 1, slot = e->getIntAttribute ("slot") - 1;
+            if (strip < 0 || strip >= synth::mixer::numStrips || slot < 0 || slot >= synth::mixer::numSendSlots)
+                continue;
+            auto& d = m.send (strip, slot);
+            const auto level = [e] (const char* name) { return (float) juce::jlimit (-60.0, 12.0, e->getDoubleAttribute (name)); };
+            const auto pan = [e] (const char* name) { return (float) juce::jlimit (-1.0, 1.0, e->getDoubleAttribute (name)); };
+            d.target = juce::jlimit (0, synth::mixer::sendTargetNames.size() - 1, e->getIntAttribute ("target"));
+            d.directDb = level ("direct");
+            d.bleedDb = level ("bleed");
+            d.directPan = pan ("directPan");
+            d.bleedPan = pan ("bleedPan");
+            d.directOn = e->getBoolAttribute ("directOn", true);
+            d.bleedOn = e->getBoolAttribute ("bleedOn", true);
+            d.link = e->getBoolAttribute ("link", true);
+            d.mode = (synth::mixer::SendMode) juce::jlimit (0, synth::mixer::sendModeNames.size() - 1, e->getIntAttribute ("mode"));
         }
         for (const auto* e : xml.getChildWithTagNameIterator ("VelocityCurve"))
             if (const auto index = e->getIntAttribute ("index") - 1; index >= 0 && index < numDrumSlots)

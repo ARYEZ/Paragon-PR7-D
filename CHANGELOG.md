@@ -2,6 +2,40 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.21.0
+
+**The MIXER's buses and sends** (from the Mixer chapter's channel strip, buses and Mixer menu; our own look and words). As you chose: 8 buses that also reach the plugin's own effects, and the Mixer menu's options.
+
+- **8 BUSES**, after the mic channels (golden orange). Each has a fader with a meter, PAN, M / S / Ø, an OUTPUT and two sends. Use them to group channels, e.g. both snare mics into one bus with one fader.
+  - **A bus goes only into a later bus** (BUS 1 into BUS 2, never back), so nothing can feed itself. That's our rule; the manual doesn't say.
+  - **SOLO works among the channels and among the buses apart.** Soloing a channel doesn't silence the buses its sends reach; soloing a bus silences only the other buses. Also our own rule.
+- **OUTPUT** on every channel and bus now lists:
+  - MAIN and OUT 2 to 16, as before;
+  - BUS 1 to 8;
+  - FX BUS A to D: the FX page's insert buses, with their DRIVE / GLITCH / MOD / LO-FI. An FX bus goes on to its own output, as set on the FX page.
+  - Presets keep the buses a channel goes to; the OUT 2-16 choices stay with the project, as before.
+- **Two SENDS** on every channel and bus (the buttons under BLEED). Click one to choose where it goes: a bus, an FX bus, the DELAY or the REVERB (the send only sounds while that effect is on). Its settings are in PROPERTIES > SENDS:
+  - **POST FADER** (it follows the channel's fader and mute) or **PRE FADER** (before them).
+  - **DIRECT** (the drums the mic is meant for) and **BLEED** (the rest of the kit in it): each with its own on, level and pan, and **LINK** to move the two levels together. Turn the bleed off to compress a bus hard on the close sound alone, as the manual suggests.
+  - A send has its own pan, not the channel's. Pre-effects / post-effects sends come with effects per channel.
+- **MENU...** (the Mixer menu):
+  - **Channel mute: before the sends (PRE SEND, the default) or after them (POST SEND).** With POST SEND, a muted channel's pre-fader sends go on, so you can hear only the snare's reverb.
+  - **Stereo reverse:** every pan, the buses' and sends' too, to the other side.
+  - **Stereo outputs:** every channel and bus to MAIN, off the buses.
+  - **Multichannel outputs:** the channels to OUT 2-9 by instrument: kick OUT 2, snare OUT 3, hi-hat OUT 4, toms OUT 5, cymbals OUT 6, overheads OUT 7, room and ambience OUT 8, other OUT 9. This grouping is my own choice. Switch those outputs on in your DAW; until then they play in MAIN.
+- **MICS / BUSES** show or hide each group. The strips scroll sideways when they don't all fit.
+- **Not checked here:** how it sounds in a real mix, and how it feels to use in your DAW.
+- **Tests:**
+  - a channel into a bus: the bus's fader exactly -6 dB, its pan, mute, polarity sample for sample, and its output;
+  - bus into a later bus, and never back;
+  - solo among buses;
+  - sends: pre / post fader at their levels, the mute modes, direct and bleed apart (on, level, pan);
+  - the REVERB heard after the hit only with a send to it;
+  - an FX bus routed to OUT 2;
+  - stereo reverse, stereo / multichannel outputs;
+  - presets keeping routes, sends and the mute mode but not outputs;
+  - the page's buttons and menu.
+
 ## 0.20.0
 
 **The sample engine, part 2: mic channels, bleed and the MIXER page** (from the Mixer chapter you sent; our own look, channels and words).

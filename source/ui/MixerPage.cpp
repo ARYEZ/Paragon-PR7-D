@@ -7,8 +7,12 @@
 
 namespace
 {
-    constexpr int propertiesWidth = 360, rowHeight = 26;
+    constexpr int propertiesWidth = 360, rowHeight = 26, stripWidth = 82, headerHeight = 44;
     using Attachment = juce::AudioProcessorValueTreeState;
+    using namespace synth;
+
+    // The buses' colour: golden orange (the reference's buses are yellow; ours stay in the family's range).
+    const juce::Colour busColour = ParagonColours::drive;
 
     void styleToggle (juce::TextButton& b, const juce::String& tip)
     {
@@ -16,52 +20,80 @@ namespace
         b.setClickingTogglesState (true);
         b.setTooltip (tip);
     }
+
+    bool isBus (int strip) noexcept { return strip >= mixer::numChannels; }
+    juce::String stripName (int strip)
+    {
+        return isBus (strip) ? mixer::busNames[strip - mixer::numChannels] : mixer::channelNames[strip];
+    }
+    juce::String stripId (int strip, const char* what)
+    {
+        return isBus (strip) ? ParamIDs::mixBus (strip - mixer::numChannels, what) : ParamIDs::mix (strip, what);
+    }
 }
 
 //==============================================================================
-// A channel's strip.
+// A channel's or a bus's strip.
 class MixerPage::Strip final : public juce::Component
 {
 public:
-    Strip (MixerPage& p, int c) : page (p), channel (c)
+    Strip (MixerPage& p, int s) : page (p), strip (s)
     {
         auto& state = page.processor.getParameters();
-        const auto id = [c] (const char* what) { return ParamIDs::mix (c, what); };
-        styleToggle (bleedOn, "BLEED on: the other drums heard through this mic. Off: only the drums it's meant for.");
-        bleedOn.setButtonText ("BLEED");
-        bleed.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-        bleed.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-        bleed.setTooltip ("BLEED level: every other drum in this mic, together (their balance is in PROPERTIES).");
+        const auto id = [s] (const char* what) { return stripId (s, what); };
+        if (! isBus (strip))
+        {
+            styleToggle (bleedOn, "BLEED on: the other drums heard through this mic. Off: only the drums it's meant for.");
+            bleedOn.setButtonText ("BLEED");
+            bleed.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            bleed.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+            bleed.setTooltip ("BLEED level: every other drum in this mic, together (their balance is in PROPERTIES).");
+            addAndMakeVisible (bleedOn);
+            addAndMakeVisible (bleed);
+            attachments.push_back (std::make_unique<Attachment::SliderAttachment> (state, id ("Bleed"), bleed));
+            buttons.push_back (std::make_unique<Attachment::ButtonAttachment> (state, id ("BleedOn"), bleedOn));
+            bleed.setDoubleClickReturnValue (true, 0.0);
+        }
+        for (int k = 0; k < mixer::numSendSlots; ++k)
+        {
+            auto& b = sends[(size_t) k];
+            DrumSeqPanel::style (b);
+            b.setTooltip ("SEND " + juce::String (k + 1) + ": a copy of this " + (isBus (strip) ? "bus" : "channel")
+                          + " into a bus, an FX bus (the FX page's insert buses, with their effects), the DELAY or the REVERB. "
+                            "Click to choose; its levels and pans are in PROPERTIES > SENDS.");
+            b.onClick = [this, k] { page.showSendMenu (strip, k, sends[(size_t) k]); };
+            addAndMakeVisible (b);
+        }
         pan.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
         pan.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
         pan.setTooltip ("PAN: left to right (a balance).");
         fader.setSliderStyle (juce::Slider::LinearVertical);
         fader.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 60, 18);
-        fader.setTooltip ("The channel's level.");
-        styleToggle (mute, "MUTE this channel.");
+        fader.setTooltip (isBus (strip) ? "The bus's level." : "The channel's level.");
+        styleToggle (mute, isBus (strip) ? "MUTE this bus." : "MUTE this channel (its sends too, unless MENU... > POST SEND).");
         mute.setButtonText ("M");
-        styleToggle (solo, "SOLO: only the soloed channels heard.");
+        styleToggle (solo, isBus (strip) ? "SOLO: only the soloed buses heard (the channels aren't touched)."
+                                         : "SOLO: only the soloed channels heard (the buses aren't touched).");
         solo.setButtonText ("S");
-        styleToggle (invert, "POLARITY: the channel's waveform flipped (to line a mic up with another).");
+        styleToggle (invert, "POLARITY: the waveform flipped (to line a mic up with another).");
         invert.setButtonText (juce::String (juce::CharPointer_UTF8 ("\xc3\x98")));
-        output.addItemList (ParamIDs::outputNames, 1);
-        output.setTooltip ("Where the channel goes: MAIN, or OUT 2 to 16 (switch that output on in your DAW; until then MAIN). "
-                           "Kept with the project, not presets.");
-        for (juce::Component* comp : { (juce::Component*) &bleedOn, (juce::Component*) &bleed, (juce::Component*) &pan,
-                                       (juce::Component*) &fader, (juce::Component*) &mute, (juce::Component*) &solo,
-                                       (juce::Component*) &invert, (juce::Component*) &output })
+        DrumSeqPanel::style (output);
+        output.setTooltip (isBus (strip) ? "Where the bus goes: MAIN, OUT 2 to 16 (switch it on in your DAW; until then MAIN), a later "
+                                           "bus, or an FX bus. The outputs stay with the project, the buses with presets."
+                                         : "Where the channel goes: MAIN, OUT 2 to 16 (switch it on in your DAW; until then MAIN), a "
+                                           "bus, or an FX bus. The outputs stay with the project, the buses with presets.");
+        output.onClick = [this] { page.showOutputMenu (strip, output); };
+        for (juce::Component* comp : { (juce::Component*) &pan, (juce::Component*) &fader, (juce::Component*) &mute,
+                                       (juce::Component*) &solo, (juce::Component*) &invert, (juce::Component*) &output })
             addAndMakeVisible (comp);
-        attachments.push_back (std::make_unique<Attachment::SliderAttachment> (state, id ("Bleed"), bleed));
         attachments.push_back (std::make_unique<Attachment::SliderAttachment> (state, id ("Pan"), pan));
         attachments.push_back (std::make_unique<Attachment::SliderAttachment> (state, id ("Level"), fader));
-        buttons.push_back (std::make_unique<Attachment::ButtonAttachment> (state, id ("BleedOn"), bleedOn));
         buttons.push_back (std::make_unique<Attachment::ButtonAttachment> (state, id ("Mute"), mute));
         buttons.push_back (std::make_unique<Attachment::ButtonAttachment> (state, id ("Solo"), solo));
         buttons.push_back (std::make_unique<Attachment::ButtonAttachment> (state, id ("Phase"), invert));
-        outputAttachment = std::make_unique<Attachment::ComboBoxAttachment> (state, id ("Output"), output);
         fader.setDoubleClickReturnValue (true, 0.0);
         pan.setDoubleClickReturnValue (true, 0.0);
-        bleed.setDoubleClickReturnValue (true, 0.0);
+        refresh();
     }
 
     void setMeter (float peak)
@@ -77,20 +109,47 @@ public:
     void setSelected (bool s) { if (s != selected) { selected = s; repaint(); } }
     void setInUse (bool u) { if (u != used) { used = u; setAlpha (used ? 1.0f : 0.45f); } }
 
+    // The OUTPUT and SEND buttons' words (the timer: they follow undo, presets and the DAW).
+    void refresh()
+    {
+        if (const auto text = page.describeOutput (strip); text != output.getButtonText())
+            output.setButtonText (text);
+        for (int k = 0; k < mixer::numSendSlots; ++k)
+        {
+            auto& b = sends[(size_t) k];
+            const auto on = page.processor.getModMatrix().send (strip, k).isOn();
+            if (const auto text = page.describeSend (strip, k); text != b.getButtonText())
+                b.setButtonText (text);
+            b.setToggleState (on, juce::dontSendNotification);
+            b.setAlpha (on ? 1.0f : 0.6f);
+        }
+    }
+
     juce::Rectangle<int> meterArea() const { return fader.getBounds().withWidth (6).translated (fader.getWidth() - 4, 0).withTrimmedBottom (20); }
 
     void resized() override
     {
         auto a = getLocalBounds().reduced (4, 6);
-        auto top = a.removeFromTop (22);
-        bleedOn.setBounds (top);
-        a.removeFromTop (2);
-        bleed.setBounds (a.removeFromTop (40).withSizeKeepingCentre (40, 40));
-        a.removeFromTop (6);
-        pan.setBounds (a.removeFromTop (40).withSizeKeepingCentre (40, 40));
+        if (! isBus (strip))
+        {
+            bleedOn.setBounds (a.removeFromTop (22));
+            a.removeFromTop (2);
+            bleed.setBounds (a.removeFromTop (36).withSizeKeepingCentre (36, 36));
+        }
+        else
+        {
+            a.removeFromTop (60);   // where a channel's BLEED is: the bus's label is drawn there
+        }
         a.removeFromTop (4);
-        auto name = a.removeFromBottom (24);
-        juce::ignoreUnused (name);
+        for (auto& b : sends)
+        {
+            b.setBounds (a.removeFromTop (18));
+            a.removeFromTop (2);
+        }
+        a.removeFromTop (2);
+        pan.setBounds (a.removeFromTop (36).withSizeKeepingCentre (36, 36));
+        a.removeFromTop (4);
+        a.removeFromBottom (24);   // the name
         output.setBounds (a.removeFromBottom (22));
         a.removeFromBottom (4);
         auto buttonsRow = a.removeFromBottom (22);
@@ -105,40 +164,47 @@ public:
     void paint (juce::Graphics& g) override
     {
         const auto r = getLocalBounds().toFloat();
-        g.setColour (selected ? ParagonColours::accent.withAlpha (0.12f) : juce::Colour (0xff0d0a0e));
+        const auto colour = isBus (strip) ? busColour : ParagonColours::accent;
+        g.setColour (selected ? colour.withAlpha (0.12f) : isBus (strip) ? juce::Colour (0xff120d0a) : juce::Colour (0xff0d0a0e));
         g.fillRoundedRectangle (r.reduced (1.0f), 4.0f);
-        g.setColour (selected ? ParagonColours::accent : ParagonColours::panelEdge);
+        g.setColour (selected ? colour : isBus (strip) ? busColour.withAlpha (0.35f) : ParagonColours::panelEdge);
         g.drawRoundedRectangle (r.reduced (1.5f), 4.0f, 1.0f);
         g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-        g.setColour (selected ? ParagonColours::accent : ParagonColours::text);
-        g.drawText (synth::mixer::channelNames[channel], getLocalBounds().removeFromBottom (28), juce::Justification::centred, false);
+        g.setColour (selected || isBus (strip) ? colour : ParagonColours::text);
+        g.drawText (stripName (strip), getLocalBounds().removeFromBottom (28), juce::Justification::centred, false);
+        if (isBus (strip))
+        {
+            g.setFont (juce::FontOptions (20.0f, juce::Font::bold));
+            g.setColour (busColour.withAlpha (0.55f));
+            g.drawText (juce::String (strip - mixer::numChannels + 1), getLocalBounds().reduced (4, 6).removeFromTop (60),
+                        juce::Justification::centred, false);
+        }
         // The meter beside the fader.
         const auto m = meterArea().toFloat();
         g.setColour (ParagonColours::panelEdge);
         g.fillRect (m);
         const auto db = juce::Decibels::gainToDecibels (meter, -60.0f);
         const auto h = m.getHeight() * juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 66.0f);
-        g.setColour (db > -1.0f ? ParagonColours::meterRed : ParagonColours::accent);
+        g.setColour (db > -1.0f ? ParagonColours::meterRed : colour);
         g.fillRect (m.withTop (m.getBottom() - h));
     }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        if (e.y > getHeight() - 30)
-            page.selectChannel (channel);
+        if (e.y > getHeight() - 30 || (isBus (strip) && e.y < 66))
+            page.selectStrip (strip);
     }
 
-    int getChannel() const noexcept { return channel; }
+    int getStrip() const noexcept { return strip; }
 
 private:
     MixerPage& page;
-    int channel;
-    juce::TextButton bleedOn, mute, solo, invert;
+    int strip;
+    juce::TextButton bleedOn, mute, solo, invert, output;
+    std::array<juce::TextButton, mixer::numSendSlots> sends;
     juce::Slider bleed, pan, fader;
-    juce::ComboBox output;
     std::vector<std::unique_ptr<Attachment::SliderAttachment>> attachments;
     std::vector<std::unique_ptr<Attachment::ButtonAttachment>> buttons;
-    std::unique_ptr<Attachment::ComboBoxAttachment> outputAttachment;
     float meter = 0.0f;
     bool selected = false, used = true;
 };
@@ -216,28 +282,231 @@ private:
 };
 
 //==============================================================================
+// A send's editor in PROPERTIES > SENDS (the chosen strip's send `slot`): its target, POST / PRE FADER, LINK; the
+// DIRECT sound's on, level and pan; the BLEED's (mic channels only: a bus's sound is all direct).
+class MixerPage::SendEditor final : public juce::Component
+{
+public:
+    static constexpr int height = 104, busHeight = 70;   // a bus's: no BLEED row
+
+    SendEditor (MixerPage& p, int k) : page (p), slot (k)
+    {
+        for (int t = 0; t < mixer::sendTargetNames.size(); ++t)
+            target.addItem (mixer::sendTargetNames[t], t + 1);
+        target.setTooltip ("Where this send goes: a bus, an FX bus (the FX page's insert buses, with their effects), the DELAY or "
+                           "the REVERB (while it's on). A bus sends only into a later bus.");
+        mode.addItemList (mixer::sendModeNames, 1);
+        mode.setTooltip ("POST FADER: after the channel's fader (it follows the fader and the mute). PRE FADER: before it (with "
+                         "MENU... > POST SEND, it goes on while the channel is muted).");
+        styleToggle (link, "LINK: DIRECT and BLEED levels move together.");
+        link.setButtonText ("LINK");
+        styleToggle (directOn, "The drums this mic is meant for, sent (on / off).");
+        directOn.setButtonText ("ON");
+        styleToggle (bleedOn, "The other drums in this mic (bleed), sent (on / off): off to compress a bus hard on the close sound alone.");
+        bleedOn.setButtonText ("ON");
+        for (auto* l : { &directLevel, &bleedLevel })
+        {
+            l->setSliderStyle (juce::Slider::LinearHorizontal);
+            l->setTextBoxStyle (juce::Slider::TextBoxRight, false, 52, 18);
+            l->setRange (-60.0, 12.0, 0.1);
+            l->setTextValueSuffix (" dB");
+            l->setDoubleClickReturnValue (true, 0.0);
+        }
+        directLevel.setTooltip ("The level sent (-60: none).");
+        bleedLevel.setTooltip ("The bleed's level sent (-60: none).");
+        for (auto* pan : { &directPan, &bleedPan })
+        {
+            pan->setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            pan->setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+            pan->setRange (-1.0, 1.0, 0.01);
+            pan->setDoubleClickReturnValue (true, 0.0);
+            pan->setTooltip ("The send's own pan (not the channel's).");
+        }
+        for (juce::Component* c : { (juce::Component*) &target, (juce::Component*) &mode, (juce::Component*) &link,
+                                    (juce::Component*) &directOn, (juce::Component*) &directLevel, (juce::Component*) &directPan,
+                                    (juce::Component*) &bleedOn, (juce::Component*) &bleedLevel, (juce::Component*) &bleedPan })
+            addAndMakeVisible (c);
+        target.onChange = [this] { if (! refreshing) commit (true); };
+        mode.onChange = [this] { if (! refreshing) commit (true); };
+        for (auto* b : { &link, &directOn, &bleedOn })
+            b->onClick = [this] { commit (true); };
+        // LINK: one level moved, the other by as much.
+        directLevel.onValueChange = [this]
+        {
+            if (refreshing)
+                return;
+            if (link.getToggleState() && ! isBus (strip))
+                follow (bleedLevel, directLevel.getValue() - lastDirect);
+            commit (false);
+        };
+        bleedLevel.onValueChange = [this]
+        {
+            if (refreshing)
+                return;
+            if (link.getToggleState())
+                follow (directLevel, bleedLevel.getValue() - lastBleed);
+            commit (false);
+        };
+        for (auto* s : { &directPan, &bleedPan })
+            s->onValueChange = [this] { if (! refreshing) commit (false); };
+        for (auto* s : { &directLevel, &bleedLevel, &directPan, &bleedPan })
+            s->onDragEnd = [this] { commit (true); };
+    }
+
+    void refresh (int forStrip)
+    {
+        strip = forStrip;
+        const auto& d = page.processor.getModMatrix().send (strip, slot);
+        refreshing = true;
+        target.setSelectedId (d.target + 1, juce::dontSendNotification);
+        for (int b = 0; b < mixer::numBuses; ++b)
+            target.setItemEnabled (b + 2, mixer::canFeedBus (strip, b));
+        mode.setSelectedId ((int) d.mode + 1, juce::dontSendNotification);
+        link.setToggleState (d.link, juce::dontSendNotification);
+        directOn.setToggleState (d.directOn, juce::dontSendNotification);
+        bleedOn.setToggleState (d.bleedOn, juce::dontSendNotification);
+        directLevel.setValue (d.directDb, juce::dontSendNotification);
+        bleedLevel.setValue (d.bleedDb, juce::dontSendNotification);
+        directPan.setValue (d.directPan, juce::dontSendNotification);
+        bleedPan.setValue (d.bleedPan, juce::dontSendNotification);
+        lastDirect = d.directDb;
+        lastBleed = d.bleedDb;
+        refreshing = false;
+        const auto bus = isBus (strip);
+        for (auto* c : { (juce::Component*) &link, (juce::Component*) &bleedOn, (juce::Component*) &bleedLevel, (juce::Component*) &bleedPan })
+            c->setVisible (! bus);
+        for (auto* c : { (juce::Component*) &mode, (juce::Component*) &link, (juce::Component*) &directOn, (juce::Component*) &directLevel,
+                         (juce::Component*) &directPan, (juce::Component*) &bleedOn, (juce::Component*) &bleedLevel, (juce::Component*) &bleedPan })
+            c->setAlpha (d.isOn() ? 1.0f : 0.4f);
+        repaint();
+    }
+
+    void resized() override
+    {
+        auto a = getLocalBounds().withTrimmedTop (4);
+        auto top = a.removeFromTop (24);
+        top.removeFromLeft (62);
+        target.setBounds (top.removeFromLeft (104));
+        top.removeFromLeft (6);
+        mode.setBounds (top.removeFromLeft (100));
+        top.removeFromLeft (6);
+        link.setBounds (top.removeFromLeft (50));
+        for (auto [on, level, pan] : { std::tuple { &directOn, &directLevel, &directPan }, std::tuple { &bleedOn, &bleedLevel, &bleedPan } })
+        {
+            a.removeFromTop (6);
+            auto row = a.removeFromTop (28);
+            row.removeFromLeft (62);
+            on->setBounds (row.removeFromLeft (38).withSizeKeepingCentre (38, 22));
+            pan->setBounds (row.removeFromRight (28));
+            row.removeFromRight (4);
+            level->setBounds (row.withTrimmedLeft (4));
+        }
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        auto a = getLocalBounds().withTrimmedTop (4);
+        g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        g.setColour (ParagonColours::text);
+        g.drawText ("SEND " + juce::String (slot + 1), a.removeFromTop (24), juce::Justification::centredLeft, false);
+        g.setFont (juce::FontOptions (10.0f));
+        g.setColour (ParagonColours::textDim);
+        a.removeFromTop (6);
+        g.drawText (isBus (strip) ? "LEVEL" : "DIRECT", a.removeFromTop (28), juce::Justification::centredLeft, false);
+        a.removeFromTop (6);
+        if (! isBus (strip))
+            g.drawText ("BLEED", a.removeFromTop (28), juce::Justification::centredLeft, false);
+        g.setColour (ParagonColours::panelEdge);
+        g.drawHorizontalLine (getHeight() - 1, 0.0f, (float) getWidth());
+    }
+
+private:
+    void follow (juce::Slider& other, double delta)
+    {
+        refreshing = true;
+        other.setValue (juce::jlimit (-60.0, 12.0, other.getValue() + delta), juce::dontSendNotification);
+        refreshing = false;
+    }
+
+    void commit (bool final)
+    {
+        mixer::Send d;
+        d.target = juce::jmax (0, target.getSelectedId() - 1);
+        d.mode = (mixer::SendMode) juce::jmax (0, mode.getSelectedId() - 1);
+        d.link = link.getToggleState();
+        d.directOn = directOn.getToggleState();
+        d.bleedOn = bleedOn.getToggleState();
+        d.directDb = (float) directLevel.getValue();
+        d.bleedDb = (float) bleedLevel.getValue();
+        d.directPan = (float) directPan.getValue();
+        d.bleedPan = (float) bleedPan.getValue();
+        lastDirect = d.directDb;
+        lastBleed = d.bleedDb;
+        page.setSend (slot, d, final);
+    }
+
+    MixerPage& page;
+    int slot, strip = 0;
+    juce::ComboBox target, mode;
+    juce::TextButton link, directOn, bleedOn;
+    juce::Slider directLevel, bleedLevel, directPan, bleedPan;
+    double lastDirect = 0.0, lastBleed = 0.0;
+    bool refreshing = false;
+};
+
+//==============================================================================
 MixerPage::MixerPage (ParagonX1AudioProcessor& p) : processor (p)
 {
-    for (int c = 0; c < synth::mixer::numChannels; ++c)
+    addAndMakeVisible (viewport);
+    viewport.setViewedComponent (&holder, false);
+    viewport.setScrollBarsShown (false, true);
+    viewport.setScrollBarThickness (8);
+    for (int s = 0; s < mixer::numStrips; ++s)
     {
-        strips.push_back (std::make_unique<Strip> (*this, c));
-        addAndMakeVisible (*strips.back());
+        strips.push_back (std::make_unique<Strip> (*this, s));
+        holder.addAndMakeVisible (*strips.back());
     }
-    for (int pc = 0; pc < synth::mixer::numPieces; ++pc)
+    for (int pc = 0; pc < mixer::numPieces; ++pc)
     {
         rows.push_back (std::make_unique<PieceRow> (*this, pc));
-        addAndMakeVisible (*rows.back());
+        addChildComponent (*rows.back());
+    }
+    for (int k = 0; k < mixer::numSendSlots; ++k)
+    {
+        sendEditors.push_back (std::make_unique<SendEditor> (*this, k));
+        addChildComponent (*sendEditors.back());
     }
     for (auto* s : { &offset, &release })
     {
         s->setTextBoxStyle (juce::Slider::TextBoxRight, false, 64, 18);
-        addAndMakeVisible (*s);
+        addChildComponent (*s);
     }
     offset.setTooltip ("TIME OFFSET: the channel later, up to 10 ms (to line overheads or room up with the close mics). On a "
                        "close mic it moves the hit off its beat.");
     release.setTooltip ("RELEASE: each hit in this channel faded after this long (OFF: as recorded). Shorter room tails, or a "
                         "gated sound.");
-    selectChannel (selected);
+    styleToggle (micsButton, "Show or hide the mic channels.");
+    styleToggle (busesButton, "Show or hide the buses.");
+    micsButton.setToggleState (true, juce::dontSendNotification);
+    busesButton.setToggleState (true, juce::dontSendNotification);
+    micsButton.onClick = [this] { showGroups (micsButton.getToggleState(), busesButton.getToggleState()); };
+    busesButton.onClick = [this] { showGroups (micsButton.getToggleState(), busesButton.getToggleState()); };
+    DrumSeqPanel::style (menuButton);
+    menuButton.setTooltip ("The mixer's menu: MUTE MODE, STEREO REVERSE, STEREO or MULTICHANNEL OUTPUTS.");
+    menuButton.onClick = [this] { showMixerMenu(); };
+    for (auto* b : { &bleedTab, &sendsTab })
+    {
+        DrumSeqPanel::style (*b);
+        b->setClickingTogglesState (false);
+    }
+    bleedTab.setTooltip ("The channel's bleed from each drum, TIME OFFSET and RELEASE.");
+    sendsTab.setTooltip ("The channel's two sends: where, how loud, their pans.");
+    bleedTab.onClick = [this] { showTab (Tab::bleed); };
+    sendsTab.onClick = [this] { showTab (Tab::sends); };
+    for (auto* c : { (juce::Component*) &micsButton, (juce::Component*) &busesButton, (juce::Component*) &menuButton,
+                     (juce::Component*) &bleedTab, (juce::Component*) &sendsTab })
+        addAndMakeVisible (c);
+    selectStrip (selected);
     startTimerHz (30);
 }
 
@@ -246,47 +515,240 @@ MixerPage::~MixerPage() { stopTimer(); }
 juce::Array<int> MixerPage::getChannelsInUse() const
 {
     juce::Array<int> channels;
-    for (int k = 0; k < synth::drums::numSlots; ++k)
+    for (int k = 0; k < drums::numSlots; ++k)
         if (const auto instrument = processor.getDrumInstrument (k); instrument != nullptr && instrument->hasMics())
             for (const auto c : instrument->micChannels())
-                channels.addIfNotAlreadyThere (c >= 0 ? c : synth::drums::homeChannel (k));
+                channels.addIfNotAlreadyThere (c >= 0 ? c : drums::homeChannel (k));
     channels.sort();
     return channels;
 }
 
-void MixerPage::selectChannel (int channel)
+void MixerPage::selectStrip (int strip)
 {
-    selected = juce::jlimit (0, synth::mixer::numChannels - 1, channel);
+    selected = juce::jlimit (0, mixer::numStrips - 1, strip);
     for (auto& s : strips)
-        s->setSelected (s->getChannel() == selected);
-    offsetAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (processor.getParameters(), ParamIDs::mix (selected, "Offset"), offset);
-    releaseAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (processor.getParameters(), ParamIDs::mix (selected, "Release"), release);
+        s->setSelected (s->getStrip() == selected);
+    if (! isBus (selected))
+    {
+        offsetAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (processor.getParameters(), ParamIDs::mix (selected, "Offset"), offset);
+        releaseAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (processor.getParameters(), ParamIDs::mix (selected, "Release"), release);
+    }
     refreshProperties();
     resized();
     repaint();
 }
 
+void MixerPage::showTab (Tab t)
+{
+    tab = t;
+    resized();
+    repaint();
+}
+
+void MixerPage::showGroups (bool mics, bool buses)
+{
+    micsButton.setToggleState (mics, juce::dontSendNotification);
+    busesButton.setToggleState (buses, juce::dontSendNotification);
+    if (! isStripShown (selected))
+        if (const auto first = std::find_if (strips.begin(), strips.end(), [this] (const auto& s) { return isStripShown (s->getStrip()); }); first != strips.end())
+            selectStrip ((*first)->getStrip());
+    resized();
+    repaint();
+}
+
+bool MixerPage::isStripShown (int strip) const
+{
+    return isBus (strip) ? busesButton.getToggleState() : micsButton.getToggleState();
+}
+
+void MixerPage::scrollToStrip (int strip)
+{
+    if (const auto& s = strips[(size_t) juce::jlimit (0, mixer::numStrips - 1, strip)]; s->isVisible())
+        viewport.setViewPosition (s->getX(), 0);
+}
+
 void MixerPage::setBleed (int piece, float gainDb, bool invert, bool on)
 {
+    if (isBus (selected))
+        return;
     auto m = processor.getModMatrix();
-    m.bleed (selected, juce::jlimit (0, synth::mixer::numPieces - 1, piece)) = { juce::jlimit (-60.0f, 12.0f, gainDb), invert, on };
+    m.bleed (selected, juce::jlimit (0, mixer::numPieces - 1, piece)) = { juce::jlimit (-60.0f, 12.0f, gainDb), invert, on };
     processor.setModMatrix (m);
+}
+
+void MixerPage::setSend (int slot, const mixer::Send& send, bool final)
+{
+    slot = juce::jlimit (0, mixer::numSendSlots - 1, slot);
+    auto m = processor.getModMatrix();
+    auto d = send;
+    if (const auto b = mixer::busOfTarget (d.target); b >= 0 && ! mixer::canFeedBus (selected, b))
+        d.target = 0;
+    m.send (selected, slot) = d;
+    processor.setModMatrix (m);
+    if (final)
+        processor.modMatrixEditFinished();
+    strips[(size_t) selected]->refresh();
+}
+
+void MixerPage::setSendTarget (int strip, int slot, int target)
+{
+    strip = juce::jlimit (0, mixer::numStrips - 1, strip);
+    slot = juce::jlimit (0, mixer::numSendSlots - 1, slot);
+    target = juce::jlimit (0, mixer::sendTargetNames.size() - 1, target);
+    if (const auto b = mixer::busOfTarget (target); b >= 0 && ! mixer::canFeedBus (strip, b))
+        return;
+    auto m = processor.getModMatrix();
+    auto& d = m.send (strip, slot);
+    d = target == 0 ? mixer::Send {} : d;   // OFF clears it (levels and pans back to 0)
+    d.target = target;
+    processor.setModMatrix (m);
+    processor.modMatrixEditFinished();
+    strips[(size_t) strip]->refresh();
+    if (strip == selected)
+        refreshProperties();
+}
+
+juce::String MixerPage::describeOutput (int strip) const
+{
+    const auto route = processor.getMixerRoute (strip);
+    if (const auto b = mixer::busOfTarget (route); b >= 0 && mixer::canFeedBus (strip, b))
+        return mixer::routeNames[route];
+    if (mixer::fxBusOfTarget (route) >= 0)
+        return mixer::routeNames[route];
+    return ParamIDs::outputNames[juce::jlimit (0, ParamIDs::numOutputs - 1, processor.getMixerOutput (strip))];
+}
+
+juce::String MixerPage::describeSend (int strip, int slot) const
+{
+    const auto& d = processor.getModMatrix().send (strip, slot);
+    return d.isOn() ? mixer::sendTargetNames[d.target] : juce::String ("+ SEND");
+}
+
+void MixerPage::showOutputMenu (int strip, juce::Component& from)
+{
+    const auto route = processor.getMixerRoute (strip), output = processor.getMixerOutput (strip);
+    const auto current = describeOutput (strip);
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("OUTPUTS");
+    for (int o = 0; o < ParamIDs::numOutputs; ++o)
+        menu.addItem (1 + o, ParamIDs::outputNames[o], true, route == 0 && output == o && current == ParamIDs::outputNames[o]);
+    menu.addSectionHeader ("BUSES");
+    for (int b = 0; b < mixer::numBuses; ++b)
+        menu.addItem (101 + b, mixer::routeNames[b + 1], mixer::canFeedBus (strip, b), route == b + 1);
+    menu.addSectionHeader ("FX BUSES (THE FX PAGE'S INSERT BUSES)");
+    for (int f = 0; f < mixer::numFxBuses; ++f)
+        menu.addItem (201 + f, mixer::routeNames[mixer::firstFxRoute + f], true, route == mixer::firstFxRoute + f);
+    juce::Component::SafePointer<MixerPage> safe (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&from), [safe, strip] (int chosen)
+    {
+        if (safe == nullptr || chosen == 0)
+            return;
+        if (chosen >= 201)
+            safe->processor.setMixerRoute (strip, mixer::firstFxRoute + chosen - 201);
+        else if (chosen >= 101)
+            safe->processor.setMixerRoute (strip, chosen - 100);
+        else
+            safe->processor.setMixerOutput (strip, chosen - 1);
+        safe->update();
+    });
+}
+
+void MixerPage::showSendMenu (int strip, int slot, juce::Component& from)
+{
+    selectStrip (strip);
+    showTab (Tab::sends);
+    const auto current = processor.getModMatrix().send (strip, slot).target;
+    juce::PopupMenu menu;
+    menu.addItem (1000, "Off", current != 0, current == 0);
+    menu.addSectionHeader ("BUSES");
+    for (int b = 0; b < mixer::numBuses; ++b)
+        menu.addItem (b + 1, mixer::sendTargetNames[b + 1], mixer::canFeedBus (strip, b), current == b + 1);
+    menu.addSectionHeader ("FX BUSES (THE FX PAGE'S INSERT BUSES)");
+    for (int f = 0; f < mixer::numFxBuses; ++f)
+        menu.addItem (mixer::firstFxRoute + f, mixer::sendTargetNames[mixer::firstFxRoute + f], true, current == mixer::firstFxRoute + f);
+    menu.addSectionHeader ("EFFECTS");
+    menu.addItem (mixer::delayTarget, "Delay", true, current == mixer::delayTarget);
+    menu.addItem (mixer::reverbTarget, "Reverb", true, current == mixer::reverbTarget);
+    juce::Component::SafePointer<MixerPage> safe (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&from), [safe, strip, slot] (int chosen)
+    {
+        if (safe != nullptr && chosen != 0)
+            safe->setSendTarget (strip, slot, chosen == 1000 ? 0 : chosen);
+    });
+}
+
+void MixerPage::showMixerMenu()
+{
+    const auto postSend = processor.getParameters().getRawParameterValue (ParamIDs::mixMuteMode)->load() > 0.5f;
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("CHANNEL MUTE");
+    menu.addItem (preSend, "Before the sends (PRE SEND): a muted channel's sends are silent too", true, ! postSend);
+    menu.addItem (MenuItem::postSend, "After the sends (POST SEND): its pre-fader sends go on", true, postSend);
+    menu.addSeparator();
+    menu.addItem (stereoReverse, "Stereo reverse: every pan to the other side");
+    menu.addItem (stereoOutputs, "Stereo outputs: every channel and bus to MAIN");
+    menu.addItem (multichannelOutputs, "Multichannel outputs: the channels to OUT 2-9 by instrument");
+    juce::Component::SafePointer<MixerPage> safe (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&menuButton), [safe] (int chosen)
+    {
+        if (safe != nullptr && chosen != 0)
+            safe->runMenuItem (chosen);
+    });
+}
+
+void MixerPage::runMenuItem (int item)
+{
+    if (item == preSend || item == MenuItem::postSend)
+    {
+        if (auto* parameter = processor.getParameters().getParameter (ParamIDs::mixMuteMode))
+        {
+            parameter->beginChangeGesture();
+            parameter->setValueNotifyingHost (item == MenuItem::postSend ? 1.0f : 0.0f);
+            parameter->endChangeGesture();
+        }
+        note = item == MenuItem::postSend ? "POST SEND: a muted channel's pre-fader sends go on." : "PRE SEND: a muted channel's sends are silent too.";
+    }
+    else if (item == stereoReverse)
+    {
+        processor.mixerStereoReverse();
+        note = "Every pan moved to the other side.";
+    }
+    else if (item == stereoOutputs)
+    {
+        processor.applyMixerOutputs (false);
+        note = "Every channel and bus to MAIN.";
+    }
+    else if (item == multichannelOutputs)
+    {
+        processor.applyMixerOutputs (true);
+        note = "Kick OUT 2, snare 3, hi-hat 4, toms 5, cymbals 6, overheads 7, room 8, other 9: switch them on in your DAW "
+               "(until then they play in MAIN).";
+    }
+    refreshProperties();
+    update();
+    repaint();
 }
 
 void MixerPage::refreshProperties()
 {
+    for (auto& e : sendEditors)
+        e->refresh (selected);
+    for (int k = 0; k < mixer::numSendSlots; ++k)
+        shownSends[(size_t) k] = processor.getModMatrix().send (selected, k);
+    if (isBus (selected))
+        return;
     // Which pieces have audio in this channel (a loaded kit's mic), and which are its own.
-    std::array<bool, synth::mixer::numPieces> has {};
-    for (int k = 0; k < synth::drums::numSlots; ++k)
+    std::array<bool, mixer::numPieces> has {};
+    for (int k = 0; k < drums::numSlots; ++k)
         if (const auto instrument = processor.getDrumInstrument (k); instrument != nullptr && instrument->hasMics())
             for (const auto c : instrument->micChannels())
-                if ((c >= 0 ? c : synth::drums::homeChannel (k)) == selected)
-                    if (const auto pc = synth::drums::pieceOfSlot (k); pc >= 0)
+                if ((c >= 0 ? c : drums::homeChannel (k)) == selected)
+                    if (const auto pc = drums::pieceOfSlot (k); pc >= 0)
                         has[(size_t) pc] = true;
-    for (int pc = 0; pc < synth::mixer::numPieces; ++pc)
+    for (int pc = 0; pc < mixer::numPieces; ++pc)
     {
-        const auto slot = synth::drums::pieces[(size_t) pc].articulations[0].slot;
-        rows[(size_t) pc]->refresh (selected, synth::drums::isDirect (slot, selected), has[(size_t) pc]);
+        const auto slot = drums::pieces[(size_t) pc].articulations[0].slot;
+        rows[(size_t) pc]->refresh (selected, drums::isDirect (slot, selected), has[(size_t) pc]);
     }
 }
 
@@ -299,13 +761,27 @@ void MixerPage::timerCallback()
 void MixerPage::update()
 {
     for (auto& s : strips)
-        s->setMeter (processor.takeMixerPeak (s->getChannel()));
+    {
+        const auto strip = s->getStrip();
+        s->setMeter (isBus (strip) ? processor.takeMixerBusPeak (strip - mixer::numChannels) : processor.takeMixerPeak (strip));
+        s->refresh();
+    }
+    // The sends changed elsewhere (undo, a preset): the editors show them.
+    static_assert (mixer::numSendSlots == 2);
+    if (const auto& m = processor.getModMatrix(); ! (m.send (selected, 0) == shownSends[0]) || ! (m.send (selected, 1) == shownSends[1]))
+    {
+        for (auto& e : sendEditors)
+            e->refresh (selected);
+        for (int k = 0; k < mixer::numSendSlots; ++k)
+            shownSends[(size_t) k] = m.send (selected, k);
+    }
     const auto used = getChannelsInUse();
     if (used != inUse)
     {
         inUse = used;
         for (auto& s : strips)
-            s->setInUse (inUse.contains (s->getChannel()));
+            if (! isBus (s->getStrip()))
+                s->setInUse (inUse.contains (s->getStrip()));
         refreshProperties();
         repaint();
     }
@@ -317,58 +793,130 @@ void MixerPage::resized()
     propertiesArea = a.removeFromRight (propertiesWidth);
     a.removeFromRight (12);
     stripsArea = a;
-    auto inner = stripsArea.reduced (14, 0).withTrimmedTop (44).withTrimmedBottom (12);
-    const auto w = inner.getWidth() / synth::mixer::numChannels;
-    for (auto& s : strips)
-        s->setBounds (inner.removeFromLeft (w).reduced (2, 0));
 
-    auto p = propertiesArea.reduced (18, 0).withTrimmedTop (44);
-    // CLOSE MIC AUDIO first, then BLEED FROM INSTRUMENTS (the order rows are drawn in, by kind).
-    std::vector<PieceRow*> direct, bleeding;
+    auto header = stripsArea.reduced (18, 0).withHeight (headerHeight).withSizeKeepingCentre (stripsArea.getWidth() - 36, 26);
+    menuButton.setBounds (header.removeFromRight (78));
+    header.removeFromRight (8);
+    busesButton.setBounds (header.removeFromRight (64));
+    header.removeFromRight (4);
+    micsButton.setBounds (header.removeFromRight (56));
+
+    viewport.setBounds (stripsArea.reduced (14, 0).withTrimmedTop (headerHeight).withTrimmedBottom (4));
+    int shown = 0;
+    for (auto& s : strips)
+        shown += isStripShown (s->getStrip()) ? 1 : 0;
+    const auto fits = shown * stripWidth <= viewport.getWidth();
+    const auto w = fits && shown > 0 ? viewport.getWidth() / shown : stripWidth;
+    holder.setSize (juce::jmax (1, shown * w), viewport.getHeight() - (fits ? 0 : viewport.getScrollBarThickness() + 2));
+    int x = 0;
+    for (auto& s : strips)
+    {
+        const auto visible = isStripShown (s->getStrip());
+        s->setVisible (visible);
+        if (visible)
+        {
+            s->setBounds (juce::Rectangle<int> (x, 0, w, holder.getHeight()).reduced (2, 0));
+            x += w;
+        }
+    }
+
+    // PROPERTIES: BLEED / SENDS tabs (a bus: its sends only).
+    const auto bus = isBus (selected);
+    if (bus)
+        tab = Tab::sends;
+    auto p = propertiesArea.reduced (18, 0).withTrimmedTop (headerHeight);
+    auto tabs = p.removeFromTop (24);
+    bleedTab.setVisible (! bus);
+    sendsTab.setVisible (! bus);
+    bleedTab.setBounds (tabs.removeFromLeft (80));
+    tabs.removeFromLeft (4);
+    sendsTab.setBounds (tabs.removeFromLeft (80));
+    bleedTab.setToggleState (tab == Tab::bleed, juce::dontSendNotification);
+    sendsTab.setToggleState (tab == Tab::sends, juce::dontSendNotification);
+    p.removeFromTop (bus ? -24 : 8);
+    propertiesBody = p;
+
+    const auto showingBleed = tab == Tab::bleed;
     for (auto& r : rows)
-        (r->isDirect ? direct : bleeding).push_back (r.get());
-    p.removeFromTop (18);
-    for (auto* r : direct)
-        r->setBounds (p.removeFromTop (rowHeight));
-    p.removeFromTop (22);
-    for (auto* r : bleeding)
-        r->setBounds (p.removeFromTop (rowHeight));
-    p.removeFromTop (14);
-    offset.setBounds (p.removeFromTop (24).withTrimmedLeft (100));
-    p.removeFromTop (6);
-    release.setBounds (p.removeFromTop (24).withTrimmedLeft (100));
+        r->setVisible (showingBleed);
+    offset.setVisible (showingBleed);
+    release.setVisible (showingBleed);
+    for (auto& e : sendEditors)
+        e->setVisible (! showingBleed);
+    if (showingBleed)
+    {
+        // CLOSE MIC AUDIO first, then BLEED FROM INSTRUMENTS (the order rows are drawn in, by kind).
+        std::vector<PieceRow*> direct, bleeding;
+        for (auto& r : rows)
+            (r->isDirect ? direct : bleeding).push_back (r.get());
+        p.removeFromTop (18);
+        for (auto* r : direct)
+            r->setBounds (p.removeFromTop (rowHeight));
+        p.removeFromTop (22);
+        for (auto* r : bleeding)
+            r->setBounds (p.removeFromTop (rowHeight));
+        p.removeFromTop (14);
+        offset.setBounds (p.removeFromTop (24).withTrimmedLeft (100));
+        p.removeFromTop (6);
+        release.setBounds (p.removeFromTop (24).withTrimmedLeft (100));
+    }
+    else
+    {
+        for (auto& e : sendEditors)
+        {
+            e->setBounds (p.removeFromTop (bus ? SendEditor::busHeight : SendEditor::height));
+            p.removeFromTop (8);
+        }
+    }
 }
 
 void MixerPage::paint (juce::Graphics& g)
 {
     for (const auto& area : { stripsArea, propertiesArea })
         DockStyle::drawPanel (g, area.toFloat());
-    const auto title = [&g] (const juce::String& text, juce::Rectangle<int> area)
+    const auto title = [&g] (const juce::String& text, juce::Rectangle<int> area, juce::Colour colour = {})
     {
         g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
-        g.setGradientFill (ParagonLookAndFeel::menuHighlight (area.toFloat().withWidth (140.0f)));
+        if (colour.isTransparent())
+            g.setGradientFill (ParagonLookAndFeel::menuHighlight (area.toFloat().withWidth (140.0f)));
+        else
+            g.setColour (colour);
         g.drawText (text, area, juce::Justification::centredLeft, false);
     };
-    title ("MIXER", stripsArea.reduced (18, 0).withHeight (40));
+    title ("MIXER", stripsArea.reduced (18, 0).withHeight (headerHeight));
     g.setFont (juce::FontOptions (11.0f));
     g.setColour (ParagonColours::textDim);
-    g.drawText (inUse.isEmpty() ? juce::String ("Load a multi-mic kit (DRUMS > LOAD...: an SFZ kit, or a folder with a folder per mic) to use the mixer. "
-                                                "Synth drums and single samples go their own way (their INSERT, sends and OUTPUT).")
-                                : juce::String ("The mic channels of your multi-mic drums. Click a channel's name for its properties."),
-                stripsArea.reduced (18, 0).withHeight (40).withTrimmedLeft (90), juce::Justification::centredLeft, true);
+    const auto hint = note.isNotEmpty() ? note
+                    : inUse.isEmpty() ? juce::String ("Load a multi-mic kit (DRUMS > LOAD...: an SFZ kit, or a folder with a folder per mic) to use "
+                                                      "the mixer. Synth drums and single samples go their own way.")
+                                      : juce::String ("Your multi-mic drums' channels, then the buses. Click a name for its properties.");
+    g.drawFittedText (hint, stripsArea.reduced (18, 0).withHeight (headerHeight).withTrimmedLeft (90).withTrimmedRight (230),
+                      juce::Justification::centredLeft, 2);
 
-    title ("PROPERTIES: " + synth::mixer::channelNames[selected], propertiesArea.reduced (18, 0).withHeight (40));
-    auto p = propertiesArea.reduced (18, 0).withTrimmedTop (44);
+    const auto bus = isBus (selected);
+    title ("PROPERTIES: " + stripName (selected), propertiesArea.reduced (18, 0).withHeight (headerHeight), bus ? busColour : juce::Colour());
+    auto p = propertiesBody;
+    if (tab == Tab::sends)
+    {
+        g.setFont (juce::FontOptions (10.5f));
+        g.setColour (ParagonColours::textDim);
+        p.removeFromTop (mixer::numSendSlots * ((bus ? SendEditor::busHeight : SendEditor::height) + 8) + 4);
+        g.drawFittedText (bus ? "A bus sends into a later bus, an FX bus (the FX page's insert buses A-D, with their effects), the "
+                                "DELAY or the REVERB."
+                              : "DIRECT: the drums this mic is meant for; BLEED: the rest of the kit in it, sent apart (off to "
+                                "compress a bus on the close sound alone). The DELAY and REVERB are on the FX page.",
+                          p.removeFromTop (60), juce::Justification::topLeft, 4);
+        return;
+    }
     g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
     g.setColour (ParagonColours::text);
     int directCount = 0;
     for (auto& r : rows)
         directCount += r->isDirect ? 1 : 0;
-    g.drawText (synth::mixer::hearsWholeKit (selected) ? "THE WHOLE KIT (NO BLEED HERE)" : "CLOSE MIC AUDIO", p.removeFromTop (18), juce::Justification::centredLeft, false);
+    g.drawText (mixer::hearsWholeKit (selected) ? "THE WHOLE KIT (NO BLEED HERE)" : "CLOSE MIC AUDIO", p.removeFromTop (18), juce::Justification::centredLeft, false);
     p.removeFromTop (directCount * rowHeight);
     g.drawText ("BLEED FROM INSTRUMENTS", p.removeFromTop (22).withTrimmedTop (4), juce::Justification::centredLeft, false);
-    p.removeFromTop ((synth::mixer::numPieces - directCount) * rowHeight + 14);
-    g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+    p.removeFromTop ((mixer::numPieces - directCount) * rowHeight + 14);
     g.drawText ("TIME OFFSET", p.removeFromTop (24), juce::Justification::centredLeft, false);
     p.removeFromTop (6);
     g.drawText ("RELEASE", p.removeFromTop (24), juce::Justification::centredLeft, false);

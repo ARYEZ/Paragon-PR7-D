@@ -83,7 +83,71 @@ namespace synth::mixer
         double offsetSeconds = 0.0;    // TIME OFFSET: the channel later, up to 10 ms
         double releaseSeconds = 0.0;   // RELEASE: each hit faded after this long (0: as recorded)
         int output = 0;                // 0 MAIN, 1-15 OUT 2-16
+        int route = 0;                 // 0.21.0: routeNames' index (0: its OUTPUT; else a bus)
     };
+
+    // THE BUSES (0.21.0): channels for grouping (inspired by the reference's mixer chapter, our own design). A mic channel
+    // or a bus goes to its OUTPUT or, by its ROUTE, into a bus; and SENDS a copy into a bus, an FX BUS (the FX page's
+    // insert buses A-D, with their effects) or the DELAY or REVERB. Buses mix in order: a bus feeds only later buses, so
+    // nothing loops back.
+    inline constexpr int numBuses = 8;
+    inline const juce::StringArray busNames { "BUS 1", "BUS 2", "BUS 3", "BUS 4", "BUS 5", "BUS 6", "BUS 7", "BUS 8" };
+    // A channel's or bus's ROUTE, by index (saved: only append): 0 its OUTPUT, 1-8 BUS 1-8, 9-12 FX BUS A-D.
+    inline const juce::StringArray routeNames { "Output", "Bus 1", "Bus 2", "Bus 3", "Bus 4", "Bus 5", "Bus 6", "Bus 7", "Bus 8",
+                                                "FX Bus A", "FX Bus B", "FX Bus C", "FX Bus D" };
+    inline constexpr int firstFxRoute = 9, numFxBuses = 4;
+    // A send's TARGET, by index (saved: only append): 0 off, 1-8 BUS 1-8, 9-12 FX BUS A-D, 13 DELAY, 14 REVERB.
+    inline const juce::StringArray sendTargetNames { "Off", "Bus 1", "Bus 2", "Bus 3", "Bus 4", "Bus 5", "Bus 6", "Bus 7", "Bus 8",
+                                                     "FX Bus A", "FX Bus B", "FX Bus C", "FX Bus D", "Delay", "Reverb" };
+    inline constexpr int delayTarget = 13, reverbTarget = 14;
+    inline int busOfTarget (int target) noexcept { return target >= 1 && target <= numBuses ? target - 1 : -1; }   // a route's too
+    inline int fxBusOfTarget (int target) noexcept { return target >= firstFxRoute && target < firstFxRoute + numFxBuses ? target - firstFxRoute : -1; }
+
+    // Each bus's settings, as the kit plays them.
+    struct BusSettings
+    {
+        float gain = 1.0f, pan = 0.0f;
+        bool mute = false, solo = false, invert = false;
+        int output = 0, route = 0;
+    };
+
+    // MUTE MODE (the mixer's menu): PRE SEND, a muted channel's sends are silent too; POST SEND, its pre-fader sends go
+    // on (to hear a snare mic's reverb alone). Saved by index: only append.
+    enum class MuteMode { preSend, postSend };
+    inline const juce::StringArray muteModeNames { "Pre Send", "Post Send" };
+
+    // A SEND: a copy of the channel into a target. A mic channel's DIRECT sound (the drums it's meant for) and its
+    // BLEED (the rest) have their own on, level and pan, LINK moving the two levels together; a bus's sound is all
+    // direct. POST FADER: after the channel's fader (and its mute); PRE FADER: before. Its own pan, not the channel's.
+    enum class SendMode { postFader, preFader };
+    inline const juce::StringArray sendModeNames { "Post Fader", "Pre Fader" };   // saved by index: only append
+    struct Send
+    {
+        int target = 0;
+        float directDb = 0.0f, bleedDb = 0.0f;   // -60 (off) to +12
+        float directPan = 0.0f, bleedPan = 0.0f;
+        bool directOn = true, bleedOn = true, link = true;
+        SendMode mode = SendMode::postFader;
+
+        bool isOn() const noexcept { return target > 0; }
+        static float gainOf (bool on, float db) noexcept { return on && db > -59.9f ? juce::Decibels::decibelsToGain (db) : 0.0f; }
+        bool operator== (const Send& o) const noexcept
+        {
+            const auto near = [] (float a, float b) { return std::abs (a - b) < 1.0e-4f; };
+            return target == o.target && near (directDb, o.directDb) && near (bleedDb, o.bleedDb) && near (directPan, o.directPan)
+                && near (bleedPan, o.bleedPan) && directOn == o.directOn && bleedOn == o.bleedOn && link == o.link && mode == o.mode;
+        }
+    };
+    inline constexpr int numSendSlots = 2;
+    inline constexpr int numStrips = numChannels + numBuses;   // the channels, then the buses
+    using SendTable = std::array<std::array<Send, numSendSlots>, numStrips>;
+
+    // Whether strip `from` (a channel, or numChannels + a bus) may go into BUS `bus`: channels into any, a bus only
+    // into a later one.
+    inline bool canFeedBus (int from, int bus) noexcept
+    {
+        return bus >= 0 && bus < numBuses && (from < numChannels || bus > from - numChannels);
+    }
 
     // BLEED FROM INSTRUMENTS (the mixer's properties): each channel's level for each piece of the kit (the drums
     // grouped as the articulation list groups them), its polarity, and whether it's on at all. A piece's own close

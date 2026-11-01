@@ -840,7 +840,8 @@ namespace synth::drums
         sampleRate = newSampleRate;
         blockSize = juce::jmax (1, maxBlockSize);
         scratch.assign ((size_t) (2 * numSlots * blockSize), 0.0f);
-        channelScratch.assign ((size_t) (2 * mixer::numChannels * blockSize), 0.0f);
+        channelScratch.assign ((size_t) (4 * mixer::numChannels * blockSize), 0.0f);
+        busScratch.assign ((size_t) (2 * mixer::numBuses * blockSize), 0.0f);
         voiceScratch.assign ((size_t) (2 * blockSize), 0.0f);
         reset();
     }
@@ -1064,6 +1065,7 @@ namespace synth::drums
             voice->channel = channel;
             voice->primary = first;
             voice->micGain = gain;
+            voice->bleed = ! isDirect (slot, channel);
             voice->releaseLeft = ch.releaseSeconds > 0.0 ? juce::jmax (1, (int) (ch.releaseSeconds * sampleRate)) + voice->waitLeft : -1;
             first = false;
         }
@@ -1375,13 +1377,15 @@ namespace synth::drums
     void Kit::renderChannels (const Outputs& outputs, int offset, int numSamples, const KitSettings& settings) noexcept
     {
         // THE MIXER (0.20.0): each mic voice into its channel at its drum's VOLUME, GAIN, MUTE / SOLO and its bleed /
-        // close-mic level; then each channel's polarity, fader, pan, MUTE / SOLO, into its output.
+        // close-mic level, the drums it's meant for (direct) and the rest (bleed) apart; then each channel's polarity,
+        // fader, pan, MUTE / SOLO into its output or (0.21.0) its bus, and its SENDS; then the buses, in order.
         auto anyVoice = false;
         for (const auto& v : voices)
             anyVoice = anyVoice || (v.active && v.channel >= 0);
         if (! anyVoice)
             return;
-        std::fill (channelScratch.begin(), channelScratch.begin() + (std::ptrdiff_t) (2 * mixer::numChannels * blockSize), 0.0f);
+        const auto bs = (size_t) blockSize;
+        std::fill (channelScratch.begin(), channelScratch.begin() + (std::ptrdiff_t) (4 * mixer::numChannels * bs), 0.0f);
         std::array<bool, mixer::numChannels> used {};
         auto* vl = voiceScratch.data();
         auto* vr = vl + blockSize;
@@ -1401,7 +1405,7 @@ namespace synth::drums
             v.render (vl, vr, numSamples);
             const auto& s = settings.slots[(size_t) v.slot];
             const auto g = v.micGain * settings.gain * s.gain * s.trim * (audible (settings, v.slot) ? 1.0f : 0.0f);
-            auto* cl = channelScratch.data() + (size_t) (2 * v.channel * blockSize);
+            auto* cl = channelScratch.data() + 4 * (size_t) v.channel * bs + (v.bleed ? 2 * bs : 0);
             auto* cr = cl + blockSize;
             for (int i = 0; i < numSamples; ++i)
             {
@@ -1410,34 +1414,151 @@ namespace synth::drums
             }
             used[(size_t) v.channel] = true;
         }
-        auto anySolo = false;
+
+        // Where a strip's sound goes. A bus's scratch is cleared when it's first used here; an FX BUS the processor
+        // hasn't readied is left out (a send) or falls back to the output (a route); an output the DAW has off: MAIN.
+        std::array<bool, mixer::numBuses> busUsed {};
+        const auto busBuffer = [&] (int bus)
+        {
+            auto* l = busScratch.data() + 2 * (size_t) bus * bs;
+            if (! busUsed[(size_t) bus])
+            {
+                busUsed[(size_t) bus] = true;
+                std::fill (l, l + 2 * bs, 0.0f);
+            }
+            return l;
+        };
+        struct Stereo { float* left = nullptr; float* right = nullptr; };
+        const auto outputFor = [&] (int output) -> Stereo
+        {
+            const auto aux = output - 1;
+            if (aux >= 0 && aux < (int) outputs.auxLeft.size() && outputs.auxLeft[(size_t) aux] != nullptr)
+                return { outputs.auxLeft[(size_t) aux] + offset, outputs.auxRight[(size_t) aux] + offset };
+            return { outputs.left + offset, outputs.right + offset };
+        };
+        const auto fxBus = [&] (int target) -> Stereo
+        {
+            if (const auto f = mixer::fxBusOfTarget (target); f >= 0 && f < (int) outputs.busLeft.size() && outputs.busLeft[(size_t) f] != nullptr)
+                return { outputs.busLeft[(size_t) f] + offset, outputs.busRight[(size_t) f] + offset };
+            return {};
+        };
+        const auto destination = [&] (int from, int route, int output) -> Stereo
+        {
+            if (const auto b = mixer::busOfTarget (route); b >= 0 && mixer::canFeedBus (from, b))
+            {
+                auto* l = busBuffer (b);
+                return { l, l + blockSize };
+            }
+            if (const auto fx = fxBus (route); fx.left != nullptr)
+                return fx;
+            return outputFor (output);
+        };
+        const auto sendTarget = [&] (int from, int target) -> Stereo
+        {
+            if (const auto b = mixer::busOfTarget (target); b >= 0)
+            {
+                if (! mixer::canFeedBus (from, b))
+                    return {};
+                auto* l = busBuffer (b);
+                return { l, l + blockSize };
+            }
+            if (target == mixer::delayTarget || target == mixer::reverbTarget)
+            {
+                const auto k = (size_t) (target == mixer::delayTarget ? 0 : 1);
+                if (k < outputs.sendLeft.size() && settings.sendOn[k] && outputs.sendLeft[k] != nullptr)
+                    return { outputs.sendLeft[k] + offset, outputs.sendRight[k] + offset };
+                return {};
+            }
+            return fxBus (target);
+        };
+        // Adds a stereo source in at a gain and a pan (a balance), and returns its peak.
+        const auto addIn = [numSamples] (const float* sl, const float* sr, Stereo to, float gain, float pan)
+        {
+            const auto gl = gain * (pan > 0.0f ? 1.0f - pan : 1.0f), gr = gain * (pan < 0.0f ? 1.0f + pan : 1.0f);
+            auto peak = 0.0f;
+            if (gl == 0.0f && gr == 0.0f)
+                return peak;
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const auto l = sl[i] * gl, r = sr[i] * gr;
+                to.left[i] += l;
+                to.right[i] += r;
+                peak = juce::jmax (peak, std::abs (l), std::abs (r));
+            }
+            return peak;
+        };
+        const auto sendsOf = [&settings] (int strip) -> const std::array<mixer::Send, mixer::numSendSlots>*
+        {
+            return settings.sends != nullptr ? &(*settings.sends)[(size_t) strip] : nullptr;
+        };
+        // A muted (or soloed-out) strip's sends: silent, except pre-fader ones under POST SEND (mute only).
+        const auto sendSilenced = [&settings] (const mixer::Send& send, bool muted, bool soloedOut)
+        {
+            return soloedOut || (muted && (settings.muteMode == mixer::MuteMode::preSend || send.mode == mixer::SendMode::postFader));
+        };
+
+        // SOLO: among the channels, and among the buses, apart (a soloed channel's sends still reach its buses).
+        auto anySolo = false, anyBusSolo = false;
         for (const auto& c : settings.channels)
             anySolo = anySolo || c.solo;
+        for (const auto& b : settings.buses)
+            anyBusSolo = anyBusSolo || b.solo;
+
         for (int c = 0; c < mixer::numChannels; ++c)
         {
             if (! used[(size_t) c])
                 continue;
             const auto& ch = settings.channels[(size_t) c];
-            const auto* cl = channelScratch.data() + (size_t) (2 * c * blockSize);
-            const auto* cr = cl + blockSize;
-            const auto audibleChannel = ! ch.mute && (! anySolo || ch.solo);
-            const auto g = audibleChannel ? ch.gain * (ch.invert ? -1.0f : 1.0f) : 0.0f;
-            const auto gl = g * (ch.pan > 0.0f ? 1.0f - ch.pan : 1.0f), gr = g * (ch.pan < 0.0f ? 1.0f + ch.pan : 1.0f);
-            const auto aux = ch.output - 1;
-            const auto toAux = aux >= 0 && aux < (int) outputs.auxLeft.size() && outputs.auxLeft[(size_t) aux] != nullptr;
-            auto* outLeft = (toAux ? outputs.auxLeft[(size_t) aux] : outputs.left) + offset;
-            auto* outRight = (toAux ? outputs.auxRight[(size_t) aux] : outputs.right) + offset;
-            auto peak = 0.0f;
-            for (int i = 0; i < numSamples; ++i)
-            {
-                const auto l = cl[i] * gl, r = cr[i] * gr;
-                outLeft[i] += l;
-                outRight[i] += r;
-                peak = juce::jmax (peak, std::abs (l), std::abs (r));
-            }
+            const auto* dl = channelScratch.data() + 4 * (size_t) c * bs;
+            const auto* dr = dl + bs;
+            const auto* bl = dl + 2 * bs;
+            const auto* br = dl + 3 * bs;
+            const auto soloedOut = anySolo && ! ch.solo;
+            const auto polarity = ch.invert ? -1.0f : 1.0f;
+            const auto g = ! ch.mute && ! soloedOut ? ch.gain * polarity : 0.0f;
+            const auto to = destination (c, ch.route, ch.output);
+            const auto peak = juce::jmax (addIn (dl, dr, to, g, ch.pan), addIn (bl, br, to, g, ch.pan));
             auto& meter = channelPeaks[(size_t) c];
             if (peak > meter.load())
                 meter = peak;
+            if (const auto* sends = sendsOf (c))
+                for (const auto& send : *sends)
+                {
+                    if (! send.isOn() || sendSilenced (send, ch.mute, soloedOut))
+                        continue;
+                    const auto target = sendTarget (c, send.target);
+                    if (target.left == nullptr)
+                        continue;
+                    const auto f = polarity * (send.mode == mixer::SendMode::postFader ? ch.gain : 1.0f);
+                    addIn (dl, dr, target, f * mixer::Send::gainOf (send.directOn, send.directDb), send.directPan);
+                    addIn (bl, br, target, f * mixer::Send::gainOf (send.bleedOn, send.bleedDb), send.bleedPan);
+                }
+        }
+
+        for (int b = 0; b < mixer::numBuses; ++b)
+        {
+            if (! busUsed[(size_t) b])
+                continue;
+            const auto& bus = settings.buses[(size_t) b];
+            const auto from = mixer::numChannels + b;
+            const auto* sl = busScratch.data() + 2 * (size_t) b * bs;
+            const auto* sr = sl + bs;
+            const auto soloedOut = anyBusSolo && ! bus.solo;
+            const auto polarity = bus.invert ? -1.0f : 1.0f;
+            const auto g = ! bus.mute && ! soloedOut ? bus.gain * polarity : 0.0f;
+            const auto peak = addIn (sl, sr, destination (from, bus.route, bus.output), g, bus.pan);
+            auto& meter = busPeaks[(size_t) b];
+            if (peak > meter.load())
+                meter = peak;
+            if (const auto* sends = sendsOf (from))
+                for (const auto& send : *sends)
+                {
+                    if (! send.isOn() || sendSilenced (send, bus.mute, soloedOut))
+                        continue;
+                    if (const auto target = sendTarget (from, send.target); target.left != nullptr)
+                        addIn (sl, sr, target, polarity * (send.mode == mixer::SendMode::postFader ? bus.gain : 1.0f)
+                                                   * mixer::Send::gainOf (send.directOn, send.directDb), send.directPan);
+                }
         }
     }
 

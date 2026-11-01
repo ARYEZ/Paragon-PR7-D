@@ -23,6 +23,7 @@ namespace
     constexpr int pr7d0180 = 27; // PR7-D 0.18.0: the velocity gate, MIDI IN CHANNEL
     constexpr int pr7d0190 = 28; // PR7-D 0.19.0: the sample engine's hit variation, layer limit, voices
     constexpr int pr7d0200 = 29; // PR7-D 0.20.0: the mixer's mic channels
+    constexpr int pr7d0210 = 30; // PR7-D 0.21.0: the mixer's buses, routes and mute mode
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -173,7 +174,21 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
             add (layout, mix (c, "Release"), name + "Release", { 0.0f, 2000.0f, 1.0f }, 0.0f,
                  [] (float v, int) { return v < 0.5f ? juce::String ("Off") : juce::String (juce::roundToInt (v)) + " ms"; }, pr7d0200);
             addChoice (layout, mix (c, "Output"), name + "Output", outputNames, 0, pr7d0200);
+            addChoice (layout, mix (c, "Route"), name + "Route", synth::mixer::routeNames, 0, pr7d0210);
         }
+        for (int b = 0; b < synth::mixer::numBuses; ++b)
+        {
+            const auto name = "Mix bus " + juce::String (b + 1) + " ";
+            const ToText asFader = [] (float v, int) { return v <= -59.95f ? juce::String ("-inf") : juce::String (v, 1) + " dB"; };
+            add (layout, mixBus (b, "Level"), name + "Level", { -60.0f, 12.0f, 0.1f }, 0.0f, asFader, pr7d0210);
+            add (layout, mixBus (b, "Pan"), name + "Pan", { -1.0f, 1.0f }, 0.0f, asPan, pr7d0210);
+            addSwitch (layout, mixBus (b, "Mute"), name + "Mute", false, pr7d0210);
+            addSwitch (layout, mixBus (b, "Solo"), name + "Solo", false, pr7d0210);
+            addSwitch (layout, mixBus (b, "Phase"), name + "Polarity", false, pr7d0210);
+            addChoice (layout, mixBus (b, "Output"), name + "Output", outputNames, 0, pr7d0210);
+            addChoice (layout, mixBus (b, "Route"), name + "Route", synth::mixer::routeNames, 0, pr7d0210);
+        }
+        addChoice (layout, mixMuteMode, "Mix Mute Mode", synth::mixer::muteModeNames, 0, pr7d0210);
 
         // THE DRUM SEQUENCER (stage 6b).
         const synth::drumseq::Settings sequencer;

@@ -176,6 +176,20 @@ public:
     std::pair<int, int> getLastHit (int slot) const noexcept { return drumKit.getLastChoice (slot); }
     // THE MIXER (0.20.0): a mic channel's peak since last asked (the page's meter).
     float takeMixerPeak (int channel) noexcept { return drumKit.takeChannelPeak (channel); }
+    float takeMixerBusPeak (int bus) noexcept { return drumKit.takeBusPeak (bus); }   // 0.21.0
+    // THE MIXER's menu (0.21.0), each one undo step. STEREO REVERSE: every channel's, bus's and send's pan to the other
+    // side. STEREO OUTPUTS: every channel and bus to MAIN (no buses). MULTICHANNEL OUTPUTS: the channels to outputs by
+    // instrument (our own grouping: kick OUT 2, snare OUT 3, hi-hat OUT 4, toms OUT 5, cymbals OUT 6, overheads OUT 7,
+    // room and ambience OUT 8, other OUT 9), the buses to MAIN.
+    void mixerStereoReverse();
+    void applyMixerOutputs (bool multichannel);
+    static int multichannelOutputOf (int channel) noexcept;
+    // A channel's or bus's (strip: the channels, then the buses) destination as its OUTPUT menu shows it: a route
+    // (1-12: a bus or FX bus) or, at 0, the output; and setting it (an output: the route back to 0).
+    int getMixerRoute (int strip) const;
+    int getMixerOutput (int strip) const;
+    void setMixerRoute (int strip, int route);
+    void setMixerOutput (int strip, int output);
     // The kit's settings now (any thread; the samples as the audio thread plays them).
     synth::drums::KitSettings getKitSettings() const noexcept;
     // The page's preview: a hit in the next block.
@@ -539,6 +553,9 @@ private:
     std::array<DrumParameters, ParamIDs::numDrums> drumParameters {};
     // THE MIXER's channels' parameters (0.20.0), in ParamIDs::mixSettings' order, read every block.
     std::array<std::array<std::atomic<float>*, std::size (ParamIDs::mixSettings)>, synth::mixer::numChannels> mixParameters {};
+    std::array<std::array<std::atomic<float>*, std::size (ParamIDs::busSettings)>, synth::mixer::numBuses> busParameters {};   // 0.21.0
+    std::atomic<float>* muteModeParameter = nullptr;
+    void setParameterNow (const juce::String& id, float value);   // a whole gesture, as a click
 
     // THE DRUMS: the kit, the samples (the audio thread gets plain pointers;
     // replaced ones are kept a while), the page's preview hits, and the block's MIDI for the kit.
@@ -692,6 +709,7 @@ private:
         std::array<synth::mod::Shape, synth::drums::numSlots> drumEnvelopes {};
         std::array<synth::drums::VelocityCurve, synth::drums::numSlots> velocityCurves {};   // 0.18.0
         synth::mixer::BleedMatrix bleed {};                                                 // 0.20.0
+        synth::mixer::SendTable sends {};                                                   // 0.21.0
     };
     std::shared_ptr<const CompiledMatrix> compiledMatrix;
     std::atomic<const CompiledMatrix*> matrixForAudio { nullptr };
