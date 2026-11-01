@@ -7,6 +7,7 @@
 #include "ui/KitView.h"
 #include "ui/MultiPointEditor.h"
 #include "ui/SynthControls.h"
+#include "ui/VelocityCurveEditor.h"
 
 // THE DRUMS page (stage 6a): the kit's 12 slots down the left (a row each: its key, its drum, a picture of its hit,
 // MUTE and SOLO; it lights when it plays; click it to choose it and hear it), and the chosen drum's settings on the
@@ -124,6 +125,12 @@ public:
     void showView (View);
     View getView() const noexcept { return view; }
     DrumSeqPanel& getSequencer() noexcept { return sequencer; }
+    // 0.18.0: the DRUM view's strip shows the ENVELOPE (and the hit) or the chosen drum's VELOCITY curve and gate.
+    void showVelocity (bool);
+    bool isShowingVelocity() const noexcept { return velocityMode; }
+    VelocityCurveEditor& getVelocityEditor() noexcept { return velocityEditor; }
+    // The chosen drums' curve changed (every chosen drum gets it; `final`: one undo step).
+    void setVelocityCurve (const synth::drums::VelocityCurve&, bool final);
     KitView& getKitView() noexcept { return kitView; }
     ArticulationPanel& getArticulations() noexcept { return articulations; }   // over the KIT VIEW (0.17.0)
     void chooseSlots (const std::vector<int>& slots);   // several drums chosen at once (ALL in the articulations)
@@ -149,7 +156,7 @@ private:
     int selected = 0;
     std::vector<std::unique_ptr<DrumRow>> rows;
     std::array<juce::String, synth::drums::numSlots> pictureKeys;
-    std::vector<std::unique_ptr<ParamControl>> kitControls, slotControls, routingControls;
+    std::vector<std::unique_ptr<ParamControl>> kitControls, slotControls, routingControls, velocityControls;
     DrumHitDisplay display;
     MultiPointEditor envelope;
     juce::TextButton play { "PLAY" }, load { "LOAD SAMPLE..." }, clear { "CLEAR" }, wholeFile { "WHOLE FILE" };
@@ -165,6 +172,12 @@ private:
     DrumSeqPanel sequencer;
     KitView kitView;
     ArticulationPanel articulations;
+    juce::TextButton envelopeTab { "ENVELOPE" }, velocityTab { "VELOCITY" }, softButton { "SOFT" }, gateButton { "GATE" },
+                     resetCurve { "STRAIGHT" };
+    VelocityCurveEditor velocityEditor;
+    bool velocityMode = false;
+    juce::Rectangle<int> velocityArea;
+    void updateDrumPanels();
     void placeArticulations();
     juce::TextButton kitTab { "KIT VIEW" }, drumTab { "DRUM" }, sequencerTab { "SEQUENCER" };
 };

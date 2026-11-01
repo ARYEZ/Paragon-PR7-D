@@ -597,9 +597,56 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), en
     slotControl (routingControls, "HighPass", "HP", "High-pass, 6 dB an octave: thins the drum (hats out of the kick's way). "
                                                     "All the way down: off.");
 
-    for (auto* list : { &kitControls, &slotControls, &routingControls })
+    // THE VELOCITY GATE (0.18.0), beside the curve.
+    slotControl (velocityControls, "VelMin", "GATE LOW", "The softest hit (as it comes in, 0 to 127) that plays this drum: softer ones don't. "
+                                                         "Raise it to keep a layer for hard hits only.");
+    slotControl (velocityControls, "VelMax", "GATE HIGH", "The hardest hit (as it comes in) that plays this drum: harder ones don't.");
+
+    for (auto* list : { &kitControls, &slotControls, &routingControls, &velocityControls })
         for (auto& c : *list)
             addAndMakeVisible (*c);
+
+    // THE VELOCITY CURVE (0.18.0): ENVELOPE / VELOCITY over the strip.
+    for (auto* b : { &envelopeTab, &velocityTab })
+    {
+        DrumSeqPanel::style (*b);
+        b->setClickingTogglesState (true);
+        b->setRadioGroupId (964);
+        addAndMakeVisible (*b);
+    }
+    envelopeTab.setToggleState (true, juce::dontSendNotification);
+    envelopeTab.setTooltip ("The drum's ENVELOPE and its hit.");
+    velocityTab.setTooltip ("The drum's VELOCITY CURVE (how hard each hit plays, whatever plays it: grooves, the song, the sequencer, "
+                            "your keys) and its VELOCITY GATE. Several drums chosen: all of them.");
+    envelopeTab.onClick = [this] { showVelocity (false); };
+    velocityTab.onClick = [this] { showVelocity (true); };
+    velocityEditor.getCurve = [this] { return processor.getModMatrix().drumVelocityCurves[(size_t) selected]; };
+    velocityEditor.onChange = [this] (const synth::drums::VelocityCurve& c, bool final) { setVelocityCurve (c, final); };
+    addChildComponent (velocityEditor);
+    for (auto* b : { &softButton, &gateButton })
+    {
+        DrumSeqPanel::style (*b);
+        b->setClickingTogglesState (true);
+        addChildComponent (*b);
+    }
+    softButton.setTooltip ("SOFT: the curve rounded between its points, no corners.");
+    gateButton.setTooltip ("GATE: hits softer than the left end point don't play at all (off: they play at its height).");
+    softButton.onClick = [this]
+    {
+        auto c = processor.getModMatrix().drumVelocityCurves[(size_t) selected];
+        c.soft = softButton.getToggleState();
+        setVelocityCurve (c, true);
+    };
+    gateButton.onClick = [this]
+    {
+        auto c = processor.getModMatrix().drumVelocityCurves[(size_t) selected];
+        c.gate = gateButton.getToggleState();
+        setVelocityCurve (c, true);
+    };
+    DrumSeqPanel::style (resetCurve);
+    resetCurve.setTooltip ("Back to a straight line: every hit as hard as it comes.");
+    resetCurve.onClick = [this] { setVelocityCurve ({}, true); };
+    addChildComponent (resetCurve);
 
     for (int k = 0; k < synth::drums::numSlots; ++k)
     {
@@ -683,9 +730,10 @@ void DrumPage::showView (View v)
     for (auto* list : { &slotControls, &routingControls })
         for (auto& c : *list)
             c->setVisible (drum);
-    for (juce::Component* c : { (juce::Component*) &display, (juce::Component*) &envelope, (juce::Component*) &play,
-                                (juce::Component*) &load, (juce::Component*) &clear })
+    for (juce::Component* c : { (juce::Component*) &play, (juce::Component*) &load, (juce::Component*) &clear,
+                                (juce::Component*) &envelopeTab, (juce::Component*) &velocityTab })
         c->setVisible (drum);
+    updateDrumPanels();
     wholeFile.setVisible (drum && display.showsFile());
     refreshPictures();
     sequencer.setVisible (v == View::sequencer);
@@ -870,7 +918,7 @@ void DrumPage::select (int slot)
     if (! rows[(size_t) selected]->isChosen())
         for (auto& row : rows)
             row->setChosen (row->getSlot() == selected);   // chosen from elsewhere (the sequencer): alone
-    for (auto* list : { &slotControls, &routingControls })
+    for (auto* list : { &slotControls, &routingControls, &velocityControls })
         for (auto& c : *list)
         {
             const auto what = c->getParameterId().fromFirstOccurrenceOf ("drum", false, false).trimCharactersAtStart ("0123456789");
@@ -882,12 +930,50 @@ void DrumPage::select (int slot)
     kitView.setSelected (selected);
     articulations.showSlot (selected, getChosen());
     placeArticulations();
+    updateDrumPanels();
     envelope.setTarget (MultiPointEditor::Kind::drumEnvelope, selected);
     listenToRouting();
     display.setSlot (selected);
     pictureKeys[(size_t) selected] = {};   // the large picture for this drum
     refreshPictures();
     repaint();
+}
+
+void DrumPage::showVelocity (bool on)
+{
+    velocityMode = on;
+    (on ? velocityTab : envelopeTab).setToggleState (true, juce::dontSendNotification);
+    updateDrumPanels();
+    repaint();
+}
+
+void DrumPage::updateDrumPanels()
+{
+    const auto drum = view == View::drum;
+    display.setVisible (drum && ! velocityMode);
+    envelope.setVisible (drum && ! velocityMode);
+    for (juce::Component* c : { (juce::Component*) &velocityEditor, (juce::Component*) &softButton, (juce::Component*) &gateButton,
+                                (juce::Component*) &resetCurve })
+        c->setVisible (drum && velocityMode);
+    for (auto& c : velocityControls)
+        c->setVisible (drum && velocityMode);
+    const auto& curve = processor.getModMatrix().drumVelocityCurves[(size_t) selected];
+    softButton.setToggleState (curve.soft, juce::dontSendNotification);
+    gateButton.setToggleState (curve.gate, juce::dontSendNotification);
+    velocityEditor.setLabel (juce::String (synth::drums::slotDefaults[(size_t) selected].key) + "  " + synth::drums::articulationName (selected)
+                             + (getChosen().size() > 1 ? "  (+ " + juce::String ((int) getChosen().size() - 1) + " MORE CHOSEN)" : juce::String()));
+    velocityEditor.repaint();
+}
+
+void DrumPage::setVelocityCurve (const synth::drums::VelocityCurve& curve, bool final)
+{
+    auto m = processor.getModMatrix();
+    for (const auto k : getChosen())
+        m.drumVelocityCurves[(size_t) k] = curve;
+    processor.setModMatrix (m);
+    if (final)
+        processor.modMatrixEditFinished();
+    updateDrumPanels();
 }
 
 void DrumPage::placeEnvelope()
@@ -949,7 +1035,11 @@ void DrumPage::timerCallback()
         return;
     updateLights();
     if (++tick % 6 == 0)
+    {
         refreshPictures();
+        if (velocityMode && view == View::drum)
+            updateDrumPanels();   // an undo or a preset may have changed the curve
+    }
 }
 
 void DrumPage::updateLights()
@@ -1061,6 +1151,10 @@ void DrumPage::resized()
     sequencerTab.setBounds (tabs.removeFromRight (104).withSizeKeepingCentre (100, 24));
     drumTab.setBounds (tabs.removeFromRight (74).withSizeKeepingCentre (70, 24));
     kitTab.setBounds (tabs.removeFromRight (94).withSizeKeepingCentre (90, 24));
+    // The DRUM view's own pair (0.18.0): ENVELOPE / VELOCITY, left of the view tabs.
+    tabs.removeFromRight (18);
+    velocityTab.setBounds (tabs.removeFromRight (94).withSizeKeepingCentre (90, 24));
+    envelopeTab.setBounds (tabs.removeFromRight (94).withSizeKeepingCentre (90, 24));
     kitView.setBounds (drumArea.reduced (14, 10).withTrimmedTop (36));
     placeArticulations();
     sequencer.setBounds (drumArea);
@@ -1076,6 +1170,7 @@ void DrumPage::resized()
     play.setBounds (bar.removeFromLeft (90).withSizeKeepingCentre (90, 30).translated (0, 8));
     bar.removeFromLeft (10);
     wholeFile.setBounds (bar.removeFromLeft (120).withSizeKeepingCentre (120, 30).translated (0, 8));
+
     clear.setBounds (bar.removeFromRight (90).withSizeKeepingCentre (90, 30).translated (0, 8));
     bar.removeFromRight (10);
     load.setBounds (bar.removeFromRight (150).withSizeKeepingCentre (150, 30).translated (0, 8));
@@ -1090,10 +1185,26 @@ void DrumPage::resized()
     // THE SAMPLE EDITOR's envelope (6c) above the hit, as Avenger has it.
     // Its plot (14 px in from its sides) lined up with the hit's picture (20 px in from the display's), so each point
     // sits over the moment it shapes.
+    velocityArea = d;
     envelopeStrip = d.removeFromTop (96);
     d.removeFromTop (6);
     display.setBounds (d);
     placeEnvelope();
+    // VELOCITY (0.18.0) in the strip and picture's place: the curve, square-ish, then the gate and its switches.
+    {
+        auto v = velocityArea;
+        velocityEditor.setBounds (v.removeFromLeft (juce::jmin (v.getWidth() - 260, juce::roundToInt ((float) v.getHeight() * 1.5f))));
+        v.removeFromLeft (20);
+        auto gateKnobs = v.removeFromTop (ParamControl::knobHeight);
+        for (auto& c : velocityControls)
+            c->setBounds (gateKnobs.removeFromLeft (110));
+        v.removeFromTop (16);
+        for (auto* b : { &softButton, &gateButton, &resetCurve })
+        {
+            b->setBounds (v.removeFromTop (30).withWidth (180));
+            v.removeFromTop (8);
+        }
+    }
     std::vector<juce::Component*> shaping, routes;
     for (size_t i = 1; i < slotControls.size(); ++i)
         shaping.push_back (slotControls[i].get());

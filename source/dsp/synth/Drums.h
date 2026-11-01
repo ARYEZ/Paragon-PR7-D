@@ -5,6 +5,7 @@
 #include "dsp/synth/DrumSequencer.h"
 #include "dsp/synth/MultiPoint.h"
 #include "dsp/synth/Noise.h"
+#include "dsp/synth/VelocityCurve.h"
 
 #include <array>
 #include <atomic>
@@ -237,6 +238,10 @@ namespace synth::drums
         // ARTICULATIONS (0.17.0).
         bool active = true;                // ON: off, its notes play its stand-in (standIns)
         MuteTail muteTail = MuteTail::off;
+        // 0.18.0: its VELOCITY CURVE (null: straight) and VELOCITY GATE (hits outside velMin to velMax, as they come
+        // in, don't play it).
+        const VelocityCurve* velocityCurve = nullptr;
+        float velMin = 0.0f, velMax = 1.0f;
 
         bool filtered() const noexcept { return lowPass < 19999.0f || highPass > 20.01f; }
         // The sequencer's lead for the anchor (seconds early).
@@ -280,6 +285,36 @@ namespace synth::drums
 
         // In `keys`, a note that plays the hi-hat at the pedal's openness.
         static constexpr std::int8_t hatPedal = 100;
+
+        // MIDI IN (0.18.0): only for MIDI from the DAW or a controller (not grooves, the song or the sequencer).
+        int channel = 0;                                // 0: any, 1-16
+        const VelocityCurve* inputCurve = nullptr;      // every incoming note's velocity first (null: straight)
+        // CC ZONES: a positional pad's note playing a different articulation by where it's hit, which the pad sends as
+        // a controller (`cc`) just before the note. The controller's range is cut at `bounds` (rising) into `count`
+        // zones, each playing its slot (-1: what the note plays anyway).
+        struct CcZones
+        {
+            std::int8_t note = -1, cc = 16, count = 0;
+            std::array<std::int8_t, 4> slots { -1, -1, -1, -1 };
+            std::array<std::uint8_t, 3> bounds { 43, 86, 120 };
+
+            int zoneOf (int value) const noexcept
+            {
+                int z = 0;
+                while (z < count - 1 && value >= bounds[(size_t) z])
+                    ++z;
+                return z;
+            }
+        };
+        static constexpr int maxZoneNotes = 8;
+        std::array<CcZones, maxZoneNotes> zones {};
+        const CcZones* zonesFor (int note) const noexcept
+        {
+            for (const auto& z : zones)
+                if (z.note == note && z.count >= 2)
+                    return &z;
+            return nullptr;
+        }
 
         // The slot a note plays (-1: none), the pedal at `pedal` (CC 4, 127 closed), before stand-ins.
         int slotFor (int note, int pedal = 127) const noexcept
@@ -435,6 +470,19 @@ namespace synth::drums
         // THE HI-HAT PEDAL: the last CC 4 (127 closed) heard, for the page's meter.
         int getPedal() const noexcept { return pedal.load(); }
 
+        // THE MIDI MONITOR (0.18.0): what came in from the DAW or a controller and what the kit made of it. Filled on
+        // the audio thread, read on the message thread (popMidiEvents), lock-free; the oldest are lost if nobody reads.
+        struct MidiEvent
+        {
+            enum class Type : std::uint8_t { noteOn, noteOff, controller, aftertouch } type = Type::noteOn;
+            std::uint8_t channel = 1;
+            std::uint8_t number = 0;     // the note, or the controller
+            std::uint8_t value = 0;      // the velocity, or the controller's value
+            std::int8_t slot = -1;       // the drum it played (after zones and stand-ins), -1: none
+            std::int16_t valueOut = -1;  // the velocity after the incoming curve (-1: gated, or not a note-on)
+        };
+        int popMidiEvents (MidiEvent* into, int max) noexcept;
+
         int getNumActiveVoices() const noexcept;
         bool isSounding (int slot) const noexcept;
         // Where a slot's last hit is, 0 to 1 of its first second (for the page), or -1.
@@ -483,6 +531,10 @@ namespace synth::drums
         std::uint64_t ages = 0;
         std::uint32_t noiseSeed = 0x2545f491u;
         std::atomic<int> pedal { 127 };   // CC 4: before any arrives, closed
+        std::array<std::uint8_t, 128> controllers {};   // each controller's last value (CC ZONES)
+        void pushMidiEvent (const MidiEvent&) noexcept;
+        juce::AbstractFifo monitorFifo { 512 };
+        std::vector<MidiEvent> monitorEvents = std::vector<MidiEvent> (512);
         int blockSize = 0;
     };
 }

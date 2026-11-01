@@ -23,7 +23,8 @@
 //                                    PARAGON_SNAPSHOT_DRUMCHOSEN=1: the hats and cymbal chosen together, the tom's playhead;
 //                                    any of these shows the DRUM view; with none, the KIT VIEW (0.14.0), the page's first:
 //                                    PARAGON_SNAPSHOT_KIT=1: the kick, snare, crash and china just hit, glowing, the ride's bell chosen;
-//                                    PARAGON_SNAPSHOT_ARTIC=1: the hi-hat's articulations, OPEN 3 off, the pedal half open)
+//                                    PARAGON_SNAPSHOT_ARTIC=1: the hi-hat's articulations, OPEN 3 off, the pedal half open;
+//                                    PARAGON_SNAPSHOT_VELOCITY=1: the snare's VELOCITY curve and gate)
 //   PARAGON_SNAPSHOT_PAGE=fx         THE RACK (PARAGON_SNAPSHOT_RACK=1: at work on a beat, the sends and bus A too; PARAGON_SNAPSHOT_FX=eq|dominion|comp|limiter|sends|delay|reverb|modfx|mod|mod2|lofi|inserts|insdrive|insglitch|insmod|inslofi: that view, the inserts' on bus PARAGON_SNAPSHOT_BUS=1-4)
 //   PARAGON_SNAPSHOT_NOTES=1         the kick, snare and closed hat's keys held on the keyboard (they light)
 //   PARAGON_SNAPSHOT_MIDI=1          demo MIDI links and a knob learning (with PAGE=settings: the links list)
@@ -348,7 +349,8 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             }
             drums.refreshPictures();
         }
-        if (env ("PARAGON_SNAPSHOT_DRUMS") != "2" && env ("PARAGON_SNAPSHOT_KIT").isEmpty() && env ("PARAGON_SNAPSHOT_ARTIC").isEmpty())
+        if (env ("PARAGON_SNAPSHOT_DRUMS") != "2" && env ("PARAGON_SNAPSHOT_KIT").isEmpty() && env ("PARAGON_SNAPSHOT_ARTIC").isEmpty()
+            && env ("PARAGON_SNAPSHOT_VELOCITY").isEmpty())
             drums.select (juce::jmax (1, env ("PARAGON_SNAPSHOT_DRUM").getIntValue()) - 1);
         if (env ("PARAGON_SNAPSHOT_DRUMS") == "1")
         {
@@ -361,6 +363,20 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             for (int b = 0; b < 6; ++b)
                 processor.processBlock (buffer, midi);
             drums.updateLights();
+        }
+        // 0.18.0: the snare's VELOCITY: a curve with soft hits lifted and a bend, SOFT on, the gate raised.
+        if (env ("PARAGON_SNAPSHOT_VELOCITY") == "1")
+        {
+            drums.showView (DrumPage::View::drum);
+            drums.select (2);
+            synth::drums::VelocityCurve curve;
+            curve.points[0] = { 0.08f, 0.25f };
+            curve.add ({ 0.55f, 0.75f });
+            curve.soft = true;
+            drums.setVelocityCurve (curve, true);
+            if (auto* low = processor.getParameters().getParameter (ParamIDs::drum (2, "VelMin")))
+                low->setValueNotifyingHost (low->convertTo0to1 (6.0f));
+            drums.showVelocity (true);
         }
         if (env ("PARAGON_SNAPSHOT_DRUMEDIT") == "1")
         {
@@ -610,7 +626,52 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
     if (page == "presets")
         view->showPage (MainView::Page::presets);
     else if (page == "settings")
+    {
         view->showPage (MainView::Page::settings);
+        // 0.18.0, MIDI IN: =1 the snare's note with 3 CC zones and a few hits in the monitor; =2 the VELOCITY tab with a
+        // curve; =3 the HI-HAT tab calibrating.
+        if (const auto which = env ("PARAGON_SNAPSHOT_MIDIIN").getIntValue(); which > 0)
+        {
+            auto& settings = view->getSettingsPage();
+            auto& panel = settings.getMidiInPanel();
+            auto* map = processor.getParameters().getParameter (ParamIDs::drumsMap);
+            map->setValueNotifyingHost (map->convertTo0to1 (1.0f));   // GROOVE LIBRARY
+            panel.setNote (38);
+            settings.getMapList().select (38);
+            auto in = processor.getMidiIn();
+            in.curve.points[0] = { 0.0f, 0.12f };
+            in.curve.add ({ 0.4f, 0.62f });
+            in.curve.soft = true;
+            processor.setMidiIn (in);
+            panel.setZoneCount (3);
+            panel.setZoneSlot (0, 2);    // centre: SD
+            panel.setZoneSlot (1, 4);    // edge: the rimshot
+            panel.setZoneSlot (2, 1);    // rim: the sidestick
+            juce::AudioBuffer<float> buffer (2, 512);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::controllerEvent (10, 4, 70), 0);
+            midi.addEvent (juce::MidiMessage::controllerEvent (10, 16, 20), 1);
+            midi.addEvent (juce::MidiMessage::noteOn (10, 38, (juce::uint8) 96), 2);
+            midi.addEvent (juce::MidiMessage::controllerEvent (10, 16, 100), 3);
+            midi.addEvent (juce::MidiMessage::noteOn (10, 38, (juce::uint8) 40), 4);
+            midi.addEvent (juce::MidiMessage::noteOn (10, 36, (juce::uint8) 120), 5);
+            midi.addEvent (juce::MidiMessage::noteOn (10, 42, (juce::uint8) 72), 6);
+            processor.processBlock (buffer, midi);
+            panel.pollMidi();
+            if (which == 2)
+                panel.showTab (MidiInPanel::Tab::velocity);
+            if (which == 3)
+            {
+                panel.showTab (MidiInPanel::Tab::hihat);
+                panel.startCalibration();
+                midi.clear();
+                midi.addEvent (juce::MidiMessage::controllerEvent (10, 4, 12), 0);
+                midi.addEvent (juce::MidiMessage::controllerEvent (10, 4, 93), 1);
+                processor.processBlock (buffer, midi);
+                panel.pollMidi();
+            }
+        }
+    }
 
     const auto width = juce::jmax (960, juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_WIDTH", "1600").getIntValue());
     editor->setSize (width, width * 9 / 16);

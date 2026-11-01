@@ -873,6 +873,7 @@ void ParagonX1AudioProcessor::retireOldData()
 {
     const auto now = juce::Time::getMillisecondCounterHiRes();
     std::erase_if (retiredMatrices, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
+    std::erase_if (retiredMidiIns, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
     std::erase_if (retiredSamples, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
     std::erase_if (retiredGrooves, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
     std::erase_if (retiredSongs, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
@@ -887,6 +888,8 @@ void ParagonX1AudioProcessor::compileMatrix()
     static_assert (ModMatrix::numDrumSlots == synth::drums::numSlots);
     for (size_t k = 0; k < compiled->drumEnvelopes.size() && k < matrix.drumEnvelopes.size(); ++k)
         compiled->drumEnvelopes[k] = matrix.drumEnvelopes[k].toShape();
+    for (size_t k = 0; k < compiled->velocityCurves.size() && k < matrix.drumVelocityCurves.size(); ++k)
+        compiled->velocityCurves[k] = matrix.drumVelocityCurves[k];
     if (compiledMatrix != nullptr)
         retiredMatrices.emplace_back (compiledMatrix, juce::Time::getMillisecondCounterHiRes());
     compiledMatrix = compiled;
@@ -1110,13 +1113,27 @@ synth::drums::KitSettings ParagonX1AudioProcessor::getKitSettings() const noexce
         s.lowPass = get (drumSetting ("LowPass"));
         s.highPass = get (drumSetting ("HighPass"));
         if (const auto* compiled = matrixForAudio.load())
+        {
             s.envelope = &compiled->drumEnvelopes[k];
+            if (! compiled->velocityCurves[k].isStraight())
+                s.velocityCurve = &compiled->velocityCurves[k];
+        }
+        s.velMin = get (drumSetting ("VelMin")) / 127.0f - 1.0e-4f;
+        s.velMax = get (drumSetting ("VelMax")) / 127.0f + 1.0e-4f;
         s.envelopeSeconds = hitLengths[k].load();
         s.active = get (drumSetting ("On")) > 0.5f;
         s.muteTail = (synth::drums::MuteTail) juce::jlimit (0, synth::drums::muteTailNames.size() - 1, juce::roundToInt (get (drumSetting ("MuteTail"))));
     }
     for (int i = 0; i < 4; ++i)
         kit.pedalSteps[(size_t) i] = juce::roundToInt (param (ParamIDs::drumsPedalSteps[i].toRawUTF8()));
+    // MIDI IN (0.18.0).
+    kit.channel = juce::jlimit (0, 16, juce::roundToInt (param (ParamIDs::drumsMidiChannel)));
+    if (const auto* in = midiInForAudio.load())
+    {
+        if (! in->curve.isStraight())
+            kit.inputCurve = &in->curve;
+        kit.zones = in->zones;
+    }
     return kit;
 }
 
@@ -1257,6 +1274,12 @@ std::unique_ptr<juce::XmlElement> ParagonX1AudioProcessor::captureDrumKit() cons
             e->setAttribute ("index", k + 1);
             e->setAttribute ("points", envelope.encode());
         }
+        if (const auto& curve = matrix.drumVelocityCurves[(size_t) k]; ! curve.isStraight())
+        {
+            auto* e = xml->createNewChildElement ("VelocityCurve");
+            e->setAttribute ("index", k + 1);
+            e->setAttribute ("curve", curve.encode());
+        }
     }
     return xml;
 }
@@ -1316,6 +1339,11 @@ bool ParagonX1AudioProcessor::applyDrumKit (const juce::XmlElement& xml)
         if (const auto index = e->getIntAttribute ("index") - 1; index >= 0 && index < ModMatrix::numDrumSlots)
             if (auto d = ModShapeData::decode (e->getStringAttribute ("points"), -1, -1, -1, true); d.points.size() >= 2)
                 m.drumEnvelopes[(size_t) index] = d;
+    for (auto& curve : m.drumVelocityCurves)
+        curve = {};
+    for (const auto* e : xml.getChildWithTagNameIterator ("VelocityCurve"))
+        if (const auto index = e->getIntAttribute ("index") - 1; index >= 0 && index < ModMatrix::numDrumSlots)
+            m.drumVelocityCurves[(size_t) index] = synth::drums::VelocityCurve::decode (e->getStringAttribute ("curve"));
     setModMatrix (m);
     markModified();
     requestCheckpoint();
@@ -1745,6 +1773,12 @@ void ParagonX1AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
     if (! midiLinks.isEmpty())
         state.appendChild (juce::ValueTree::fromXml (*midiLinks.toXml()), nullptr);
     state.appendChild (juce::ValueTree (noteMapKey, { { "keys", synth::drums::notemap::encode (customMap) } }), nullptr);
+    // MIDI IN (0.18.0): the incoming curve and CC zones, and which MIDI IN preset they came from.
+    if (auto in = midiIn.toXml(); in->getNumAttributes() > 0 || in->getNumChildElements() > 0 || midiInPresetName != "Default")
+    {
+        in->setAttribute ("preset", midiInPresetName);
+        state.appendChild (juce::ValueTree::fromXml (*in), nullptr);
+    }
     if (! songData->isEmpty())
         state.appendChild (juce::ValueTree::fromXml (*songData->toXml()), nullptr);
 
@@ -1795,6 +1829,21 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
     {
         setCustomMap (synth::drums::notemap::decode (saved["keys"].toString()));
         state.removeChild (saved, nullptr);
+    }
+    // MIDI IN (0.18.0): the project's (none saved: straight, no zones).
+    if (auto saved = state.getChildWithName ("MidiIn"); saved.isValid())
+    {
+        if (const auto inXml = saved.createXml())
+        {
+            setMidiIn (MidiIn::fromXml (*inXml));
+            midiInPresetName = inXml->getStringAttribute ("preset", "Default");
+        }
+        state.removeChild (saved, nullptr);
+    }
+    else
+    {
+        setMidiIn ({});
+        midiInPresetName = "Default";
     }
     // THE SONG TRACK: the project's (none saved: an empty song).
     auto newSong = std::make_shared<song::Song>();
@@ -2156,6 +2205,180 @@ bool ParagonX1AudioProcessor::saveNoteMapAsDefault() const
     xml.setAttribute ("keys", synth::drums::notemap::encode (customMap));
     noteMapDefaultFile().getParentDirectory().createDirectory();
     return xml.writeTo (noteMapDefaultFile());
+}
+
+//==============================================================================
+// MIDI IN / E-DRUMS (0.18.0)
+bool ParagonX1AudioProcessor::MidiIn::operator== (const MidiIn& o) const noexcept
+{
+    if (! (curve == o.curve))
+        return false;
+    for (size_t i = 0; i < zones.size(); ++i)
+    {
+        const auto& a = zones[i];
+        const auto& b = o.zones[i];
+        if (a.note != b.note || a.cc != b.cc || a.count != b.count || a.slots != b.slots || a.bounds != b.bounds)
+            return false;
+    }
+    return true;
+}
+
+std::unique_ptr<juce::XmlElement> ParagonX1AudioProcessor::MidiIn::toXml() const
+{
+    auto xml = std::make_unique<juce::XmlElement> ("MidiIn");
+    if (! curve.isStraight())
+        xml->setAttribute ("curve", curve.encode());
+    for (const auto& z : zones)
+        if (z.note >= 0 && z.count >= 2)
+        {
+            auto* e = xml->createNewChildElement ("CcZones");
+            e->setAttribute ("note", z.note);
+            e->setAttribute ("cc", z.cc);
+            e->setAttribute ("count", z.count);
+            juce::StringArray slots, bounds;
+            for (int i = 0; i < z.count; ++i)
+                slots.add (juce::String (z.slots[(size_t) i]));
+            for (int i = 0; i < z.count - 1; ++i)
+                bounds.add (juce::String (z.bounds[(size_t) i]));
+            e->setAttribute ("slots", slots.joinIntoString (" "));
+            e->setAttribute ("bounds", bounds.joinIntoString (" "));
+        }
+    return xml;
+}
+
+ParagonX1AudioProcessor::MidiIn ParagonX1AudioProcessor::MidiIn::fromXml (const juce::XmlElement& xml)
+{
+    MidiIn m;
+    if (xml.hasAttribute ("curve"))
+        m.curve = synth::drums::VelocityCurve::decode (xml.getStringAttribute ("curve"));
+    size_t next = 0;
+    for (const auto* e : xml.getChildWithTagNameIterator ("CcZones"))
+    {
+        if (next >= m.zones.size())
+            break;
+        auto& z = m.zones[next];
+        z.note = (std::int8_t) juce::jlimit (-1, 127, e->getIntAttribute ("note", -1));
+        z.cc = (std::int8_t) juce::jlimit (0, 127, e->getIntAttribute ("cc", 16));
+        z.count = (std::int8_t) juce::jlimit (0, 4, e->getIntAttribute ("count"));
+        const auto slots = juce::StringArray::fromTokens (e->getStringAttribute ("slots"), " ", {});
+        const auto bounds = juce::StringArray::fromTokens (e->getStringAttribute ("bounds"), " ", {});
+        for (int i = 0; i < 4; ++i)
+            z.slots[(size_t) i] = (std::int8_t) (i < slots.size() ? juce::jlimit (-1, synth::drums::numSlots - 1, slots[i].getIntValue()) : -1);
+        for (int i = 0; i < 3 && i < bounds.size(); ++i)
+            z.bounds[(size_t) i] = (std::uint8_t) juce::jlimit (0, 127, bounds[i].getIntValue());
+        if (z.note >= 0 && z.count >= 2)
+            ++next;
+        else
+            z = {};
+    }
+    return m;
+}
+
+synth::drums::KitSettings::CcZones* ParagonX1AudioProcessor::MidiIn::zonesFor (int note)
+{
+    for (auto& z : zones)
+        if (z.note == note)
+            return &z;
+    for (auto& z : zones)
+        if (z.note < 0 || z.count < 2)
+        {
+            z = {};
+            z.note = (std::int8_t) note;
+            return &z;
+        }
+    return nullptr;
+}
+
+void ParagonX1AudioProcessor::setMidiIn (const MidiIn& in)
+{
+    midiIn = in;
+    auto shared = std::make_shared<const MidiIn> (in);
+    if (midiInShared != nullptr)
+        retiredMidiIns.emplace_back (midiInShared, juce::Time::getMillisecondCounterHiRes());
+    midiInShared = shared;
+    midiInForAudio = midiInShared.get();
+}
+
+juce::File ParagonX1AudioProcessor::midiInPresetsFolder() const { return rigLibrary->getFolder().getChildFile ("MIDI In Presets"); }
+
+juce::Array<juce::File> ParagonX1AudioProcessor::listMidiInPresets() const { return filesIn (midiInPresetsFolder(), "*.pr7midi"); }
+
+std::unique_ptr<juce::XmlElement> ParagonX1AudioProcessor::captureMidiInPreset() const
+{
+    auto xml = midiIn.toXml();
+    xml->setTagName ("MidiInPreset");
+    xml->setAttribute ("version", 1);
+    xml->setAttribute ("layout", synth::drums::notemap::layoutNames[(int) getMapLayout()]);
+    xml->setAttribute ("keys", synth::drums::notemap::encode (getNoteMap()));
+    xml->setAttribute ("channel", juce::roundToInt (param (ParamIDs::drumsMidiChannel)));
+    juce::StringArray steps;
+    for (const auto& id : ParamIDs::drumsPedalSteps)
+        steps.add (juce::String (juce::roundToInt (param (id.toRawUTF8()))));
+    xml->setAttribute ("pedalSteps", steps.joinIntoString (" "));
+    return xml;
+}
+
+bool ParagonX1AudioProcessor::applyMidiInPreset (const juce::XmlElement& xml)
+{
+    if (! xml.hasTagName ("MidiInPreset"))
+        return false;
+    const auto set = [this] (const juce::String& id, float value)
+    {
+        if (auto* p = parameters.getParameter (id))
+            p->setValueNotifyingHost (p->convertTo0to1 (p->getNormalisableRange().snapToLegalValue (value)));
+    };
+    // The map: a fixed layout by name; otherwise (CUSTOM) the notes as saved.
+    const auto layout = synth::drums::notemap::layoutNames.indexOf (xml.getStringAttribute ("layout"));
+    if (layout < 0 || layout == (int) synth::drums::notemap::Layout::custom)
+    {
+        setCustomMap (synth::drums::notemap::decode (xml.getStringAttribute ("keys")));
+        set (ParamIDs::drumsMap, (float) synth::drums::notemap::Layout::custom);
+    }
+    else
+        set (ParamIDs::drumsMap, (float) layout);
+    set (ParamIDs::drumsMidiChannel, (float) xml.getIntAttribute ("channel"));
+    const auto steps = juce::StringArray::fromTokens (xml.getStringAttribute ("pedalSteps"), " ", {});
+    if (steps.size() == 4)
+        for (int i = 0; i < 4; ++i)
+            set (ParamIDs::drumsPedalSteps[i], (float) steps[i].getIntValue());
+    auto plain = xml;
+    plain.setTagName ("MidiIn");
+    setMidiIn (MidiIn::fromXml (plain));
+    return true;
+}
+
+bool ParagonX1AudioProcessor::saveMidiInPreset (const juce::String& name)
+{
+    const auto clean = juce::File::createLegalFileName (name.trim());
+    if (clean.isEmpty())
+        return false;
+    midiInPresetsFolder().createDirectory();
+    if (! captureMidiInPreset()->writeTo (midiInPresetsFolder().getChildFile (clean + ".pr7midi")))
+        return false;
+    midiInPresetName = clean;
+    return true;
+}
+
+bool ParagonX1AudioProcessor::loadMidiInPreset (const juce::File& file)
+{
+    const auto xml = juce::XmlDocument::parse (file);
+    if (xml == nullptr || ! applyMidiInPreset (*xml))
+        return false;
+    midiInPresetName = file.getFileNameWithoutExtension();
+    return true;
+}
+
+void ParagonX1AudioProcessor::applyBuiltInMidiInPreset (int which)
+{
+    juce::XmlElement xml ("MidiInPreset");
+    xml.setAttribute ("layout", synth::drums::notemap::layoutNames[(int) (which == 1 ? synth::drums::notemap::Layout::generalMidi
+                                                                                         : synth::drums::notemap::Layout::grooveLibrary)]);
+    xml.setAttribute ("channel", 0);
+    const synth::drums::KitSettings defaults;
+    xml.setAttribute ("pedalSteps", juce::String (defaults.pedalSteps[0]) + " " + juce::String (defaults.pedalSteps[1]) + " "
+                                        + juce::String (defaults.pedalSteps[2]) + " " + juce::String (defaults.pedalSteps[3]));
+    applyMidiInPreset (xml);
+    midiInPresetName = which == 1 ? "General MIDI" : "Default";
 }
 
 //==============================================================================

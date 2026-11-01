@@ -4,6 +4,7 @@
 
 #include "dsp/synth/DrumSequencer.h"
 #include "dsp/synth/MultiPoint.h"
+#include "dsp/synth/VelocityCurve.h"
 
 #include <vector>
 
@@ -105,8 +106,13 @@ struct ModMatrix
     // THE SAMPLE EDITOR's envelopes, one per drum slot.
     static constexpr int numDrumSlots = 23;
     std::vector<ModShapeData> drumEnvelopes = std::vector<ModShapeData> ((size_t) numDrumSlots, ModShapeData::flatDrumEnvelope());
+    // 0.18.0: each drum's VELOCITY CURVE (XML "VelocityCurve", only those that aren't straight).
+    std::vector<synth::drums::VelocityCurve> drumVelocityCurves = std::vector<synth::drums::VelocityCurve> ((size_t) numDrumSlots);
 
-    bool operator== (const ModMatrix& o) const noexcept { return drumPatterns == o.drumPatterns && drumEnvelopes == o.drumEnvelopes; }
+    bool operator== (const ModMatrix& o) const noexcept
+    {
+        return drumPatterns == o.drumPatterns && drumEnvelopes == o.drumEnvelopes && drumVelocityCurves == o.drumVelocityCurves;
+    }
     bool isEmpty() const noexcept { return *this == ModMatrix {}; }
 
     // As XML (in presets and projects) and back: only what's changed from new.
@@ -122,6 +128,13 @@ struct ModMatrix
                 e->setAttribute ("sustain", -1);
                 e->setAttribute ("loopStart", -1);
                 e->setAttribute ("loopEnd", -1);
+            }
+        for (int i = 0; i < (int) drumVelocityCurves.size(); ++i)
+            if (! drumVelocityCurves[(size_t) i].isStraight())
+            {
+                auto* e = xml->createNewChildElement ("VelocityCurve");
+                e->setAttribute ("index", i + 1);
+                e->setAttribute ("curve", drumVelocityCurves[(size_t) i].encode());
             }
         for (int p = 0; p < (int) drumPatterns.size(); ++p)
             if (! drumPatterns[(size_t) p].isEmpty())
@@ -144,6 +157,9 @@ struct ModMatrix
                 if (d.points.size() >= 2)
                     m.drumEnvelopes[(size_t) index] = d;
             }
+        for (const auto* e : xml.getChildWithTagNameIterator ("VelocityCurve"))
+            if (const auto index = e->getIntAttribute ("index") - 1; index >= 0 && index < numDrumSlots)
+                m.drumVelocityCurves[(size_t) index] = synth::drums::VelocityCurve::decode (e->getStringAttribute ("curve"));
         for (const auto* e : xml.getChildWithTagNameIterator ("DrumPattern"))
             if (const auto p = synth::drumseq::patternNames.indexOf (e->getStringAttribute ("pattern")); p >= 0)
                 m.drumPatterns[(size_t) p] = synth::drumseq::Pattern::decode (e->getStringAttribute ("notes"));

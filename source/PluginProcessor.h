@@ -161,6 +161,8 @@ public:
     // The page's preview: a hit in the next block.
     void previewDrum (int slot) noexcept;
     const synth::drums::Kit& getDrumKit() const noexcept { return drumKit; }
+    // THE MIDI MONITOR (0.18.0): what came in since the last call (one reader: SETTINGS' MIDI IN panel).
+    int popMidiEvents (synth::drums::Kit::MidiEvent* into, int max) noexcept { return drumKit.popMidiEvents (into, max); }
 
     // THE DRUM SEQUENCER (stage 6b). Its settings now (without the patterns, which the audio thread takes from the
     // compiled matrix). Reversed synth drums play a rendered copy of their hit, made here when a reversed note needs
@@ -200,6 +202,32 @@ public:
     int homeNote (int slot) const;       // the note a slot is shown on and exported on, -1: none
     juce::File noteMapDefaultFile() const;
     bool saveNoteMapAsDefault() const;
+
+    // MIDI IN / E-DRUMS (0.18.0): what's done to MIDI from the DAW or a controller (not grooves, the song or the
+    // sequencer), besides the note map and the hi-hat pedal's steps: a VELOCITY CURVE for every incoming note, and CC
+    // ZONES for positional pads. Kept in the project; with the map, channel and pedal steps, in MIDI IN presets
+    // (".pr7midi" files in the presets folder's "MIDI In Presets").
+    struct MidiIn
+    {
+        synth::drums::VelocityCurve curve;
+        std::array<synth::drums::KitSettings::CcZones, synth::drums::KitSettings::maxZoneNotes> zones {};
+        bool operator== (const MidiIn& o) const noexcept;
+        std::unique_ptr<juce::XmlElement> toXml() const;   // "MidiIn"
+        static MidiIn fromXml (const juce::XmlElement&);
+        synth::drums::KitSettings::CcZones* zonesFor (int note);   // its zones, or a free entry made for it, or null
+    };
+    const MidiIn& getMidiIn() const noexcept { return midiIn; }
+    void setMidiIn (const MidiIn&);
+    juce::File midiInPresetsFolder() const;
+    juce::Array<juce::File> listMidiInPresets() const;
+    std::unique_ptr<juce::XmlElement> captureMidiInPreset() const;   // the map, channel, curve, zones, pedal steps
+    bool applyMidiInPreset (const juce::XmlElement&);
+    bool saveMidiInPreset (const juce::String& name);
+    bool loadMidiInPreset (const juce::File&);
+    // The built-in ones: 0 DEFAULT (the groove library's layout), 1 GENERAL MIDI; each with a straight curve, no zones,
+    // any channel, the pedal's default steps.
+    void applyBuiltInMidiInPreset (int which);
+    juce::String getMidiInPresetName() const noexcept { return midiInPresetName; }
 
     // MIDI EXPORT: one pass of a pattern on the kit's notes (each drum's home note in the map), at the song's tempo;
     // click saves, drag makes a file.
@@ -625,10 +653,16 @@ private:
     {
         synth::drumseq::Patterns drumPatterns {};
         std::array<synth::mod::Shape, synth::drums::numSlots> drumEnvelopes {};
+        std::array<synth::drums::VelocityCurve, synth::drums::numSlots> velocityCurves {};   // 0.18.0
     };
     std::shared_ptr<const CompiledMatrix> compiledMatrix;
     std::atomic<const CompiledMatrix*> matrixForAudio { nullptr };
     std::vector<std::pair<std::shared_ptr<const CompiledMatrix>, double>> retiredMatrices;
+    MidiIn midiIn;
+    std::shared_ptr<const MidiIn> midiInShared;
+    std::atomic<const MidiIn*> midiInForAudio { nullptr };
+    std::vector<std::pair<std::shared_ptr<const MidiIn>, double>> retiredMidiIns;
+    juce::String midiInPresetName { "Default" };
     void compileMatrix();
 
     LevelMeterSource outputMeter;

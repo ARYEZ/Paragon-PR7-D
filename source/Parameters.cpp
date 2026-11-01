@@ -20,6 +20,7 @@ namespace
     constexpr int pr7d020 = 24;  // PR7-D 0.2.0: drums 13 to 20, the note map
     constexpr int pr7d030 = 25;  // PR7-D 0.3.0: the outputs (also in RackParameters.cpp)
     constexpr int pr7d0170 = 26; // PR7-D 0.17.0: drums 21 to 23, ON, MUTE TAIL, the hi-hat pedal
+    constexpr int pr7d0180 = 27; // PR7-D 0.18.0: the velocity gate, MIDI IN CHANNEL
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -98,6 +99,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         add (layout, drumsLevel, "Drums Level", { -24.0f, 12.0f, 0.1f }, 0.0f, asDb, stage6a);
         add (layout, drumsVelocity, "Drums Velocity", { 0.0f, 1.0f }, 1.0f, asPercent, stage6a);
         addChoice (layout, drumsMap, "Drums Note Map", synth::drums::notemap::layoutNames, 0, pr7d020);
+        addChoice (layout, drumsMidiChannel, "Drums MIDI Channel", midiChannelNames, 0, pr7d0180);
         {
             const synth::drums::KitSettings defaults;
             for (int i = 0; i < 4; ++i)
@@ -138,6 +140,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
             // ARTICULATIONS (0.17.0).
             addSwitch (layout, drum (k, "On"), name + "On", true, pr7d0170);
             addChoice (layout, drum (k, "MuteTail"), name + "Mute Tail", synth::drums::muteTailNames, 0, pr7d0170);
+            // THE VELOCITY GATE (0.18.0): the velocities (as they come in) that play it.
+            const ToText asVelocity = [] (float v, int) { return juce::String (juce::roundToInt (v)); };
+            add (layout, drum (k, "VelMin"), name + "Velocity Gate Low", { 0.0f, 127.0f, 1.0f }, 0.0f, asVelocity, pr7d0180);
+            add (layout, drum (k, "VelMax"), name + "Velocity Gate High", { 0.0f, 127.0f, 1.0f }, 127.0f, asVelocity, pr7d0180);
         }
 
         // THE DRUM SEQUENCER (stage 6b).

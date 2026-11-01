@@ -880,6 +880,28 @@ namespace synth::drums
             startHit (slot, velocity, settings);
     }
 
+    void Kit::pushMidiEvent (const MidiEvent& e) noexcept
+    {
+        if (monitorFifo.getFreeSpace() < 1)
+            return;
+        const auto scope = monitorFifo.write (1);
+        if (scope.blockSize1 > 0)
+            monitorEvents[(size_t) scope.startIndex1] = e;
+        else if (scope.blockSize2 > 0)
+            monitorEvents[(size_t) scope.startIndex2] = e;
+    }
+
+    int Kit::popMidiEvents (MidiEvent* into, int max) noexcept
+    {
+        const auto scope = monitorFifo.read (juce::jmin (max, monitorFifo.getNumReady()));
+        int n = 0;
+        for (int i = 0; i < scope.blockSize1; ++i)
+            into[n++] = monitorEvents[(size_t) (scope.startIndex1 + i)];
+        for (int i = 0; i < scope.blockSize2; ++i)
+            into[n++] = monitorEvents[(size_t) (scope.startIndex2 + i)];
+        return n;
+    }
+
     void Kit::grab (int slot) noexcept
     {
         // A cymbal grabbed stops all of it: the ride's bow, bell and edge alike.
@@ -896,6 +918,13 @@ namespace synth::drums
         if (slot < 0)
             return;
         const auto& s = settings.slots[(size_t) slot];
+        // 0.18.0: the articulation's VELOCITY GATE (on the velocity as it came) and VELOCITY CURVE.
+        auto hitVelocity = juce::jlimit (0.0f, 1.0f, velocity);
+        if (hitVelocity < s.velMin || hitVelocity > s.velMax)
+            return;
+        if (s.velocityCurve != nullptr)
+            if (hitVelocity = s.velocityCurve->apply (hitVelocity); hitVelocity < 0.0f)
+                return;
         lastHit[(size_t) slot] = 0.0;
         // A slot that's silent starts at its MUTE / SOLO level (it glides only while it sounds).
         if (! isSounding (slot))
@@ -942,8 +971,9 @@ namespace synth::drums
                 if (chosen == nullptr || v.age < chosen->age)
                     chosen = &v;
 
-        const auto v = juce::jlimit (0.0f, 1.0f, velocity);
-        const auto velocityGain = options.velocityGain >= 0.0f ? options.velocityGain : 1.0f - settings.velocity + settings.velocity * v * v;
+        // The sequencer gives its notes' level as velocity squared, past the kit's VELOCITY: kept, from the curved one.
+        const auto velocityGain = options.velocityGain >= 0.0f ? hitVelocity * hitVelocity
+                                                               : 1.0f - settings.velocity + settings.velocity * hitVelocity * hitVelocity;
         noiseSeed = noiseSeed * 1664525u + 1013904223u;
         chosen->start (s, slot, velocityGain, sampleRate, noiseSeed, options);
         chosen->age = ++ages;
@@ -1079,16 +1109,32 @@ namespace synth::drums
                     break;
                 playHitsBefore (position);
                 const auto message = metadata.getMessage();
-                // THE HI-HAT PEDAL: CC 4 (127 closed).
-                if (message.isController() && message.getControllerNumber() == 4)
+                // MIDI IN CHANNEL (0.18.0): the others ignored.
+                if (settings.channel > 0 && message.getChannel() != settings.channel)
+                    continue;
+                MidiEvent event;
+                event.channel = (std::uint8_t) juce::jlimit (1, 16, message.getChannel());
+                // Controllers: each one's last value kept (CC ZONES); CC 4 is THE HI-HAT PEDAL (127 closed).
+                if (message.isController())
                 {
-                    pedal = message.getControllerValue();
+                    controllers[(size_t) message.getControllerNumber()] = (std::uint8_t) message.getControllerValue();
+                    if (message.getControllerNumber() == 4)
+                        pedal = message.getControllerValue();
+                    event.type = MidiEvent::Type::controller;
+                    event.number = (std::uint8_t) message.getControllerNumber();
+                    event.value = (std::uint8_t) message.getControllerValue();
+                    pushMidiEvent (event);
                     continue;
                 }
                 // MUTE TAIL: a cymbal grabbed by a note let go or by aftertouch, as its slot asks.
                 if (message.isNoteOff() || message.isAftertouch())
                 {
                     const auto played = settings.playsAs (settings.slotFor (message.getNoteNumber(), pedal.load()));
+                    event.type = message.isNoteOff() ? MidiEvent::Type::noteOff : MidiEvent::Type::aftertouch;
+                    event.number = (std::uint8_t) message.getNoteNumber();
+                    event.value = (std::uint8_t) (message.isNoteOff() ? message.getVelocity() : message.getAfterTouchValue());
+                    event.slot = (std::int8_t) played;
+                    pushMidiEvent (event);
                     const auto wanted = message.isNoteOff() ? MuteTail::noteOff : MuteTail::aftertouch;
                     if (played >= 0 && settings.slots[(size_t) played].muteTail == wanted
                         && (message.isNoteOff() || message.getAfterTouchValue() > 0))
@@ -1105,11 +1151,27 @@ namespace synth::drums
                     patternKey (pattern, message.isNoteOn(), message.getFloatVelocity());
                     continue;
                 }
-                const auto slot = settings.slotFor (message.getNoteNumber(), pedal.load());
-                if (slot < 0 || ! message.isNoteOn())
+                if (! message.isNoteOn())
+                    continue;
+                // CC ZONES: a positional pad's note plays the articulation for where it was hit.
+                auto slot = settings.slotFor (message.getNoteNumber(), pedal.load());
+                if (const auto* z = settings.zonesFor (message.getNoteNumber()))
+                    if (const auto zoneSlot = z->slots[(size_t) z->zoneOf (controllers[(size_t) juce::jlimit (0, 127, (int) z->cc)])]; zoneSlot >= 0)
+                        slot = zoneSlot;
+                // THE INCOMING VELOCITY CURVE (gated: no hit).
+                auto velocity = message.getFloatVelocity();
+                if (settings.inputCurve != nullptr)
+                    velocity = settings.inputCurve->apply (velocity);
+                event.type = MidiEvent::Type::noteOn;
+                event.number = (std::uint8_t) message.getNoteNumber();
+                event.value = message.getVelocity();
+                event.slot = (std::int8_t) (velocity >= 0.0f ? settings.playsAs (slot) : -1);
+                event.valueOut = (std::int16_t) (velocity >= 0.0f ? juce::roundToInt (velocity * 127.0f) : -1);
+                pushMidiEvent (event);
+                if (slot < 0 || velocity < 0.0f)
                     continue;
                 renderTo (position);
-                startHit (slot, message.getFloatVelocity(), settings);
+                startHit (slot, velocity, settings);
             }
         if (settings.on)
             playHitsBefore (numSamples);

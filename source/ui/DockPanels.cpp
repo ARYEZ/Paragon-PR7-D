@@ -57,6 +57,9 @@ NoteMapList::NoteMapList (ParagonX1AudioProcessor& p) : processor (p)
                 refresh();
             }
         };
+        row->note.setInterceptsMouseClicks (false, false);
+        row->onClick = [this, n] { select (n); if (onSelect) onSelect (n); };
+        row->chosen = n == selected;
         row->addAndMakeVisible (row->note);
         row->addAndMakeVisible (*row->box);
         addAndMakeVisible (*row);
@@ -81,6 +84,18 @@ void NoteMapList::refresh()
     }
 }
 
+void NoteMapList::select (int note)
+{
+    note = juce::jlimit (0, 127, note);
+    if (note == selected)
+        return;
+    rows[(size_t) selected]->chosen = false;
+    rows[(size_t) selected]->repaint();
+    selected = note;
+    rows[(size_t) selected]->chosen = true;
+    rows[(size_t) selected]->repaint();
+}
+
 void NoteMapList::resized()
 {
     for (size_t n = 0; n < rows.size(); ++n)
@@ -89,10 +104,15 @@ void NoteMapList::resized()
 
 void NoteMapList::Row::paint (juce::Graphics& g)
 {
-    if (mapped)
+    if (mapped || chosen)
     {
-        g.setColour (ParagonColours::accent.withAlpha (0.08f));
+        g.setColour (ParagonColours::accent.withAlpha (chosen ? 0.22f : 0.08f));
         g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
+    }
+    if (chosen)
+    {
+        g.setColour (ParagonColours::accent);
+        g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 3.0f, 1.0f);
     }
 }
 
@@ -110,9 +130,23 @@ SettingsPage::SettingsPage (ParagonX1AudioProcessor& p)
                  "Which notes play which drum. ROOT: the 23 keys from ROOT, in order. GROOVE LIBRARY: the layout popular drum "
                  "software's groove libraries are written in. GENERAL MIDI: the General MIDI drum map. CUSTOM: your own (change "
                  "any note in the list). Not part of a preset: it suits your controller and grooves."),
-      mapList (p)
+      channelChoice (p.getParameters(), ParamIDs::drumsMidiChannel, "CHANNEL",
+                     "MIDI IN CHANNEL: which channel your DAW or controller plays the kit on (ANY: all of them). Not part of a preset."),
+      mapList (p),
+      midiInPanel (p)
 {
     addAndMakeVisible (mapChoice);
+    addAndMakeVisible (channelChoice);
+    // MIDI IN / E-DRUMS (0.18.0): the preset menu, and the panel beside the list.
+    styleButton (presetButton, false);
+    presetButton.setTooltip ("MIDI IN presets: the map, channel, incoming velocity curve, CC zones and hi-hat steps together, "
+                             "for each controller or e-drum kit you use.");
+    presetButton.onClick = [this] { showPresetMenu(); };
+    presetButton.setButtonText ("PRESET: " + processor.getMidiInPresetName().toUpperCase());
+    addAndMakeVisible (presetButton);
+    addAndMakeVisible (midiInPanel);
+    mapList.onSelect = [this] (int n) { midiInPanel.setNote (n); };
+    midiInPanel.onChooseNote = [this] (int n) { chooseNote (n); };
     styleButton (saveMap, true);
     saveMap.setTooltip ("A new PR7-D (in any project) starts with this CUSTOM map");
     saveMap.onClick = [this] { processor.saveNoteMapAsDefault(); };
@@ -164,6 +198,52 @@ SettingsPage::SettingsPage (ParagonX1AudioProcessor& p)
     startTimerHz (4);
 }
 
+void SettingsPage::chooseNote (int note)
+{
+    mapList.select (note);
+    // Shown in the list: scrolled to it if it's out of sight.
+    const auto y = note * NoteMapList::rowHeight;
+    const auto view = mapView.getViewArea();
+    if (y < view.getY() || y + NoteMapList::rowHeight > view.getBottom())
+        mapView.setViewPosition (0, juce::jmax (0, y - view.getHeight() / 2));
+}
+
+void SettingsPage::showPresetMenu()
+{
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("MIDI IN PRESETS");
+    menu.addItem ("Default (Groove Library layout)", [this] { processor.applyBuiltInMidiInPreset (0); });
+    menu.addItem ("General MIDI", [this] { processor.applyBuiltInMidiInPreset (1); });
+    const auto files = processor.listMidiInPresets();
+    if (! files.isEmpty())
+    {
+        juce::PopupMenu user;
+        for (const auto& f : files)
+            user.addItem (f.getFileNameWithoutExtension(), [this, f] { processor.loadMidiInPreset (f); });
+        menu.addSubMenu ("Your presets", user);
+    }
+    menu.addSeparator();
+    menu.addItem ("Save As...", [this]
+    {
+        auto* window = new juce::AlertWindow ("Save MIDI In preset", "A name for these settings (the map, channel, velocity curve, "
+                                              "CC zones and hi-hat steps):", juce::MessageBoxIconType::NoIcon);
+        window->addTextEditor ("name", processor.getMidiInPresetName() == "Default" ? juce::String ("My Kit") : processor.getMidiInPresetName());
+        window->addButton ("SAVE", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        window->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        window->enterModalState (true, juce::ModalCallbackFunction::create ([this, window] (int result)
+        {
+            if (result == 1)
+                processor.saveMidiInPreset (window->getTextEditorContents ("name"));
+        }), true);
+    });
+    menu.addItem ("Open the presets' folder", [this]
+    {
+        processor.midiInPresetsFolder().createDirectory();
+        processor.midiInPresetsFolder().startAsProcess();
+    });
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&presetButton));
+}
+
 void SettingsPage::LinkRow::resized()
 {
     auto area = getLocalBounds();
@@ -185,6 +265,7 @@ void SettingsPage::timerCallback()
     {
         repaint (keysArea);   // THE KEYS names the notes ROOT gives
         mapList.refresh();
+        presetButton.setButtonText ("PRESET: " + processor.getMidiInPresetName().toUpperCase() + "  " + juce::String (juce::CharPointer_UTF8 ("â¾")));
     }
 }
 
@@ -241,10 +322,10 @@ void SettingsPage::paint (juce::Graphics& g)
 
     const auto root = juce::roundToInt (processor.getParameters().getRawParameterValue (ParamIDs::drumsRoot)->load());
     const auto note = [] (int n) { return juce::MidiMessage::getMidiNoteName (n, true, true, 4); };
-    section (keysArea, "THE KEYS", "Which notes play which drum. ROOT: the 23 keys from ROOT (now " + note (root) + " to "
-                                       + note (root + synth::drums::numSlots - 1) + "; ROOT is on the DRUMS page), and with the "
-                                         "sequencer's TRIGGER on KEY the four keys below them start its patterns. The other layouts use those "
-                                         "notes for drums. Notes that play nothing are left dim.");
+    section (keysArea, "MIDI IN / E-DRUMS", "Which notes from your DAW or controller play which drum. ROOT: the 23 keys from ROOT (now "
+                                                + note (root) + " to " + note (root + synth::drums::numSlots - 1)
+                                                + "), and with the sequencer on KEY the four below start its patterns. Click a note's "
+                                                  "number to edit it on the right. Grooves and the song aren't changed by any of this.");
     section (rigsArea, "PRESETS", "Your presets are files in this folder, so you can back them up or share them:\n"
                                   + processor.getRigLibrary().getFolder().getFullPathName());
     section (midiArea, "MIDI LINKS", shownLinks.isEmpty()
@@ -271,14 +352,22 @@ void SettingsPage::resized()
     area.removeFromBottom (12);
     midiArea = area;
     {
-        auto keys = keysArea.reduced (24, 18).withTrimmedTop (92);
+        auto keys = keysArea.reduced (24, 18).withTrimmedTop (84);
         auto bar = keys.removeFromTop (ParamControl::knobHeight - 30);
-        mapChoice.setBounds (bar.removeFromLeft (240));
-        bar.removeFromLeft (16);
-        saveMap.setBounds (bar.removeFromLeft (160).withSizeKeepingCentre (160, 30).translated (0, 8));
+        mapChoice.setBounds (bar.removeFromLeft (190));
+        bar.removeFromLeft (10);
+        channelChoice.setBounds (bar.removeFromLeft (90));
+        bar.removeFromLeft (10);
+        saveMap.setBounds (bar.removeFromLeft (150).withSizeKeepingCentre (150, 30).translated (0, 8));
+        bar.removeFromLeft (10);
+        presetButton.setBounds (bar.withSizeKeepingCentre (bar.getWidth(), 30).translated (0, 8));
         keys.removeFromTop (10);
-        mapView.setBounds (keys);
-        mapList.setSize (juce::jmax (10, keys.getWidth() - mapView.getScrollBarThickness()), 128 * NoteMapList::rowHeight);
+        // The list on the left, MIDI IN's panel beside it.
+        auto list = keys.removeFromLeft (juce::jmin (360, keys.getWidth() / 2));
+        keys.removeFromLeft (14);
+        midiInPanel.setBounds (keys);
+        mapView.setBounds (list);
+        mapList.setSize (juce::jmax (10, list.getWidth() - mapView.getScrollBarThickness()), 128 * NoteMapList::rowHeight);
     }
     auto midi = midiArea.reduced (24, 18).withTrimmedTop (84);
     auto buttons = midi.removeFromBottom (30);

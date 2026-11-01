@@ -2,6 +2,47 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.18.0
+
+**Articulations, part 2: velocity curves, MIDI IN / E-DRUMS, CC zones, the MIDI monitor and hi-hat calibration** (the rest of what we agreed from the reference's Drums chapter and chapter 9; our own look and words).
+
+- **Each drum's VELOCITY CURVE and VELOCITY GATE** (DRUMS, the DRUM view, the new **VELOCITY** button beside ENVELOPE):
+  - The curve: how hard each hit comes in (along the bottom) against how hard it plays (up the side).
+    - Drag the end points in to set **limits**. For example, drag the left one up and soft hits come out harder; drag the right one down and nothing plays harder than that.
+    - Double-click the line to add a bend (as in the manual: 91 in, 114 out). Right-click a point to remove it.
+    - **SOFT** rounds the corners. **GATE** stops hits softer than the left end point from playing at all. **STRAIGHT** goes back to a straight line.
+  - It shapes every hit on that drum, from grooves, the song, the sequencer and your keys. With several drums chosen (or **ALL** in the articulation list), it goes to all of them.
+  - **GATE LOW / GATE HIGH:** only hits in that range (as they come in) play the drum. For example, raise GATE LOW on a layer you want for hard hits only.
+  - It's kept in presets and kit files.
+- **SETTINGS: MIDI IN / E-DRUMS** (THE KEYS, grown). Click a note's number in the list to edit it, beside the list:
+  - **MAPPING:** the note's drum, and **LEARN**: hit a pad and its note plays this drum.
+  - **CC ZONES** (for pads that sense where they're hit):
+    - Choose 2, 3 or 4 zones and the pad's controller (**LEARN CC** finds it, often CC 16).
+    - Pick what each zone plays, for example the snare's centre, rimshot and sidestick on one pad.
+    - Drag the marks to set where each zone begins; the bar shows the pad's last value live.
+  - **VELOCITY:** one curve for every note from your DAW or controller (your pads' feel), with SOFT, GATE and STRAIGHT. The last hit shows on it. Grooves and the song aren't affected.
+  - **HI-HAT:** the pedal's steps with a live meter, three **STARTING POINTS**, and **CALIBRATE**. Press the pedal right down and let it right up a few times, then DONE: the steps spread over the range your pedal really sends. Some pedals never reach 127, so the hat never fully closed; this fixes that.
+  - **CHANNEL:** which MIDI channel plays the kit (ANY by default).
+  - **PRESETS:** DEFAULT (the Groove Library layout), GENERAL MIDI, and your own: the map, channel, curve, zones and hi-hat steps saved together (SAVE AS..., in the presets folder's "MIDI In Presets"), one for each e-kit or controller you use. They're also kept in your project.
+- **THE MIDI MONITOR** (under those tabs): what came in (notes, controllers, aftertouch; channel, note, velocity) and what it played. It shows the drum after zones and stand-ins, and the velocity after the curve, or "gated". Click a note in it to edit that note.
+- **Not copied:** the reference's ready-made presets for e-drum brands. I don't have their maps, and they're the reference's work. If you send your kit's note list, I'll make one from it.
+- **My guesses:**
+  - SOFT is my reading of the manual's "soft curve"; it doesn't say more.
+  - The calibration puts "closed" in the top fifth of your pedal's range.
+- **Tests:**
+  - the curve's limits, points, gate, soft and saving;
+  - a drum's curve making a mid hit exactly as loud as a hard one, only on that drum, kept in presets;
+  - the gate's range;
+  - the incoming curve changing your keys but not a groove's hits, and its gate;
+  - the channel;
+  - three CC zones at their boundaries;
+  - the monitor's events, with stand-ins and gated notes;
+  - presets saved, loaded and built in, and kept in the project;
+  - LEARN, LEARN CC, the zone marks kept in order, and calibration's steps (12 to 93 gives 77, 61, 44, 28);
+  - the DRUM view's curve going to every chosen drum.
+
+**Not checked here:** how the curves feel with your own pads, and calibration with a real pedal.
+
 ## 0.17.0
 
 **Articulations: each drum of the kit is now a piece played several ways**, as you asked (inspired by the reference drum software's articulation list, from the Drums chapter and chapter 9's MIDI In / E-Drums section; our own look and words).

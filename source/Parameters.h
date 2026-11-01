@@ -34,6 +34,10 @@ namespace ParamIDs
     // the drums they played before, through the stand-ins), so they sound as they did.
     inline const juce::StringArray articulationsAddedOff { "drum21On", "drum22On", "drum23On" };
     inline const juce::StringArray drumsPedalSteps { "drumsPedal1", "drumsPedal2", "drumsPedal3", "drumsPedal4" };
+    // MIDI IN CHANNEL (0.18.0, hint 27): which channel the DAW's or a controller's MIDI plays the kit on ("Any", 1-16).
+    // Global, like the note map.
+    inline constexpr auto drumsMidiChannel = "drumsMidiChannel";
+    inline const juce::StringArray midiChannelNames { "Any", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16" };
     inline juce::String drum (int slot, const char* what) { return "drum" + juce::String (slot + 1) + what; }
     // THE OUTPUTS (PR7-D 0.3.0, version hint 25): the plugin's stereo outputs, MAIN first. Each drum, insert bus and
     // send return chooses one ("drum<n>Output", "ins<n>Output", delayOutput, reverbOutput), by index: only append.
@@ -46,7 +50,8 @@ namespace ParamIDs
                                                     "SampleStart", "SampleEnd",     // 0.21.1 (version hint 21): appended
                                                     "Gain", "Mono", "Delay", "LowPass", "HighPass",     // 6c (hint 23)
                                                     "Output",     // PR7-D 0.3.0 (hint 25): outputNames' index
-                                                    "On", "MuteTail" };   // 0.17.0 (hint 26): the articulation's ON, MUTE TAIL
+                                                    "On", "MuteTail",     // 0.17.0 (hint 26): the articulation's ON, MUTE TAIL
+                                                    "VelMin", "VelMax" }; // 0.18.0 (hint 27): its VELOCITY GATE (0 to 127)
     consteval int drumSetting (std::string_view what)
     {
         for (int i = 0; i < (int) std::size (drumSettings); ++i)
@@ -264,6 +269,7 @@ namespace ParamIDs
     {
         juce::StringArray ids { outputGain, bypass, limitUnity, limitDelta, drumsMap, delayOutput, reverbOutput };
         ids.addArray (drumsPedalSteps);
+        ids.add (drumsMidiChannel);
         for (int k = 0; k < numDrums; ++k)
             ids.add (drum (k, "Output"));
         for (int b = 0; b < numInsertBuses; ++b)

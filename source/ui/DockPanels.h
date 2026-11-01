@@ -4,6 +4,7 @@
 
 #include "PluginProcessor.h"
 #include "ui/Icons.h"
+#include "ui/MidiInPanel.h"
 #include "ui/SynthControls.h"
 
 // The panels' shared style, and the SETTINGS page.
@@ -25,6 +26,10 @@ public:
     void refresh();                                         // from the processor's map now
     juce::ComboBox& getBox (int note) { return *rows[(size_t) note]->box; }
     static constexpr int rowHeight = 26;
+    // 0.18.0: one note chosen (click its number), for MIDI IN's editing.
+    void select (int note);
+    int getSelected() const noexcept { return selected; }
+    std::function<void (int note)> onSelect;
 
     void resized() override;
 
@@ -33,11 +38,14 @@ private:
     {
         juce::Label note;
         std::unique_ptr<juce::ComboBox> box;
-        bool mapped = false;
+        bool mapped = false, chosen = false;
+        std::function<void()> onClick;
         void paint (juce::Graphics&) override;
         void resized() override;
+        void mouseDown (const juce::MouseEvent&) override { if (onClick) onClick(); }
     };
     ParagonX1AudioProcessor& processor;
+    int selected = 38;
     std::vector<std::unique_ptr<Row>> rows;
     synth::drums::notemap::Map shown {};
 };
@@ -81,14 +89,18 @@ private:
     ParagonX1AudioProcessor& processor;
     juce::TextButton openFolder { "OPEN PRESETS FOLDER" };
     juce::Rectangle<int> keysArea, rigsArea, aboutArea;
-    ParamControl mapChoice;
-    juce::TextButton saveMap { "SAVE AS DEFAULT" };
+    ParamControl mapChoice, channelChoice;
+    juce::TextButton saveMap { "SAVE AS DEFAULT" }, presetButton;
     NoteMapList mapList;
     juce::Viewport mapView;
+    MidiInPanel midiInPanel;
+    void showPresetMenu();
+    void chooseNote (int note);
 
 public:
     NoteMapList& getMapList() noexcept { return mapList; }
     juce::Viewport& getMapView() noexcept { return mapView; }
+    MidiInPanel& getMidiInPanel() noexcept { return midiInPanel; }
 
 private:
 
