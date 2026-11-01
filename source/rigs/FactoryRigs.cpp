@@ -163,10 +163,11 @@ std::vector<Rig> makeFactoryRigs()
     // A06 (0.24.0): a djent kit built from scratch with the acoustic models, nobody's samples. The kick tuned up a
     // little, muffled (short DECAY) and struck by a hard beater (TONE) with lots of click (SNAP) near the centre; the
     // snare tuned high, tight, its wires crisp; the toms deep and open; the rimshot (SD2) the same snare struck at
-    // the edge; the cymbals still the drum synths (modelled ones come next). Our own settings: tune them by ear.
+    // the edge; the cymbals modelled too since 0.25.0. Our own settings: tune them by ear.
     Builder djent ("Djent Kit", 6, { "Kit", "Sequencer", "Acoustic" },
                    "Modelled drums, built from the physics with no samples: a tight, clicky kick (hard beater, heavily muffled), "
-                   "a high, cracking snare, three deep toms, and the synth cymbals with a china. The master's compressor (FET) and "
+                   "a high, cracking snare, three deep toms, and modelled cymbals (0.25.0): hats at five openings and a pedal, two crashes, a "
+                   "ride (bow, bell, edge), a trashy china, and a stack in the splash's slot (SPL). The master's compressor (FET) and "
                    "LIMITER hold it together. The sequencer has four grooves: A syncopated half time, B double-kick sixteenths, "
                    "C a ghost-note groove, D a tom fill. Our own settings, not tuned by ear yet.");
     {
@@ -185,8 +186,25 @@ std::vector<Rig> makeFactoryRigs()
             djent.drum (slot, "Model", (float) (int) Model::acousticTom).drum (slot, "Pitch", pitch).drum (slot, "Decay", 0.5f)
                  .drum (slot, "Tone", 0.7f).drum (slot, "Snap", 0.45f).drum (slot, "Position", 0.3f).drum (slot, "Shell", 0.35f)
                  .drum (slot, "Variation", 0.2f).drum (slot, "Pan", pan);
-        djent.drum (ch, "HighPass", 500.0f).drum (ch, "Pan", 0.3f).drum (oh, "Pan", 0.3f).drum (oh, "HighPass", 400.0f)
-             .drum (cy, "Pan", -0.35f).drum (rd, "Pan", -0.4f).drum (chn, "Pan", 0.45f).drum (chn, "Level", -4.0f);
+        // 0.25.0: the modelled cymbals. The hats each at their opening (the pedal's steps play them in turn), the
+        // crashes either side, the ride on the right (its bow, bell and edge struck where they are), a trashy china, and
+        // a stack in the splash's slot (djent's favourite).
+        constexpr int ph = 8, cr2 = 14, spl = 16, hh = 17, rb = 13, re = 20, ho1 = 21, ho3 = 22;
+        for (const auto& [slot, open] : { std::pair { ch, 0.0f }, std::pair { ho1, 0.25f }, std::pair { hh, 0.45f },
+                                          std::pair { ho3, 0.7f }, std::pair { oh, 0.95f } })
+            djent.drum (slot, "Model", (float) (int) Model::acousticHat).drum (slot, "Shell", open).drum (slot, "Pan", 0.3f)
+                 .drum (slot, "Tone", 0.75f).drum (slot, "Variation", 0.25f);
+        djent.drum (ph, "Model", (float) (int) Model::acousticHatPedal).drum (ph, "Pan", 0.3f);
+        djent.drum (cy, "Model", (float) (int) Model::acousticCrash).drum (cy, "Pan", -0.35f).drum (cy, "Position", 0.85f)
+             .drum (cy, "Tone", 0.7f).drum (cy, "Shell", 0.55f);
+        djent.drum (cr2, "Model", (float) (int) Model::acousticCrash).drum (cr2, "Pan", 0.5f).drum (cr2, "Pitch", 2.0f)
+             .drum (cr2, "Position", 0.85f).drum (cr2, "Decay", 0.4f);
+        for (const auto& [slot, where] : { std::pair { rd, 0.5f }, std::pair { rb, 0.0f }, std::pair { re, 0.95f } })
+            djent.drum (slot, "Model", (float) (int) Model::acousticRide).drum (slot, "Position", where).drum (slot, "Pan", -0.4f)
+                 .drum (slot, "Tone", 0.8f).drum (slot, "Snap", 0.6f);
+        djent.drum (chn, "Model", (float) (int) Model::acousticChina).drum (chn, "Pan", 0.45f).drum (chn, "Level", -3.0f)
+             .drum (chn, "Snap", 0.6f).drum (chn, "Position", 0.9f);
+        djent.drum (spl, "Model", (float) (int) Model::acousticStack).drum (spl, "Pan", -0.25f).drum (spl, "Level", -2.0f);
         djent.set (ParamIDs::compOn, 1.0f).set (ParamIDs::compThreshold, -16.0f).set (ParamIDs::compRatio, 4.0f)
              .set (ParamIDs::compAttack, 8.0f).set (ParamIDs::compRelease, 120.0f).set (ParamIDs::compMakeUp, 3.0f)
              .set (ParamIDs::compCharacter, 2.0f)

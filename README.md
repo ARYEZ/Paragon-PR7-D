@@ -58,6 +58,9 @@ PR7-D is built in stages, each one released:
 - **ACOUSTIC KICK, SNARE, TOM** (0.24.0): modelled drums computed from the physics, no samples: the head's modes,
   strike POSITION, what strikes it (BEATER / STICK), how hard (brighter, a pitch glide), muffling (DECAY), the kick's
   CLICK and FRONT HEAD, the snare's WIRES, the shell, VARIATION between hits. Factory preset A06 Djent Kit.
+- **ACOUSTIC CRASH, RIDE, CHINA, SPLASH, STACK, HI-HAT, HAT PEDAL** (0.25.0): modelled cymbals: inharmonic plate modes,
+  the WASH blooming after the strike (its highs dying first), the bell; STICK, PING (the china's TRASH), BELL > EDGE,
+  WASH, the hi-hat's OPEN (its plates rattling), the pedal's chick.
 - **MIXER** (0.20.0): a multi-mic kit's mic channels (kick in / out, snare top / bottom, hi-hat, toms, cymbals,
   overheads, room, ambience, other): BLEED, PAN, fader and meter, M / S / polarity, OUTPUT; click a channel's name for
   its PROPERTIES (close-mic audio and the bleed from each drum: on, level, polarity; TIME OFFSET; RELEASE). Synth drums

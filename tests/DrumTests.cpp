@@ -221,11 +221,13 @@ TEST_CASE ("DRUMS: every model at its defaults peaks near -3 dBFS and dies away"
     for (const auto m : synthModels())
     {
         INFO (modelNames[(int) m]);
-        const auto hit = Kit::renderHit (model (m), 1.0f, rate, 8.0);
+        // (The modelled cymbals ring as long as real ones: a ride well past 5 s. Theirs, 8.)
+        const auto cymbal = isAcousticCymbal (m);
+        const auto hit = Kit::renderHit (model (m), 1.0f, rate, cymbal ? 12.0 : 8.0);
         const auto peak = peakDb (hit.getReadPointer (0), hit.getNumSamples());
         CHECK (peak > -6.0f);
         CHECK (peak < 0.0f);
-        CHECK (ringSeconds (hit, 40.0f) < 5.0);
+        CHECK (ringSeconds (hit, 40.0f) < (cymbal ? 8.0 : 5.0));
         CHECK (peakDb (hit.getReadPointer (0, hit.getNumSamples() - 4800), 4800) < peak - 60.0f);
     }
 }

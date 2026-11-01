@@ -246,3 +246,167 @@ TEST_CASE ("ACOUSTIC: the Djent Kit preset is built of them; a kit of acoustic d
     WARN ("6 acoustic drums every sixteenth note at 120 BPM: " << percent << "% of one core");
     CHECK (percent < 14.0);
 }
+
+//==============================================================================
+// THE ACOUSTIC CYMBALS (0.25.0)
+namespace
+{
+    // The spectral centroid (Hz) over a stretch: where the energy sits.
+    double centroid (const std::vector<float>& x, double from, double to)
+    {
+        const auto start = (size_t) (from * sampleRate), length = juce::jmin ((size_t) ((to - from) * sampleRate), (size_t) (1 << 15));
+        juce::dsp::FFT fft (15);
+        std::vector<float> data (1 << 16, 0.0f);
+        for (size_t i = 0; i < length && start + i < x.size(); ++i)
+            data[i] = x[start + i] * (float) (0.5 - 0.5 * std::cos (juce::MathConstants<double>::twoPi * (double) i / (double) length));
+        fft.performFrequencyOnlyForwardTransform (data.data());
+        double sum = 1.0e-30, weighted = 0.0;
+        for (int bin = 1; bin < (1 << 14); ++bin)
+        {
+            const auto power = (double) data[(size_t) bin] * data[(size_t) bin];
+            sum += power;
+            weighted += power * bin * sampleRate / (1 << 15);
+        }
+        return weighted / sum;
+    }
+    // When it's last within 60 dB of its loudest (10 ms steps).
+    double ringOut (const std::vector<float>& x)
+    {
+        const auto step = (size_t) (0.01 * sampleRate);
+        std::vector<double> levels;
+        for (size_t i = 0; i + step < x.size(); i += step)
+            levels.push_back (rms (x, i, i + step));
+        const auto peak = *std::max_element (levels.begin(), levels.end());
+        for (auto i = levels.size(); i-- > 0;)
+            if (levels[i] > peak * 1.0e-3)
+                return (double) (i + 1) * 0.01;
+        return 0.0;
+    }
+    SlotSettings cymbal (Model m)
+    {
+        SlotSettings s;
+        s.model = m;
+        s.variation = 0.0f;
+        return s;
+    }
+}
+
+TEST_CASE ("CYMBALS: a crash rings for seconds with its highs dying first, a stack and a closed hat are short; the hat opens with OPEN",
+           "[acoustic][cymbals]")
+{
+    const auto crash = hit (cymbal (Model::acousticCrash), 1.0f, 6.0);
+    INFO ("crash: rings " << ringOut (crash) << " s, centroid " << centroid (crash, 0.03, 0.2) << " Hz early, "
+          << centroid (crash, 1.5, 1.8) << " Hz at 1.5 s");
+    CHECK (ringOut (crash) > 3.0);
+    CHECK (centroid (crash, 0.03, 0.2) > 3000.0);   // bright
+    CHECK (centroid (crash, 1.5, 1.8) < centroid (crash, 0.03, 0.2) * 0.75);   // darker as it dies
+
+    CHECK (ringOut (hit (cymbal (Model::acousticStack), 1.0f, 3.0)) < 1.0);
+    CHECK (ringOut (hit (cymbal (Model::acousticSplash), 1.0f, 4.0)) < ringOut (crash) * 0.6);
+
+    // The hi-hat: longer the more it's open.
+    auto hat = cymbal (Model::acousticHat);
+    double previous = 0.0;
+    for (const auto open : { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f })
+    {
+        hat.shell = open;
+        const auto seconds = ringOut (hit (hat, 1.0f, 4.0));
+        INFO ("open " << open << ": " << seconds << " s");
+        CHECK (seconds > previous);
+        previous = seconds;
+        if (open == 0.0f)
+            CHECK (seconds < 0.25);
+    }
+    CHECK (previous > 1.5);
+}
+
+TEST_CASE ("CYMBALS: the wash blooms after the strike (WASH), a soft hit is darker, the ride's bell rings at the bell's partials",
+           "[acoustic][cymbals]")
+{
+    // WASH: the shimmer between 50 and 150 ms, with and without (struck near the edge, as a crash is).
+    auto c = cymbal (Model::acousticCrash);
+    c.position = 0.85f;
+    c.shell = 0.0f;
+    const auto dry = hit (c, 1.0f, 1.0);
+    c.shell = 1.0f;
+    const auto washy = hit (c, 1.0f, 1.0);
+    CHECK (bandDb (washy, 0.05, 0.15, 4000.0, 14000.0) > bandDb (dry, 0.05, 0.15, 4000.0, 14000.0) + 6.0);
+    // The bloom: the wash's band louder at 30 to 60 ms than in the first 3 ms (per sample).
+    const auto perSample = [] (const std::vector<float>& x, double a, double b) { return bandDb (x, a, b, 5000.0, 14000.0) - 10.0 * std::log10 ((b - a) * sampleRate); };
+    CHECK (perSample (washy, 0.03, 0.06) > perSample (washy, 0.0, 0.003));
+
+    // A soft hit is darker.
+    const auto loud = hit (cymbal (Model::acousticCrash), 1.0f, 1.0), soft = hit (cymbal (Model::acousticCrash), 0.3f, 1.0);
+    CHECK (centroid (soft, 0.02, 0.3) < centroid (loud, 0.02, 0.3) * 0.95);
+
+    // The ride struck at the bell: its partial (1150 Hz) far stronger against the rest than on the bow.
+    auto ride = cymbal (Model::acousticRide);
+    ride.position = 0.0f;
+    const auto bell = hit (ride, 1.0f, 1.0);
+    ride.position = 0.5f;
+    const auto bow = hit (ride, 1.0f, 1.0);
+    const auto bellShare = [] (const std::vector<float>& x) { return bandDb (x, 0.1, 0.5, 1100.0, 1200.0) - bandDb (x, 0.1, 0.5, 2000.0, 12000.0); };
+    INFO ("bell " << bellShare (bell) << " dB, bow " << bellShare (bow) << " dB");
+    CHECK (bellShare (bell) > bellShare (bow) + 10.0);
+}
+
+TEST_CASE ("CYMBALS: the china's TRASH clips it (its peaks squashed against its body); the hat pedal has its thump", "[acoustic][cymbals]")
+{
+    const auto crest = [] (const std::vector<float>& x)
+    {
+        auto peak = 0.0f;
+        for (size_t i = 0; i < (size_t) (0.3 * sampleRate); ++i)
+            peak = std::max (peak, std::abs (x[i]));
+        return peak / rms (x, 0, (size_t) (0.3 * sampleRate));
+    };
+    auto china = cymbal (Model::acousticChina);
+    china.snap = 0.0f;
+    const auto clean = hit (china, 1.0f, 1.0);
+    china.snap = 1.0f;
+    const auto trashy = hit (china, 1.0f, 1.0);
+    INFO ("crest " << crest (clean) << " -> " << crest (trashy));
+    CHECK (crest (trashy) < crest (clean) * 0.9);
+
+    const auto pedal = hit (cymbal (Model::acousticHatPedal), 1.0f, 0.5), closed = hit (cymbal (Model::acousticHat), 1.0f, 0.5);
+    CHECK (bandDb (pedal, 0.0, 0.03, 150.0, 220.0) > bandDb (closed, 0.0, 0.03, 150.0, 220.0) + 10.0);
+    CHECK (ringOut (pedal) < 0.25);
+}
+
+TEST_CASE ("CYMBALS: a busy djent kit's cymbals (hats, ride, crash, china on eighths) stay light on the CPU", "[acoustic][cymbals][performance]")
+{
+    Kit kit;
+    kit.prepare (sampleRate, 256);
+    KitSettings settings;
+    settings.on = true;
+    for (const auto& [slot, model] : { std::pair { 6, Model::acousticHat }, std::pair { 10, Model::acousticHat }, std::pair { 11, Model::acousticCrash },
+                                       std::pair { 12, Model::acousticRide }, std::pair { 15, Model::acousticChina }, std::pair { 16, Model::acousticStack } })
+    {
+        auto s = cymbal (model);
+        s.shell = slot == 10 ? 0.9f : s.shell;
+        s.choke = slot == 6 || slot == 10 ? 1 : 0;
+        settings.slots[(size_t) slot] = s;
+    }
+    std::vector<float> left (256), right (256);
+    const auto blocks = (int) (8.0 * sampleRate / 256);
+    const auto eighth = (int) (0.25 * sampleRate / 256);
+    const auto started = juce::Time::getMillisecondCounterHiRes();
+    for (int b = 0; b < blocks; ++b)
+    {
+        juce::MidiBuffer midi;
+        if (b % eighth == 0)
+            for (const auto slot : { 6, 12, 15 })
+                midi.addEvent (juce::MidiMessage::noteOn (1, settings.rootKey + slot, 1.0f), 0);
+        if (b % (eighth * 4) == 0)
+            for (const auto slot : { 10, 11, 16 })
+                midi.addEvent (juce::MidiMessage::noteOn (1, settings.rootKey + slot, 1.0f), 0);
+        std::fill (left.begin(), left.end(), 0.0f);
+        std::fill (right.begin(), right.end(), 0.0f);
+        Outputs out;
+        out.left = left.data();
+        out.right = right.data();
+        kit.process (out, 256, midi, 0, settings);
+    }
+    const auto percent = (juce::Time::getMillisecondCounterHiRes() - started) / 8000.0 * 100.0;
+    WARN ("modelled cymbals on eighths (hats, ride, china) and halves (open hat, crash, stack): " << percent << "% of one core");
+    CHECK (percent < 14.0);
+}

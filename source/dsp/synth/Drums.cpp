@@ -13,9 +13,10 @@ namespace synth::drums
         constexpr double twoPi = juce::MathConstants<double>::twoPi;
 
         // Each model's level, so a hit at the defaults peaks near -3 dBFS (measured in the tests).
-        constexpr std::array<float, 17> modelLevel { 0.651f, 0.716f, 1.373f, 2.314f, 2.006f, 0.550f, 0.824f, 0.770f, 1.119f, 1.0f,
+        constexpr std::array<float, 24> modelLevel { 0.651f, 0.716f, 1.373f, 2.314f, 2.006f, 0.550f, 0.824f, 0.770f, 1.119f, 1.0f,
                                                      1.097f, 0.549f, 1.017f, 1.099f,
-                                                     0.656f, 0.804f, 0.887f };   // 0.24.0: the acoustic kick, snare, tom
+                                                     0.656f, 0.804f, 0.887f,   // 0.24.0: the acoustic kick, snare, tom
+                                                     0.462f, 0.505f, 2.11f, 0.491f, 2.11f, 1.071f, 0.689f };   // 0.25.0: the cymbals
 
         // THE ACOUSTIC MODELS (0.24.0). An ideal circular drumhead rings in modes (m nodal diameters, n nodal circles),
         // each at a frequency set by a zero of the Bessel function J_m: j_mn / j_01 times the lowest. The first 24, in
@@ -328,6 +329,16 @@ namespace synth::drums
                 startAcoustic (s, velocityGain, rate);
                 break;
 
+            case Model::acousticCrash:
+            case Model::acousticRide:
+            case Model::acousticChina:
+            case Model::acousticSplash:
+            case Model::acousticStack:
+            case Model::acousticHat:
+            case Model::acousticHatPedal:
+                startCymbal (s, velocityGain, rate);
+                break;
+
             case Model::kick:
                 // A sine falling from (1 + BEND) times its pitch to 52 Hz; TONE sets how far it falls; SNAP the
                 // beater's click (high-passed noise, 1.5 ms).
@@ -581,9 +592,9 @@ namespace synth::drums
             const auto& mode = headModes[(size_t) i];
             const auto ratio = 1.0 + (mode.j / headModes[0].j - 1.0) * stretch;
             const auto hz = f0 * ratio;
-            const auto shape = besselJ (mode.m, mode.j * radius) / std::abs (besselJ (mode.m + 1, mode.j));
+            const auto modeShape = besselJ (mode.m, mode.j * radius) / std::abs (besselJ (mode.m + 1, mode.j));
             const auto radiation = mode.m == 0 ? 1.0 : mode.m == 1 ? 0.6 : 0.4;
-            const auto amp = std::abs (shape) * radiation * spectrum (hz) / std::sqrt (ratio);
+            const auto amp = std::abs (modeShape) * radiation * spectrum (hz) / std::sqrt (ratio);
             add (hz, amp, t0 / (1.0 + (0.4 + 2.5 * muffle) * (ratio - 1.0)), 1.0f);
             total += amp;
         }
@@ -598,8 +609,8 @@ namespace synth::drums
         else
         {
             // The shell's own ring, fixed against the head's pitch (our ratios).
-            for (const auto& [ratio, level] : { std::pair { 1.85, 0.12 }, std::pair { 3.4, 0.08 }, std::pair { 5.6, 0.05 } })
-                add (f0 * ratio, total * level * shell * spectrum (f0 * ratio), 0.12 + 0.1 * d, 0.0f);
+            for (const auto& [ratio, shellLevel] : { std::pair { 1.85, 0.12 }, std::pair { 3.4, 0.08 }, std::pair { 5.6, 0.05 } })
+                add (f0 * ratio, total * shellLevel * shell * spectrum (f0 * ratio), 0.12 + 0.1 * d, 0.0f);
         }
         // Normalised (the hit's loudness is the model's level and the velocity's), sines starting at nothing.
         const auto scale = total > 0.0 ? 1.0 / total : 1.0;
@@ -622,6 +633,175 @@ namespace synth::drums
         md.wireThreshold = 0.04f;
         f2.set (2000.0, 0.7, rate);
         f3.set (3000.0 + 9000.0 * s.tone, 0.7, rate);
+    }
+
+    void Voice::startCymbal (const SlotSettings& s, float velocityGain, double rate) noexcept
+    {
+        // THE ACOUSTIC CYMBALS (0.25.0, our own design from how cymbals behave; no recordings):
+        //   - the plate's modes: 40, log-spaced from the cymbal's lowest (its "gong") up to 14 kHz, each nudged by a
+        //     fixed pattern of its own (so a crash always has the same voice), loudest around the cymbal's bright
+        //     region, rolled off above what the stick's contact passes (TONE), the high ones dying sooner;
+        //   - the bell: four strong partials, ringing long, loud where POSITION is near the bell (0);
+        //   - the WASH: struck hard, a cymbal's energy spreads from its first modes to a dense shimmer that blooms
+        //     after the hit (tens of milliseconds) and dies with its highs going first: noise in eight bands shaped
+        //     like the modes, built up, falling in brightness, shimmering slowly. More towards the edge (POSITION),
+        //     with WASH (SHELL) and with a harder hit (faster too);
+        //   - the stick's PING (SNAP): a short bright click at the contact;
+        //   - CHINA: a honky middle and a hard, fast bloom, then a soft clip (the trash: tones beating into new
+        //     ones); STACK: two clamped together, short, trashy, choked;
+        //   - HI-HAT: OPEN (SHELL) from tight and short to fully open, the two plates rattling against each other
+        //     most when half open; HAT PEDAL: the plates clapped by the foot (a chick, a little low thump).
+        auto& md = modes;
+        md = {};
+        auto& cy = cymbal;
+        cy = {};
+        const auto rand = [this] { return (double) noise.white(); };
+        const auto variation = (double) juce::jlimit (0.0f, 1.0f, s.variation);
+        const auto d = (double) juce::jlimit (0.0f, 1.0f, s.decay);
+        const auto tone = (double) juce::jlimit (0.0f, 1.0f, s.tone);
+        const auto snap = (double) juce::jlimit (0.0f, 1.0f, s.snap);
+        const auto wash = (double) juce::jlimit (0.0f, 1.0f, s.shell);
+        auto hardness = juce::jlimit (0.05, 1.0, std::sqrt ((double) velocityGain) * (1.0 + 0.08 * variation * rand()));
+        const auto strike = juce::jlimit (0.0, 1.0, (double) s.position + 0.05 * variation * rand());
+        const auto tune = std::exp2 ((s.pitch + 0.05 * variation * rand()) / 12.0);
+
+        // Each type: its lowest mode, its bright region, how long it rings, its bell, how fast and how strong its wash.
+        struct Type { double low, bright, seconds, bellHz, bellLevel, build, washLevel; };
+        // (`seconds`: its time constant; it's 60 dB down about 7 times later: a crash in about 6 s, a ride 8, a china
+        // 3.5, a splash 2, a stack 0.6.)
+        Type type { 200.0, 4200.0, 0.87, 950.0, 0.5, 0.025, 1.0 };   // the crash
+        if (model == Model::acousticRide)          type = { 240.0, 4000.0, 1.16, 1150.0, 1.0, 0.07, 0.45 };
+        else if (model == Model::acousticChina)    type = { 280.0, 2200.0, 0.5, 900.0, 0.3, 0.012, 1.3 };
+        else if (model == Model::acousticSplash)   type = { 520.0, 6000.0, 0.29, 1700.0, 0.4, 0.012, 1.0 };
+        else if (model == Model::acousticStack)    type = { 400.0, 3500.0, 0.09, 1300.0, 0.2, 0.003, 1.4 };
+        else if (model == Model::acousticHat)      type = { 480.0, 8000.0, 0.0, 2000.0, 0.15, 0.002, 1.0 };
+        else if (model == Model::acousticHatPedal) type = { 520.0, 7000.0, 0.0, 2100.0, 0.0, 0.002, 1.0 };
+        const auto hat = model == Model::acousticHat, pedal = model == Model::acousticHatPedal;
+        const auto china = model == Model::acousticChina, stack = model == Model::acousticStack;
+        // How long it rings (DECAY 0.5: the type's own); a hat: by how open it is.
+        const auto open = (double) juce::jlimit (0.0f, 1.0f, s.shell);
+        auto seconds = type.seconds * std::exp2 (2.0 * (d - 0.5));
+        if (hat)
+            seconds = (0.022 + 0.42 * std::pow (open, 1.8)) * std::exp2 (1.5 * (d - 0.5));   // closed 0.15 s, open 3 s
+        if (pedal)
+            seconds = 0.015 + 0.02 * d;
+
+        // The modes: log-spaced from the lowest to 14 kHz, each nudged by the type's own fixed pattern.
+        auto pattern = (std::uint32_t) (1 + (int) model * 7919);
+        const auto fixedRand = [&pattern]
+        {
+            pattern = pattern * 1664525u + 1013904223u;
+            return (double) (std::int32_t) pattern / 2147483648.0;
+        };
+        // A stick on metal: a far shorter contact than on a head (0.5 ms for a soft tip, 0.13 ms for a hard one), and
+        // a gentler roll-off above it.
+        const auto contact = juce::jlimit (0.00008, 0.0008, 0.0005 * std::pow (0.25, tone) * std::pow (hardness, -0.4));
+        const auto stick = [contact] (double hz) { return 1.0 / std::sqrt (1.0 + std::pow (hz * contact * 2.0, 2.0)); };
+        const auto brightShape = [&type] (double hz)
+        {
+            const auto x = hz / type.bright;
+            return std::sqrt (x) / (1.0 + std::pow (x, 1.5));
+        };
+        const auto add = [&] (double hz, double amp, double ringSeconds)
+        {
+            if (md.count >= Modes::max || hz >= 0.45 * rate || amp < 1.0e-5)
+                return;
+            const auto k = (size_t) md.count++;
+            md.hz[k] = hz;
+            md.amp[k] = (float) amp;
+            md.env[k] = 1.0f;
+            md.coef[k] = decayCoefficient (juce::jmax (0.004, ringSeconds), rate);
+            md.coef16[k] = std::pow (md.coef[k], 16.0f);
+            const auto w = twoPi * hz / rate;
+            md.y2[k] = (float) (-std::sin (w) / md.coef[k]);
+            md.c[k] = (float) (2.0 * md.coef[k] * std::cos (w));
+            md.r2[k] = md.coef[k] * md.coef[k];
+        };
+        constexpr int plateModes = 40;
+        const auto low = type.low * tune, top = 14000.0;
+        // The edge excites the low "gong" more, the bow less; nearer the bell, fewer of the plate's modes.
+        const auto lowBoost = 0.6 + 0.8 * strike;
+        // Struck on the bell, the plate's own modes sound less (the bell's thick and stiff; it rings in its own).
+        const auto onBell = 1.0 - juce::jlimit (0.0, 1.0, strike / 0.35);
+        const auto plateShare = 1.0 - 0.6 * onBell;
+        auto total = 0.0;
+        for (int k = 0; k < plateModes; ++k)
+        {
+            const auto x = (k + 0.5 + 0.4 * fixedRand()) / plateModes;
+            const auto hz = low * std::pow (top / low, x) * (1.0 + 0.004 * variation * rand());
+            // (Log-spaced, each mode stands for a band as wide as its frequency: sqrt (hz) gives each its share.)
+            auto amp = brightShape (hz) * stick (hz) * std::sqrt (hz / 1000.0) * (0.6 + 0.4 * std::abs (fixedRand()));
+            if (hz < 1500.0)
+                amp *= lowBoost;
+            amp *= plateShare;
+            if (china && hz > 600.0 && hz < 1500.0)
+                amp *= 2.2;   // its honk
+            const auto ring = seconds * juce::jlimit (0.3, 1.4, std::pow (1000.0 / hz, 0.35));
+            add (hz, amp, juce::jmax (0.01, ring));
+            total += amp / plateShare;   // (normalised by the plate's full strength: the bell doesn't make it louder)
+        }
+        // The bell: strongest where the stick strikes it.
+        const auto bellAmount = type.bellLevel * (0.06 + 3.0 * onBell * onBell);
+        const std::array<double, 4> bellRatios { 1.0, 1.51, 2.24, 2.76 }, bellLevels { 1.0, 0.6, 0.45, 0.3 };
+        for (size_t b = 0; b < bellRatios.size(); ++b)
+            add (type.bellHz * tune * bellRatios[b], total * 0.08 * bellAmount * bellLevels[b] * stick (type.bellHz * bellRatios[b]),
+                 (hat || pedal ? seconds : seconds * 1.2) * std::pow (1000.0 / (type.bellHz * bellRatios[b]), 0.3));
+        // (Forty unrelated sines add up to much less than their sum: three times the drums' share, so the strike is the
+        // loudest moment, as on a real cymbal, the wash blooming just under it.)
+        const auto scale = total > 0.0 ? 3.0 / total : 1.0;
+        for (int k = 0; k < md.count; ++k)
+            md.amp[(size_t) k] *= (float) scale;
+        md.riseCoef = (float) (1.0 - std::exp (-1.0 / juce::jmax (1.0, 0.35 * contact * rate)));
+        md.glide = 0.0f;
+        md.glideEnv = 0.0f;
+        md.glideCoef = 1.0f;
+
+        // The wash: eight bands from 1.2 to 15 kHz shaped like the modes; built up over `build` (sooner on a hard
+        // hit), dying over the ring, its brightness falling from 18 kHz towards a third of it.
+        // Towards the edge the wash grows faster than straight (the plate thrown into big, trashy motion); on the bow
+        // the stick's ping stands out (below).
+        const auto edge = 0.25 + 1.2 * std::pow (strike, 1.5);
+        cy.washLevel = (float) (type.washLevel * (pedal ? 1.0 : edge) * (0.25 + 1.5 * wash * (hat || pedal ? 0.5 : 1.0))
+                                * std::pow (hardness, 0.5) * (hat || pedal ? 1.0 : 0.6));
+        for (size_t b = 0; b < cy.bands.size(); ++b)
+        {
+            const auto hz = 1200.0 * std::pow (15000.0 / 1200.0, (double) b / 7.0) * juce::jmin (1.4, tune);
+            cy.bands[b].set (juce::jmin (hz, 0.45 * rate), 2.0, rate);
+            cy.weights[b] = (float) (brightShape (hz) * (china && hz < 2500.0 ? 1.6 : 1.0));
+        }
+        cy.build = 0.0f;
+        cy.buildCoef = (float) (1.0 - std::exp (-1.0 / juce::jmax (1.0, type.build * std::pow (hardness, -0.7) * rate)));
+        cy.washEnv = 1.0f;
+        cy.washCoef = decayCoefficient (juce::jmax (0.01, seconds * 0.75), rate);
+        cy.lp = 0.0f;
+        cy.lpCoef = 1.0f;   // starts open; falls towards lpFloor
+        cy.lpFloor = (float) (1.0 - std::exp (-twoPi * 5000.0 / rate));
+        cy.lpFall = decayCoefficient (juce::jmax (0.02, seconds * 0.5), rate);
+        cy.lfoPhase = 0.5 + 0.5 * rand();
+        cy.lfoStep = (4.0 + 4.0 * std::abs (rand())) / rate;
+        cy.shimmer = hat || pedal || stack ? 0.0f : 0.18f;
+        // The trash: a soft clip, harder for the china (more with SNAP: TRASH) and the stack.
+        cy.drive = china ? (float) (1.5 + 4.0 * snap) : stack ? 4.0f : 0.0f;
+        // A hi-hat: below 350 Hz out (no gong); the plates rattling, most when half open; the pedal's thump.
+        cy.highPass = hat || pedal ? (float) (1.0 - std::exp (-twoPi * 350.0 / rate)) : 0.0f;
+        cy.rattle = hat ? (float) (0.7 * std::sin (juce::MathConstants<double>::pi * juce::jlimit (0.0, 1.0, open))) : 0.0f;
+        cy.rattleMin = juce::jmax (1, (int) (rate / 60.0));
+        cy.rattleSpread = juce::jmax (1, (int) (rate / 60.0));
+        cy.rattleLeft = 0;
+        cy.rattleGain = 1.0f;
+        if (pedal)
+        {
+            cy.thump = (float) (0.35 * hardness);
+            cy.thumpCoef = decayCoefficient (0.015, rate);
+            cy.thumpHz = 180.0;
+            cy.thumpPhase = 0.0;
+        }
+
+        // The stick's PING: a short bright click (none for the pedal: no stick).
+        click = pedal ? 0.0f : 1.0f;
+        clickCoef = decayCoefficient (2.0 * contact + 0.0005, rate);
+        f1.set (juce::jmin (5500.0 * (0.6 + 0.8 * tone), 0.45 * rate), 1.0, rate);
+        noiseLevel = (float) ((china ? 0.6 : 0.3 + 1.2 * snap) * hardness * (1.2 - 0.7 * strike));   // the ping: clearest on the bow
     }
 
     void Voice::startShape (const SlotSettings& s, double regionSamples) noexcept
@@ -666,11 +846,111 @@ namespace synth::drums
         return true;
     }
 
+    float Voice::nextModes() noexcept
+    {
+        auto& md = modes;
+        // Every 16 samples: each mode's tuning for the glide, its envelope, and which are still heard.
+        if (--md.countdown <= 0)
+        {
+            md.countdown = 16;
+            const auto glideNow = (double) (md.glide * md.glideEnv);
+            auto loudest = 0.0f;
+            for (int k = 0; k < md.count; ++k)
+            {
+                const auto i = (size_t) k;
+                if (md.glides[i] > 0.0f && glideNow > 1.0e-7)   // (only a gliding mode's tuning moves)
+                    md.c[i] = (float) (2.0 * md.coef[i] * std::cos (twoPi * md.hz[i] * (1.0 + glideNow * md.glides[i]) / sampleRate));
+                loudest = juce::jmax (loudest, md.amp[i] * md.env[i]);
+                md.env[i] *= md.coef16[i];
+            }
+            md.loudest = loudest;
+        }
+        auto sum = 0.0f;
+        for (int k = 0; k < md.count; ++k)
+        {
+            const auto i = (size_t) k;
+            if (md.amp[i] * md.env[i] < 1.0e-6f)
+                continue;   // faded below hearing (-120 dB): skipped
+            const auto y = md.c[i] * md.y1[i] - md.r2[i] * md.y2[i];
+            md.y2[i] = md.y1[i];
+            md.y1[i] = y;
+            sum += md.amp[i] * y;
+        }
+        return sum;
+    }
+
     float Voice::next() noexcept
     {
         float out = 0.0f;
         switch (model)
         {
+            case Model::acousticCrash:
+            case Model::acousticRide:
+            case Model::acousticChina:
+            case Model::acousticSplash:
+            case Model::acousticStack:
+            case Model::acousticHat:
+            case Model::acousticHatPedal:
+            {
+                auto& md = modes;
+                auto& cy = cymbal;
+                md.rise += (1.0f - md.rise) * md.riseCoef;
+                auto x = nextModes() * md.rise;
+                // The wash: eight bands of noise, built up and dying, its brightness falling, shimmering.
+                if (cy.washEnv > 1.0e-5f)
+                {
+                    const auto n = noise.white();
+                    auto w = 0.0f;
+                    for (size_t b = 0; b < cy.bands.size(); ++b)
+                    {
+                        cy.bands[b].process (n);
+                        w += cy.bands[b].bp * cy.weights[b];
+                    }
+                    cy.build += (1.0f - cy.build) * cy.buildCoef;
+                    cy.washEnv *= cy.washCoef;
+                    cy.lpCoef = cy.lpFloor + (cy.lpCoef - cy.lpFloor) * cy.lpFall;
+                    cy.lp += (w - cy.lp) * cy.lpCoef;
+                    cy.lfoPhase += cy.lfoStep;
+                    if (cy.lfoPhase >= 1.0)
+                        cy.lfoPhase -= 1.0;
+                    const auto shimmer = 1.0f + cy.shimmer * sine (cy.lfoPhase);
+                    x += cy.lp * cy.build * cy.washEnv * cy.washLevel * shimmer;
+                }
+                // The stick's ping.
+                if (click > 1.0e-5f)
+                {
+                    f1.process (noise.white());
+                    x += f1.bp * click * noiseLevel;
+                    click *= clickCoef;
+                }
+                // The pedal's thump.
+                if (cy.thump > 1.0e-5f)
+                {
+                    advance (cy.thumpPhase, cy.thumpHz / sampleRate);
+                    x += cy.thump * sine (cy.thumpPhase);
+                    cy.thump *= cy.thumpCoef;
+                }
+                // The china's and stack's trash.
+                if (cy.drive > 0.0f)
+                    x = std::tanh (cy.drive * 3.0f * x) / 3.0f;   // clipping from about a third of full scale / drive
+                // A hi-hat's plates rattling: the level jumping at random, 60 to 120 times a second.
+                if (cy.rattle > 0.0f)
+                {
+                    if (--cy.rattleLeft <= 0)
+                    {
+                        cy.rattleLeft = cy.rattleMin + (int) (std::abs (noise.white()) * (float) cy.rattleSpread);
+                        cy.rattleGain = 1.0f - cy.rattle * std::abs (noise.white());
+                    }
+                    x *= cy.rattleGain;
+                }
+                if (cy.highPass > 0.0f)
+                {
+                    cy.highState += (x - cy.highState) * cy.highPass;
+                    x -= cy.highState;
+                }
+                out = x;
+                break;
+            }
             case Model::acousticKick:
             case Model::acousticSnare:
             case Model::acousticTom:
@@ -678,32 +958,7 @@ namespace synth::drums
                 auto& md = modes;
                 md.glideEnv *= md.glideCoef;
                 md.rise += (1.0f - md.rise) * md.riseCoef;
-                // Every 16 samples: each mode's tuning for the glide, its envelope, and which are still heard.
-                if (--md.countdown <= 0)
-                {
-                    md.countdown = 16;
-                    const auto bend = (double) (md.glide * md.glideEnv);
-                    auto loudest = 0.0f;
-                    for (int k = 0; k < md.count; ++k)
-                    {
-                        const auto i = (size_t) k;
-                        md.c[i] = (float) (2.0 * md.coef[i] * std::cos (twoPi * md.hz[i] * (1.0 + bend * md.glides[i]) / sampleRate));
-                        loudest = juce::jmax (loudest, md.amp[i] * md.env[i]);
-                        md.env[i] *= md.coef16[i];
-                    }
-                    md.loudest = loudest;
-                }
-                auto sum = 0.0f;
-                for (int k = 0; k < md.count; ++k)
-                {
-                    const auto i = (size_t) k;
-                    if (md.amp[i] * md.env[i] < 1.0e-6f)
-                        continue;   // faded below hearing (-120 dB): skipped
-                    const auto y = md.c[i] * md.y1[i] - md.r2[i] * md.y2[i];
-                    md.y2[i] = md.y1[i];
-                    md.y1[i] = y;
-                    sum += md.amp[i] * y;
-                }
+                const auto sum = nextModes();
                 out = sum * md.rise;
                 // The click: band-passed noise as long as the contact.
                 if (click > 1.0e-5f)
@@ -900,6 +1155,15 @@ namespace synth::drums
                 // Its loudest mode 80 dB under full scale, this hit's own level counted (a soft hit ends sooner).
                 return click < quiet && modes.loudest * level < quiet;
             }
+            case Model::acousticCrash:
+            case Model::acousticRide:
+            case Model::acousticChina:
+            case Model::acousticSplash:
+            case Model::acousticStack:
+            case Model::acousticHat:
+            case Model::acousticHatPedal:
+                return click < quiet && modes.loudest * level < quiet && cymbal.washEnv * cymbal.washLevel * level < quiet
+                    && cymbal.thump < quiet;
             case Model::kick:    return env < quiet && click < quiet;
             case Model::snare:   return env < quiet && env2 < quiet;
             case Model::clap:    return burst >= (int) clapBursts.size() && env2 < quiet && env < quiet;

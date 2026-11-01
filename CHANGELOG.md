@@ -2,6 +2,49 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.25.0
+
+**Modelled cymbals: crash, ride, china, splash, stack, hi-hat and hat pedal, all built from scratch** (the second part of building drums from the physics). The Djent Kit now has them too. **This release includes 0.24.0** (the modelled kick, snare and toms, below). 0.24.0's own build was stopped by a known crash in the Linux test host after every test had passed, so it was never published on its own.
+
+- **Seven new models:** ACOUSTIC CRASH, RIDE, CHINA, SPLASH, STACK, HI-HAT and HAT PEDAL. They're our own design from how cymbals behave, with no recordings:
+  - **The plate's tones:** 40 inharmonic frequencies, each cymbal type with its own fixed "voice". They're loudest in the cymbal's bright region, and the high ones die first, so a crash darkens as it rings.
+  - **The wash:** struck hard, a real cymbal's energy spreads into a dense shimmer that blooms just after the hit. Here that's noise in eight bands, built up over tens of milliseconds (faster on a harder hit), shimmering slowly, its brightness falling as it dies.
+  - **The bell:** four strong partials that ring long, the ride bell's "ding".
+- **What the knobs do on a cymbal:**
+  - **STICK:** a soft or a hard tip.
+  - **PING:** the stick's click, clearest on the bow. On the china it's **TRASH**.
+  - **BELL > EDGE:** the bell's ding, the bow's defined ping, or the edge's big wash.
+  - **WASH:** how much it blooms.
+  - **OPEN** (hi-hat): from tight and closed to fully open.
+  - **DECAY:** how long it rings.
+  - **VARIATION:** small differences between hits.
+- **Each type:**
+  - **Crash:** a fast bloom and a long wash, about 6 s to silence.
+  - **Ride:** a defined ping over a quieter wash, about 8 s.
+  - **China:** a honky middle and a hard bloom, soft-clipped into trash.
+  - **Splash:** small, high, about 2 s.
+  - **Stack:** two cymbals clamped together, a short trashy burst.
+  - **Hi-hat:** OPEN sets how long it rings (closed about 0.15 s, open about 3 s), the two plates rattling most when half open.
+  - **Hat pedal:** the foot's chick, with a little low thump.
+- **The Djent Kit (A06)** now uses them:
+  - the six hi-hat slots at their openings (closed, open 1, half, open 3, open), with the pedal; the hi-hat pedal (CC 4) steps through them as before;
+  - two crashes;
+  - the ride's bow, bell and edge;
+  - a trashy china;
+  - a stack in the splash's slot (SPL).
+- **Every hit is still -3 dBFS at the defaults**, soft hits darker and quieter.
+- **CPU:** hats, ride and china on eighths with an open hat, crash and stack on half notes take about 9% of one core here.
+- **Honest limits:** I can't listen; the measurements match how cymbals behave, but your ears decide. Tell me what's off (too dark, too long, not trashy enough...) and I'll tune them.
+- **Tests:**
+  - a crash ringing for seconds and darkening as it dies; a stack, a splash and a closed hat short;
+  - the hat longer as it opens;
+  - WASH blooming after the strike;
+  - a soft hit darker;
+  - the ride's bell partials standing out when struck there;
+  - the china's trash squashing its peaks;
+  - the pedal's thump;
+  - the CPU.
+
 ## 0.24.0
 
 **Modelled acoustic drums, built from the physics, and a djent kit made from scratch** (the start of your plan to rely on nobody's samples). As you chose: drums first, added as new models, so every existing preset sounds exactly as before.

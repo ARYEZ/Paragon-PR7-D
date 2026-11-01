@@ -672,9 +672,11 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), en
 
     // THE ACOUSTIC MODELS (0.24.0): shown beside the shaping knobs while the drum is one of them.
     slotControl (acousticControls, "Position", "POSITION", "Where the stick or beater lands: the centre (left: fat, round, fewer overtones) "
-                                                           "to near the edge (right: thinner, ringier, more overtones).");
+                                                           "to near the edge (right: thinner, ringier, more overtones). CYMBALS: the bell "
+                                                           "(left: its ding), the bow (a defined ping) or the edge (right: the most wash).");
     slotControl (acousticControls, "Shell", "SHELL", "The kick: its FRONT HEAD (more: a longer, rounder boom; less: like a port cut in it). "
-                                                     "Snare and toms: the shell's own ring.");
+                                                     "Snare and toms: the shell's own ring. CYMBALS: the WASH they bloom into. HI-HAT: "
+                                                     "how OPEN it is, from tight and closed to fully open.");
     slotControl (acousticControls, "Variation", "VARIATION", "How much each hit differs from the last, as a drummer's do: where it lands, how "
                                                              "hard, the contact, the tuning. 0: every hit the same.");
 
@@ -1137,9 +1139,13 @@ void DrumPage::updateDrumPanels()
         {
             labelledModel = (int) model;
             const auto kick = model == Model::acousticKick, snare = model == Model::acousticSnare;
+            const auto cymbal = synth::drums::isAcousticCymbal (model);
+            const auto hat = model == Model::acousticHat || model == Model::acousticHatPedal;
             slotControls[3]->setLabelText (! acoustic ? "TONE" : kick ? "BEATER" : "STICK");
-            slotControls[4]->setLabelText (! acoustic ? "SNAP" : kick ? "CLICK" : snare ? "WIRES" : "ATTACK");
-            acousticControls[1]->setLabelText (kick ? "FRONT HEAD" : "SHELL");
+            slotControls[4]->setLabelText (! acoustic ? "SNAP" : kick ? "CLICK" : snare ? "WIRES" : model == Model::acousticChina ? "TRASH"
+                                                                    : cymbal ? "PING" : "ATTACK");
+            acousticControls[0]->setLabelText (cymbal && ! hat ? "BELL > EDGE" : "POSITION");
+            acousticControls[1]->setLabelText (kick ? "FRONT HEAD" : hat ? "OPEN" : cymbal ? "WASH" : "SHELL");
         }
     }
     display.setVisible (drum && ! velocityMode);

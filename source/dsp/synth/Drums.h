@@ -43,11 +43,16 @@ namespace synth::drums
 
     // Saved by index (drum{k}Model): only ever append. RIDE, BELL, TAMBOURINE and SHAKER came in PR7-D 0.2.0.
     // ACOUSTIC KICK, SNARE and TOM came in 0.24.0: physically modelled drums (see Voice::startAcoustic).
+    // The acoustic cymbals came in 0.25.0 (see Voice::startCymbal).
     enum class Model { kick, snare, clap, closedHat, openHat, tom, rim, cowbell, cymbal, sample, ride, bell, tambourine, shaker,
-                       acousticKick, acousticSnare, acousticTom };
+                       acousticKick, acousticSnare, acousticTom,
+                       acousticCrash, acousticRide, acousticChina, acousticSplash, acousticStack, acousticHat, acousticHatPedal };
     inline const juce::StringArray modelNames { "Kick", "Snare", "Clap", "Closed Hat", "Open Hat", "Tom", "Rim", "Cowbell", "Cymbal", "Sample",
-                                                "Ride", "Bell", "Tambourine", "Shaker", "Acoustic Kick", "Acoustic Snare", "Acoustic Tom" };
-    inline constexpr bool isAcoustic (Model m) noexcept { return m == Model::acousticKick || m == Model::acousticSnare || m == Model::acousticTom; }
+                                                "Ride", "Bell", "Tambourine", "Shaker", "Acoustic Kick", "Acoustic Snare", "Acoustic Tom",
+                                                "Acoustic Crash", "Acoustic Ride", "Acoustic China", "Acoustic Splash", "Acoustic Stack",
+                                                "Acoustic Hi-Hat", "Acoustic Hat Pedal" };
+    inline constexpr bool isAcousticCymbal (Model m) noexcept { return m >= Model::acousticCrash && m <= Model::acousticHatPedal; }
+    inline constexpr bool isAcoustic (Model m) noexcept { return (m >= Model::acousticKick && m <= Model::acousticTom) || isAcousticCymbal (m); }
     inline const juce::StringArray chokeNames { "None", "1", "2", "3", "4" };   // drum{k}Choke, by index: only append
 
     // The new kit, slot by slot (the first 12 C to B from ROOT, then the 8 added in 0.2.0): what each starts as, and a
@@ -471,7 +476,7 @@ namespace synth::drums
         // the snare wires following the head.
         struct Modes
         {
-            static constexpr int max = 28;
+            static constexpr int max = 48;   // 28 for the drums, 40 + the bell's 4 for the cymbals (0.25.0)
             int count = 0;
             // Each a decaying sine made by a two-term recurrence (y = c y1 - r2 y2): two multiplies a sample. Its
             // tuning (c, for the glide) and its envelope (env, for skipping it once inaudible) every 16 samples.
@@ -483,6 +488,23 @@ namespace synth::drums
             float loudest = 1.0f;   // its loudest mode now (amplitude x envelope): it ends once that's inaudible
         };
         Modes modes;
+        // THE ACOUSTIC CYMBALS (0.25.0): beside their modes, the WASH (the shimmer a struck cymbal blooms into: noise in
+        // eight bands, built up after the hit, its highs dying first, slowly shimmering), the china's and stack's
+        // trash (a soft clip), the hi-hat's plates rattling together.
+        struct Cymbal
+        {
+            std::array<Svf, 8> bands;
+            std::array<float, 8> weights {};
+            float build = 0.0f, buildCoef = 0.0f, washEnv = 0.0f, washCoef = 0.0f, washLevel = 0.0f;
+            float lp = 0.0f, lpCoef = 0.0f, lpFall = 0.0f, lpFloor = 0.0f;   // the wash's brightness, falling
+            double lfoPhase = 0.0, lfoStep = 0.0;
+            float shimmer = 0.0f, drive = 0.0f, highPass = 0.0f, highState = 0.0f;
+            float rattle = 0.0f, rattleGain = 1.0f;
+            int rattleLeft = 0, rattleMin = 1, rattleSpread = 1;
+            float thump = 0.0f, thumpCoef = 0.0f;
+            double thumpPhase = 0.0, thumpHz = 0.0;
+        };
+        Cymbal cymbal;
 
         // SAMPLE's.
         const Sample* sample = nullptr;
@@ -511,6 +533,8 @@ namespace synth::drums
     private:
         void setTone (double tone, double rate) noexcept;   // SAMPLE's TONE: a low-pass below the middle, a high-pass above
         void startAcoustic (const SlotSettings&, float velocityGain, double rate) noexcept;   // 0.24.0
+        void startCymbal (const SlotSettings&, float velocityGain, double rate) noexcept;     // 0.25.0
+        float nextModes() noexcept;        // the modes' next sample (both)
         void startShape (const SlotSettings&, double regionSamples) noexcept;
         bool advanceShape() noexcept;      // the envelope's next sample; false once it has ended at nothing
         float next() noexcept;             // the mono models
