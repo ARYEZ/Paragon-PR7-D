@@ -1011,6 +1011,25 @@ namespace synth::drums
         // velocity's level too (so a soft note within a layer is a little quieter). A neighbour layer's hit matched.
         if (s.instrument != nullptr)
             velocityGain = (s.velocityToVolume ? velocityGain : 1.0f) * hitGain;
+        // Every hit busy (48 playing): the oldest is cut, all its voices (a hit's voices share its age).
+        {
+            int hits = 0;
+            const Voice* oldest = nullptr;
+            for (const auto& v : voices)
+                if (v.active && v.primary)
+                {
+                    ++hits;
+                    if (oldest == nullptr || v.age < oldest->age)
+                        oldest = &v;
+                }
+            if (hits >= maxHits && oldest != nullptr)
+            {
+                const auto oldAge = oldest->age;
+                for (auto& v : voices)
+                    if (v.active && v.age == oldAge)
+                        v.active = false;
+            }
+        }
         noiseSeed = noiseSeed * 1664525u + 1013904223u;
         const auto age = ++ages;
         if (mics == nullptr)
@@ -1279,10 +1298,21 @@ namespace synth::drums
             if (age >= 0.0)
                 age += seconds;
 
+        // Each sounding slot's voices, drawn into its scratch in one pass over the voices (not one per slot).
         std::array<bool, numSlots> used {};
-        for (const auto& v : voices)
-            if (v.active && v.channel < 0)
+        for (auto& v : voices)
+        {
+            if (! v.active || v.channel >= 0)
+                continue;
+            auto* left = scratch.data() + (size_t) (2 * v.slot * blockSize);
+            if (! used[(size_t) v.slot])
+            {
                 used[(size_t) v.slot] = true;
+                std::fill (left, left + numSamples, 0.0f);
+                std::fill (left + blockSize, left + blockSize + numSamples, 0.0f);
+            }
+            v.render (left, left + blockSize, numSamples);
+        }
 
         const auto glide = (float) (1.0 / (0.005 * sampleRate));   // MUTE / SOLO: 5 ms
 
@@ -1300,11 +1330,6 @@ namespace synth::drums
 
             auto* left = scratch.data() + (size_t) (2 * slot * blockSize);
             auto* right = left + blockSize;
-            std::fill (left, left + numSamples, 0.0f);
-            std::fill (right, right + numSamples, 0.0f);
-            for (auto& v : voices)
-                if (v.active && v.slot == slot && v.channel < 0)
-                    v.render (left, right, numSamples);
             filterSlot (s, left, right, numSamples, lowState[(size_t) slot], highState[(size_t) slot], sampleRate);
 
             // Into the slot's bus, or its output (the mix, or another the DAW has on), and (while each effect is on)

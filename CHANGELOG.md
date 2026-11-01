@@ -28,10 +28,11 @@ Each version's notes appear on its GitHub Release page.
 - **Only drums from multi-mic kits use the mixer**, as you chose. Synth drums and single samples go their own way (their INSERT, sends and OUTPUT), so your presets sound exactly as before. A multi-mic drum's own INSERT, sends, LP / HP and OUTPUT don't apply to it now; its sound goes through the mixer. Sends, buses and effects per channel come later.
 - **Presets** keep the channels' settings and the bleed table. Each channel's OUTPUT stays with the project.
 - **VOICES** counts hits, not mics: a hit through seven mics is still one hit.
+- **Up to 48 hits at once**, as before; the kit has 192 voices for them, since a multi-mic hit is a voice per mic. A kit of synth drums or single samples plays (and costs) exactly as in 0.19.0. The kit also draws its drums in one pass over its voices now, not one per drum.
 - **Not checked here:**
   - how a real multi-mic kit sounds through it;
   - how well my mic-name rules match real kits' names;
-  - the CPU with big kits (a hit is now a voice per mic; the kit can play 192 voices at once).
+  - the CPU with big multi-mic kits (48 hits through seven mics would be 336 voices wanted: past 192, the oldest are cut).
 - **Tests:**
   - mic names into channels;
   - multi-mic SFZ kits and mic folders keeping each mic apart, and single-mic ones not;

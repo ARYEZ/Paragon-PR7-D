@@ -498,6 +498,29 @@ TEST_CASE ("DRUMS: CPU, the whole kit hit every sixteenth note", "[drums][perfor
     CHECK (percent < 14.0);   // (8% for PR7-K's 12)
 }
 
+TEST_CASE ("DRUMS: at most 48 hits sound at once, the oldest cut first (as before the mixer's 192 voices)", "[drums]")
+{
+    // Every drum a 2 s sine, each hit three times in a quarter of a second: 69 hits wanting to ring together.
+    Rig rig;
+    const auto sine = sineSample (440.0, rate, 2.0);
+    for (auto& s : rig.settings.slots)
+    {
+        s.model = Model::sample;
+        s.sample = sine.get();
+        s.choke = 0;     // the hats would stop each other
+        s.mono = false;
+    }
+    std::vector<std::tuple<int, float, double>> notes;
+    for (int step = 0; step < 3; ++step)
+        for (int k = 0; k < numSlots; ++k)
+            notes.emplace_back (36 + k, 1.0f, step * 0.1);
+    rig.play (0.3, notes);
+    CHECK (rig.kit.getNumActiveVoices() == Kit::maxHits);
+    // The 21 cut were the first round's (drums 1-21); every drum still sounds through a later hit.
+    for (int k = 0; k < numSlots; ++k)
+        CHECK (rig.kit.isSounding (k));
+}
+
 namespace
 {
     // A file like a sample pack's "kick, nine ways": nine kicks 0.45 s apart, each a bit higher, 4 s in all.

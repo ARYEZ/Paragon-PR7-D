@@ -489,7 +489,9 @@ namespace synth::drums
     class Kit
     {
     public:
-        static constexpr int maxVoices = 192, maxPerSlot = 6;   // 192 since 0.20.0 (a multi-mic hit is a voice per mic)
+        // 0.20.0: up to 48 hits at once (as before), and 192 voices for them, a multi-mic hit being a voice per mic. A
+        // kit of synth drums or single samples plays as in 0.19.0 (each hit one voice, the 49th cutting the oldest).
+        static constexpr int maxVoices = 192, maxHits = 48, maxPerSlot = 6;
 
         void prepare (double sampleRate, int maxBlockSize);
         void reset() noexcept;

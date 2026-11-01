@@ -294,6 +294,18 @@ TEST_CASE ("MIXER: VOICES counts hits, not mics; presets keep the channels and t
     CHECK (p.processor->getDrumKit().getNumActiveVoices() <= 6);
     CHECK (p.processor->getDrumKit().getNumActiveVoices() >= 4);
 
+    // The kit's 48-hit limit counts hits too: 20 snare hits of three mics each are 60 voices.
+    p.set (ParamIDs::drum (2, "Voices"), 48.0f);
+    for (int b = 0; b < (int) (1.5 * sampleRate / blockSize); ++b)   // the earlier hits rung out (1 s files)
+        p.processor->processBlock (buffer, none);
+    REQUIRE (p.processor->getDrumKit().getNumActiveVoices() == 0);
+    midi.clear();
+    for (int i = 0; i < 20; ++i)
+        midi.addEvent (juce::MidiMessage::noteOn (10, 38, (juce::uint8) 100), i * 10);
+    p.processor->processBlock (buffer, midi);
+    midi.clear();
+    CHECK (p.processor->getDrumKit().getNumActiveVoices() == 60);
+
     // A preset keeps the channels' settings and the bleed table.
     p.set (ParamIDs::mix (mixer::overheads, "Level"), -3.0f);
     auto m = p.processor->getModMatrix();
