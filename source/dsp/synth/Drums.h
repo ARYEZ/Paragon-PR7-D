@@ -329,8 +329,9 @@ namespace synth::drums
         static constexpr std::int8_t hatPedal = 100;
 
         // THE MIXER (0.20.0): the mic channels (multi-mic drums only) and the bleed from each piece into each.
-        std::array<mixer::ChannelSettings, mixer::numChannels> channels {};
+        std::array<mixer::ChannelSettings, mixer::numMicChannels> channels {};   // 0.23.0: USER 1-8 too
         const mixer::BleedMatrix* bleed = nullptr;   // null: every cell 0 dB, on
+        const mixer::MicRoutes* micRoutes = nullptr; // 0.23.0: ROUTE INSTRUMENT MICROPHONES (null: every mic AUTO)
         // 0.21.0: the buses, each strip's sends (null: none), and MUTE MODE.
         std::array<mixer::BusSettings, mixer::numBuses> buses {};
         const mixer::SendTable* sends = nullptr;
@@ -567,12 +568,12 @@ namespace synth::drums
         void renderChannels (const Outputs&, int offset, int numSamples, const KitSettings&) noexcept;   // THE MIXER
     public:
         // THE MIXER: each channel's peak since the page last asked (any thread), and whether it played anything.
-        float takeChannelPeak (int channel) noexcept { return channelPeaks[(size_t) juce::jlimit (0, mixer::numChannels - 1, channel)].exchange (0.0f); }
+        float takeChannelPeak (int channel) noexcept { return channelPeaks[(size_t) juce::jlimit (0, mixer::numMicChannels - 1, channel)].exchange (0.0f); }
         float takeBusPeak (int bus) noexcept { return busPeaks[(size_t) juce::jlimit (0, mixer::numBuses - 1, bus)].exchange (0.0f); }
     private:
         // Each channel's direct and bleed sound apart (left, right, bleed left, bleed right), then the buses' (0.21.0).
         std::vector<float> channelScratch, voiceScratch, busScratch;
-        std::array<std::atomic<float>, mixer::numChannels> channelPeaks {};
+        std::array<std::atomic<float>, mixer::numMicChannels> channelPeaks {};
         std::array<std::atomic<float>, mixer::numBuses> busPeaks {};
         // 0.22.0: samples a strip with effects keeps running after its sound stops (their tails).
         std::array<int, mixer::numStrips> stripTail {};

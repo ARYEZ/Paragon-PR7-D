@@ -142,7 +142,21 @@ namespace synth::mixer
         }
     };
     inline constexpr int numSendSlots = 2;
-    inline constexpr int numStrips = numChannels + numBuses;   // the channels, then the buses
+    // 0.23.0, USER CHANNELS: 8 more mic channels, made by ROUTE INSTRUMENT MICROPHONES (a mic of a piece given a
+    // channel of its own). A MIC CHANNEL is 0-12 (the named ones) or 13-20 (USER 1-8). As strips they come after the
+    // buses, so the buses' strips (and presets' sends and effects on them) keep their numbers.
+    inline constexpr int numUserChannels = 8, numMicChannels = numChannels + numUserChannels;
+    inline constexpr int firstUserStrip = numChannels + numBuses;
+    inline constexpr int numStrips = numChannels + numBuses + numUserChannels;   // the channels, the buses, the user channels
+    inline constexpr bool isUserChannel (int channel) noexcept { return channel >= numChannels && channel < numMicChannels; }
+    inline constexpr int stripOfChannel (int channel) noexcept { return channel < numChannels ? channel : firstUserStrip + channel - numChannels; }
+    // A strip's mic channel (-1: a bus).
+    inline constexpr int channelOfStrip (int strip) noexcept
+    {
+        return strip < numChannels ? strip : strip >= firstUserStrip && strip < numStrips ? numChannels + strip - firstUserStrip : -1;
+    }
+    inline constexpr bool isBusStrip (int strip) noexcept { return strip >= numChannels && strip < firstUserStrip; }
+
     using SendTable = std::array<std::array<Send, numSendSlots>, numStrips>;
 
     // THE EFFECTS (0.22.0): four slots on each channel and bus, each one effect (inspired by the reference's mixer
@@ -182,7 +196,7 @@ namespace synth::mixer
     // into a later one.
     inline bool canFeedBus (int from, int bus) noexcept
     {
-        return bus >= 0 && bus < numBuses && (from < numChannels || bus > from - numChannels);
+        return bus >= 0 && bus < numBuses && (! isBusStrip (from) || bus > from - numChannels);
     }
 
     // BLEED FROM INSTRUMENTS (the mixer's properties): each channel's level for each piece of the kit (the drums
@@ -198,4 +212,17 @@ namespace synth::mixer
         float gain() const noexcept { return on && gainDb > -59.9f ? juce::Decibels::decibelsToGain (gainDb) * (invert ? -1.0f : 1.0f) : 0.0f; }
     };
     using BleedMatrix = std::array<std::array<BleedCell, numPieces>, numChannels>;
+
+    // ROUTE INSTRUMENT MICROPHONES (0.23.0): for each piece of the kit, where each of its mics (by the channel its name
+    // sorted it into) plays: AUTO (that channel), another mic channel, or NONE.
+    inline constexpr std::int8_t routeAuto = -1, routeNone = -2;
+    using MicRoutes = std::array<std::array<std::int8_t, numChannels>, numPieces>;
+    // The mic channel a piece's mic plays into (-1: none). `piece` -1: auto.
+    inline int routedChannel (const MicRoutes* routes, int piece, int source) noexcept
+    {
+        if (routes == nullptr || piece < 0 || piece >= numPieces || source < 0 || source >= numChannels)
+            return source;
+        const auto to = (*routes)[(size_t) piece][(size_t) source];
+        return to == routeAuto ? source : to == routeNone || to < 0 || to >= numMicChannels ? -1 : (int) to;
+    }
 }

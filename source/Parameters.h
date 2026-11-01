@@ -282,7 +282,7 @@ namespace ParamIDs
         juce::StringArray ids { outputGain, bypass, limitUnity, limitDelta, drumsMap, delayOutput, reverbOutput };
         ids.addArray (drumsPedalSteps);
         ids.add (drumsMidiChannel);
-        for (int c = 0; c < 13; ++c)
+        for (int c = 0; c < 21; ++c)   // the mic channels (0.23.0: USER 1-8 too)
             ids.add (mix (c, "Output"));
         for (int b = 0; b < 8; ++b)
             ids.add (mixBus (b, "Output"));

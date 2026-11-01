@@ -840,7 +840,7 @@ namespace synth::drums
         sampleRate = newSampleRate;
         blockSize = juce::jmax (1, maxBlockSize);
         scratch.assign ((size_t) (2 * numSlots * blockSize), 0.0f);
-        channelScratch.assign ((size_t) (4 * mixer::numChannels * blockSize), 0.0f);
+        channelScratch.assign ((size_t) (4 * mixer::numMicChannels * blockSize), 0.0f);
         busScratch.assign ((size_t) (2 * mixer::numBuses * blockSize), 0.0f);
         voiceScratch.assign ((size_t) (2 * blockSize), 0.0f);
         reset();
@@ -1050,10 +1050,17 @@ namespace synth::drums
         auto first = true;
         for (const auto& mic : *mics)
         {
-            const auto channel = mic.channel >= 0 ? mic.channel : homeChannel (slot);
+            // The mic's own channel (by its name), then ROUTE INSTRUMENT MICROPHONES' (0.23.0): another channel, a user
+            // channel, or none. It stays direct or bleed, and takes its BLEED FROM INSTRUMENTS cell, as in its own
+            // channel; the channel it plays in gives the rest (bleed level and on, offset, release).
+            const auto source = mic.channel >= 0 ? mic.channel : homeChannel (slot);
+            const auto channel = mixer::routedChannel (settings.micRoutes, pieceOfSlot (slot), source);
+            if (channel < 0)
+                continue;
+            const auto direct = isDirect (slot, source);
             const auto& ch = settings.channels[(size_t) channel];
-            auto gain = settings.bleed != nullptr ? (*settings.bleed)[(size_t) channel][(size_t) piece].gain() : 1.0f;
-            if (! isDirect (slot, channel))
+            auto gain = settings.bleed != nullptr ? (*settings.bleed)[(size_t) source][(size_t) piece].gain() : 1.0f;
+            if (! direct)
                 gain *= ch.bleedOn ? ch.bleedGain : 0.0f;
             if (std::abs (gain) < 1.0e-9f || mic.sample == nullptr)
                 continue;
@@ -1066,7 +1073,7 @@ namespace synth::drums
             voice->channel = channel;
             voice->primary = first;
             voice->micGain = gain;
-            voice->bleed = ! isDirect (slot, channel);
+            voice->bleed = ! direct;
             voice->releaseLeft = ch.releaseSeconds > 0.0 ? juce::jmax (1, (int) (ch.releaseSeconds * sampleRate)) + voice->waitLeft : -1;
             first = false;
         }
@@ -1392,8 +1399,8 @@ namespace synth::drums
         // A strip with effects runs on for 3 s after its sound stops (a chorus's or a compressor's tail).
         const auto tailSamples = (int) (3.0 * sampleRate) + numSamples;
         const auto bs = (size_t) blockSize;
-        std::fill (channelScratch.begin(), channelScratch.begin() + (std::ptrdiff_t) (4 * mixer::numChannels * bs), 0.0f);
-        std::array<bool, mixer::numChannels> used {};
+        std::fill (channelScratch.begin(), channelScratch.begin() + (std::ptrdiff_t) (4 * mixer::numMicChannels * bs), 0.0f);
+        std::array<bool, mixer::numMicChannels> used {};
         auto* vl = voiceScratch.data();
         auto* vr = vl + blockSize;
         for (auto& v : voices)
@@ -1421,11 +1428,12 @@ namespace synth::drums
             }
             used[(size_t) v.channel] = true;
         }
-        for (int c = 0; c < mixer::numChannels; ++c)
+        for (int c = 0; c < mixer::numMicChannels; ++c)
         {
+            const auto strip = (size_t) mixer::stripOfChannel (c);
             if (used[(size_t) c])
-                stripTail[(size_t) c] = tailSamples;
-            else if (stripTail[(size_t) c] > 0 && hasEffects (c))
+                stripTail[strip] = tailSamples;
+            else if (stripTail[strip] > 0 && hasEffects ((int) strip))
                 used[(size_t) c] = true;   // silence in, its effects' tails out
         }
 
@@ -1518,12 +1526,14 @@ namespace synth::drums
         for (const auto& b : settings.buses)
             anyBusSolo = anyBusSolo || b.solo;
 
-        for (int c = 0; c < mixer::numChannels; ++c)
+        for (int channel = 0; channel < mixer::numMicChannels; ++channel)
         {
-            if (! used[(size_t) c])
+            if (! used[(size_t) channel])
                 continue;
-            const auto& ch = settings.channels[(size_t) c];
-            auto* dl = channelScratch.data() + 4 * (size_t) c * bs;
+            // Its strip (USER 1-8's come after the buses): sends, effects, routing; its settings and scratch by channel.
+            const auto c = mixer::stripOfChannel (channel);
+            const auto& ch = settings.channels[(size_t) channel];
+            auto* dl = channelScratch.data() + 4 * (size_t) channel * bs;
             auto* dr = dl + bs;
             const auto* bl = dl + 2 * bs;
             const auto* br = dl + 3 * bs;

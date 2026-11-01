@@ -24,7 +24,7 @@ public:
 
     enum class Tab { bleed, sends, effects };
 
-    void selectChannel (int channel) { selectStrip (channel); }
+    void selectChannel (int channel) { selectStrip (synth::mixer::stripOfChannel (channel)); }   // a mic channel (0.23.0: USER too)
     void selectStrip (int strip);                    // a channel, or numChannels + a bus
     int getSelectedChannel() const noexcept { return selected; }
     int getSelectedStrip() const noexcept { return selected; }
@@ -51,6 +51,14 @@ public:
     void copyEffect (int strip, int slot);
     void pasteEffect (int strip, int slot);
     juce::String describeEffect (int strip, int slot) const;
+    // ROUTE INSTRUMENT MICROPHONES (0.23.0): the panel over the strips; the drum it shows; that drum's mics (as
+    // channels, close first); after a route changes (the strips shown, the panel's menus).
+    void openRouter (bool open);
+    bool isRouterOpen() const;
+    void chooseRouterPiece (int piece);
+    int getRouterPiece() const;
+    juce::Array<int> getRouterMics() const;
+    void routingChanged();
     void runMenuItem (int item);                     // MENU...'s (tests)
     enum MenuItem { preSend = 1, postSend, stereoReverse, stereoOutputs, multichannelOutputs };
     juce::String getNote() const { return note; }
@@ -71,6 +79,11 @@ private:
     class PieceRow;
     class SendEditor;
     class EffectEditor;
+    class MicRouter;
+    std::unique_ptr<MicRouter> router;
+    juce::Array<int> shownUsers;
+    std::vector<juce::String> shownUserNames;
+    juce::TextButton routeButton { "ROUTE MICS..." };
     std::unique_ptr<EffectEditor> effectEditor;
     int chosenFx = 0;
     std::optional<synth::mixer::FxSlot> fxClipboard;

@@ -2,6 +2,34 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.23.0
+
+**Route Instrument Microphones, and channels of your own** (from chapter 9.4.1 you sent; our own look and words). As you chose: up to 8 new user channels.
+
+- **ROUTE MICS...** (on the MIXER page, beside MICS / BUSES): the manual's three columns over the strips.
+  1. **The drum:** every drum that has a multi-mic sound loaded.
+  2. **Its mics:** the close mics first, then the bleed mics.
+  3. **Where each mic goes:**
+     - **Auto:** its own channel, as before.
+     - **None:** that mic isn't heard at all, e.g. the snare in the kick mic.
+     - **Any other channel.**
+     - **Create New Channel:** a channel of its own, e.g. the ride's overhead mics apart from the rest of the kit (the manual's second example).
+- **USER CHANNELS** (up to 8, after the mic channels, before the buses). A strip appears once a mic is routed to it. Each is a full channel: fader, pan, mute / solo / polarity, bleed, time offset, release, 4 effects, 2 sends, a bus or an output.
+  - A new one is named after the drum and mic (e.g. SNARE ROOM), and starts going where that mic's own channel went (its output or bus). Right-click its name to rename it.
+- **A routed mic stays what it was.** A close mic stays direct, a bleed mic stays bleed: the sends' DIRECT / BLEED and the channel's BLEED knob treat it the same. It also keeps the bleed level set in its own channel's BLEED FROM INSTRUMENTS. These are my own rules; the manual doesn't say.
+- **Routing is per drum, not per articulation:** routing the ride routes its bow, bell and edge together.
+- **Presets** keep the routes and the user channels' names. Their outputs stay with the project, as the other channels' do.
+- **Not here yet:**
+  - the manual's "X-Drums" (adding a second kick to the kit) and stacked drums;
+  - routing a synth drum (they don't have mics yet).
+- **Tests:**
+  - a mic to NONE, then back to AUTO;
+  - a mic into another channel (muting its old channel no longer touches it);
+  - a new channel: its name, its output taken from the mic's channel, its own fader exactly -6 dB, its own EQ +6 dB;
+  - a bleed mic staying bleed in a user channel;
+  - renaming, presets;
+  - the panel's drums and mics (close first), and the strips appearing.
+
 ## 0.22.0
 
 **Effects on every mixer channel and bus** (from the Mixer chapter's effects pages; our own effects, look and words). As you chose: the mix core plus the colour effects, in 4 slots per strip.

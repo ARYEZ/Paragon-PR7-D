@@ -29,7 +29,8 @@
 //   PARAGON_SNAPSHOT_PAGE=fx         THE RACK (PARAGON_SNAPSHOT_RACK=1: at work on a beat, the sends and bus A too; PARAGON_SNAPSHOT_FX=eq|dominion|comp|limiter|sends|delay|reverb|modfx|mod|mod2|lofi|inserts|insdrive|insglitch|insmod|inslofi: that view, the inserts' on bus PARAGON_SNAPSHOT_BUS=1-4)
 //   PARAGON_SNAPSHOT_PAGE=mixer      THE MIXER (0.20.0) with a multi-mic kit, a hit just played
 //                                    (PARAGON_SNAPSHOT_MIXERBUS=1: buses and sends, the snare top's SENDS; =2 the buses;
-//                                    PARAGON_SNAPSHOT_MIXERFX=1: effects on the snare top, its EFFECTS tab)
+//                                    PARAGON_SNAPSHOT_MIXERFX=1: effects on the snare top, its EFFECTS tab;
+//                                    PARAGON_SNAPSHOT_MIXERROUTE=1: ROUTE MICS on the snare, =2 the user channels)
 //   PARAGON_SNAPSHOT_NOTES=1         the kick, snare and closed hat's keys held on the keyboard (they light)
 //   PARAGON_SNAPSHOT_MIDI=1          demo MIDI links and a knob learning (with PAGE=settings: the links list)
 TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
@@ -789,6 +790,30 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             mixerPage.selectStrip (snareTop);
             mixerPage.showTab (MixerPage::Tab::effects);
             mixerPage.chooseEffectSlot (mixerFx == 2 ? 1 : 2);
+        }
+        // 0.23.0: PARAGON_SNAPSHOT_MIXERROUTE=1 ROUTE MICS open on the snare, its room mic on a channel of its own, the
+        // hi-hat's overheads on another, its kick mic off; =2 the strips with those two user channels.
+        const auto mixerRoute = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_MIXERROUTE", {}).getIntValue();
+        if (mixerRoute > 0)
+        {
+            using namespace synth::mixer;
+            const auto snarePiece = synth::drums::pieceOfSlot (synth::drums::notemap::SD), hatPiece = synth::drums::pieceOfSlot (synth::drums::notemap::CH);
+            processor.createUserChannel (snarePiece, room);
+            processor.createUserChannel (hatPiece, overheads);
+            processor.setMicRoute (snarePiece, kickIn, routeNone);
+            auto& mixerPage = view->getMixerPage();
+            mixerPage.routingChanged();
+            if (mixerRoute == 1)
+            {
+                mixerPage.openRouter (true);
+                mixerPage.chooseRouterPiece (snarePiece);
+            }
+            else
+            {
+                mixerPage.selectChannel (numChannels);
+                view->resized();
+                mixerPage.scrollToStrip (8);
+            }
         }
         juce::AudioBuffer<float> buffer (2, 512);
         juce::MidiBuffer midi;

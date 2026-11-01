@@ -186,6 +186,16 @@ public:
     // instrument (our own grouping: kick OUT 2, snare OUT 3, hi-hat OUT 4, toms OUT 5, cymbals OUT 6, overheads OUT 7,
     // room and ambience OUT 8, other OUT 9), the buses to MAIN.
     void mixerStereoReverse();
+    // ROUTE INSTRUMENT MICROPHONES (0.23.0): a piece's mic (by the channel its name sorted it into) to a mic channel,
+    // AUTO or NONE (mixer::routeAuto, routeNone); a new USER channel for it (its settings fresh, named after the piece
+    // and mic, playing where the mic's own channel does; -1: all 8 in use); which user channels are in use (routed
+    // to); a mic channel's name (USER ones' as named); renaming one. Each an undo step.
+    int getMicRoute (int piece, int mic) const;
+    void setMicRoute (int piece, int mic, int to);
+    int createUserChannel (int piece, int mic);
+    juce::Array<int> getUserChannelsInUse() const;
+    juce::String getMixerChannelName (int channel) const;
+    void renameUserChannel (int channel, const juce::String& name);
     void applyMixerOutputs (bool multichannel);
     static int multichannelOutputOf (int channel) noexcept;
     // A channel's or bus's (strip: the channels, then the buses) destination as its OUTPUT menu shows it: a route
@@ -556,7 +566,7 @@ private:
     struct DrumParameters { std::atomic<float>* values[std::size (ParamIDs::drumSettings)] {}; };
     std::array<DrumParameters, ParamIDs::numDrums> drumParameters {};
     // THE MIXER's channels' parameters (0.20.0), in ParamIDs::mixSettings' order, read every block.
-    std::array<std::array<std::atomic<float>*, std::size (ParamIDs::mixSettings)>, synth::mixer::numChannels> mixParameters {};
+    std::array<std::array<std::atomic<float>*, std::size (ParamIDs::mixSettings)>, synth::mixer::numMicChannels> mixParameters {};
     std::array<std::array<std::atomic<float>*, std::size (ParamIDs::busSettings)>, synth::mixer::numBuses> busParameters {};   // 0.21.0
     std::atomic<float>* muteModeParameter = nullptr;
     // THE MIXER's EFFECTS (0.22.0): made as presets load or slots change, run by the kit (mutable: getKitSettings
@@ -718,6 +728,7 @@ private:
         synth::mixer::BleedMatrix bleed {};                                                 // 0.20.0
         synth::mixer::SendTable sends {};                                                   // 0.21.0
         synth::mixer::FxTable effects {};                                                   // 0.22.0
+        synth::mixer::MicRoutes micRoutes {};                                               // 0.23.0
     };
     std::shared_ptr<const CompiledMatrix> compiledMatrix;
     std::atomic<const CompiledMatrix*> matrixForAudio { nullptr };

@@ -23,14 +23,16 @@ namespace
         b.setTooltip (tip);
     }
 
-    bool isBus (int strip) noexcept { return strip >= mixer::numChannels; }
-    juce::String stripName (int strip)
+    // Strips: the named mic channels, the buses, then (0.23.0) the user channels.
+    bool isBus (int strip) noexcept { return mixer::isBusStrip (strip); }
+    bool isUser (int strip) noexcept { return mixer::isUserChannel (mixer::channelOfStrip (strip)); }
+    juce::String stripName (const ParagonX1AudioProcessor& p, int strip)
     {
-        return isBus (strip) ? mixer::busNames[strip - mixer::numChannels] : mixer::channelNames[strip];
+        return isBus (strip) ? mixer::busNames[strip - mixer::numChannels] : p.getMixerChannelName (mixer::channelOfStrip (strip));
     }
     juce::String stripId (int strip, const char* what)
     {
-        return isBus (strip) ? ParamIDs::mixBus (strip - mixer::numChannels, what) : ParamIDs::mix (strip, what);
+        return isBus (strip) ? ParamIDs::mixBus (strip - mixer::numChannels, what) : ParamIDs::mix (mixer::channelOfStrip (strip), what);
     }
 }
 
@@ -206,7 +208,7 @@ public:
         g.drawRoundedRectangle (r.reduced (1.5f), 4.0f, 1.0f);
         g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
         g.setColour (selected || isBus (strip) ? colour : ParagonColours::text);
-        g.drawText (stripName (strip), getLocalBounds().removeFromBottom (28), juce::Justification::centred, false);
+        g.drawText (stripName (page.processor, strip), getLocalBounds().removeFromBottom (28), juce::Justification::centred, false);
         if (isBus (strip))
         {
             g.setFont (juce::FontOptions (20.0f, juce::Font::bold));
@@ -228,6 +230,20 @@ public:
     {
         if (e.y > getHeight() - 30 || (isBus (strip) && e.y < 66))
             page.selectStrip (strip);
+        // A user channel's name: right-click to rename it (0.23.0).
+        if (isUser (strip) && e.y > getHeight() - 30 && e.mods.isPopupMenu())
+        {
+            auto* window = new juce::AlertWindow ("RENAME CHANNEL", "A name for this channel:", juce::MessageBoxIconType::NoIcon);
+            window->addTextEditor ("name", page.processor.getMixerChannelName (mixer::channelOfStrip (strip)));
+            window->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+            window->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+            juce::Component::SafePointer<Strip> safe (this);
+            window->enterModalState (true, juce::ModalCallbackFunction::create ([safe, window] (int result)
+            {
+                if (safe != nullptr && result == 1)
+                    safe->page.processor.renameUserChannel (mixer::channelOfStrip (safe->strip), window->getTextEditorContents ("name"));
+            }), true);
+        }
     }
 
     int getStrip() const noexcept { return strip; }
@@ -734,6 +750,206 @@ private:
 };
 
 //==============================================================================
+// ROUTE INSTRUMENT MICROPHONES (0.23.0, from the reference's 9.4.1; our own look and words): over the strips, three
+// columns: 1. the drums (pieces) with multi-mic sounds, 2. the chosen one's mics (close ones first, then bleed),
+// 3. each mic's channel: AUTO (its own), NONE, any mic channel, or a NEW CHANNEL of its own.
+class MixerPage::MicRouter final : public juce::Component
+{
+public:
+    explicit MicRouter (MixerPage& p) : page (p)
+    {
+        DrumSeqPanel::style (close);
+        close.setButtonText ("CLOSE");
+        close.onClick = [this] { page.openRouter (false); };
+        addAndMakeVisible (close);
+    }
+
+    // The pieces with multi-mic sounds, and each one's mics (the channels their names sorted them into).
+    static std::map<int, juce::Array<int>> micsByPiece (const ParagonX1AudioProcessor& processor)
+    {
+        std::map<int, juce::Array<int>> found;
+        for (int k = 0; k < drums::numSlots; ++k)
+            if (const auto instrument = processor.getDrumInstrument (k); instrument != nullptr && instrument->hasMics())
+                if (const auto piece = drums::pieceOfSlot (k); piece >= 0)
+                    for (const auto c : instrument->micChannels())
+                        found[piece].addIfNotAlreadyThere (c >= 0 ? c : drums::homeChannel (k));
+        for (auto& [piece, mics] : found)
+        {
+            // Close mics first (as the reference lists them), then the rest, each in channel order.
+            const auto slot = drums::pieces[(size_t) piece].articulations[0].slot;
+            std::sort (mics.begin(), mics.end(), [slot] (int a, int b)
+            {
+                const auto da = drums::isDirect (slot, a) && ! mixer::hearsWholeKit (a), db = drums::isDirect (slot, b) && ! mixer::hearsWholeKit (b);
+                return da != db ? da : a < b;
+            });
+        }
+        return found;
+    }
+
+    void refresh()
+    {
+        const auto found = micsByPiece (page.processor);
+        if (! found.empty() && found.find (piece) == found.end())
+            piece = found.begin()->first;
+        pieceButtons.clear();
+        for (const auto& [pc, mics] : found)
+        {
+            auto b = std::make_unique<juce::TextButton> (juce::String (drums::pieces[(size_t) pc].name));
+            DrumSeqPanel::style (*b);
+            b->setClickingTogglesState (false);
+            b->setToggleState (pc == piece, juce::dontSendNotification);
+            b->onClick = [this, pc = pc] { page.chooseRouterPiece (pc); };
+            addAndMakeVisible (*b);
+            pieceButtons.push_back (std::move (b));
+        }
+        rows.clear();
+        if (const auto it = found.find (piece); it != found.end())
+            for (const auto mic : it->second)
+            {
+                auto row = std::make_unique<Row>();
+                row->mic = mic;
+                const auto slot = drums::pieces[(size_t) piece].articulations[0].slot;
+                row->close = drums::isDirect (slot, mic) && ! mixer::hearsWholeKit (mic);
+                fill (row->target, mic);
+                row->target.onChange = [this, mic, box = &row->target]
+                {
+                    if (refreshing)
+                        return;
+                    const auto id = box->getSelectedId();
+                    if (id == createId)
+                        page.processor.createUserChannel (piece, mic);
+                    else
+                        page.processor.setMicRoute (piece, mic, id == autoId ? (int) mixer::routeAuto : id == noneId ? (int) mixer::routeNone : id - channelId);
+                    juce::Component::SafePointer<MicRouter> safe (this);
+                    juce::MessageManager::callAsync ([safe] { if (safe != nullptr) safe->page.routingChanged(); });
+                };
+                addAndMakeVisible (row->target);
+                rows.push_back (std::move (row));
+            }
+        resized();
+        repaint();
+    }
+
+    int getPiece() const noexcept { return piece; }
+    void setPiece (int p) { piece = p; refresh(); }
+    juce::Array<int> getMics() const
+    {
+        juce::Array<int> mics;
+        for (const auto& r : rows)
+            mics.add (r->mic);
+        return mics;
+    }
+
+    void resized() override
+    {
+        auto a = getLocalBounds().reduced (18, 0);
+        auto header = a.removeFromTop (44);
+        close.setBounds (header.removeFromRight (80).withSizeKeepingCentre (80, 26));
+        a.removeFromTop (24);   // the columns' headings
+        auto left = a.removeFromLeft (200);
+        for (auto& b : pieceButtons)
+        {
+            b->setBounds (left.removeFromTop (26));
+            left.removeFromTop (4);
+        }
+        a.removeFromLeft (30);
+        auto y = a.getY() + 18;   // under the first group's heading
+        auto previousClose = true;
+        for (auto& r : rows)
+        {
+            if (previousClose && ! r->close && &r != &rows.front())
+                y += 18;   // the BLEED MICS heading
+            previousClose = r->close;
+            r->target.setBounds (a.getX() + 210, y, 230, 24);
+            y += 30;
+        }
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        DockStyle::drawPanel (g, getLocalBounds().toFloat());
+        auto a = getLocalBounds().reduced (18, 0);
+        auto header = a.removeFromTop (44);
+        g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
+        g.setGradientFill (ParagonLookAndFeel::menuHighlight (header.toFloat().withWidth (300.0f)));
+        g.drawText ("ROUTE INSTRUMENT MICROPHONES", header, juce::Justification::centredLeft, false);
+        g.setFont (juce::FontOptions (11.0f));
+        g.setColour (ParagonColours::textDim);
+        g.drawFittedText ("Each of a drum's mics plays into its own channel (AUTO), another, a NEW CHANNEL of its own (e.g. the ride's overhead "
+                          "mics apart from the rest of the kit), or none.",
+                          header.withTrimmedLeft (300).withTrimmedRight (100), juce::Justification::centredLeft, 2);
+        auto headings = a.removeFromTop (24);
+        g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        g.setColour (ParagonColours::text);
+        g.drawText ("1. DRUM", headings.withWidth (200), juce::Justification::centredLeft, false);
+        g.drawText ("2. ITS MICS", headings.withTrimmedLeft (230).withWidth (200), juce::Justification::centredLeft, false);
+        g.drawText ("3. CHANNEL", headings.withTrimmedLeft (440).withWidth (230), juce::Justification::centredLeft, false);
+        if (pieceButtons.empty())
+        {
+            g.setFont (juce::FontOptions (11.0f));
+            g.setColour (ParagonColours::textDim);
+            g.drawText ("No multi-mic drums loaded (DRUMS > LOAD...).", a.withHeight (30), juce::Justification::centredLeft, false);
+            return;
+        }
+        a.removeFromLeft (230);
+        auto previousClose = true;
+        auto y = a.getY() + 18;
+        if (! rows.empty())
+        {
+            g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+            g.setColour (ParagonColours::textDim);
+            g.drawText (rows.front()->close ? "CLOSE MICS" : "BLEED MICS", juce::Rectangle<int> (a.getX(), y - 14, 200, 12), juce::Justification::centredLeft, false);
+        }
+        for (const auto& r : rows)
+        {
+            if (previousClose && ! r->close && &r != &rows.front())
+            {
+                g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+                g.setColour (ParagonColours::textDim);
+                g.drawText ("BLEED MICS", juce::Rectangle<int> (a.getX(), y + 4, 200, 12), juce::Justification::centredLeft, false);
+                y += 18;
+            }
+            previousClose = r->close;
+            g.setFont (juce::FontOptions (11.0f, r->close ? juce::Font::bold : juce::Font::plain));
+            g.setColour (r->close ? ParagonColours::accent : ParagonColours::text);
+            g.drawText (mixer::channelNames[r->mic], juce::Rectangle<int> (a.getX(), y, 200, 24), juce::Justification::centredLeft, false);
+            y += 30;
+        }
+    }
+
+private:
+    static constexpr int autoId = 1, noneId = 2, channelId = 100, createId = 1000;
+
+    void fill (juce::ComboBox& box, int mic)
+    {
+        refreshing = true;
+        box.clear (juce::dontSendNotification);
+        box.addItem ("Auto: " + mixer::channelNames[mic], autoId);
+        box.addItem ("None", noneId);
+        box.addSeparator();
+        for (int c = 0; c < mixer::numChannels; ++c)
+            box.addItem (mixer::channelNames[c], channelId + c);
+        const auto users = page.processor.getUserChannelsInUse();
+        for (const auto c : users)
+            box.addItem (page.processor.getMixerChannelName (c) + " (yours)", channelId + c);
+        box.addSeparator();
+        box.addItem ("Create New Channel", createId);
+        box.setItemEnabled (createId, users.size() < mixer::numUserChannels);
+        const auto to = page.processor.getMicRoute (piece, mic);
+        box.setSelectedId (to == mixer::routeAuto ? autoId : to == mixer::routeNone ? noneId : channelId + to, juce::dontSendNotification);
+        refreshing = false;
+    }
+
+    struct Row { int mic = 0; bool close = false; juce::ComboBox target; };
+    MixerPage& page;
+    juce::TextButton close;
+    std::vector<std::unique_ptr<juce::TextButton>> pieceButtons;
+    std::vector<std::unique_ptr<Row>> rows;
+    int piece = -1;
+    bool refreshing = false;
+};
+
+//==============================================================================
 MixerPage::MixerPage (ParagonX1AudioProcessor& p) : processor (p)
 {
     addAndMakeVisible (viewport);
@@ -757,6 +973,12 @@ MixerPage::MixerPage (ParagonX1AudioProcessor& p) : processor (p)
     }
     effectEditor = std::make_unique<EffectEditor> (*this);
     addChildComponent (*effectEditor);
+    router = std::make_unique<MicRouter> (*this);
+    addChildComponent (*router);
+    DrumSeqPanel::style (routeButton);
+    routeButton.setTooltip ("ROUTE INSTRUMENT MICROPHONES: each drum's mics to a channel of your choice, a new channel of their own, or none.");
+    routeButton.onClick = [this] { openRouter (! isRouterOpen()); };
+    addAndMakeVisible (routeButton);
     for (auto* s : { &offset, &release })
     {
         s->setTextBoxStyle (juce::Slider::TextBoxRight, false, 64, 18);
@@ -797,11 +1019,20 @@ MixerPage::~MixerPage() { stopTimer(); }
 
 juce::Array<int> MixerPage::getChannelsInUse() const
 {
+    // Each loaded multi-mic drum's mics, through ROUTE INSTRUMENT MICROPHONES (0.23.0).
     juce::Array<int> channels;
     for (int k = 0; k < drums::numSlots; ++k)
         if (const auto instrument = processor.getDrumInstrument (k); instrument != nullptr && instrument->hasMics())
             for (const auto c : instrument->micChannels())
-                channels.addIfNotAlreadyThere (c >= 0 ? c : drums::homeChannel (k));
+            {
+                const auto source = c >= 0 ? c : drums::homeChannel (k);
+                const auto piece = drums::pieceOfSlot (k);
+                const auto to = piece >= 0 ? processor.getMicRoute (piece, source) : (int) mixer::routeAuto;
+                if (to == mixer::routeAuto)
+                    channels.addIfNotAlreadyThere (source);
+                else if (to >= 0)
+                    channels.addIfNotAlreadyThere (to);
+            }
     channels.sort();
     return channels;
 }
@@ -811,10 +1042,10 @@ void MixerPage::selectStrip (int strip)
     selected = juce::jlimit (0, mixer::numStrips - 1, strip);
     for (auto& s : strips)
         s->setSelected (s->getStrip() == selected);
-    if (! isBus (selected))
+    if (const auto channel = mixer::channelOfStrip (selected); channel >= 0)
     {
-        offsetAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (processor.getParameters(), ParamIDs::mix (selected, "Offset"), offset);
-        releaseAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (processor.getParameters(), ParamIDs::mix (selected, "Release"), release);
+        offsetAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (processor.getParameters(), ParamIDs::mix (channel, "Offset"), offset);
+        releaseAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (processor.getParameters(), ParamIDs::mix (channel, "Release"), release);
     }
     refreshProperties();
     resized();
@@ -841,7 +1072,10 @@ void MixerPage::showGroups (bool mics, bool buses)
 
 bool MixerPage::isStripShown (int strip) const
 {
-    return isBus (strip) ? busesButton.getToggleState() : micsButton.getToggleState();
+    if (isBus (strip))
+        return busesButton.getToggleState();
+    // A user channel only once a mic is routed to it.
+    return micsButton.getToggleState() && (! isUser (strip) || processor.getUserChannelsInUse().contains (mixer::channelOfStrip (strip)));
 }
 
 void MixerPage::scrollToStrip (int strip)
@@ -852,7 +1086,7 @@ void MixerPage::scrollToStrip (int strip)
 
 void MixerPage::setBleed (int piece, float gainDb, bool invert, bool on)
 {
-    if (isBus (selected))
+    if (selected >= mixer::numChannels)   // a bus or a user channel (its bleed cells are its mics' own channels')
         return;
     auto m = processor.getModMatrix();
     m.bleed (selected, juce::jlimit (0, mixer::numPieces - 1, piece)) = { juce::jlimit (-60.0f, 12.0f, gainDb), invert, on };
@@ -1111,6 +1345,31 @@ void MixerPage::showEffectMenu (int strip, int slot, juce::Component& from)
     });
 }
 
+void MixerPage::openRouter (bool open)
+{
+    router->setVisible (open);
+    routeButton.setToggleState (open, juce::dontSendNotification);
+    if (open)
+    {
+        router->refresh();
+        router->toFront (false);
+    }
+}
+
+bool MixerPage::isRouterOpen() const { return router->isVisible(); }
+void MixerPage::chooseRouterPiece (int piece) { router->setPiece (piece); }
+int MixerPage::getRouterPiece() const { return router->getPiece(); }
+juce::Array<int> MixerPage::getRouterMics() const { return router->getMics(); }
+
+void MixerPage::routingChanged()
+{
+    if (router->isVisible())
+        router->refresh();
+    resized();
+    update();
+    repaint();
+}
+
 void MixerPage::refreshProperties()
 {
     for (auto& e : sendEditors)
@@ -1120,7 +1379,7 @@ void MixerPage::refreshProperties()
     effectEditor->refresh();
     for (int k = 0; k < mixer::numFxSlots; ++k)
         shownEffects[(size_t) k] = processor.getModMatrix().effect (selected, k);
-    if (isBus (selected))
+    if (selected >= mixer::numChannels)   // a bus, or a user channel (no bleed table of its own)
         return;
     // Which pieces have audio in this channel (a loaded kit's mic), and which are its own.
     std::array<bool, mixer::numPieces> has {};
@@ -1148,7 +1407,7 @@ void MixerPage::update()
     for (auto& s : strips)
     {
         const auto strip = s->getStrip();
-        s->setMeter (isBus (strip) ? processor.takeMixerBusPeak (strip - mixer::numChannels) : processor.takeMixerPeak (strip));
+        s->setMeter (isBus (strip) ? processor.takeMixerBusPeak (strip - mixer::numChannels) : processor.takeMixerPeak (mixer::channelOfStrip (strip)));
         s->refresh();
     }
     // The sends changed elsewhere (undo, a preset): the editors show them.
@@ -1172,13 +1431,27 @@ void MixerPage::update()
         }
         effectEditor->showReductions();
     }
+    // The user channels in use and their names (routes changed by undo, a preset, the panel).
+    if (const auto users = processor.getUserChannelsInUse(); users != shownUsers || processor.getModMatrix().userChannelNames != shownUserNames)
+    {
+        shownUsers = users;
+        shownUserNames = processor.getModMatrix().userChannelNames;
+        if (! isStripShown (selected))
+            selectStrip (0);
+        resized();
+        repaint();
+        for (auto& st : strips)
+            st->repaint();
+        if (router->isVisible())
+            router->refresh();
+    }
     const auto used = getChannelsInUse();
     if (used != inUse)
     {
         inUse = used;
         for (auto& s : strips)
             if (! isBus (s->getStrip()))
-                s->setInUse (inUse.contains (s->getStrip()));
+                s->setInUse (inUse.contains (mixer::channelOfStrip (s->getStrip())));
         refreshProperties();
         repaint();
     }
@@ -1197,6 +1470,9 @@ void MixerPage::resized()
     busesButton.setBounds (header.removeFromRight (64));
     header.removeFromRight (4);
     micsButton.setBounds (header.removeFromRight (56));
+    header.removeFromRight (8);
+    routeButton.setBounds (header.removeFromRight (110));
+    router->setBounds (stripsArea);
 
     viewport.setBounds (stripsArea.reduced (14, 0).withTrimmedTop (headerHeight).withTrimmedBottom (4));
     int shown = 0;
@@ -1205,8 +1481,19 @@ void MixerPage::resized()
     const auto fits = shown * stripWidth <= viewport.getWidth();
     const auto w = fits && shown > 0 ? viewport.getWidth() / shown : stripWidth;
     holder.setSize (juce::jmax (1, shown * w), viewport.getHeight() - (fits ? 0 : viewport.getScrollBarThickness() + 2));
-    int x = 0;
+    // Shown in order: the named channels, the user channels (after them, with the mics), the buses.
+    std::vector<Strip*> order;
     for (auto& s : strips)
+        if (s->getStrip() < mixer::numChannels)
+            order.push_back (s.get());
+    for (auto& s : strips)
+        if (isUser (s->getStrip()))
+            order.push_back (s.get());
+    for (auto& s : strips)
+        if (isBus (s->getStrip()))
+            order.push_back (s.get());
+    int x = 0;
+    for (auto* s : order)
     {
         const auto visible = isStripShown (s->getStrip());
         s->setVisible (visible);
@@ -1241,13 +1528,22 @@ void MixerPage::resized()
     effectEditor->setBounds (p);
 
     const auto showingBleed = tab == Tab::bleed;
+    const auto userChannel = isUser (selected);
     for (auto& r : rows)
-        r->setVisible (showingBleed);
+        r->setVisible (showingBleed && ! userChannel);
     offset.setVisible (showingBleed);
     release.setVisible (showingBleed);
     for (auto& e : sendEditors)
         e->setVisible (tab == Tab::sends);
-    if (showingBleed)
+    if (showingBleed && userChannel)
+    {
+        // A user channel: its mics' bleed levels are their own channels'; TIME OFFSET and RELEASE are its own.
+        p.removeFromTop (64);
+        offset.setBounds (p.removeFromTop (24).withTrimmedLeft (100));
+        p.removeFromTop (6);
+        release.setBounds (p.removeFromTop (24).withTrimmedLeft (100));
+    }
+    else if (showingBleed)
     {
         // CLOSE MIC AUDIO first, then BLEED FROM INSTRUMENTS (the order rows are drawn in, by kind).
         std::vector<PieceRow*> direct, bleeding;
@@ -1298,7 +1594,7 @@ void MixerPage::paint (juce::Graphics& g)
                       juce::Justification::centredLeft, 2);
 
     const auto bus = isBus (selected);
-    title ("PROPERTIES: " + stripName (selected), propertiesArea.reduced (18, 0).withHeight (headerHeight), bus ? busColour : juce::Colour());
+    title ("PROPERTIES: " + stripName (processor, selected), propertiesArea.reduced (18, 0).withHeight (headerHeight), bus ? busColour : juce::Colour());
     auto p = propertiesBody;
     if (tab == Tab::effects)
         return;
@@ -1312,6 +1608,21 @@ void MixerPage::paint (juce::Graphics& g)
                               : "DIRECT: the drums this mic is meant for; BLEED: the rest of the kit in it, sent apart (off to "
                                 "compress a bus on the close sound alone). The DELAY and REVERB are on the FX page.",
                           p.removeFromTop (60), juce::Justification::topLeft, 4);
+        return;
+    }
+    if (isUser (selected))
+    {
+        g.setFont (juce::FontOptions (10.5f));
+        g.setColour (ParagonColours::textDim);
+        g.drawFittedText ("A channel of your own (ROUTE MICS...): the mics routed here keep the bleed levels of the channels they "
+                          "came from (their BLEED FROM INSTRUMENTS); this channel's BLEED knob and button still apply.",
+                          p.removeFromTop (58), juce::Justification::topLeft, 4);
+        p.removeFromTop (6);
+        g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        g.setColour (ParagonColours::text);
+        g.drawText ("TIME OFFSET", p.removeFromTop (24), juce::Justification::centredLeft, false);
+        p.removeFromTop (6);
+        g.drawText ("RELEASE", p.removeFromTop (24), juce::Justification::centredLeft, false);
         return;
     }
     g.setFont (juce::FontOptions (10.5f, juce::Font::bold));

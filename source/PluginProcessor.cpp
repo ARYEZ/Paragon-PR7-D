@@ -63,7 +63,7 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
             drumParameters[(size_t) k].values[s] = parameters.getRawParameterValue (ParamIDs::drum (k, ParamIDs::drumSettings[s]));
             jassert (drumParameters[(size_t) k].values[s] != nullptr);
         }
-    for (int c = 0; c < synth::mixer::numChannels; ++c)
+    for (int c = 0; c < synth::mixer::numMicChannels; ++c)
         for (size_t s = 0; s < std::size (ParamIDs::mixSettings); ++s)
         {
             mixParameters[(size_t) c][s] = parameters.getRawParameterValue (ParamIDs::mix (c, ParamIDs::mixSettings[s]));
@@ -935,6 +935,9 @@ void ParagonX1AudioProcessor::compileMatrix()
     for (int strip = 0; strip < synth::mixer::numStrips; ++strip)
         for (int slot = 0; slot < synth::mixer::numSendSlots; ++slot)
             compiled->sends[(size_t) strip][(size_t) slot] = matrix.send (strip, slot);
+    for (int piece = 0; piece < synth::mixer::numPieces; ++piece)
+        for (int mic = 0; mic < synth::mixer::numChannels; ++mic)
+            compiled->micRoutes[(size_t) piece][(size_t) mic] = matrix.micRoute (piece, mic);
     // THE MIXER's EFFECTS: an unknown type (a later version's) left empty; each value within its range.
     for (int strip = 0; strip < synth::mixer::numStrips; ++strip)
         for (int slot = 0; slot < synth::mixer::numFxSlots; ++slot)
@@ -1216,7 +1219,9 @@ namespace
 {
     juce::String mixerStripId (int strip, const char* what)
     {
-        return strip < synth::mixer::numChannels ? ParamIDs::mix (strip, what) : ParamIDs::mixBus (strip - synth::mixer::numChannels, what);
+        // A mic channel's (USER 1-8 after the buses) or a bus's.
+        const auto channel = synth::mixer::channelOfStrip (strip);
+        return channel >= 0 ? ParamIDs::mix (channel, what) : ParamIDs::mixBus (strip - synth::mixer::numChannels, what);
     }
 }
 
@@ -1277,6 +1282,88 @@ int ParagonX1AudioProcessor::multichannelOutputOf (int channel) noexcept
         case room: case ambience:          return 7;
         default:                           return 8;   // OTHER: OUT 9
     }
+}
+
+int ParagonX1AudioProcessor::getMicRoute (int piece, int mic) const
+{
+    if (piece < 0 || piece >= synth::mixer::numPieces || mic < 0 || mic >= synth::mixer::numChannels)
+        return synth::mixer::routeAuto;
+    return matrix.micRoute (piece, mic);
+}
+
+void ParagonX1AudioProcessor::setMicRoute (int piece, int mic, int to)
+{
+    if (piece < 0 || piece >= synth::mixer::numPieces || mic < 0 || mic >= synth::mixer::numChannels)
+        return;
+    if (to != synth::mixer::routeAuto && to != synth::mixer::routeNone && (to < 0 || to >= synth::mixer::numMicChannels))
+        return;
+    auto m = matrix;
+    m.micRoute (piece, mic) = (std::int8_t) to;
+    setModMatrix (m);
+    requestCheckpoint();
+}
+
+juce::Array<int> ParagonX1AudioProcessor::getUserChannelsInUse() const
+{
+    juce::Array<int> used;
+    for (const auto to : matrix.micRoutes)
+        if (synth::mixer::isUserChannel (to))
+            used.addIfNotAlreadyThere (to);
+    used.sort();
+    return used;
+}
+
+int ParagonX1AudioProcessor::createUserChannel (int piece, int mic)
+{
+    if (piece < 0 || piece >= synth::mixer::numPieces || mic < 0 || mic >= synth::mixer::numChannels)
+        return -1;
+    const auto used = getUserChannelsInUse();
+    for (int u = 0; u < synth::mixer::numUserChannels; ++u)
+    {
+        const auto channel = synth::mixer::numChannels + u;
+        if (used.contains (channel))
+            continue;
+        // A fresh channel: its settings back to new, named after the piece and the mic (as the reference's "X ..."),
+        // into the same output and bus as the mic's own channel.
+        for (const auto* what : ParamIDs::mixSettings)
+            if (auto* parameter = parameters.getParameter (ParamIDs::mix (channel, what)))
+            {
+                parameter->beginChangeGesture();
+                parameter->setValueNotifyingHost (parameter->getDefaultValue());
+                parameter->endChangeGesture();
+            }
+        setParameterNow (ParamIDs::mix (channel, "Output"), (float) getMixerOutput (mic));
+        setParameterNow (ParamIDs::mix (channel, "Route"), (float) getMixerRoute (mic));
+        auto m = matrix;
+        m.userChannelNames[(size_t) u] = (juce::String (synth::drums::pieces[(size_t) piece].name) + " " + synth::mixer::channelNames[mic]).substring (0, 24);
+        m.micRoute (piece, mic) = (std::int8_t) channel;
+        setModMatrix (m);
+        requestCheckpoint();
+        return channel;
+    }
+    return -1;
+}
+
+juce::String ParagonX1AudioProcessor::getMixerChannelName (int channel) const
+{
+    if (channel >= 0 && channel < synth::mixer::numChannels)
+        return synth::mixer::channelNames[channel];
+    if (synth::mixer::isUserChannel (channel))
+    {
+        const auto& name = matrix.userChannelNames[(size_t) (channel - synth::mixer::numChannels)];
+        return name.isNotEmpty() ? name : "USER " + juce::String (channel - synth::mixer::numChannels + 1);
+    }
+    return {};
+}
+
+void ParagonX1AudioProcessor::renameUserChannel (int channel, const juce::String& name)
+{
+    if (! synth::mixer::isUserChannel (channel))
+        return;
+    auto m = matrix;
+    m.userChannelNames[(size_t) (channel - synth::mixer::numChannels)] = name.trim().toUpperCase().substring (0, 24);
+    setModMatrix (m);
+    requestCheckpoint();
 }
 
 void ParagonX1AudioProcessor::applyMixerOutputs (bool multichannel)
@@ -1473,8 +1560,8 @@ synth::drums::KitSettings ParagonX1AudioProcessor::getKitSettings() const noexce
     }
     for (int i = 0; i < 4; ++i)
         kit.pedalSteps[(size_t) i] = juce::roundToInt (param (ParamIDs::drumsPedalSteps[i].toRawUTF8()));
-    // THE MIXER (0.20.0).
-    for (int c = 0; c < synth::mixer::numChannels; ++c)
+    // THE MIXER (0.20.0; USER 1-8 since 0.23.0).
+    for (int c = 0; c < synth::mixer::numMicChannels; ++c)
     {
         auto& ch = kit.channels[(size_t) c];
         const auto& values = mixParameters[(size_t) c];
@@ -1517,6 +1604,7 @@ synth::drums::KitSettings ParagonX1AudioProcessor::getKitSettings() const noexce
     {
         kit.bleed = &compiled->bleed;
         kit.sends = &compiled->sends;
+        kit.micRoutes = &compiled->micRoutes;
     }
     kit.effects = &mixerEffects;
     // MIDI IN (0.18.0).

@@ -124,11 +124,19 @@ struct ModMatrix
     std::vector<synth::mixer::FxSlot> mixerEffects = std::vector<synth::mixer::FxSlot> ((size_t) (synth::mixer::numStrips * synth::mixer::numFxSlots));
     synth::mixer::FxSlot& effect (int strip, int slot) { return mixerEffects[(size_t) (strip * synth::mixer::numFxSlots + slot)]; }
     const synth::mixer::FxSlot& effect (int strip, int slot) const { return mixerEffects[(size_t) (strip * synth::mixer::numFxSlots + slot)]; }
+    // 0.23.0, ROUTE INSTRUMENT MICROPHONES: each piece's mics' channels (piece x numChannels + its mic's own channel;
+    // mixer::routeAuto, routeNone or a mic channel; XML "MicRoute" piece / mic / to, only those not AUTO), and the
+    // user channels' names (XML "UserChannel" index / name, only those named).
+    std::vector<std::int8_t> micRoutes = std::vector<std::int8_t> ((size_t) (synth::mixer::numPieces * synth::mixer::numChannels), synth::mixer::routeAuto);
+    std::int8_t& micRoute (int piece, int mic) { return micRoutes[(size_t) (piece * synth::mixer::numChannels + mic)]; }
+    std::int8_t micRoute (int piece, int mic) const { return micRoutes[(size_t) (piece * synth::mixer::numChannels + mic)]; }
+    std::vector<juce::String> userChannelNames = std::vector<juce::String> ((size_t) synth::mixer::numUserChannels);
 
     bool operator== (const ModMatrix& o) const noexcept
     {
         return drumPatterns == o.drumPatterns && drumEnvelopes == o.drumEnvelopes && drumVelocityCurves == o.drumVelocityCurves
-            && mixerBleed == o.mixerBleed && mixerSends == o.mixerSends && mixerEffects == o.mixerEffects;
+            && mixerBleed == o.mixerBleed && mixerSends == o.mixerSends && mixerEffects == o.mixerEffects
+            && micRoutes == o.micRoutes && userChannelNames == o.userChannelNames;
     }
     bool isEmpty() const noexcept { return *this == ModMatrix {}; }
 
@@ -196,6 +204,22 @@ struct ModMatrix
                         values.add (juce::String (v, 4));
                     e->setAttribute ("values", values.joinIntoString (" "));
                 }
+        for (int piece = 0; piece < synth::mixer::numPieces; ++piece)
+            for (int mic = 0; mic < synth::mixer::numChannels; ++mic)
+                if (const auto to = micRoute (piece, mic); to != synth::mixer::routeAuto)
+                {
+                    auto* e = xml->createNewChildElement ("MicRoute");
+                    e->setAttribute ("piece", piece + 1);
+                    e->setAttribute ("mic", mic + 1);
+                    e->setAttribute ("to", to == synth::mixer::routeNone ? 0 : to + 1);   // 0: none, else the channel + 1
+                }
+        for (int u = 0; u < synth::mixer::numUserChannels; ++u)
+            if (userChannelNames[(size_t) u].isNotEmpty())
+            {
+                auto* e = xml->createNewChildElement ("UserChannel");
+                e->setAttribute ("index", u + 1);
+                e->setAttribute ("name", userChannelNames[(size_t) u]);
+            }
         for (int p = 0; p < (int) drumPatterns.size(); ++p)
             if (! drumPatterns[(size_t) p].isEmpty())
             {
@@ -254,6 +278,15 @@ struct ModMatrix
             for (int i = 0; i < values.size() && i < (int) fx.values.size(); ++i)
                 fx.values[(size_t) i] = values[i].getFloatValue();
         }
+        for (const auto* e : xml.getChildWithTagNameIterator ("MicRoute"))
+        {
+            const auto piece = e->getIntAttribute ("piece") - 1, mic = e->getIntAttribute ("mic") - 1, to = e->getIntAttribute ("to", -1);
+            if (piece >= 0 && piece < synth::mixer::numPieces && mic >= 0 && mic < synth::mixer::numChannels && to >= 0 && to <= synth::mixer::numMicChannels)
+                m.micRoute (piece, mic) = (std::int8_t) (to == 0 ? synth::mixer::routeNone : to - 1);
+        }
+        for (const auto* e : xml.getChildWithTagNameIterator ("UserChannel"))
+            if (const auto u = e->getIntAttribute ("index") - 1; u >= 0 && u < synth::mixer::numUserChannels)
+                m.userChannelNames[(size_t) u] = e->getStringAttribute ("name").substring (0, 24);
         for (const auto* e : xml.getChildWithTagNameIterator ("VelocityCurve"))
             if (const auto index = e->getIntAttribute ("index") - 1; index >= 0 && index < numDrumSlots)
                 m.drumVelocityCurves[(size_t) index] = synth::drums::VelocityCurve::decode (e->getStringAttribute ("curve"));

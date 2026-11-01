@@ -585,7 +585,7 @@ TEST_CASE ("MIXER page 0.21.0: bus strips, MICS / BUSES, the OUTPUT and SEND but
 
     // Every channel and bus shown; MICS off leaves the buses (the chosen channel gives way to the first bus).
     for (int strip = 0; strip < mixer::numStrips; ++strip)
-        CHECK (page.isStripShown (strip));
+        CHECK (page.isStripShown (strip) == (strip < mixer::firstUserStrip));   // the user channels only once used (0.23.0)
     page.selectChannel (mixer::snareTop);
     page.showGroups (false, true);
     CHECK (! page.isStripShown (mixer::snareTop));
@@ -919,4 +919,115 @@ TEST_CASE ("MIXER EFFECTS: CPU, a multi-mic kit hit every sixteenth note with fo
     const auto percent = (juce::Time::getMillisecondCounterHiRes() - started) / 8000.0 * 100.0;
     WARN ("4 mic channels and 2 buses, each with gate, EQ, compressor, transient: " << percent << "% of one core");
     CHECK (percent < 25.0);
+}
+
+//==============================================================================
+// ROUTE INSTRUMENT MICROPHONES and the USER CHANNELS (0.23.0)
+TEST_CASE ("MIC ROUTING: a drum's mic to NONE, to another channel, to a new USER channel with its own fader, output and effects",
+           "[mixer][routing]")
+{
+    TempFolder temp;
+    Plugin p (temp.folder.getChildFile ("Presets"), true);
+    p.processor->importSfzKit (writeKit (temp.folder), drums::notemap::Layout::generalMidi);
+    REQUIRE (p.processor->waitForInstruments());
+    p.set (ParamIDs::drumsMap, (float) drums::notemap::Layout::generalMidi);
+    p.set (ParamIDs::drum (2, "VelToVol"), 0.0f);
+    p.set (ParamIDs::drum (0, "VelToVol"), 0.0f);
+    const auto snare = drums::pieceOfSlot (drums::notemap::SD), kick = drums::pieceOfSlot (0);
+    REQUIRE (snare >= 0);
+    REQUIRE (kick >= 0);
+    const auto top = p.level (38, 300.0), bleed = p.level (38, 500.0), room = p.level (38, 2000.0);
+    REQUIRE (bleed > 0.05);
+
+    // The snare's KICK IN mic (its bleed there) to NONE: gone; its other mics untouched.
+    p.processor->setMicRoute (snare, mixer::kickIn, mixer::routeNone);
+    CHECK (p.level (38, 500.0) < bleed * 0.001);
+    CHECK (p.level (38, 300.0) == Catch::Approx (top).epsilon (0.02));
+    p.processor->setMicRoute (snare, mixer::kickIn, mixer::routeAuto);
+    CHECK (p.level (38, 500.0) == Catch::Approx (bleed).epsilon (0.02));
+
+    // The snare's ROOM mic into the SNARE TOP channel: muting ROOM no longer touches it; muting SNARE TOP does.
+    p.processor->setMicRoute (snare, mixer::room, mixer::snareTop);
+    p.set (ParamIDs::mix (mixer::room, "Mute"), 1.0f);
+    CHECK (p.level (38, 2000.0) == Catch::Approx (room).epsilon (0.02));
+    p.set (ParamIDs::mix (mixer::snareTop, "Mute"), 1.0f);
+    CHECK (p.level (38, 2000.0) < room * 0.001);
+    p.set (ParamIDs::mix (mixer::snareTop, "Mute"), 0.0f);
+    p.set (ParamIDs::mix (mixer::room, "Mute"), 0.0f);
+
+    // A NEW CHANNEL for the snare's room mic: USER 1, named after them, playing where ROOM played (OUT 2 here).
+    p.processor->setMixerOutput (mixer::room, 1);
+    const auto user = p.processor->createUserChannel (snare, mixer::room);
+    REQUIRE (user == mixer::numChannels);
+    CHECK (p.processor->getMicRoute (snare, mixer::room) == user);
+    CHECK (p.processor->getMixerChannelName (user) == "SNARE ROOM");
+    CHECK (p.processor->getUserChannelsInUse() == juce::Array<int> { user });
+    CHECK (p.processor->getMixerOutput (mixer::stripOfChannel (user)) == 1);
+    const auto out2 = p.processor->getChannelIndexInProcessBlockBuffer (false, 1, 0);
+    REQUIRE (out2 >= 0);
+    CHECK (levelAt (p.play (38)[(size_t) out2], 2000.0, 2400, 9600) == Catch::Approx (room).epsilon (0.03));
+    p.processor->setMixerOutput (mixer::stripOfChannel (user), 0);
+    p.processor->setMixerOutput (mixer::room, 0);
+    // Its own fader (ROOM's doesn't touch it now), and its own effects (an EQ +6 dB at 2 kHz on its strip).
+    p.set (ParamIDs::mix (mixer::room, "Level"), -60.0f);
+    CHECK (p.level (38, 2000.0) == Catch::Approx (room).epsilon (0.02));
+    p.set (ParamIDs::mix (user, "Level"), -6.0f);
+    CHECK (p.level (38, 2000.0) == Catch::Approx (room * 0.501).epsilon (0.02));
+    p.set (ParamIDs::mix (user, "Level"), 0.0f);
+    auto m = p.processor->getModMatrix();
+    m.effect (mixer::stripOfChannel (user), 0) = mixerfx::defaultSlot (mixerfx::eq);
+    m.effect (mixer::stripOfChannel (user), 0).values[3] = 2000.0f;
+    m.effect (mixer::stripOfChannel (user), 0).values[4] = 6.0f;
+    p.processor->setModMatrix (m);
+    CHECK (p.level (38, 2000.0) == Catch::Approx (room * 1.995).epsilon (0.03));
+
+    // A second one: the snare's KICK IN mic (bleed) to USER 2. It stays bleed there: USER 2's BLEED off silences it.
+    const auto user2 = p.processor->createUserChannel (snare, mixer::kickIn);
+    CHECK (user2 == mixer::numChannels + 1);
+    CHECK (p.level (38, 500.0) == Catch::Approx (bleed).epsilon (0.02));
+    p.set (ParamIDs::mix (user2, "BleedOn"), 0.0f);
+    CHECK (p.level (38, 500.0) < bleed * 0.001);
+    CHECK (p.level (38, 300.0) == Catch::Approx (top).epsilon (0.02));
+
+    // Renaming; presets keep the routes and names; back to AUTO, USER 2 isn't in use any more.
+    p.processor->renameUserChannel (user, "room crush");
+    CHECK (p.processor->getMixerChannelName (user) == "ROOM CRUSH");
+    const auto back = ModMatrix::fromXml (*p.processor->getModMatrix().toXml());
+    CHECK (back == p.processor->getModMatrix());
+    CHECK (back.micRoute (snare, mixer::room) == user);
+    CHECK (back.micRoute (kick, mixer::overheads) == mixer::routeAuto);
+    p.processor->setMicRoute (snare, mixer::kickIn, mixer::routeAuto);
+    CHECK (p.processor->getUserChannelsInUse() == juce::Array<int> { user });
+}
+
+TEST_CASE ("MIC ROUTING page: ROUTE MICS... lists the drums and their mics (close first); user channels' strips appear once used",
+           "[mixer][routing]")
+{
+    TempFolder temp;
+    Plugin p (temp.folder.getChildFile ("Presets"));
+    p.processor->importSfzKit (writeKit (temp.folder), drums::notemap::Layout::generalMidi);
+    REQUIRE (p.processor->waitForInstruments());
+    MixerPage page (*p.processor);
+    page.setSize (1400, 650);
+    const auto snare = drums::pieceOfSlot (drums::notemap::SD);
+
+    page.openRouter (true);
+    CHECK (page.isRouterOpen());
+    page.chooseRouterPiece (snare);
+    CHECK (page.getRouterPiece() == snare);
+    CHECK (page.getRouterMics() == juce::Array<int> { mixer::snareTop, mixer::kickIn, mixer::room });
+
+    const auto userStrip = mixer::stripOfChannel (mixer::numChannels);
+    CHECK (! page.isStripShown (userStrip));
+    const auto user = p.processor->createUserChannel (snare, mixer::room);
+    page.routingChanged();
+    CHECK (page.isStripShown (userStrip));
+    CHECK (page.getChannelsInUse().contains (user));
+    CHECK (! page.getChannelsInUse().contains (mixer::room));   // the snare's room mic was the only one there
+    page.selectChannel (user);
+    CHECK (page.getSelectedStrip() == userStrip);
+    page.showTab (MixerPage::Tab::bleed);
+    page.update();
+    page.openRouter (false);
+    CHECK (! page.isRouterOpen());
 }
