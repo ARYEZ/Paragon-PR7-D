@@ -2,6 +2,40 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.19.0
+
+**The sample engine, part 1: velocity layers, round-robins and hit variation, from SFZ kits or folders of your own hits** (inspired by the reference's sampled kits and its Voice and Layer and Hit Variation boxes; our own design and code, and your own sounds, never theirs).
+
+- **Any drum can now be an instrument:** many recorded hits instead of one.
+  - **Velocity layers:** hits recorded at different strengths, so a soft note plays a soft hit, not just a quieter hard one.
+  - **Round-robins:** several takes of each, so fast repeated notes don't sound like a machine gun.
+- **Loading** (DRUM view, **LOAD...**):
+  - **An audio file:** as before, one hit.
+  - **A folder of hits.** If the file names number their layers and takes ("snare_v2_rr3.wav", "vel3", "rr2"), they're used as named. Otherwise the hits are sorted by loudness and shared into layers. The number of layers is about the square root of the number of hits (16 hits make 4 layers of 4), our own rule.
+  - **An SFZ instrument:** one SFZ file into this drum. SFZ is an open, plain-text format many free and paid multi-sampled kits come in.
+  - **A whole SFZ kit:** every note of it onto our drums, through General MIDI (most kits), the groove library's layout, or your current map. A summary says which note went to which drum and which notes were left over.
+- **What's read from SFZ:** layers (lovel / hivel), round-robins (seq_position, lorand), volume, amplitude, pan, offset, #define and #include, and the default path. Release regions are left out. Multi-mic kits: a hit's mic files are mixed into one stereo hit for now; the next release keeps them apart as mic channels. Anything controller-driven (a kit's own mic faders), filters, envelopes and tuning isn't read yet.
+- **HIT VARIATION and limits** (under the layers picture, with an instrument loaded):
+  - **RANDOMIZE:** a random hit from the layer, never the same one twice in a row. Off: the layer's hits in turn.
+  - **ADJACENT:** a note near the top or bottom of its layer sometimes takes a hit from the next layer, its level matched. More variety from the same hits.
+  - **VEL > VOL** (velocity to volume): a softer note within a layer also plays a little quieter. Off: each hit exactly as recorded.
+  - **LAYER LIMIT:** use only the first N hits of each layer.
+  - **VOICES:** how many of this drum's hits ring at once. It works on every drum, synths too.
+- **The layers picture** (DRUM view): each layer across the velocities, as tall as it's loud, its hits stacked in it, and the last hit played lit.
+- **Presets, kits and projects** remember where each instrument came from (the folder or SFZ file, and which note), not the audio: a sampled kit can be gigabytes. They load it again in the background when you open them. If you move or delete the files, the drum says "COULDN'T LOAD IT" and names what's missing.
+- **Your old presets, kits and projects are unchanged.** A drum with one sample still keeps that sample inside the preset, as before.
+- **Not checked here:**
+  - how a real multi-sampled kit sounds, and how long a big one takes to load;
+  - memory: the whole kit loads into memory (no streaming from disk yet). LAYER LIMIT doesn't save memory yet, only variety. If a big kit is too heavy, tell me and I'll make it stream.
+- **Tests:**
+  - folders sorted into layers by loudness, and by numbered names;
+  - choosing hits: the velocity's layer, never the same take twice running, in turn, the layer limit, adjacent layers with their level matched;
+  - an SFZ kit's notes, layers, round-robins, mics summed with their level and pan, #define / #include, release regions left out, a missing file reported;
+  - importing a kit through General MIDI, then hearing the right layer's takes in turn (each test hit at its own pitch);
+  - velocity to volume on and off;
+  - voices;
+  - projects, presets and kit files loading an instrument again, and a missing folder reported.
+
 ## 0.18.0
 
 **Articulations, part 2: velocity curves, MIDI IN / E-DRUMS, CC zones, the MIDI monitor and hi-hat calibration** (the rest of what we agreed from the reference's Drums chapter and chapter 9; our own look and words).

@@ -21,6 +21,7 @@ namespace
     constexpr int pr7d030 = 25;  // PR7-D 0.3.0: the outputs (also in RackParameters.cpp)
     constexpr int pr7d0170 = 26; // PR7-D 0.17.0: drums 21 to 23, ON, MUTE TAIL, the hi-hat pedal
     constexpr int pr7d0180 = 27; // PR7-D 0.18.0: the velocity gate, MIDI IN CHANNEL
+    constexpr int pr7d0190 = 28; // PR7-D 0.19.0: the sample engine's hit variation, layer limit, voices
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -144,6 +145,14 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
             const ToText asVelocity = [] (float v, int) { return juce::String (juce::roundToInt (v)); };
             add (layout, drum (k, "VelMin"), name + "Velocity Gate Low", { 0.0f, 127.0f, 1.0f }, 0.0f, asVelocity, pr7d0180);
             add (layout, drum (k, "VelMax"), name + "Velocity Gate High", { 0.0f, 127.0f, 1.0f }, 127.0f, asVelocity, pr7d0180);
+            // THE SAMPLE ENGINE (0.19.0): HIT VARIATION (an instrument's hits), LAYER LIMIT, VOICES (every drum).
+            addSwitch (layout, drum (k, "Randomize"), name + "Randomize Hits", true, pr7d0190);
+            addSwitch (layout, drum (k, "Adjacent"), name + "Adjacent Layers", true, pr7d0190);
+            addSwitch (layout, drum (k, "VelToVol"), name + "Velocity To Volume", true, pr7d0190);
+            add (layout, drum (k, "LayerLimit"), name + "Layer Limit", { 0.0f, 99.0f, 1.0f }, 0.0f,
+                 [] (float v, int) { return v < 0.5f ? juce::String ("All") : juce::String (juce::roundToInt (v)); }, pr7d0190);
+            add (layout, drum (k, "Voices"), name + "Voices", { 1.0f, 48.0f, 1.0f }, (float) synth::drums::Kit::maxPerSlot,
+                 [] (float v, int) { return juce::String (juce::roundToInt (v)); }, pr7d0190);
         }
 
         // THE DRUM SEQUENCER (stage 6b).

@@ -51,7 +51,9 @@ namespace ParamIDs
                                                     "Gain", "Mono", "Delay", "LowPass", "HighPass",     // 6c (hint 23)
                                                     "Output",     // PR7-D 0.3.0 (hint 25): outputNames' index
                                                     "On", "MuteTail",     // 0.17.0 (hint 26): the articulation's ON, MUTE TAIL
-                                                    "VelMin", "VelMax" }; // 0.18.0 (hint 27): its VELOCITY GATE (0 to 127)
+                                                    "VelMin", "VelMax",   // 0.18.0 (hint 27): its VELOCITY GATE (0 to 127)
+                                                    // 0.19.0 (hint 28): THE SAMPLE ENGINE's hit variation and limits
+                                                    "Randomize", "Adjacent", "VelToVol", "LayerLimit", "Voices" };
     consteval int drumSetting (std::string_view what)
     {
         for (int i = 0; i < (int) std::size (drumSettings); ++i)

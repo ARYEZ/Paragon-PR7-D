@@ -1,5 +1,7 @@
 #include "DrumPage.h"
 
+#include "dsp/synth/Instrument.h"
+
 #include "ui/DockPanels.h"
 #include "ui/ParagonLookAndFeel.h"
 #include "ui/SynthDisplays.h"
@@ -16,6 +18,12 @@ namespace
     {
         if (s.model != Model::sample)
             return synth::drums::modelNames[(int) s.model].toUpperCase();
+        // THE SAMPLE ENGINE (0.19.0): an instrument by its name (or LOADING...).
+        if (p.getInstrumentRef (slot).isNotEmpty())
+        {
+            const auto instrument = p.getDrumInstrument (slot);
+            return instrument != nullptr ? instrument->name.toUpperCase() : juce::String ("LOADING...");
+        }
         const auto sample = p.getDrumSample (slot);
         return sample != nullptr ? sample->name : juce::String ("SAMPLE (EMPTY)");
     }
@@ -410,6 +418,68 @@ void DrumHitDisplay::paint (juce::Graphics& g)
     const auto kit = processor.getKitSettings();
     const auto& s = kit.slots[(size_t) slot];
 
+    // THE SAMPLE ENGINE (0.19.0): an instrument's layers across the velocities, each as tall as it's loud, its hits
+    // in it, the last one played lit.
+    if (const auto ref = processor.getInstrumentRef (slot); ref.isNotEmpty())
+    {
+        const auto instrument = processor.getDrumInstrument (slot);
+        g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+        g.setColour (ParagonColours::accent);
+        if (instrument == nullptr)
+        {
+            const auto problems = processor.getInstrumentProblems();
+            g.drawText (processor.isLoadingInstruments() ? "LOADING..." : "COULDN'T LOAD IT", area.removeFromTop (18.0f), juce::Justification::topLeft, false);
+            g.setFont (juce::FontOptions (11.0f));
+            g.setColour (ParagonColours::textDim);
+            g.drawFittedText (ref.fromLastOccurrenceOf ("|", false, false) + (problems.isEmpty() ? juce::String() : "\n" + problems.joinIntoString ("\n")),
+                              area.toNearestInt(), juce::Justification::topLeft, 6);
+            return;
+        }
+        auto title = instrument->name + "   " + juce::String ((int) instrument->layers.size()) + " LAYERS, " + juce::String (instrument->numHits()) + " HITS";
+        if (s.layerLimit > 0)
+            title << "   (USING UP TO " << s.layerLimit << " A LAYER)";
+        auto titleRow = area.removeFromTop (18.0f);
+        g.drawText (title, titleRow, juce::Justification::topLeft, false);
+        g.setFont (juce::FontOptions (10.0f));
+        g.setColour (ParagonColours::textDim);
+        g.drawText ("LAYERS BY VELOCITY, EACH AS TALL AS IT'S LOUD", titleRow, juce::Justification::topRight, false);
+        area.removeFromTop (8.0f);
+        auto axis = area.removeFromBottom (16.0f);
+        const auto xOf = [&area] (int velocity) { return area.getX() + area.getWidth() * (float) velocity / 128.0f; };
+        g.setFont (juce::FontOptions (10.0f));
+        g.setColour (ParagonColours::textDim);
+        for (const auto v : { 1, 32, 64, 96, 127 })
+            g.drawText (juce::String (v), juce::Rectangle<float> (xOf (v) - 15.0f, axis.getY() + 2.0f, 30.0f, 12.0f), juce::Justification::centred, false);
+        auto loudest = 1.0e-6f;
+        for (const auto& l : instrument->layers)
+            loudest = juce::jmax (loudest, l.level);
+        const auto last = processor.getLastHit (slot);
+        for (int i = 0; i < (int) instrument->layers.size(); ++i)
+        {
+            const auto& l = instrument->layers[(size_t) i];
+            // Height: its loudness against the loudest, over 48 dB.
+            const auto db = juce::Decibels::gainToDecibels (l.level / loudest, -48.0f);
+            const auto h = area.getHeight() * juce::jlimit (0.06f, 1.0f, 1.0f + db / 48.0f);
+            const juce::Rectangle<float> column (xOf (l.lo) + 1.0f, area.getBottom() - h, juce::jmax (2.0f, xOf (l.hi + 1) - xOf (l.lo) - 2.0f), h);
+            const auto used = s.layerLimit > 0 ? juce::jmin (s.layerLimit, (int) l.hits.size()) : (int) l.hits.size();
+            const auto rows = juce::jmax (1, (int) l.hits.size());
+            for (int hIndex = 0; hIndex < rows; ++hIndex)
+            {
+                const auto cell = column.withHeight (column.getHeight() / (float) rows).translated (0.0f, column.getHeight() * (float) hIndex / (float) rows).reduced (0.0f, 1.0f);
+                const auto isLast = last.first == i && last.second == hIndex;
+                g.setColour (isLast ? ParagonColours::text : ParagonColours::accent.withAlpha (hIndex < used ? 0.75f : 0.18f));
+                g.fillRect (cell);
+            }
+            if (column.getWidth() > 26.0f)
+            {
+                g.setColour (ParagonColours::background.withAlpha (0.85f));
+                g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+                g.drawText (juce::String ((int) l.hits.size()), column.withHeight (14.0f), juce::Justification::centred, false);
+            }
+        }
+        return;
+    }
+
     if (showsFile())
     {
         // The whole file: the part played bright, the rest dim; its hits numbered along the top.
@@ -601,8 +671,17 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), en
     slotControl (velocityControls, "VelMin", "GATE LOW", "The softest hit (as it comes in, 0 to 127) that plays this drum: softer ones don't. "
                                                          "Raise it to keep a layer for hard hits only.");
     slotControl (velocityControls, "VelMax", "GATE HIGH", "The hardest hit (as it comes in) that plays this drum: harder ones don't.");
+    // THE SAMPLE ENGINE (0.19.0): an instrument's HIT VARIATION and limits.
+    slotControl (instrumentControls, "Randomize", "RANDOMIZE", "On: each hit picked at random from its layer, never the one just played. "
+                                                               "Off: the layer's hits in turn.");
+    slotControl (instrumentControls, "Adjacent", "ADJACENT", "ADJACENT LAYERS: a velocity near the top or bottom of its layer sometimes takes "
+                                                             "a hit from the layer next to it (its level matched): more hits to choose from.");
+    slotControl (instrumentControls, "VelToVol", "VEL > VOL", "VELOCITY TO VOLUME: a softer note within a layer also plays a little quieter. "
+                                                              "Off: each hit as loud as it was recorded.");
+    slotControl (instrumentControls, "LayerLimit", "LAYER LIMIT", "How many of each layer's hits are used (ALL: every one). Fewer: more repeats.");
+    slotControl (instrumentControls, "Voices", "VOICES", "How many of this drum's hits ring at once; past that the oldest fades.");
 
-    for (auto* list : { &kitControls, &slotControls, &routingControls, &velocityControls })
+    for (auto* list : { &kitControls, &slotControls, &routingControls, &velocityControls, &instrumentControls })
         for (auto& c : *list)
             addAndMakeVisible (*c);
 
@@ -664,8 +743,11 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), en
 
     play.setTooltip ("Hear the chosen drum.");
     play.onClick = [this] { processor.previewDrum (selected); };
-    load.setTooltip ("Load an audio file (WAV, AIFF, FLAC...) into the chosen slot: it becomes a SAMPLE, kept with the preset.");
-    load.onClick = [this] { chooseSample(); };
+    load.setButtonText ("LOAD...");
+    load.setTooltip ("Load into the chosen slot: one audio file (kept with the preset); a folder of hits (velocity layers and "
+                     "round-robins, sorted by loudness); or an SFZ instrument. Folders and SFZ files stay where they are: the "
+                     "preset remembers where.");
+    load.onClick = [this] { showLoadMenu(); };
     wholeFile.setTooltip ("Play the whole file again (after choosing one hit out of it).");
     wholeFile.onClick = [this] { display.playWholeFile(); };
     addChildComponent (wholeFile);
@@ -918,7 +1000,7 @@ void DrumPage::select (int slot)
     if (! rows[(size_t) selected]->isChosen())
         for (auto& row : rows)
             row->setChosen (row->getSlot() == selected);   // chosen from elsewhere (the sequencer): alone
-    for (auto* list : { &slotControls, &routingControls, &velocityControls })
+    for (auto* list : { &slotControls, &routingControls, &velocityControls, &instrumentControls })
         for (auto& c : *list)
         {
             const auto what = c->getParameterId().fromFirstOccurrenceOf ("drum", false, false).trimCharactersAtStart ("0123456789");
@@ -939,6 +1021,75 @@ void DrumPage::select (int slot)
     repaint();
 }
 
+void DrumPage::showLoadMenu()
+{
+    juce::PopupMenu menu;
+    menu.addItem ("An audio file...", [this] { chooseSample(); });
+    menu.addItem ("A folder of hits (velocity layers)...", [this]
+    {
+        chooser = std::make_unique<juce::FileChooser> ("A folder of hits for " + juce::String (synth::drums::slotDefaults[(size_t) selected].key));
+        const auto slot = selected;
+        chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+                              [this, slot] (const juce::FileChooser& fc)
+                              {
+                                  if (fc.getResult().isDirectory())
+                                      processor.loadInstrumentFolder (slot, fc.getResult());
+                              });
+    });
+    menu.addItem ("An SFZ instrument...", [this]
+    {
+        chooser = std::make_unique<juce::FileChooser> ("An SFZ instrument for " + juce::String (synth::drums::slotDefaults[(size_t) selected].key),
+                                                       juce::File(), "*.sfz");
+        const auto slot = selected;
+        chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles,
+                              [this, slot] (const juce::FileChooser& fc)
+                              {
+                                  if (fc.getResult().existsAsFile())
+                                      processor.loadInstrumentSfz (slot, fc.getResult());
+                              });
+    });
+    menu.addSeparator();
+    menu.addItem ("A whole SFZ kit (onto every drum)...", [this] { importSfzKit(); });
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&load));
+}
+
+void DrumPage::importSfzKit()
+{
+    chooser = std::make_unique<juce::FileChooser> ("An SFZ drum kit", juce::File(), "*.sfz");
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this] (const juce::FileChooser& fc)
+    {
+        const auto file = fc.getResult();
+        if (! file.existsAsFile())
+            return;
+        // Which layout its notes are in: most kits follow General MIDI.
+        juce::PopupMenu layouts;
+        juce::Component::SafePointer<DrumPage> self (this);
+        const auto import = [self, file] (synth::drums::notemap::Layout layout)
+        {
+            if (self == nullptr)
+                return;
+            const auto result = self->processor.importSfzKit (file, layout);
+            juce::String text;
+            for (const auto& [slot, note] : result.slotNotes)
+                text << synth::drums::slotDefaults[(size_t) slot].key << " " << synth::drums::articulationName (slot) << ": note " << note << "\n";
+            if (! result.unused.isEmpty())
+            {
+                juce::StringArray notes;
+                for (const auto n : result.unused)
+                    notes.add (juce::String (n));
+                text << "\nNot used (no drum for them in that layout, or a drum took another): " << notes.joinIntoString (", ");
+            }
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::NoIcon, "SFZ kit: " + file.getFileNameWithoutExtension(),
+                                                   result.slotNotes.empty() ? "None of its notes play a drum in that layout." : text);
+        };
+        layouts.addSectionHeader ("ITS NOTES ARE IN...");
+        layouts.addItem ("General MIDI (most kits)", [import] { import (synth::drums::notemap::Layout::generalMidi); });
+        layouts.addItem ("The groove library's layout", [import] { import (synth::drums::notemap::Layout::grooveLibrary); });
+        layouts.addItem ("The map I'm using now", [import, self] { if (self != nullptr) import (self->processor.getMapLayout()); });
+        layouts.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&load));
+    });
+}
+
 void DrumPage::showVelocity (bool on)
 {
     velocityMode = on;
@@ -950,6 +1101,15 @@ void DrumPage::showVelocity (bool on)
 void DrumPage::updateDrumPanels()
 {
     const auto drum = view == View::drum;
+    // THE SAMPLE ENGINE's controls under the picture while the chosen drum holds an instrument (or one is loading).
+    const auto hasInstrument = processor.getInstrumentRef (selected).isNotEmpty();
+    if (hasInstrument != showingInstrument)
+    {
+        showingInstrument = hasInstrument;
+        resized();
+    }
+    for (auto& c : instrumentControls)
+        c->setVisible (drum && ! velocityMode && showingInstrument);
     display.setVisible (drum && ! velocityMode);
     envelope.setVisible (drum && ! velocityMode);
     for (juce::Component* c : { (juce::Component*) &velocityEditor, (juce::Component*) &softButton, (juce::Component*) &gateButton,
@@ -1037,8 +1197,8 @@ void DrumPage::timerCallback()
     if (++tick % 6 == 0)
     {
         refreshPictures();
-        if (velocityMode && view == View::drum)
-            updateDrumPanels();   // an undo or a preset may have changed the curve
+        if (view == View::drum)
+            updateDrumPanels();   // an undo or a preset may have changed the curve; an instrument may have loaded
     }
 }
 
@@ -1188,6 +1348,14 @@ void DrumPage::resized()
     velocityArea = d;
     envelopeStrip = d.removeFromTop (96);
     d.removeFromTop (6);
+    // THE SAMPLE ENGINE: a row of its controls under the picture.
+    if (showingInstrument)
+    {
+        auto row = d.removeFromBottom (ParamControl::knobHeight);
+        d.removeFromBottom (6);
+        for (auto& c : instrumentControls)
+            c->setBounds (row.removeFromLeft (110));
+    }
     display.setBounds (d);
     placeEnvelope();
     // VELOCITY (0.18.0) in the strip and picture's place: the curve, square-ish, then the gate and its switches.

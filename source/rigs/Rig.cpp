@@ -61,6 +61,12 @@ std::unique_ptr<juce::XmlElement> Rig::toXml() const
     }
     if (! modulation.isEmpty())
         xml->addChildElement (modulation.toXml().release());
+    for (const auto& [slot, ref] : drumInstruments)
+    {
+        auto* e = xml->createNewChildElement ("DrumInstrument");
+        e->setAttribute ("slot", slot + 1);
+        e->setAttribute ("ref", ref);
+    }
     return xml;
 }
 
@@ -99,6 +105,9 @@ std::optional<Rig> Rig::fromXml (const juce::XmlElement& xml)
     }
     if (const auto* modulation = xml.getChildByName ("Modulation"))
         rig.modulation = ModMatrix::fromXml (*modulation);
+    for (const auto* e : xml.getChildWithTagNameIterator ("DrumInstrument"))
+        if (const auto slot = e->getIntAttribute ("slot") - 1; slot >= 0 && slot < synth::drums::numSlots)
+            rig.drumInstruments[slot] = e->getStringAttribute ("ref");
 
     if (xml.getIntAttribute ("parameterVersion", 1) < 2)
         for (const auto& id : ParamIDs::articulationsAddedOff)

@@ -156,6 +156,24 @@ public:
     void setDrumSample (int slot, std::shared_ptr<const synth::drums::Sample>);
     void clearDrumSample (int slot);
     std::shared_ptr<const synth::drums::Sample> getDrumSample (int slot) const;
+
+    // THE SAMPLE ENGINE (0.19.0, dsp/synth/Instrument.h): a slot's multi-sampled instrument (its layers and
+    // round-robins), loaded on a background thread and swapped in on the message thread; presets, kits and projects
+    // keep where it came from and load it again. Loading one sets the slot to SAMPLE (and drops its single sample).
+    std::shared_ptr<const synth::drums::Instrument> getDrumInstrument (int slot) const;
+    void setDrumInstrument (int slot, std::shared_ptr<const synth::drums::Instrument>);
+    void loadInstrumentFolder (int slot, const juce::File& folder);
+    void loadInstrumentSfz (int slot, const juce::File& sfz, int note = -1);   // -1: all of the file's regions
+    // A whole SFZ kit: its notes onto the kit's drums through a layout (each drum takes the note that's its home in
+    // that layout, else the note with the most regions). What went where, and the notes left over.
+    struct KitImport { std::vector<std::pair<int, int>> slotNotes; juce::Array<int> unused; };
+    KitImport importSfzKit (const juce::File& sfz, synth::drums::notemap::Layout);
+    bool isLoadingInstruments() const noexcept { return pendingLoads.load() > 0; }
+    juce::String getInstrumentRef (int slot) const { return instrumentRefs[(size_t) juce::jlimit (0, ParamIDs::numDrums - 1, slot)]; }
+    juce::StringArray getInstrumentProblems() const;
+    bool waitForInstruments (int timeoutMs = 60000);   // the loads finished and installed (tests; snapshots)
+    // Which hit an instrument slot played last (layer, hit), for the page; -1, -1: none.
+    std::pair<int, int> getLastHit (int slot) const noexcept { return drumKit.getLastChoice (slot); }
     // The kit's settings now (any thread; the samples as the audio thread plays them).
     synth::drums::KitSettings getKitSettings() const noexcept;
     // The page's preview: a hit in the next block.
@@ -524,6 +542,21 @@ private:
     std::array<std::shared_ptr<const synth::drums::Sample>, ParamIDs::numDrums> drumSamples;
     std::array<std::atomic<const synth::drums::Sample*>, ParamIDs::numDrums> samplesForAudio {};
     std::vector<std::pair<std::shared_ptr<const synth::drums::Sample>, double>> retiredSamples;
+    // THE SAMPLE ENGINE (0.19.0).
+    std::array<std::shared_ptr<const synth::drums::Instrument>, ParamIDs::numDrums> drumInstruments;
+    std::array<std::atomic<const synth::drums::Instrument*>, ParamIDs::numDrums> instrumentsForAudio {};
+    std::vector<std::pair<std::shared_ptr<const synth::drums::Instrument>, double>> retiredInstruments;
+    std::array<juce::String, ParamIDs::numDrums> instrumentRefs;   // what each slot holds or is loading
+    std::unique_ptr<juce::ThreadPool> instrumentPool;   // made on the first load (most instances never load one)
+    mutable std::mutex loadedLock;
+    std::vector<std::pair<int, std::shared_ptr<const synth::drums::Instrument>>> loadedInstruments;
+    juce::StringArray loadProblems;
+    std::atomic<int> pendingLoads { 0 }, loadGeneration { 0 };
+    std::shared_ptr<int> lifeToken = std::make_shared<int> (0);
+    void startLoading (std::vector<std::pair<int, juce::String>> refs);   // the slots' instruments from their refs
+    void installLoadedInstruments();
+    void makeSlotPlaySample (int slot);   // SAMPLE, its shaping neutral (if it wasn't already SAMPLE)
+    static juce::String refFor (const synth::drums::Instrument&);
 
     // THE GROOVE PLAYER: the preview, made on the message thread (its notes already drums), played by the audio
     // thread through a plain pointer; a replaced one kept a while (as samples are), in case a block is still on it.

@@ -24,7 +24,8 @@
 //                                    any of these shows the DRUM view; with none, the KIT VIEW (0.14.0), the page's first:
 //                                    PARAGON_SNAPSHOT_KIT=1: the kick, snare, crash and china just hit, glowing, the ride's bell chosen;
 //                                    PARAGON_SNAPSHOT_ARTIC=1: the hi-hat's articulations, OPEN 3 off, the pedal half open;
-//                                    PARAGON_SNAPSHOT_VELOCITY=1: the snare's VELOCITY curve and gate)
+//                                    PARAGON_SNAPSHOT_VELOCITY=1: the snare's VELOCITY curve and gate;
+//                                    PARAGON_SNAPSHOT_INSTRUMENT=1: the snare from a folder of 16 hits, its layers)
 //   PARAGON_SNAPSHOT_PAGE=fx         THE RACK (PARAGON_SNAPSHOT_RACK=1: at work on a beat, the sends and bus A too; PARAGON_SNAPSHOT_FX=eq|dominion|comp|limiter|sends|delay|reverb|modfx|mod|mod2|lofi|inserts|insdrive|insglitch|insmod|inslofi: that view, the inserts' on bus PARAGON_SNAPSHOT_BUS=1-4)
 //   PARAGON_SNAPSHOT_NOTES=1         the kick, snare and closed hat's keys held on the keyboard (they light)
 //   PARAGON_SNAPSHOT_MIDI=1          demo MIDI links and a knob learning (with PAGE=settings: the links list)
@@ -350,7 +351,7 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             drums.refreshPictures();
         }
         if (env ("PARAGON_SNAPSHOT_DRUMS") != "2" && env ("PARAGON_SNAPSHOT_KIT").isEmpty() && env ("PARAGON_SNAPSHOT_ARTIC").isEmpty()
-            && env ("PARAGON_SNAPSHOT_VELOCITY").isEmpty())
+            && env ("PARAGON_SNAPSHOT_VELOCITY").isEmpty() && env ("PARAGON_SNAPSHOT_INSTRUMENT").isEmpty())
             drums.select (juce::jmax (1, env ("PARAGON_SNAPSHOT_DRUM").getIntValue()) - 1);
         if (env ("PARAGON_SNAPSHOT_DRUMS") == "1")
         {
@@ -363,6 +364,38 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             for (int b = 0; b < 6; ++b)
                 processor.processBlock (buffer, midi);
             drums.updateLights();
+        }
+        // 0.19.0: THE SAMPLE ENGINE: the snare from a folder of 16 hits (our snare synth rendered at four strengths, four
+        // takes each), the last hit played lit.
+        if (env ("PARAGON_SNAPSHOT_INSTRUMENT") == "1")
+        {
+            const auto folder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ParagonX1SnapshotSnare");
+            folder.deleteRecursively();
+            folder.createDirectory();
+            juce::WavAudioFormat wav;
+            for (int v = 0; v < 4; ++v)
+                for (int rr = 0; rr < 4; ++rr)
+                {
+                    synth::drums::SlotSettings snare;
+                    snare.model = synth::drums::Model::snare;
+                    snare.pitch = 0.3f * (float) rr;
+                    snare.snap = 0.3f + 0.15f * (float) v;
+                    const auto hit = synth::drums::Kit::renderHit (snare, 0.25f + 0.25f * (float) v, 48000.0, 0.5);
+                    const auto file = folder.getChildFile ("snare_v" + juce::String (v + 1) + "_rr" + juce::String (rr + 1) + ".wav");
+                    std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (new juce::FileOutputStream (file), 48000.0, 1, 24, {}, 0));
+                    if (writer != nullptr)
+                        writer->writeFromAudioSampleBuffer (hit, 0, hit.getNumSamples());
+                }
+            processor.loadInstrumentFolder (2, folder);
+            processor.waitForInstruments();
+            drums.showView (DrumPage::View::drum);
+            drums.select (2);
+            juce::AudioBuffer<float> buffer (2, 512);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 38, (juce::uint8) 90), 0);
+            processor.processBlock (buffer, midi);
+            drums.resized();
+            drums.refreshPictures();
         }
         // 0.18.0: the snare's VELOCITY: a curve with soft hits lifted and a bend, SOFT on, the gate raised.
         if (env ("PARAGON_SNAPSHOT_VELOCITY") == "1")

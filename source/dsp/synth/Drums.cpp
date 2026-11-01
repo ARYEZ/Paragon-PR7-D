@@ -1,4 +1,5 @@
 #include "dsp/synth/Drums.h"
+#include "dsp/synth/Instrument.h"
 
 #include <juce_audio_formats/juce_audio_formats.h>
 
@@ -917,7 +918,28 @@ namespace synth::drums
         const auto slot = settings.playsAs (asked);
         if (slot < 0)
             return;
-        const auto& s = settings.slots[(size_t) slot];
+        const auto& slotSettings = settings.slots[(size_t) slot];
+        // THE SAMPLE ENGINE (0.19.0): an instrument's hit for this velocity, played as the slot's sample (whole).
+        SlotSettings chosenHit;
+        const SlotSettings* use = &slotSettings;
+        float hitGain = 1.0f;
+        if (slotSettings.model == Model::sample && slotSettings.instrument != nullptr)
+        {
+            const auto choice = slotSettings.instrument->choose (juce::jlimit (1, 127, juce::roundToInt (velocity * 127.0f)),
+                                                                 slotSettings.randomize, slotSettings.adjacent, slotSettings.layerLimit,
+                                                                 hitMemory[(size_t) slot]);
+            if (choice.sample == nullptr)
+                return;
+            chosenHit = slotSettings;
+            chosenHit.sample = choice.sample;
+            chosenHit.start = 0.0f;
+            chosenHit.end = 1.0f;
+            chosenHit.reverseSource = nullptr;
+            use = &chosenHit;
+            hitGain = choice.gain;
+            lastChoice[(size_t) slot] = choice.layer * 1000 + choice.hit + 1;
+        }
+        const auto& s = *use;
         // 0.18.0: the articulation's VELOCITY GATE (on the velocity as it came) and VELOCITY CURVE.
         auto hitVelocity = juce::jlimit (0.0f, 1.0f, velocity);
         if (hitVelocity < s.velMin || hitVelocity > s.velMax)
@@ -955,7 +977,7 @@ namespace synth::drums
                 if (oldestOfSlot == nullptr || v.age < oldestOfSlot->age)
                     oldestOfSlot = &v;
             }
-        if (count >= maxPerSlot && oldestOfSlot != nullptr)
+        if (count >= juce::jlimit (1, maxVoices, s.voices) && oldestOfSlot != nullptr)
             oldestOfSlot->fadeOut (0.002);
 
         // A free voice, or (rarely: 48 hits at once) the oldest one, cut.
@@ -972,8 +994,12 @@ namespace synth::drums
                     chosen = &v;
 
         // The sequencer gives its notes' level as velocity squared, past the kit's VELOCITY: kept, from the curved one.
-        const auto velocityGain = options.velocityGain >= 0.0f ? hitVelocity * hitVelocity
-                                                               : 1.0f - settings.velocity + settings.velocity * hitVelocity * hitVelocity;
+        auto velocityGain = options.velocityGain >= 0.0f ? hitVelocity * hitVelocity
+                                                         : 1.0f - settings.velocity + settings.velocity * hitVelocity * hitVelocity;
+        // An instrument: its layers already sound soft or hard. VELOCITY TO VOLUME off: each hit as recorded; on, the
+        // velocity's level too (so a soft note within a layer is a little quieter). A neighbour layer's hit matched.
+        if (s.instrument != nullptr)
+            velocityGain = (s.velocityToVolume ? velocityGain : 1.0f) * hitGain;
         noiseSeed = noiseSeed * 1664525u + 1013904223u;
         chosen->start (s, slot, velocityGain, sampleRate, noiseSeed, options);
         chosen->age = ++ages;

@@ -209,6 +209,15 @@ namespace synth::drums
         std::vector<int> findHits (const Sample&);
     }
 
+    // THE SAMPLE ENGINE (0.19.0, Instrument.h): a drum played from many recorded hits; and what the kit remembers of
+    // each drum's last hits, to choose the next (which hit each layer played last, a random number).
+    struct Instrument;
+    struct HitMemory
+    {
+        std::array<std::int16_t, 32> last {};
+        std::uint32_t random = 0x9e3779b9u;
+    };
+
     struct SlotSettings
     {
         Model model = Model::kick;
@@ -242,6 +251,12 @@ namespace synth::drums
         // in, don't play it).
         const VelocityCurve* velocityCurve = nullptr;
         float velMin = 0.0f, velMax = 1.0f;
+        // THE SAMPLE ENGINE (0.19.0): SAMPLE with an instrument plays its layers and round-robins (null: `sample`, one
+        // file, as before); HIT VARIATION and the limits.
+        const Instrument* instrument = nullptr;
+        bool randomize = true, adjacent = true, velocityToVolume = true;
+        int layerLimit = 0;                // 0: every hit
+        int voices = 6;                    // this drum's hits sounding at once (the oldest fades past it)
 
         bool filtered() const noexcept { return lowPass < 19999.0f || highPass > 20.01f; }
         // The sequencer's lead for the anchor (seconds early).
@@ -467,6 +482,12 @@ namespace synth::drums
         void trigger (int slot, float velocity, const KitSettings&) noexcept;
         // MUTE TAIL: the slot's piece's ringing hits grabbed (they stop over about 80 ms).
         void grab (int slot) noexcept;
+        // THE SAMPLE ENGINE: which hit a slot's instrument played last (layer, hit), -1, -1: none.
+        std::pair<int, int> getLastChoice (int slot) const noexcept
+        {
+            const auto v = lastChoice[(size_t) juce::jlimit (0, numSlots - 1, slot)].load() - 1;
+            return v < 0 ? std::pair { -1, -1 } : std::pair { v / 1000, v % 1000 };
+        }
         // THE HI-HAT PEDAL: the last CC 4 (127 closed) heard, for the page's meter.
         int getPedal() const noexcept { return pedal.load(); }
 
@@ -530,6 +551,8 @@ namespace synth::drums
         std::array<double, numSlots> lastHit {};        // seconds since each slot's last hit (-1: none)
         std::uint64_t ages = 0;
         std::uint32_t noiseSeed = 0x2545f491u;
+        std::array<HitMemory, numSlots> hitMemory {};   // THE SAMPLE ENGINE's round-robins (0.19.0)
+        std::array<std::atomic<int>, numSlots> lastChoice {};   // layer x 1000 + hit + 1 (0: none)
         std::atomic<int> pedal { 127 };   // CC 4: before any arrives, closed
         std::array<std::uint8_t, 128> controllers {};   // each controller's last value (CC ZONES)
         void pushMidiEvent (const MidiEvent&) noexcept;

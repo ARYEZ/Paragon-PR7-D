@@ -156,7 +156,10 @@ private:
     int selected = 0;
     std::vector<std::unique_ptr<DrumRow>> rows;
     std::array<juce::String, synth::drums::numSlots> pictureKeys;
-    std::vector<std::unique_ptr<ParamControl>> kitControls, slotControls, routingControls, velocityControls;
+    std::vector<std::unique_ptr<ParamControl>> kitControls, slotControls, routingControls, velocityControls, instrumentControls;
+    bool showingInstrument = false;   // the chosen drum holds an instrument (THE SAMPLE ENGINE, 0.19.0): its controls show
+    void showLoadMenu();
+    void importSfzKit();
     DrumHitDisplay display;
     MultiPointEditor envelope;
     juce::TextButton play { "PLAY" }, load { "LOAD SAMPLE..." }, clear { "CLEAR" }, wholeFile { "WHOLE FILE" };

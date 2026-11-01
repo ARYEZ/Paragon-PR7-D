@@ -26,6 +26,7 @@ PR7-D is built in stages, each one released:
 | **5** | The groove player: browse, filter, preview and drag MIDI grooves from your own folders | **Works (0.16.0)**: browser in columns with back / forward, filter columns with your packs' labels, active-filter chips, search suggestions, preview, drag out, into the sequencer, tap to find, groove parts, User MIDI; grooves kept in `midiDB` database files too (0.16.0: rebuilt to work like the reference's groove tab) |
 | **6** | The song track: grooves laid out as a song, played with your DAW | **Works (0.12.0)**: blocks from grooves or MIDI files, move, lengthen, duplicate, mute, song parts, change tempo, PLAY, EXPORT MIDI; editing inside a block (paste or remove drums, quantize, velocity, split, merge, EDIT BLOCK); the SONG CREATOR; tempo and time signature changes; IMPORT MIDI FILE; RECORD; BOUNCE to audio; FOLLOW DAW |
 | **7** | The kit view: a drawn kit (our own 3D kit, black with glowing rings) to click and play | **Works (0.14.0)**: click a drum to choose and hear it; each piece glows as it plays |
+| **9** | The sample engine: velocity layers, round-robins, mics, bleed, a mixer | **Part 1 works (0.19.0)**: drums from SFZ kits or folders of your own hits, with velocity layers, round-robins, hit variation, layer and voice limits. Next: mic channels, bleed and the mixer |
 | **8** | Articulations: each drum of the kit a piece played several ways | **Works (0.18.0)**: the articulation list (ALL, ON, level), the ride's edge, five hat openness steps, stand-ins for articulations switched off, the hi-hat pedal (CC 4) and its calibration, cymbals grabbed by note-off or aftertouch; a velocity curve and gate per drum; MIDI IN / E-DRUMS (incoming curve, channel, CC zones, LEARN, presets) and the MIDI monitor |
 
 ## Using it
@@ -50,6 +51,10 @@ PR7-D is built in stages, each one released:
     two more hi-hat openness steps. Each is one of our own drum synths
     (kick, snare, clap, hats, tom, rim, cowbell, cymbal, ride, bell, tambourine, shaker) or a **SAMPLE** you load (drop
     an audio file on its row).
+  - **LOAD...** (the DRUM view; 0.19.0: THE SAMPLE ENGINE): one audio file; a folder of hits (velocity layers and
+    round-robins, sorted by loudness or by numbered names); an SFZ instrument; or a whole SFZ kit onto every drum.
+    With an instrument: its layers drawn by velocity, RANDOMIZE, ADJACENT layers, VEL > VOL, LAYER LIMIT, VOICES.
+    Presets and projects remember where the files are and load them again.
   - **VELOCITY** (0.18.0, beside ENVELOPE on the DRUM view): the chosen drum's velocity curve (drag the end points to
     limit, double-click to bend, SOFT, GATE) and its VELOCITY GATE (the range of hits that play it).
   - **MIDI IN / E-DRUMS** (0.18.0, SETTINGS): click a note to edit it: its drum and LEARN, CC ZONES for pads that sense
