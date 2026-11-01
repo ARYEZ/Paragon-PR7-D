@@ -6,6 +6,7 @@
 #include <optional>
 
 #include "LevelMeterSource.h"
+#include "MixerEffects.h"
 #include "Parameters.h"
 #include "Rack.h"
 #include "dsp/synth/Drums.h"
@@ -177,6 +178,9 @@ public:
     // THE MIXER (0.20.0): a mic channel's peak since last asked (the page's meter).
     float takeMixerPeak (int channel) noexcept { return drumKit.takeChannelPeak (channel); }
     float takeMixerBusPeak (int bus) noexcept { return drumKit.takeBusPeak (bus); }   // 0.21.0
+    // 0.22.0: a slot's effect's gain reduction (a compressor's or gate's meter), and the type of effect made for it.
+    float getMixerEffectReduction (int strip, int slot) const noexcept { return mixerEffects.getReductionDb (strip, slot); }
+    int getMixerEffectType (int strip, int slot) const noexcept { return mixerEffects.getLoadedType (strip, slot); }
     // THE MIXER's menu (0.21.0), each one undo step. STEREO REVERSE: every channel's, bus's and send's pan to the other
     // side. STEREO OUTPUTS: every channel and bus to MAIN (no buses). MULTICHANNEL OUTPUTS: the channels to outputs by
     // instrument (our own grouping: kick OUT 2, snare OUT 3, hi-hat OUT 4, toms OUT 5, cymbals OUT 6, overheads OUT 7,
@@ -555,6 +559,9 @@ private:
     std::array<std::array<std::atomic<float>*, std::size (ParamIDs::mixSettings)>, synth::mixer::numChannels> mixParameters {};
     std::array<std::array<std::atomic<float>*, std::size (ParamIDs::busSettings)>, synth::mixer::numBuses> busParameters {};   // 0.21.0
     std::atomic<float>* muteModeParameter = nullptr;
+    // THE MIXER's EFFECTS (0.22.0): made as presets load or slots change, run by the kit (mutable: getKitSettings
+    // hands the kit a pointer to it).
+    mutable mixerfx::Host mixerEffects;
     void setParameterNow (const juce::String& id, float value);   // a whole gesture, as a click
 
     // THE DRUMS: the kit, the samples (the audio thread gets plain pointers;
@@ -710,6 +717,7 @@ private:
         std::array<synth::drums::VelocityCurve, synth::drums::numSlots> velocityCurves {};   // 0.18.0
         synth::mixer::BleedMatrix bleed {};                                                 // 0.20.0
         synth::mixer::SendTable sends {};                                                   // 0.21.0
+        synth::mixer::FxTable effects {};                                                   // 0.22.0
     };
     std::shared_ptr<const CompiledMatrix> compiledMatrix;
     std::atomic<const CompiledMatrix*> matrixForAudio { nullptr };

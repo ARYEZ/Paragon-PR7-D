@@ -119,11 +119,16 @@ struct ModMatrix
     std::vector<synth::mixer::Send> mixerSends = std::vector<synth::mixer::Send> ((size_t) (synth::mixer::numStrips * synth::mixer::numSendSlots));
     synth::mixer::Send& send (int strip, int slot) { return mixerSends[(size_t) (strip * synth::mixer::numSendSlots + slot)]; }
     const synth::mixer::Send& send (int strip, int slot) const { return mixerSends[(size_t) (strip * synth::mixer::numSendSlots + slot)]; }
+    // 0.22.0, THE MIXER's EFFECTS: each strip's four slots (XML "Effect" strip / slot / type / on / output / values,
+    // only those loaded).
+    std::vector<synth::mixer::FxSlot> mixerEffects = std::vector<synth::mixer::FxSlot> ((size_t) (synth::mixer::numStrips * synth::mixer::numFxSlots));
+    synth::mixer::FxSlot& effect (int strip, int slot) { return mixerEffects[(size_t) (strip * synth::mixer::numFxSlots + slot)]; }
+    const synth::mixer::FxSlot& effect (int strip, int slot) const { return mixerEffects[(size_t) (strip * synth::mixer::numFxSlots + slot)]; }
 
     bool operator== (const ModMatrix& o) const noexcept
     {
         return drumPatterns == o.drumPatterns && drumEnvelopes == o.drumEnvelopes && drumVelocityCurves == o.drumVelocityCurves
-            && mixerBleed == o.mixerBleed && mixerSends == o.mixerSends;
+            && mixerBleed == o.mixerBleed && mixerSends == o.mixerSends && mixerEffects == o.mixerEffects;
     }
     bool isEmpty() const noexcept { return *this == ModMatrix {}; }
 
@@ -176,6 +181,21 @@ struct ModMatrix
                     e->setAttribute ("link", d.link);
                     e->setAttribute ("mode", (int) d.mode);
                 }
+        for (int strip = 0; strip < synth::mixer::numStrips; ++strip)
+            for (int slot = 0; slot < synth::mixer::numFxSlots; ++slot)
+                if (const auto& fx = effect (strip, slot); fx.isLoaded())
+                {
+                    auto* e = xml->createNewChildElement ("Effect");
+                    e->setAttribute ("strip", strip + 1);
+                    e->setAttribute ("slot", slot + 1);
+                    e->setAttribute ("type", fx.type);
+                    e->setAttribute ("on", fx.on);
+                    e->setAttribute ("output", fx.outputDb);
+                    juce::StringArray values;
+                    for (const auto v : fx.values)
+                        values.add (juce::String (v, 4));
+                    e->setAttribute ("values", values.joinIntoString (" "));
+                }
         for (int p = 0; p < (int) drumPatterns.size(); ++p)
             if (! drumPatterns[(size_t) p].isEmpty())
             {
@@ -220,6 +240,19 @@ struct ModMatrix
             d.bleedOn = e->getBoolAttribute ("bleedOn", true);
             d.link = e->getBoolAttribute ("link", true);
             d.mode = (synth::mixer::SendMode) juce::jlimit (0, synth::mixer::sendModeNames.size() - 1, e->getIntAttribute ("mode"));
+        }
+        for (const auto* e : xml.getChildWithTagNameIterator ("Effect"))
+        {
+            const auto strip = e->getIntAttribute ("strip") - 1, slot = e->getIntAttribute ("slot") - 1;
+            if (strip < 0 || strip >= synth::mixer::numStrips || slot < 0 || slot >= synth::mixer::numFxSlots)
+                continue;
+            auto& fx = m.effect (strip, slot);
+            fx.type = juce::jmax (0, e->getIntAttribute ("type"));   // (checked against the known types where it's used)
+            fx.on = e->getBoolAttribute ("on", true);
+            fx.outputDb = (float) juce::jlimit (-24.0, 12.0, e->getDoubleAttribute ("output"));
+            const auto values = juce::StringArray::fromTokens (e->getStringAttribute ("values"), " ", "");
+            for (int i = 0; i < values.size() && i < (int) fx.values.size(); ++i)
+                fx.values[(size_t) i] = values[i].getFloatValue();
         }
         for (const auto* e : xml.getChildWithTagNameIterator ("VelocityCurve"))
             if (const auto index = e->getIntAttribute ("index") - 1; index >= 0 && index < numDrumSlots)

@@ -119,8 +119,11 @@ namespace synth::mixer
     // A SEND: a copy of the channel into a target. A mic channel's DIRECT sound (the drums it's meant for) and its
     // BLEED (the rest) have their own on, level and pan, LINK moving the two levels together; a bus's sound is all
     // direct. POST FADER: after the channel's fader (and its mute); PRE FADER: before. Its own pan, not the channel's.
-    enum class SendMode { postFader, preFader };
-    inline const juce::StringArray sendModeNames { "Post Fader", "Pre Fader" };   // saved by index: only append
+    // 0.22.0: PRE EFFECTS, before the strip's effects (and its fader); PRE FADER is now after the effects, before the
+    // fader. Once a strip has an effect loaded, its direct and bleed sound go through it together, so only a PRE
+    // EFFECTS send keeps them apart (a later send takes the processed sound at the DIRECT on, level and pan).
+    enum class SendMode { postFader, preFader, preEffects };
+    inline const juce::StringArray sendModeNames { "Post Fader", "Pre Fader", "Pre Effects" };   // saved by index: only append
     struct Send
     {
         int target = 0;
@@ -141,6 +144,39 @@ namespace synth::mixer
     inline constexpr int numSendSlots = 2;
     inline constexpr int numStrips = numChannels + numBuses;   // the channels, then the buses
     using SendTable = std::array<std::array<Send, numSendSlots>, numStrips>;
+
+    // THE EFFECTS (0.22.0): four slots on each channel and bus, each one effect (inspired by the reference's mixer
+    // effects; ours: an EQ, a compressor, a gate, a transient shaper and the plugin's own drive, lo-fi and mod), in
+    // order, before the strip's pan and fader. A slot's settings are its type's values by index (MixerEffects.h lists
+    // them); presets keep them, not as parameters.
+    inline constexpr int numFxSlots = 4, maxFxValues = 12;
+    struct FxSlot
+    {
+        int type = 0;              // MixerEffects.h's fxTypeNames index (0: empty)
+        bool on = true;            // off: bypassed (it fades out, its settings kept)
+        float outputDb = 0.0f;     // OUTPUT, -24 to +12
+        std::array<float, maxFxValues> values {};
+
+        bool isLoaded() const noexcept { return type > 0; }
+        bool operator== (const FxSlot& o) const noexcept
+        {
+            if (type != o.type || on != o.on || std::abs (outputDb - o.outputDb) > 1.0e-4f)
+                return false;
+            for (size_t i = 0; i < values.size(); ++i)
+                if (std::abs (values[i] - o.values[i]) > 1.0e-5f)
+                    return false;
+            return true;
+        }
+    };
+    using FxTable = std::array<std::array<FxSlot, numFxSlots>, numStrips>;
+
+    // What runs a strip's effects (the processor's, on the audio thread): its loaded slots in order, in place.
+    struct EffectHost
+    {
+        virtual ~EffectHost() = default;
+        virtual bool hasEffects (int strip) const noexcept = 0;
+        virtual void process (int strip, float* left, float* right, int numSamples) noexcept = 0;
+    };
 
     // Whether strip `from` (a channel, or numChannels + a bus) may go into BUS `bus`: channels into any, a bus only
     // into a later one.

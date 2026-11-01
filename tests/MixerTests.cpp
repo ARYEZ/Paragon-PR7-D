@@ -591,7 +591,7 @@ TEST_CASE ("MIXER page 0.21.0: bus strips, MICS / BUSES, the OUTPUT and SEND but
     CHECK (! page.isStripShown (mixer::snareTop));
     CHECK (page.isStripShown (busStrip (0)));
     CHECK (page.getSelectedStrip() == busStrip (0));
-    CHECK (page.getTab() == MixerPage::Tab::sends);   // a bus: its sends
+    CHECK (page.getTab() == MixerPage::Tab::effects);   // a bus: no BLEED tab (0.22.0: its effects)
     page.showGroups (true, true);
 
     // OUTPUT's words: the output, or the bus / FX bus it's routed into.
@@ -631,4 +631,292 @@ TEST_CASE ("MIXER page 0.21.0: bus strips, MICS / BUSES, the OUTPUT and SEND but
     page.runMenuItem (MixerPage::stereoOutputs);
     CHECK (page.describeOutput (mixer::snareBottom) == "Main");
     page.update();
+}
+
+//==============================================================================
+// THE MIXER's EFFECTS (0.22.0)
+#include "MixerEffects.h"
+
+namespace
+{
+    void setEffect (Plugin& p, int strip, int slot, const mixer::FxSlot& fx)
+    {
+        auto m = p.processor->getModMatrix();
+        m.effect (strip, slot) = fx;
+        p.processor->setModMatrix (m);
+    }
+    mixer::FxSlot effectOf (int type, std::initializer_list<std::pair<int, float>> values = {})
+    {
+        auto fx = mixerfx::defaultSlot (type);
+        for (const auto& [index, value] : values)
+            fx.values[(size_t) index] = value;
+        return fx;
+    }
+    // The snare top alone (soloed) at 300 Hz, its level over 0.05 to 0.25 s.
+    struct SnareTop
+    {
+        TempFolder temp;
+        Plugin p { temp.folder.getChildFile ("Presets"), true };
+        SnareTop()
+        {
+            p.processor->importSfzKit (writeKit (temp.folder), drums::notemap::Layout::generalMidi);
+            REQUIRE (p.processor->waitForInstruments());
+            p.set (ParamIDs::drumsMap, (float) drums::notemap::Layout::generalMidi);
+            p.set (ParamIDs::drum (2, "VelToVol"), 0.0f);
+            p.set (ParamIDs::drum (0, "VelToVol"), 0.0f);
+            p.set (ParamIDs::mix (mixer::snareTop, "Solo"), 1.0f);
+        }
+        double level (double hz = 300.0) { return p.level (38, hz); }
+    };
+}
+
+TEST_CASE ("MIXER EFFECTS: EQ (a bell, LOW CUT), COMPRESSOR (and MIX), OUTPUT, bypass; presets keep the slots", "[mixer][mixerfx]")
+{
+    SnareTop t;
+    auto& p = t.p;
+    const auto dry = t.level();
+    REQUIRE (dry > 0.05);
+
+    // EQ: MID 1 at 300 Hz, +6 dB: the sine twice as loud. LOW CUT at 1 kHz: well under half.
+    setEffect (p, mixer::snareTop, 0, effectOf (mixerfx::eq, { { 3, 300.0f }, { 4, 6.0f } }));
+    CHECK (p.processor->getMixerEffectType (mixer::snareTop, 0) == mixerfx::eq);
+    CHECK (t.level() == Catch::Approx (dry * 1.995).epsilon (0.03));
+    setEffect (p, mixer::snareTop, 0, effectOf (mixerfx::eq, { { 0, 1000.0f } }));
+    CHECK (t.level() < dry * 0.2);
+    // Flat (the defaults): untouched.
+    setEffect (p, mixer::snareTop, 0, effectOf (mixerfx::eq));
+    CHECK (t.level() == Catch::Approx (dry).epsilon (0.01));
+
+    // OUTPUT -6 dB; bypassed (ON off): as if it weren't there.
+    auto boosted = effectOf (mixerfx::eq, { { 3, 300.0f }, { 4, 6.0f } });
+    boosted.outputDb = -6.0f;
+    setEffect (p, mixer::snareTop, 0, boosted);
+    CHECK (t.level() == Catch::Approx (dry * 1.995 * 0.501).epsilon (0.03));
+    boosted.on = false;
+    setEffect (p, mixer::snareTop, 0, boosted);
+    t.level();   // (the bypass fades over 20 ms)
+    CHECK (t.level() == Catch::Approx (dry).epsilon (0.01));
+
+    // COMPRESSOR: threshold -40 dB at 20:1 on a -12 dB sine: much quieter, its meter showing it; MIX 0: dry again.
+    setEffect (p, mixer::snareTop, 0, {});
+    setEffect (p, mixer::snareTop, 1, effectOf (mixerfx::compressor, { { 0, -40.0f }, { 1, 20.0f }, { 2, 1.0f } }));
+    const auto squashed = t.level();
+    INFO ("compressed " << squashed << " of " << dry);
+    CHECK (squashed < dry * 0.3);
+    CHECK (p.processor->getMixerEffectReduction (mixer::snareTop, 1) > 10.0f);
+    setEffect (p, mixer::snareTop, 1, effectOf (mixerfx::compressor, { { 0, -40.0f }, { 1, 20.0f }, { 7, 0.0f } }));
+    CHECK (t.level() == Catch::Approx (dry).epsilon (0.01));
+
+    // A preset: the slots saved and loaded; an unknown type (a later version's) left empty.
+    setEffect (p, mixer::room, 3, effectOf (mixerfx::gate, { { 0, -30.0f } }));
+    const auto xml = p.processor->getModMatrix().toXml();
+    const auto back = ModMatrix::fromXml (*xml);
+    CHECK (back == p.processor->getModMatrix());
+    CHECK (back.effect (mixer::room, 3).values[0] == Catch::Approx (-30.0f));
+    auto future = p.processor->getModMatrix();
+    future.effect (mixer::room, 2).type = 99;
+    p.processor->setModMatrix (future);
+    CHECK (p.processor->getMixerEffectType (mixer::room, 2) == 0);
+    CHECK (p.processor->getMixerEffectType (mixer::room, 3) == mixerfx::gate);
+}
+
+TEST_CASE ("MIXER EFFECTS: GATE (threshold, range, its side chain's filters), DRIVE's harmonics, a chorus's tail after the sound stops",
+           "[mixer][mixerfx]")
+{
+    SnareTop t;
+    auto& p = t.p;
+    const auto dry = t.level();
+
+    // The sine peaks at about -12 dB: a gate at -6 dB stays shut (80 dB down); at -30 dB it's open.
+    setEffect (p, mixer::snareTop, 0, effectOf (mixerfx::gate, { { 0, -6.0f } }));
+    CHECK (t.level() < dry * 0.001);
+    CHECK (p.processor->getMixerEffectReduction (mixer::snareTop, 0) > 60.0f);
+    setEffect (p, mixer::snareTop, 0, effectOf (mixerfx::gate, { { 0, -30.0f } }));
+    CHECK (t.level() == Catch::Approx (dry).epsilon (0.01));
+    // RANGE 12 dB: shut is only 12 dB down.
+    setEffect (p, mixer::snareTop, 0, effectOf (mixerfx::gate, { { 0, -6.0f }, { 1, 12.0f } }));
+    CHECK (t.level() == Catch::Approx (dry * 0.251).epsilon (0.03));
+    // Its side chain high-passed at 2 kHz: it hardly hears the 300 Hz sine, and stays shut.
+    setEffect (p, mixer::snareTop, 0, effectOf (mixerfx::gate, { { 0, -30.0f }, { 5, 2000.0f } }));
+    CHECK (t.level() < dry * 0.001);
+
+    // DRIVE: the sine's odd harmonics appear (900 Hz), none without it.
+    setEffect (p, mixer::snareTop, 0, {});
+    CHECK (t.level (900.0) < dry * 0.001);
+    setEffect (p, mixer::snareTop, 0, effectOf (mixerfx::drive, { { 1, 10.0f } }));
+    CHECK (t.level (900.0) > dry * 0.01);
+
+    // A chorus (MOD) on the channel: after the 1 s sine stops, its delay line still sounds (the channel runs on
+    // for its effects' tails); without it, silence.
+    setEffect (p, mixer::snareTop, 0, {});
+    const auto after = [&]
+    {
+        const auto out = p.play (38, 1.2);
+        return rms (out[0], (size_t) (1.0015 * sampleRate), (size_t) (1.006 * sampleRate));
+    };
+    CHECK (after() < 1.0e-5);
+    setEffect (p, mixer::snareTop, 0, effectOf (mixerfx::mod));
+    CHECK (after() > 1.0e-3);
+}
+
+TEST_CASE ("MIXER EFFECTS: TRANSIENT's ATTACK lifts each hit's front, SUSTAIN its ring", "[mixer][mixerfx]")
+{
+    TempFolder temp;
+    // A hit: a 200 Hz sine dying away over about 150 ms.
+    const auto file = temp.folder.getChildFile ("hit.wav");
+    {
+        juce::AudioBuffer<float> b (1, (int) (0.6 * sampleRate));
+        for (int i = 0; i < b.getNumSamples(); ++i)
+            b.setSample (0, i, 0.5f * (float) (std::exp (-i / (0.15 * sampleRate)) * std::sin (juce::MathConstants<double>::twoPi * 200.0 * i / sampleRate)));
+        juce::WavAudioFormat wav;
+        std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (new juce::FileOutputStream (file), sampleRate, 1, 24, {}, 0));
+        REQUIRE (writer != nullptr);
+        writer->writeFromAudioSampleBuffer (b, 0, b.getNumSamples());
+    }
+    const auto sfz = temp.folder.getChildFile ("kit.sfz");
+    sfz.replaceWithText ("<group> key=38\n<region> sample=hit.wav group_label=Snare Top\n<region> sample=hit.wav group_label=Room\n");
+    Plugin p (temp.folder.getChildFile ("Presets"));
+    p.processor->importSfzKit (sfz, drums::notemap::Layout::generalMidi);
+    REQUIRE (p.processor->waitForInstruments());
+    p.set (ParamIDs::drumsMap, (float) drums::notemap::Layout::generalMidi);
+    p.set (ParamIDs::drum (2, "VelToVol"), 0.0f);
+    p.set (ParamIDs::mix (mixer::snareTop, "Solo"), 1.0f);
+    const auto front = [&] (const std::vector<float>& x) { return rms (x, 0, (size_t) (0.005 * sampleRate)); };
+    const auto ring = [&] (const std::vector<float>& x) { return rms (x, (size_t) (0.15 * sampleRate), (size_t) (0.3 * sampleRate)); };
+    const auto plain = p.play (38, 0.4)[0];
+    REQUIRE (front (plain) > 0.05);
+
+    setEffect (p, mixer::snareTop, 0, effectOf (mixerfx::transient, { { 0, 100.0f } }));
+    const auto punchy = p.play (38, 0.4)[0];
+    INFO ("front " << front (punchy) << " against " << front (plain));
+    CHECK (front (punchy) > front (plain) * 1.5);
+    CHECK (ring (punchy) == Catch::Approx (ring (plain)).epsilon (0.15));
+
+    setEffect (p, mixer::snareTop, 0, effectOf (mixerfx::transient, { { 1, 100.0f } }));
+    CHECK (ring (p.play (38, 0.4)[0]) > ring (plain) * 1.5);
+    setEffect (p, mixer::snareTop, 0, effectOf (mixerfx::transient, { { 1, -100.0f } }));
+    CHECK (ring (p.play (38, 0.4)[0]) < ring (plain) * 0.7);
+}
+
+TEST_CASE ("MIXER EFFECTS: PRE EFFECTS sends before them; with an effect loaded the later sends take the processed sound; a bus's effects",
+           "[mixer][mixerfx]")
+{
+    SnareTop t;
+    auto& p = t.p;
+    const auto dry = t.level();
+
+    // A shut gate on the snare top: a PRE FADER send to BUS 1 is shut too (it's after the effects); a PRE EFFECTS
+    // one isn't.
+    setEffect (p, mixer::snareTop, 0, effectOf (mixerfx::gate, { { 0, -6.0f } }));
+    setSend (p, mixer::snareTop, 0, sendTo (1, 0.0f, mixer::SendMode::preFader));
+    CHECK (t.level() < dry * 0.001);
+    setSend (p, mixer::snareTop, 0, sendTo (1, 0.0f, mixer::SendMode::preEffects));
+    CHECK (t.level() == Catch::Approx (dry).epsilon (0.02));
+    setSend (p, mixer::snareTop, 0, {});
+    setEffect (p, mixer::snareTop, 0, {});
+
+    // KICK IN carries the snare as bleed (500 Hz). A post-fader send with its BLEED off: without effects it sends no
+    // bleed; with a (flat) EQ loaded, the channel's sound goes through it as one, so it does.
+    p.set (ParamIDs::mix (mixer::snareTop, "Solo"), 0.0f);
+    p.set (ParamIDs::mix (mixer::kickIn, "Mute"), 1.0f);
+    p.set (ParamIDs::mixMuteMode, 1.0f);
+    auto send = sendTo (1, 0.0f, mixer::SendMode::preFader);
+    send.bleedOn = false;
+    setSend (p, mixer::kickIn, 0, send);
+    const auto bleed = p.level (38, 500.0);
+    CHECK (bleed < 1.0e-4);
+    setEffect (p, mixer::kickIn, 0, effectOf (mixerfx::eq));
+    CHECK (p.level (38, 500.0) > 0.05);
+    // ... unless the send is PRE EFFECTS.
+    send.mode = mixer::SendMode::preEffects;
+    setSend (p, mixer::kickIn, 0, send);
+    CHECK (p.level (38, 500.0) < 1.0e-4);
+    setSend (p, mixer::kickIn, 0, {});
+    setEffect (p, mixer::kickIn, 0, {});
+    p.set (ParamIDs::mix (mixer::kickIn, "Mute"), 0.0f);
+    p.set (ParamIDs::mixMuteMode, 0.0f);
+
+    // A bus's effects: the snare top into BUS 1, its EQ +6 dB at 300 Hz.
+    p.set (ParamIDs::mix (mixer::snareTop, "Solo"), 1.0f);
+    p.processor->setMixerRoute (mixer::snareTop, 1);
+    setEffect (p, busStrip (0), 0, effectOf (mixerfx::eq, { { 3, 300.0f }, { 4, 6.0f } }));
+    CHECK (t.level() == Catch::Approx (dry * 1.995).epsilon (0.03));
+}
+
+TEST_CASE ("MIXER EFFECTS page: a slot's effect from its menu (defaults), the EFFECTS tab, copy / paste, remove; one undo step each",
+           "[mixer][mixerfx]")
+{
+    TempFolder temp;
+    Plugin p (temp.folder.getChildFile ("Presets"));
+    MixerPage page (*p.processor);
+    page.setSize (1400, 650);
+    page.selectChannel (mixer::hiHat);
+
+    CHECK (page.describeEffect (mixer::hiHat, 0) == "+ FX");
+    page.setEffectType (mixer::hiHat, 0, mixerfx::compressor);
+    CHECK (page.describeEffect (mixer::hiHat, 0) == "Compressor");
+    CHECK (p.processor->getModMatrix().effect (mixer::hiHat, 0) == mixerfx::defaultSlot (mixerfx::compressor));
+    CHECK (p.processor->getMixerEffectType (mixer::hiHat, 0) == mixerfx::compressor);
+
+    // The editor's change to the chosen slot.
+    page.showTab (MixerPage::Tab::effects);
+    page.chooseEffectSlot (0);
+    auto fx = p.processor->getModMatrix().effect (mixer::hiHat, 0);
+    fx.values[0] = -24.0f;
+    fx.outputDb = 2.0f;
+    page.setEffect (0, fx);
+    CHECK (p.processor->getModMatrix().effect (mixer::hiHat, 0).values[0] == Catch::Approx (-24.0f));
+
+    // Copy onto a bus's slot 3; remove it from the hi-hat.
+    page.copyEffect (mixer::hiHat, 0);
+    page.pasteEffect (busStrip (2), 2);
+    CHECK (p.processor->getModMatrix().effect (busStrip (2), 2) == fx);
+    page.setEffectType (mixer::hiHat, 0, 0);
+    CHECK (! p.processor->getModMatrix().effect (mixer::hiHat, 0).isLoaded());
+    CHECK (p.processor->getMixerEffectType (mixer::hiHat, 0) == 0);
+    page.update();
+
+    // The value texts.
+    CHECK (mixerfx::valueText (mixerfx::eq, 0, 20.0f) == "OFF");
+    CHECK (mixerfx::valueText (mixerfx::eq, 11, 20000.0f) == "OFF");
+    CHECK (mixerfx::valueText (mixerfx::eq, 3, 2500.0f) == "2.50 kHz");
+    CHECK (mixerfx::valueText (mixerfx::compressor, 5, 2.0f) == "FET");
+}
+
+TEST_CASE ("MIXER EFFECTS: CPU, a multi-mic kit hit every sixteenth note with four effects on every channel and bus",
+           "[mixer][mixerfx][performance]")
+{
+    TempFolder temp;
+    Plugin p (temp.folder.getChildFile ("Presets"));
+    p.processor->importSfzKit (writeKit (temp.folder), drums::notemap::Layout::generalMidi);
+    REQUIRE (p.processor->waitForInstruments());
+    p.set (ParamIDs::drumsMap, (float) drums::notemap::Layout::generalMidi);
+    auto m = p.processor->getModMatrix();
+    for (int strip = 0; strip < mixer::numStrips; ++strip)
+    {
+        m.effect (strip, 0) = mixerfx::defaultSlot (mixerfx::gate);
+        m.effect (strip, 1) = effectOf (mixerfx::eq, { { 4, 3.0f } });
+        m.effect (strip, 2) = mixerfx::defaultSlot (mixerfx::compressor);
+        m.effect (strip, 3) = effectOf (mixerfx::transient, { { 0, 30.0f } });
+    }
+    p.processor->setModMatrix (m);
+    p.processor->setMixerRoute (mixer::snareTop, 1);
+    p.processor->setMixerRoute (mixer::kickIn, 2);
+    p.processor->prepareToPlay (sampleRate, blockSize);
+    juce::AudioBuffer<float> buffer (2, blockSize);
+    const auto blocks = (int) (8.0 * sampleRate / blockSize);
+    const auto started = juce::Time::getMillisecondCounterHiRes();
+    for (int b = 0; b < blocks; ++b)
+    {
+        juce::MidiBuffer midi;
+        if (b % (int) (0.125 * sampleRate / blockSize) == 0)
+        {
+            midi.addEvent (juce::MidiMessage::noteOn (10, 36, (juce::uint8) 110), 0);
+            midi.addEvent (juce::MidiMessage::noteOn (10, 38, (juce::uint8) 110), 0);
+        }
+        p.processor->processBlock (buffer, midi);
+    }
+    const auto percent = (juce::Time::getMillisecondCounterHiRes() - started) / 8000.0 * 100.0;
+    WARN ("4 mic channels and 2 buses, each with gate, EQ, compressor, transient: " << percent << "% of one core");
+    CHECK (percent < 25.0);
 }

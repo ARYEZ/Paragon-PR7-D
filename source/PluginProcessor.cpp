@@ -154,6 +154,7 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
     drumMidi.ensureSize (2048);
     keyboardState.reset();
     drumKit.prepare (sampleRate, 512);   // the pieces processChunk renders in
+    mixerEffects.prepare (sampleRate, 512);   // the kit runs them in its pieces
 
     outputGain.reset (sampleRate, gainRampSeconds);
     outputGain.setCurrentAndTargetValue (juce::Decibels::decibelsToGain (param (ParamIDs::outputGain) + param (ParamIDs::patchLevel)));
@@ -764,7 +765,10 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
 
     auto sequencer = getDrumSeqSettings();
     if (const auto* compiled = matrixForAudio.load())
+    {
         sequencer.patterns = &compiled->drumPatterns;
+        mixerEffects.setTable (&compiled->effects);   // the slots' settings this block (0.22.0)
+    }
     const auto bpm = juce::jmax (1.0, hostBpm.load());
     auto* left = buffer.getWritePointer (0, start);
     for (int done = 0; done < numSamples; done += (int) std::size (scratchRight))
@@ -908,6 +912,7 @@ void ParagonX1AudioProcessor::retireOldData()
     const auto now = juce::Time::getMillisecondCounterHiRes();
     std::erase_if (retiredMatrices, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
     std::erase_if (retiredMidiIns, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
+    mixerEffects.freeRetired();
     std::erase_if (retiredSamples, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
     std::erase_if (retiredGrooves, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
     std::erase_if (retiredSongs, [now] (const auto& retired) { return now - retired.second > retiredTableMs; });
@@ -930,6 +935,19 @@ void ParagonX1AudioProcessor::compileMatrix()
     for (int strip = 0; strip < synth::mixer::numStrips; ++strip)
         for (int slot = 0; slot < synth::mixer::numSendSlots; ++slot)
             compiled->sends[(size_t) strip][(size_t) slot] = matrix.send (strip, slot);
+    // THE MIXER's EFFECTS: an unknown type (a later version's) left empty; each value within its range.
+    for (int strip = 0; strip < synth::mixer::numStrips; ++strip)
+        for (int slot = 0; slot < synth::mixer::numFxSlots; ++slot)
+        {
+            auto fx = matrix.effect (strip, slot);
+            if (fx.type < 0 || fx.type >= mixerfx::typeNames.size())
+                fx = {};
+            const auto& params = mixerfx::paramsOf (fx.type);
+            for (size_t i = 0; i < params.size() && i < fx.values.size(); ++i)
+                fx.values[i] = juce::jlimit (params[i].min, params[i].max, fx.values[i]);
+            compiled->effects[(size_t) strip][(size_t) slot] = fx;
+        }
+    mixerEffects.sync (compiled->effects);   // the effects made before the audio thread sees their slots
     if (compiledMatrix != nullptr)
         retiredMatrices.emplace_back (compiledMatrix, juce::Time::getMillisecondCounterHiRes());
     compiledMatrix = compiled;
@@ -1500,6 +1518,7 @@ synth::drums::KitSettings ParagonX1AudioProcessor::getKitSettings() const noexce
         kit.bleed = &compiled->bleed;
         kit.sends = &compiled->sends;
     }
+    kit.effects = &mixerEffects;
     // MIDI IN (0.18.0).
     kit.channel = juce::jlimit (0, 16, juce::roundToInt (param (ParamIDs::drumsMidiChannel)));
     if (const auto* in = midiInForAudio.load())

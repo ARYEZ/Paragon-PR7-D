@@ -28,7 +28,8 @@
 //                                    PARAGON_SNAPSHOT_INSTRUMENT=1: the snare from a folder of 16 hits, its layers)
 //   PARAGON_SNAPSHOT_PAGE=fx         THE RACK (PARAGON_SNAPSHOT_RACK=1: at work on a beat, the sends and bus A too; PARAGON_SNAPSHOT_FX=eq|dominion|comp|limiter|sends|delay|reverb|modfx|mod|mod2|lofi|inserts|insdrive|insglitch|insmod|inslofi: that view, the inserts' on bus PARAGON_SNAPSHOT_BUS=1-4)
 //   PARAGON_SNAPSHOT_PAGE=mixer      THE MIXER (0.20.0) with a multi-mic kit, a hit just played
-//                                    (PARAGON_SNAPSHOT_MIXERBUS=1: buses and sends, the snare top's SENDS; =2 the buses)
+//                                    (PARAGON_SNAPSHOT_MIXERBUS=1: buses and sends, the snare top's SENDS; =2 the buses;
+//                                    PARAGON_SNAPSHOT_MIXERFX=1: effects on the snare top, its EFFECTS tab)
 //   PARAGON_SNAPSHOT_NOTES=1         the kick, snare and closed hat's keys held on the keyboard (they light)
 //   PARAGON_SNAPSHOT_MIDI=1          demo MIDI links and a knob learning (with PAGE=settings: the links list)
 TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
@@ -746,11 +747,60 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 mixerPage.scrollToStrip (numChannels - 5);
             }
         }
+        // 0.22.0: PARAGON_SNAPSHOT_MIXERFX=1 a gate, an EQ, a compressor and a transient shaper on the snare top, the
+        // compressor chosen in its EFFECTS tab; a drive and a chorus on BUS 1.
+        const auto mixerFx = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_MIXERFX", {}).getIntValue();
+        if (mixerFx > 0)
+        {
+            using namespace synth::mixer;
+            auto withFx = processor.getModMatrix();
+            auto gateFx = mixerfx::defaultSlot (mixerfx::gate);
+            gateFx.values[0] = -36.0f;
+            gateFx.values[5] = 180.0f;
+            withFx.effect (snareTop, 0) = gateFx;
+            auto eqFx = mixerfx::defaultSlot (mixerfx::eq);
+            eqFx.values[0] = 80.0f;
+            eqFx.values[3] = 220.0f;
+            eqFx.values[4] = 3.5f;
+            eqFx.values[6] = 5200.0f;
+            eqFx.values[7] = 2.5f;
+            eqFx.values[10] = -2.0f;
+            withFx.effect (snareTop, 1) = eqFx;
+            auto compFx = mixerfx::defaultSlot (mixerfx::compressor);
+            compFx.values[0] = -30.0f;
+            compFx.values[1] = 5.0f;
+            compFx.values[2] = 3.0f;
+            compFx.values[3] = 120.0f;
+            compFx.values[4] = 4.0f;
+            compFx.values[5] = 2.0f;
+            compFx.values[6] = 120.0f;
+            compFx.values[7] = 70.0f;
+            withFx.effect (snareTop, 2) = compFx;
+            auto transientFx = mixerfx::defaultSlot (mixerfx::transient);
+            transientFx.values[0] = 40.0f;
+            transientFx.values[1] = -25.0f;
+            transientFx.on = false;
+            withFx.effect (snareTop, 3) = transientFx;
+            withFx.effect (numChannels, 0) = mixerfx::defaultSlot (mixerfx::drive);
+            withFx.effect (numChannels, 1) = mixerfx::defaultSlot (mixerfx::mod);
+            processor.setModMatrix (withFx);
+            processor.setMixerRoute (snareTop, 1);
+            auto& mixerPage = view->getMixerPage();
+            mixerPage.selectStrip (snareTop);
+            mixerPage.showTab (MixerPage::Tab::effects);
+            mixerPage.chooseEffectSlot (mixerFx == 2 ? 1 : 2);
+        }
         juce::AudioBuffer<float> buffer (2, 512);
         juce::MidiBuffer midi;
         midi.addEvent (juce::MidiMessage::noteOn (1, 38, (juce::uint8) 110), 0);
         midi.addEvent (juce::MidiMessage::noteOn (1, 36, (juce::uint8) 110), 0);
         processor.processBlock (buffer, midi);
+        if (mixerFx > 0)
+            for (int b = 0; b < 8; ++b)
+            {
+                juce::MidiBuffer none;
+                processor.processBlock (buffer, none);
+            }
         view->getMixerPage().update();
     }
     if (page == "presets")

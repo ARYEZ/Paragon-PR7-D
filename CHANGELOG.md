@@ -2,6 +2,44 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.22.0
+
+**Effects on every mixer channel and bus** (from the Mixer chapter's effects pages; our own effects, look and words). As you chose: the mix core plus the colour effects, in 4 slots per strip.
+
+- **Four EFFECT slots** on every mic channel and bus (the buttons under BLEED). They work in order from the top, before the pan and fader, as in the manual. Click a slot to choose an effect, switch it ON or off (bypassed without a click, its settings kept), copy, paste or remove it.
+- **PROPERTIES > EFFECTS**: the four slots with their ON and effect, a compressor's or gate's gain reduction beside it, and the chosen slot's knobs and OUTPUT.
+- **The effects:**
+  - **EQ**: LOW CUT, a LOW shelf, two bells (MID 1, MID 2, each with Q), a HIGH shelf, HIGH CUT. These are six bands of the plugin's own parametric EQ, with no latency.
+  - **COMPRESSOR**: the plugin's compressor (VCA / OPTO / FET) with THRESHOLD, RATIO, ATTACK, RELEASE and MAKEUP.
+    - **SC HPF**, as in the manual: it filters only what the compressor hears, so a kick's lows don't pump it.
+    - **MIX**: parallel compression.
+  - **GATE** (new, our own design):
+    - opens above THRESHOLD, stays open for HOLD, then closes over RELEASE, down by RANGE (less than 80 dB means it only turns down);
+    - its side-chain HPF and LPF decide what opens it, e.g. the snare and not the hats in its mic;
+    - it starts shut, and moves in decibels: opening the whole RANGE takes ATTACK, closing it takes RELEASE.
+    - The manual's gate also has an expander (a second threshold and ratio); that's left out for now.
+  - **TRANSIENT** (new, our own design): ATTACK lifts (or softens) each hit's front, SUSTAIN lengthens (or shortens) its ring. It compares fast and slow followers of the sound's level, as transient shapers do; the exact amounts are our own.
+  - **DRIVE**: the plugin's drive pedals (one a side, with the same DC blocker as the insert buses).
+  - **LO-FI** and **MOD** (chorus, flanger, phaser...): the plugin's own.
+- **A new send mode, PRE EFFECTS:** the send taps before the strip's effects and fader. PRE FADER now means after the effects, before the fader.
+  - Once a strip has an effect loaded, its mic's direct and bleed sound go through the effect together. So only a PRE EFFECTS send can still send them apart; later sends take the processed sound at the DIRECT on, level and pan. Without effects, nothing changes.
+- **Tails:** a strip with effects keeps running for 3 s after its sound stops, so a chorus or a compressor's release isn't cut off.
+- **Presets** keep every slot (effect, on, output and settings), as preset data like the sends, not as automation parameters.
+- **CPU:** a multi-mic kit hit every sixteenth note, with gate, EQ, compressor and transient on 4 channels and 2 buses, measured about 8% of one core here. Empty slots cost nothing.
+- **Not copied:** the manual's 25-odd effects (reverbs, delays, tape, exciters, the named compressor models), effect presets, side-chaining from another channel. Reverb and delay stay as sends.
+- **Not checked here:** how they sound to your ears on real kits.
+- **Tests:**
+  - the EQ's bell exactly +6 dB and its low cut;
+  - the compressor's reduction and meter, MIX 0 dry;
+  - OUTPUT -6 dB, and bypass sounding as if it weren't there;
+  - the gate shut, open, its RANGE, and staying shut when its side chain is high-passed above the sound;
+  - the drive's 3rd harmonic;
+  - a chorus's tail after the sound stops;
+  - the transient shaper's front and ring;
+  - PRE EFFECTS against PRE FADER sends;
+  - a bus's EQ;
+  - presets, the page, and the CPU.
+
 ## 0.21.0
 
 **The MIXER's buses and sends** (from the Mixer chapter's channel strip, buses and Mixer menu; our own look and words). As you chose: 8 buses that also reach the plugin's own effects, and the Mixer menu's options.

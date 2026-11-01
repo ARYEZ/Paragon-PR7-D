@@ -335,6 +335,7 @@ namespace synth::drums
         std::array<mixer::BusSettings, mixer::numBuses> buses {};
         const mixer::SendTable* sends = nullptr;
         mixer::MuteMode muteMode = mixer::MuteMode::preSend;
+        mixer::EffectHost* effects = nullptr;   // 0.22.0: the strips' effects (null: none)
 
         // MIDI IN (0.18.0): only for MIDI from the DAW or a controller (not grooves, the song or the sequencer).
         int channel = 0;                                // 0: any, 1-16
@@ -573,6 +574,8 @@ namespace synth::drums
         std::vector<float> channelScratch, voiceScratch, busScratch;
         std::array<std::atomic<float>, mixer::numChannels> channelPeaks {};
         std::array<std::atomic<float>, mixer::numBuses> busPeaks {};
+        // 0.22.0: samples a strip with effects keeps running after its sound stops (their tails).
+        std::array<int, mixer::numStrips> stripTail {};
         static void filterSlot (const SlotSettings&, float* left, float* right, int numSamples, std::array<float, 2>& low,
                                 std::array<float, 2>& high, double sampleRate) noexcept;
         void startHit (int slot, float velocity, const KitSettings&, const HitOptions& = {}) noexcept;

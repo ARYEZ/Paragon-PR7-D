@@ -26,7 +26,7 @@ PR7-D is built in stages, each one released:
 | **5** | The groove player: browse, filter, preview and drag MIDI grooves from your own folders | **Works (0.16.0)**: browser in columns with back / forward, filter columns with your packs' labels, active-filter chips, search suggestions, preview, drag out, into the sequencer, tap to find, groove parts, User MIDI; grooves kept in `midiDB` database files too (0.16.0: rebuilt to work like the reference's groove tab) |
 | **6** | The song track: grooves laid out as a song, played with your DAW | **Works (0.12.0)**: blocks from grooves or MIDI files, move, lengthen, duplicate, mute, song parts, change tempo, PLAY, EXPORT MIDI; editing inside a block (paste or remove drums, quantize, velocity, split, merge, EDIT BLOCK); the SONG CREATOR; tempo and time signature changes; IMPORT MIDI FILE; RECORD; BOUNCE to audio; FOLLOW DAW |
 | **7** | The kit view: a drawn kit (our own 3D kit, black with glowing rings) to click and play | **Works (0.14.0)**: click a drum to choose and hear it; each piece glows as it plays |
-| **9** | The sample engine: velocity layers, round-robins, mics, bleed, a mixer | **Works (0.20.0)**: drums from SFZ kits or folders of your own hits, with velocity layers, round-robins, hit variation, layer and voice limits; multi-mic kits through the MIXER's mic channels, with bleed per drum, time offset, release and outputs; 8 buses and two sends per channel or bus (into a bus, the FX page's insert buses, DELAY, REVERB) (0.21.0). Next: effects per channel |
+| **9** | The sample engine: velocity layers, round-robins, mics, bleed, a mixer | **Works (0.20.0)**: drums from SFZ kits or folders of your own hits, with velocity layers, round-robins, hit variation, layer and voice limits; multi-mic kits through the MIXER's mic channels, with bleed per drum, time offset, release and outputs; 8 buses and two sends per channel or bus (into a bus, the FX page's insert buses, DELAY, REVERB) (0.21.0); four effect slots per channel and bus: EQ, COMPRESSOR, GATE, TRANSIENT, DRIVE, LO-FI, MOD (0.22.0) |
 | **8** | Articulations: each drum of the kit a piece played several ways | **Works (0.18.0)**: the articulation list (ALL, ON, level), the ride's edge, five hat openness steps, stand-ins for articulations switched off, the hi-hat pedal (CC 4) and its calibration, cymbals grabbed by note-off or aftertouch; a velocity curve and gate per drum; MIDI IN / E-DRUMS (incoming curve, channel, CC zones, LEARN, presets) and the MIDI monitor |
 
 ## Using it
@@ -62,7 +62,10 @@ PR7-D is built in stages, each one released:
   later one); each channel's OUTPUT can be a bus or an FX bus (the FX page's insert buses A-D); two SENDS per channel
   or bus (to a bus, an FX bus, DELAY or REVERB; POST / PRE FADER; a mic's DIRECT and BLEED sound with their own on,
   level and pan, LINK); MICS / BUSES; MENU...: channel mute before or after the sends, STEREO REVERSE, STEREO or
-  MULTICHANNEL OUTPUTS.
+  MULTICHANNEL OUTPUTS. 0.22.0: four EFFECT slots per channel and bus (before the pan and fader): EQ (low cut, low
+  shelf, two bells, high shelf, high cut), COMPRESSOR (VCA / OPTO / FET, side-chain high-pass, MIX), GATE (threshold,
+  range, attack, hold, release, side-chain filters), TRANSIENT (attack, sustain), DRIVE, LO-FI, MOD; each with ON and
+  OUTPUT, copy / paste; PROPERTIES > EFFECTS for their knobs; a PRE EFFECTS send mode.
   - **VELOCITY** (0.18.0, beside ENVELOPE on the DRUM view): the chosen drum's velocity curve (drag the end points to
     limit, double-click to bend, SOFT, GATE) and its VELOCITY GATE (the range of hits that play it).
   - **MIDI IN / E-DRUMS** (0.18.0, SETTINGS): click a note to edit it: its drum and LEARN, CC ZONES for pads that sense

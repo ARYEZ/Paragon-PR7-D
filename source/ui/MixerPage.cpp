@@ -1,5 +1,7 @@
 #include "ui/MixerPage.h"
 
+#include "MixerEffects.h"
+
 #include "dsp/synth/Instrument.h"
 #include "ui/DockPanels.h"
 #include "ui/DrumSeqPage.h"
@@ -53,6 +55,15 @@ public:
             attachments.push_back (std::make_unique<Attachment::SliderAttachment> (state, id ("Bleed"), bleed));
             buttons.push_back (std::make_unique<Attachment::ButtonAttachment> (state, id ("BleedOn"), bleedOn));
             bleed.setDoubleClickReturnValue (true, 0.0);
+        }
+        for (int k = 0; k < mixer::numFxSlots; ++k)
+        {
+            auto& b = effects[(size_t) k];
+            DrumSeqPanel::style (b);
+            b.setTooltip ("EFFECT " + juce::String (k + 1) + ": EQ, COMPRESSOR, GATE, TRANSIENT, DRIVE, LO-FI or MOD, in order from the "
+                          "top, before the pan and fader. Click to choose; its settings are in PROPERTIES > EFFECTS.");
+            b.onClick = [this, k] { page.showEffectMenu (strip, k, effects[(size_t) k]); };
+            addAndMakeVisible (b);
         }
         for (int k = 0; k < mixer::numSendSlots; ++k)
         {
@@ -114,6 +125,24 @@ public:
     {
         if (const auto text = page.describeOutput (strip); text != output.getButtonText())
             output.setButtonText (text);
+        for (int k = 0; k < mixer::numFxSlots; ++k)
+        {
+            auto& b = effects[(size_t) k];
+            const auto& fx = page.processor.getModMatrix().effect (strip, k);
+            if (const auto text = page.describeEffect (strip, k); text != b.getButtonText())
+                b.setButtonText (text);
+            b.setToggleState (fx.isLoaded() && fx.on, juce::dontSendNotification);
+            b.setAlpha (fx.isLoaded() ? (fx.on ? 1.0f : 0.75f) : 0.6f);
+        }
+        for (int k = 0; k < mixer::numFxSlots; ++k)
+        {
+            auto& b = effects[(size_t) k];
+            DrumSeqPanel::style (b);
+            b.setTooltip ("EFFECT " + juce::String (k + 1) + ": EQ, COMPRESSOR, GATE, TRANSIENT, DRIVE, LO-FI or MOD, in order from the "
+                          "top, before the pan and fader. Click to choose; its settings are in PROPERTIES > EFFECTS.");
+            b.onClick = [this, k] { page.showEffectMenu (strip, k, effects[(size_t) k]); };
+            addAndMakeVisible (b);
+        }
         for (int k = 0; k < mixer::numSendSlots; ++k)
         {
             auto& b = sends[(size_t) k];
@@ -139,6 +168,12 @@ public:
         else
         {
             a.removeFromTop (60);   // where a channel's BLEED is: the bus's label is drawn there
+        }
+        a.removeFromTop (4);
+        for (auto& b : effects)
+        {
+            b.setBounds (a.removeFromTop (18));
+            a.removeFromTop (2);
         }
         a.removeFromTop (4);
         for (auto& b : sends)
@@ -202,6 +237,7 @@ private:
     int strip;
     juce::TextButton bleedOn, mute, solo, invert, output;
     std::array<juce::TextButton, mixer::numSendSlots> sends;
+    std::array<juce::TextButton, mixer::numFxSlots> effects;
     juce::Slider bleed, pan, fader;
     std::vector<std::unique_ptr<Attachment::SliderAttachment>> attachments;
     std::vector<std::unique_ptr<Attachment::ButtonAttachment>> buttons;
@@ -455,6 +491,249 @@ private:
 };
 
 //==============================================================================
+// PROPERTIES > EFFECTS: the chosen strip's four slots (ON, the effect, its gain reduction) and the chosen slot's
+// settings: OUTPUT and a knob (or a menu) for each of its type's values.
+class MixerPage::EffectEditor final : public juce::Component
+{
+public:
+    explicit EffectEditor (MixerPage& p) : page (p)
+    {
+        for (int k = 0; k < mixer::numFxSlots; ++k)
+        {
+            auto& row = rows[(size_t) k];
+            styleToggle (row.on, "ON: the effect working. Off: bypassed, its settings kept.");
+            row.on.setButtonText ("ON");
+            row.on.onClick = [this, k]
+            {
+                page.chooseEffectSlot (k);
+                auto fx = page.processor.getModMatrix().effect (strip, k);
+                fx.on = rows[(size_t) k].on.getToggleState();
+                page.setEffect (k, fx);
+            };
+            for (int t = 0; t < mixerfx::typeNames.size(); ++t)
+                row.type.addItem (t == 0 ? juce::String ("(empty)") : mixerfx::typeNames[t], t + 1);
+            row.type.setTooltip ("The effect in this slot (a new one starts at its defaults).");
+            row.type.onChange = [this, k]
+            {
+                if (refreshing)
+                    return;
+                page.chooseEffectSlot (k);
+                page.setEffectType (strip, k, rows[(size_t) k].type.getSelectedId() - 1);
+            };
+            addAndMakeVisible (row.on);
+            addAndMakeVisible (row.type);
+        }
+        output.setSliderStyle (juce::Slider::LinearHorizontal);
+        output.setTextBoxStyle (juce::Slider::TextBoxRight, false, 60, 18);
+        output.setRange (-24.0, 12.0, 0.1);
+        output.setTextValueSuffix (" dB");
+        output.setDoubleClickReturnValue (true, 0.0);
+        output.setTooltip ("OUTPUT: the effect's level after it.");
+        output.onValueChange = [this] { if (! refreshing) commit (false); };
+        output.onDragEnd = [this] { commit (true); };
+        addAndMakeVisible (output);
+    }
+
+    void refresh()
+    {
+        strip = page.getSelectedStrip();
+        chosen = page.getChosenEffectSlot();
+        const auto& matrix = page.processor.getModMatrix();
+        refreshing = true;
+        for (int k = 0; k < mixer::numFxSlots; ++k)
+        {
+            const auto& fx = matrix.effect (strip, k);
+            auto& row = rows[(size_t) k];
+            row.type.setSelectedId (fx.type + 1, juce::dontSendNotification);
+            row.on.setToggleState (fx.on, juce::dontSendNotification);
+            row.on.setEnabled (fx.isLoaded());
+        }
+        const auto& fx = matrix.effect (strip, chosen);
+        if (fx.type != builtFor)
+            rebuild (fx.type);
+        const auto& params = mixerfx::paramsOf (fx.type);
+        for (size_t i = 0; i < params.size(); ++i)
+        {
+            if (knobs[i] != nullptr)
+                knobs[i]->setValue (fx.values[i], juce::dontSendNotification);
+            if (menus[i] != nullptr)
+                menus[i]->setSelectedId (juce::roundToInt (fx.values[i]) + 1, juce::dontSendNotification);
+        }
+        output.setValue (fx.outputDb, juce::dontSendNotification);
+        output.setVisible (fx.isLoaded());
+        refreshing = false;
+        resized();
+        repaint();
+    }
+
+    // The gain reductions (the timer).
+    void showReductions()
+    {
+        for (int k = 0; k < mixer::numFxSlots; ++k)
+        {
+            const auto db = page.processor.getMixerEffectReduction (strip, k);
+            if (std::abs (db - reductions[(size_t) k]) > 0.05f)
+            {
+                reductions[(size_t) k] = db;
+                repaint (rowArea (k));
+            }
+        }
+    }
+
+    void resized() override
+    {
+        for (int k = 0; k < mixer::numFxSlots; ++k)
+        {
+            auto r = rowArea (k).reduced (0, 2);
+            r.removeFromLeft (24);
+            rows[(size_t) k].on.setBounds (r.removeFromLeft (38));
+            r.removeFromLeft (6);
+            rows[(size_t) k].type.setBounds (r.removeFromLeft (140));
+        }
+        auto a = settingsArea();
+        a.removeFromTop (24);
+        output.setBounds (a.removeFromTop (24).withTrimmedLeft (70));
+        a.removeFromTop (8);
+        const auto columns = 4;
+        const auto w = a.getWidth() / columns;
+        const auto& params = mixerfx::paramsOf (builtFor);
+        for (size_t i = 0; i < params.size(); ++i)
+        {
+            const auto cell = juce::Rectangle<int> (a.getX() + (int) (i % columns) * w, a.getY() + (int) (i / columns) * cellHeight, w, cellHeight).reduced (3, 0);
+            const auto body = cell.withTrimmedTop (14);
+            if (knobs[i] != nullptr)
+                knobs[i]->setBounds (body.withHeight (cellHeight - 18));
+            if (menus[i] != nullptr)
+                menus[i]->setBounds (body.withHeight (22).translated (0, 16));
+        }
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        const auto& matrix = page.processor.getModMatrix();
+        for (int k = 0; k < mixer::numFxSlots; ++k)
+        {
+            const auto r = rowArea (k);
+            if (k == chosen)
+            {
+                g.setColour (ParagonColours::accent.withAlpha (0.1f));
+                g.fillRoundedRectangle (r.toFloat(), 3.0f);
+            }
+            g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+            g.setColour (k == chosen ? ParagonColours::accent : ParagonColours::textDim);
+            g.drawText (juce::String (k + 1), r.withWidth (20), juce::Justification::centred, false);
+            const auto type = matrix.effect (strip, k).type;
+            if (const auto db = reductions[(size_t) k]; (type == mixerfx::compressor || type == mixerfx::gate) && db > 0.05f)
+            {
+                g.setFont (juce::FontOptions (10.0f));
+                g.setColour (ParagonColours::accent);
+                g.drawText ("-" + juce::String (db, 1) + " dB", r.withTrimmedLeft (214), juce::Justification::centredLeft, false);
+            }
+        }
+        auto a = settingsArea();
+        const auto& fx = matrix.effect (strip, chosen);
+        g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        g.setColour (ParagonColours::text);
+        g.drawText ("EFFECT " + juce::String (chosen + 1) + ": " + (fx.isLoaded() ? mixerfx::typeNames[fx.type].toUpperCase() : juce::String ("EMPTY")),
+                    a.removeFromTop (24), juce::Justification::centredLeft, false);
+        if (! fx.isLoaded())
+        {
+            g.setFont (juce::FontOptions (10.5f));
+            g.setColour (ParagonColours::textDim);
+            g.drawFittedText ("Choose an effect for this slot above, or click a slot on the strip. Effects work in order from the top, "
+                              "before the pan and fader.", a.removeFromTop (40), juce::Justification::topLeft, 3);
+            return;
+        }
+        g.setFont (juce::FontOptions (10.0f));
+        g.setColour (ParagonColours::textDim);
+        g.drawText ("OUTPUT", a.removeFromTop (24), juce::Justification::centredLeft, false);
+        a.removeFromTop (8);
+        const auto columns = 4;
+        const auto w = a.getWidth() / columns;
+        const auto& params = mixerfx::paramsOf (fx.type);
+        g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+        for (size_t i = 0; i < params.size(); ++i)
+        {
+            const auto cell = juce::Rectangle<int> (a.getX() + (int) (i % columns) * w, a.getY() + (int) (i / columns) * cellHeight, w, 14);
+            g.drawText (params[i].name, cell, juce::Justification::centred, false);
+        }
+    }
+
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        for (int k = 0; k < mixer::numFxSlots; ++k)
+            if (rowArea (k).contains (e.getPosition()))
+                page.chooseEffectSlot (k);
+    }
+
+private:
+    static constexpr int rowHeight = 28, cellHeight = 92;
+    juce::Rectangle<int> rowArea (int k) const { return { 0, k * rowHeight, getWidth(), rowHeight }; }
+    juce::Rectangle<int> settingsArea() const { return getLocalBounds().withTrimmedTop (mixer::numFxSlots * rowHeight + 12); }
+
+    void rebuild (int type)
+    {
+        builtFor = type;
+        for (auto& k : knobs)
+            k.reset();
+        for (auto& m : menus)
+            m.reset();
+        const auto& params = mixerfx::paramsOf (type);
+        for (size_t i = 0; i < params.size() && i < knobs.size(); ++i)
+        {
+            const auto& param = params[i];
+            if (! param.choices.isEmpty())
+            {
+                auto menu = std::make_unique<juce::ComboBox>();
+                menu->addItemList (param.choices, 1);
+                menu->onChange = [this] { if (! refreshing) commit (true); };
+                addAndMakeVisible (*menu);
+                menus[i] = std::move (menu);
+                continue;
+            }
+            auto knob = std::make_unique<juce::Slider> (juce::Slider::RotaryHorizontalVerticalDrag, juce::Slider::TextBoxBelow);
+            knob->setTextBoxStyle (juce::Slider::TextBoxBelow, false, 74, 16);
+            knob->setRange (param.min, param.max, 0.0);
+            if (param.log)
+                knob->setSkewFactorFromMidPoint (std::sqrt (param.min * param.max));
+            knob->setDoubleClickReturnValue (true, param.def);
+            knob->textFromValueFunction = [t = type, i] (double v) { return mixerfx::valueText (t, (int) i, (float) v); };
+            knob->valueFromTextFunction = [] (const juce::String& text) { return text.retainCharacters ("-0123456789.").getDoubleValue(); };
+            knob->onValueChange = [this] { if (! refreshing) commit (false); };
+            knob->onDragEnd = [this] { commit (true); };
+            knob->updateText();
+            addAndMakeVisible (*knob);
+            knobs[i] = std::move (knob);
+        }
+    }
+
+    void commit (bool final)
+    {
+        auto fx = page.processor.getModMatrix().effect (strip, chosen);
+        const auto& params = mixerfx::paramsOf (fx.type);
+        for (size_t i = 0; i < params.size(); ++i)
+        {
+            if (knobs[i] != nullptr)
+                fx.values[i] = (float) knobs[i]->getValue();
+            if (menus[i] != nullptr)
+                fx.values[i] = (float) juce::jmax (0, menus[i]->getSelectedId() - 1);
+        }
+        fx.outputDb = (float) output.getValue();
+        page.setEffect (chosen, fx, final);
+    }
+
+    struct Row { juce::TextButton on; juce::ComboBox type; };
+    MixerPage& page;
+    std::array<Row, mixer::numFxSlots> rows;
+    std::array<std::unique_ptr<juce::Slider>, mixer::maxFxValues> knobs;
+    std::array<std::unique_ptr<juce::ComboBox>, mixer::maxFxValues> menus;
+    std::array<float, mixer::numFxSlots> reductions {};
+    juce::Slider output;
+    int strip = 0, chosen = 0, builtFor = -1;
+    bool refreshing = false;
+};
+
+//==============================================================================
 MixerPage::MixerPage (ParagonX1AudioProcessor& p) : processor (p)
 {
     addAndMakeVisible (viewport);
@@ -476,6 +755,8 @@ MixerPage::MixerPage (ParagonX1AudioProcessor& p) : processor (p)
         sendEditors.push_back (std::make_unique<SendEditor> (*this, k));
         addChildComponent (*sendEditors.back());
     }
+    effectEditor = std::make_unique<EffectEditor> (*this);
+    addChildComponent (*effectEditor);
     for (auto* s : { &offset, &release })
     {
         s->setTextBoxStyle (juce::Slider::TextBoxRight, false, 64, 18);
@@ -494,7 +775,7 @@ MixerPage::MixerPage (ParagonX1AudioProcessor& p) : processor (p)
     DrumSeqPanel::style (menuButton);
     menuButton.setTooltip ("The mixer's menu: MUTE MODE, STEREO REVERSE, STEREO or MULTICHANNEL OUTPUTS.");
     menuButton.onClick = [this] { showMixerMenu(); };
-    for (auto* b : { &bleedTab, &sendsTab })
+    for (auto* b : { &bleedTab, &sendsTab, &effectsTab })
     {
         DrumSeqPanel::style (*b);
         b->setClickingTogglesState (false);
@@ -503,8 +784,10 @@ MixerPage::MixerPage (ParagonX1AudioProcessor& p) : processor (p)
     sendsTab.setTooltip ("The channel's two sends: where, how loud, their pans.");
     bleedTab.onClick = [this] { showTab (Tab::bleed); };
     sendsTab.onClick = [this] { showTab (Tab::sends); };
+    effectsTab.setTooltip ("The four effect slots: EQ, COMPRESSOR, GATE, TRANSIENT, DRIVE, LO-FI, MOD.");
+    effectsTab.onClick = [this] { showTab (Tab::effects); };
     for (auto* c : { (juce::Component*) &micsButton, (juce::Component*) &busesButton, (juce::Component*) &menuButton,
-                     (juce::Component*) &bleedTab, (juce::Component*) &sendsTab })
+                     (juce::Component*) &bleedTab, (juce::Component*) &sendsTab, (juce::Component*) &effectsTab })
         addAndMakeVisible (c);
     selectStrip (selected);
     startTimerHz (30);
@@ -729,12 +1012,114 @@ void MixerPage::runMenuItem (int item)
     repaint();
 }
 
+void MixerPage::setEffectType (int strip, int slot, int type)
+{
+    strip = juce::jlimit (0, mixer::numStrips - 1, strip);
+    slot = juce::jlimit (0, mixer::numFxSlots - 1, slot);
+    type = juce::jlimit (0, mixerfx::typeNames.size() - 1, type);
+    auto m = processor.getModMatrix();
+    if (m.effect (strip, slot).type == type)
+        return;
+    m.effect (strip, slot) = type == 0 ? mixer::FxSlot {} : mixerfx::defaultSlot (type);
+    processor.setModMatrix (m);
+    processor.modMatrixEditFinished();
+    strips[(size_t) strip]->refresh();
+    if (strip == selected)
+        refreshProperties();
+}
+
+void MixerPage::setEffect (int slot, const mixer::FxSlot& fx, bool final)
+{
+    slot = juce::jlimit (0, mixer::numFxSlots - 1, slot);
+    auto m = processor.getModMatrix();
+    m.effect (selected, slot) = fx;
+    processor.setModMatrix (m);
+    if (final)
+        processor.modMatrixEditFinished();
+    shownEffects[(size_t) slot] = fx;   // its own edit: the editor already shows it
+    strips[(size_t) selected]->refresh();
+}
+
+void MixerPage::chooseEffectSlot (int slot)
+{
+    chosenFx = juce::jlimit (0, mixer::numFxSlots - 1, slot);
+    effectEditor->refresh();
+}
+
+void MixerPage::copyEffect (int strip, int slot)
+{
+    fxClipboard = processor.getModMatrix().effect (juce::jlimit (0, mixer::numStrips - 1, strip), juce::jlimit (0, mixer::numFxSlots - 1, slot));
+}
+
+void MixerPage::pasteEffect (int strip, int slot)
+{
+    if (! fxClipboard.has_value())
+        return;
+    strip = juce::jlimit (0, mixer::numStrips - 1, strip);
+    slot = juce::jlimit (0, mixer::numFxSlots - 1, slot);
+    auto m = processor.getModMatrix();
+    m.effect (strip, slot) = *fxClipboard;
+    processor.setModMatrix (m);
+    processor.modMatrixEditFinished();
+    strips[(size_t) strip]->refresh();
+    if (strip == selected)
+        refreshProperties();
+}
+
+juce::String MixerPage::describeEffect (int strip, int slot) const
+{
+    const auto& fx = processor.getModMatrix().effect (strip, slot);
+    return fx.isLoaded() && fx.type < mixerfx::typeNames.size() ? mixerfx::typeNames[fx.type] : juce::String ("+ FX");
+}
+
+void MixerPage::showEffectMenu (int strip, int slot, juce::Component& from)
+{
+    selectStrip (strip);
+    chooseEffectSlot (slot);
+    showTab (Tab::effects);
+    const auto& fx = processor.getModMatrix().effect (strip, slot);
+    juce::PopupMenu menu;
+    menu.addSectionHeader ("EFFECT " + juce::String (slot + 1));
+    for (int t = 1; t < mixerfx::typeNames.size(); ++t)
+        menu.addItem (t, mixerfx::typeNames[t], true, fx.type == t);
+    menu.addSeparator();
+    menu.addItem (100, "On", fx.isLoaded(), fx.isLoaded() && fx.on);
+    menu.addItem (101, "Copy", fx.isLoaded());
+    menu.addItem (102, "Paste", fxClipboard.has_value());
+    menu.addItem (103, "Remove", fx.isLoaded());
+    juce::Component::SafePointer<MixerPage> safe (this);
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&from), [safe, strip, slot] (int chosen)
+    {
+        if (safe == nullptr || chosen == 0)
+            return;
+        if (chosen < 100)
+            safe->setEffectType (strip, slot, chosen);
+        else if (chosen == 100)
+        {
+            auto on = safe->processor.getModMatrix().effect (strip, slot);
+            on.on = ! on.on;
+            safe->selectStrip (strip);
+            safe->setEffect (slot, on);
+            safe->refreshProperties();
+        }
+        else if (chosen == 101)
+            safe->copyEffect (strip, slot);
+        else if (chosen == 102)
+            safe->pasteEffect (strip, slot);
+        else if (chosen == 103)
+            safe->setEffectType (strip, slot, 0);
+    });
+}
+
 void MixerPage::refreshProperties()
 {
     for (auto& e : sendEditors)
         e->refresh (selected);
     for (int k = 0; k < mixer::numSendSlots; ++k)
         shownSends[(size_t) k] = processor.getModMatrix().send (selected, k);
+    effectEditor->refresh();
+    for (int k = 0; k < mixer::numFxSlots; ++k)
+        shownEffects[(size_t) k] = processor.getModMatrix().effect (selected, k);
     if (isBus (selected))
         return;
     // Which pieces have audio in this channel (a loaded kit's mic), and which are its own.
@@ -774,6 +1159,18 @@ void MixerPage::update()
             e->refresh (selected);
         for (int k = 0; k < mixer::numSendSlots; ++k)
             shownSends[(size_t) k] = m.send (selected, k);
+    }
+    {
+        auto changed = false;
+        for (int k = 0; k < mixer::numFxSlots; ++k)
+            changed = changed || ! (processor.getModMatrix().effect (selected, k) == shownEffects[(size_t) k]);
+        if (changed)
+        {
+            effectEditor->refresh();
+            for (int k = 0; k < mixer::numFxSlots; ++k)
+                shownEffects[(size_t) k] = processor.getModMatrix().effect (selected, k);
+        }
+        effectEditor->showReductions();
     }
     const auto used = getChannelsInUse();
     if (used != inUse)
@@ -822,19 +1219,26 @@ void MixerPage::resized()
 
     // PROPERTIES: BLEED / SENDS tabs (a bus: its sends only).
     const auto bus = isBus (selected);
-    if (bus)
-        tab = Tab::sends;
+    if (bus && tab == Tab::bleed)
+        tab = Tab::effects;
     auto p = propertiesArea.reduced (18, 0).withTrimmedTop (headerHeight);
     auto tabs = p.removeFromTop (24);
     bleedTab.setVisible (! bus);
-    sendsTab.setVisible (! bus);
-    bleedTab.setBounds (tabs.removeFromLeft (80));
+    if (! bus)
+    {
+        bleedTab.setBounds (tabs.removeFromLeft (76));
+        tabs.removeFromLeft (4);
+    }
+    effectsTab.setBounds (tabs.removeFromLeft (84));
     tabs.removeFromLeft (4);
-    sendsTab.setBounds (tabs.removeFromLeft (80));
+    sendsTab.setBounds (tabs.removeFromLeft (76));
     bleedTab.setToggleState (tab == Tab::bleed, juce::dontSendNotification);
     sendsTab.setToggleState (tab == Tab::sends, juce::dontSendNotification);
-    p.removeFromTop (bus ? -24 : 8);
+    effectsTab.setToggleState (tab == Tab::effects, juce::dontSendNotification);
+    p.removeFromTop (8);
     propertiesBody = p;
+    effectEditor->setVisible (tab == Tab::effects);
+    effectEditor->setBounds (p);
 
     const auto showingBleed = tab == Tab::bleed;
     for (auto& r : rows)
@@ -842,7 +1246,7 @@ void MixerPage::resized()
     offset.setVisible (showingBleed);
     release.setVisible (showingBleed);
     for (auto& e : sendEditors)
-        e->setVisible (! showingBleed);
+        e->setVisible (tab == Tab::sends);
     if (showingBleed)
     {
         // CLOSE MIC AUDIO first, then BLEED FROM INSTRUMENTS (the order rows are drawn in, by kind).
@@ -860,7 +1264,7 @@ void MixerPage::resized()
         p.removeFromTop (6);
         release.setBounds (p.removeFromTop (24).withTrimmedLeft (100));
     }
-    else
+    else if (tab == Tab::sends)
     {
         for (auto& e : sendEditors)
         {
@@ -896,6 +1300,8 @@ void MixerPage::paint (juce::Graphics& g)
     const auto bus = isBus (selected);
     title ("PROPERTIES: " + stripName (selected), propertiesArea.reduced (18, 0).withHeight (headerHeight), bus ? busColour : juce::Colour());
     auto p = propertiesBody;
+    if (tab == Tab::effects)
+        return;
     if (tab == Tab::sends)
     {
         g.setFont (juce::FontOptions (10.5f));

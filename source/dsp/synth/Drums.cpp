@@ -852,6 +852,7 @@ namespace synth::drums
             v.active = false;
         slotGain.fill (1.0f);
         lastHit.fill (-1.0);
+        stripTail = {};
         lowState = {};
         highState = {};
     }
@@ -1379,11 +1380,17 @@ namespace synth::drums
         // THE MIXER (0.20.0): each mic voice into its channel at its drum's VOLUME, GAIN, MUTE / SOLO and its bleed /
         // close-mic level, the drums it's meant for (direct) and the rest (bleed) apart; then each channel's polarity,
         // fader, pan, MUTE / SOLO into its output or (0.21.0) its bus, and its SENDS; then the buses, in order.
-        auto anyVoice = false;
+        auto anyVoice = false, anyTail = false;
         for (const auto& v : voices)
             anyVoice = anyVoice || (v.active && v.channel >= 0);
-        if (! anyVoice)
+        for (const auto t : stripTail)
+            anyTail = anyTail || t > 0;
+        if (! anyVoice && ! anyTail)
             return;
+        auto* const host = settings.effects;
+        const auto hasEffects = [host] (int strip) { return host != nullptr && host->hasEffects (strip); };
+        // A strip with effects runs on for 3 s after its sound stops (a chorus's or a compressor's tail).
+        const auto tailSamples = (int) (3.0 * sampleRate) + numSamples;
         const auto bs = (size_t) blockSize;
         std::fill (channelScratch.begin(), channelScratch.begin() + (std::ptrdiff_t) (4 * mixer::numChannels * bs), 0.0f);
         std::array<bool, mixer::numChannels> used {};
@@ -1413,6 +1420,13 @@ namespace synth::drums
                 cr[i] += vr[i] * g;
             }
             used[(size_t) v.channel] = true;
+        }
+        for (int c = 0; c < mixer::numChannels; ++c)
+        {
+            if (used[(size_t) c])
+                stripTail[(size_t) c] = tailSamples;
+            else if (stripTail[(size_t) c] > 0 && hasEffects (c))
+                used[(size_t) c] = true;   // silence in, its effects' tails out
         }
 
         // Where a strip's sound goes. A bus's scratch is cleared when it's first used here; an FX BUS the processor
@@ -1509,30 +1523,65 @@ namespace synth::drums
             if (! used[(size_t) c])
                 continue;
             const auto& ch = settings.channels[(size_t) c];
-            const auto* dl = channelScratch.data() + 4 * (size_t) c * bs;
-            const auto* dr = dl + bs;
+            auto* dl = channelScratch.data() + 4 * (size_t) c * bs;
+            auto* dr = dl + bs;
             const auto* bl = dl + 2 * bs;
             const auto* br = dl + 3 * bs;
             const auto soloedOut = anySolo && ! ch.solo;
             const auto polarity = ch.invert ? -1.0f : 1.0f;
+            const auto* sends = sendsOf (c);
+            // A send's direct and bleed sound apart, as they are now.
+            const auto sendApart = [&] (const mixer::Send& send, float fader)
+            {
+                if (const auto target = sendTarget (c, send.target); target.left != nullptr)
+                {
+                    addIn (dl, dr, target, polarity * fader * mixer::Send::gainOf (send.directOn, send.directDb), send.directPan);
+                    addIn (bl, br, target, polarity * fader * mixer::Send::gainOf (send.bleedOn, send.bleedDb), send.bleedPan);
+                }
+            };
+            // PRE EFFECTS sends: before anything.
+            if (sends != nullptr)
+                for (const auto& send : *sends)
+                    if (send.isOn() && send.mode == mixer::SendMode::preEffects && ! sendSilenced (send, ch.mute, soloedOut))
+                        sendApart (send, 1.0f);
+            // THE EFFECTS (0.22.0): direct and bleed together through them.
+            const auto fx = hasEffects (c);
+            if (fx)
+            {
+                for (size_t i = 0; i < (size_t) numSamples; ++i)
+                {
+                    dl[i] += bl[i];
+                    dr[i] += br[i];
+                }
+                host->process (c, dl, dr, numSamples);
+            }
             const auto g = ! ch.mute && ! soloedOut ? ch.gain * polarity : 0.0f;
             const auto to = destination (c, ch.route, ch.output);
-            const auto peak = juce::jmax (addIn (dl, dr, to, g, ch.pan), addIn (bl, br, to, g, ch.pan));
+            const auto peak = fx ? addIn (dl, dr, to, g, ch.pan) : juce::jmax (addIn (dl, dr, to, g, ch.pan), addIn (bl, br, to, g, ch.pan));
             auto& meter = channelPeaks[(size_t) c];
             if (peak > meter.load())
                 meter = peak;
-            if (const auto* sends = sendsOf (c))
+            if (sends != nullptr)
                 for (const auto& send : *sends)
                 {
-                    if (! send.isOn() || sendSilenced (send, ch.mute, soloedOut))
+                    if (! send.isOn() || send.mode == mixer::SendMode::preEffects || sendSilenced (send, ch.mute, soloedOut))
                         continue;
-                    const auto target = sendTarget (c, send.target);
-                    if (target.left == nullptr)
-                        continue;
-                    const auto f = polarity * (send.mode == mixer::SendMode::postFader ? ch.gain : 1.0f);
-                    addIn (dl, dr, target, f * mixer::Send::gainOf (send.directOn, send.directDb), send.directPan);
-                    addIn (bl, br, target, f * mixer::Send::gainOf (send.bleedOn, send.bleedDb), send.bleedPan);
+                    const auto fader = send.mode == mixer::SendMode::postFader ? ch.gain : 1.0f;
+                    if (! fx)
+                        sendApart (send, fader);
+                    else if (const auto target = sendTarget (c, send.target); target.left != nullptr)
+                        addIn (dl, dr, target, polarity * fader * mixer::Send::gainOf (send.directOn, send.directDb), send.directPan);
                 }
+        }
+
+        // A bus with effects runs on for their tails too.
+        for (int b = 0; b < mixer::numBuses; ++b)
+        {
+            auto& tail = stripTail[(size_t) (mixer::numChannels + b)];
+            if (busUsed[(size_t) b])
+                tail = tailSamples;
+            else if (tail > 0 && hasEffects (mixer::numChannels + b))
+                busBuffer (b);
         }
 
         for (int b = 0; b < mixer::numBuses; ++b)
@@ -1541,10 +1590,17 @@ namespace synth::drums
                 continue;
             const auto& bus = settings.buses[(size_t) b];
             const auto from = mixer::numChannels + b;
-            const auto* sl = busScratch.data() + 2 * (size_t) b * bs;
-            const auto* sr = sl + bs;
+            auto* sl = busScratch.data() + 2 * (size_t) b * bs;
+            auto* sr = sl + bs;
             const auto soloedOut = anyBusSolo && ! bus.solo;
             const auto polarity = bus.invert ? -1.0f : 1.0f;
+            if (const auto* sends = sendsOf (from))
+                for (const auto& send : *sends)
+                    if (send.isOn() && send.mode == mixer::SendMode::preEffects && ! sendSilenced (send, bus.mute, soloedOut))
+                        if (const auto target = sendTarget (from, send.target); target.left != nullptr)
+                            addIn (sl, sr, target, polarity * mixer::Send::gainOf (send.directOn, send.directDb), send.directPan);
+            if (hasEffects (from))
+                host->process (from, sl, sr, numSamples);
             const auto g = ! bus.mute && ! soloedOut ? bus.gain * polarity : 0.0f;
             const auto peak = addIn (sl, sr, destination (from, bus.route, bus.output), g, bus.pan);
             auto& meter = busPeaks[(size_t) b];
@@ -1553,13 +1609,15 @@ namespace synth::drums
             if (const auto* sends = sendsOf (from))
                 for (const auto& send : *sends)
                 {
-                    if (! send.isOn() || sendSilenced (send, bus.mute, soloedOut))
+                    if (! send.isOn() || send.mode == mixer::SendMode::preEffects || sendSilenced (send, bus.mute, soloedOut))
                         continue;
                     if (const auto target = sendTarget (from, send.target); target.left != nullptr)
                         addIn (sl, sr, target, polarity * (send.mode == mixer::SendMode::postFader ? bus.gain : 1.0f)
                                                    * mixer::Send::gainOf (send.directOn, send.directDb), send.directPan);
                 }
         }
+        for (auto& t : stripTail)
+            t = juce::jmax (0, t - numSamples);
     }
 
     void Kit::filterSlot (const SlotSettings& s, float* left, float* right, int numSamples, std::array<float, 2>& low,

@@ -22,7 +22,7 @@ public:
     explicit MixerPage (ParagonX1AudioProcessor&);
     ~MixerPage() override;
 
-    enum class Tab { bleed, sends };
+    enum class Tab { bleed, sends, effects };
 
     void selectChannel (int channel) { selectStrip (channel); }
     void selectStrip (int strip);                    // a channel, or numChannels + a bus
@@ -42,6 +42,15 @@ public:
     void setSendTarget (int strip, int slot, int target);
     juce::String describeOutput (int strip) const;   // what its OUTPUT button says
     juce::String describeSend (int strip, int slot) const;
+    // THE EFFECTS (0.22.0): a strip's slot's effect (a new type: its defaults; 0 empties it), the chosen strip's slot
+    // as its editor sets it (one undo step when final), the slot the EFFECTS tab edits, copy / paste.
+    void setEffectType (int strip, int slot, int type);
+    void setEffect (int slot, const synth::mixer::FxSlot&, bool final = true);
+    void chooseEffectSlot (int slot);
+    int getChosenEffectSlot() const noexcept { return chosenFx; }
+    void copyEffect (int strip, int slot);
+    void pasteEffect (int strip, int slot);
+    juce::String describeEffect (int strip, int slot) const;
     void runMenuItem (int item);                     // MENU...'s (tests)
     enum MenuItem { preSend = 1, postSend, stereoReverse, stereoOutputs, multichannelOutputs };
     juce::String getNote() const { return note; }
@@ -55,11 +64,17 @@ private:
     void refreshProperties();
     void showOutputMenu (int strip, juce::Component& from);
     void showSendMenu (int strip, int slot, juce::Component& from);
+    void showEffectMenu (int strip, int slot, juce::Component& from);
     void showMixerMenu();
 
     class Strip;
     class PieceRow;
     class SendEditor;
+    class EffectEditor;
+    std::unique_ptr<EffectEditor> effectEditor;
+    int chosenFx = 0;
+    std::optional<synth::mixer::FxSlot> fxClipboard;
+    std::array<synth::mixer::FxSlot, synth::mixer::numFxSlots> shownEffects {};
     ParagonX1AudioProcessor& processor;
     juce::Viewport viewport;
     juce::Component holder;   // the strips, in the viewport
@@ -67,7 +82,7 @@ private:
     std::vector<std::unique_ptr<PieceRow>> rows;
     std::vector<std::unique_ptr<SendEditor>> sendEditors;
     juce::TextButton micsButton { "MICS" }, busesButton { "BUSES" }, menuButton { "MENU..." },
-                     bleedTab { "BLEED" }, sendsTab { "SENDS" };
+                     bleedTab { "BLEED" }, sendsTab { "SENDS" }, effectsTab { "EFFECTS" };
     juce::Slider offset { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight },
                  release { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> offsetAttachment, releaseAttachment;
