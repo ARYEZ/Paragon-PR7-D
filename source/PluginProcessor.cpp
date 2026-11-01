@@ -63,6 +63,12 @@ ParagonX1AudioProcessor::ParagonX1AudioProcessor()
             drumParameters[(size_t) k].values[s] = parameters.getRawParameterValue (ParamIDs::drum (k, ParamIDs::drumSettings[s]));
             jassert (drumParameters[(size_t) k].values[s] != nullptr);
         }
+    for (int c = 0; c < synth::mixer::numChannels; ++c)
+        for (size_t s = 0; s < std::size (ParamIDs::mixSettings); ++s)
+        {
+            mixParameters[(size_t) c][s] = parameters.getRawParameterValue (ParamIDs::mix (c, ParamIDs::mixSettings[s]));
+            jassert (mixParameters[(size_t) c][s] != nullptr);
+        }
     compileMatrix();   // the patterns and envelopes, ready from the start
     for (auto* list : { &samplesForAudio, &reversesForAudio })
         for (auto& sample : *list)
@@ -895,6 +901,9 @@ void ParagonX1AudioProcessor::compileMatrix()
         compiled->drumEnvelopes[k] = matrix.drumEnvelopes[k].toShape();
     for (size_t k = 0; k < compiled->velocityCurves.size() && k < matrix.drumVelocityCurves.size(); ++k)
         compiled->velocityCurves[k] = matrix.drumVelocityCurves[k];
+    for (int c = 0; c < synth::mixer::numChannels; ++c)
+        for (int p = 0; p < synth::mixer::numPieces; ++p)
+            compiled->bleed[(size_t) c][(size_t) p] = matrix.bleed (c, p);
     if (compiledMatrix != nullptr)
         retiredMatrices.emplace_back (compiledMatrix, juce::Time::getMillisecondCounterHiRes());
     compiledMatrix = compiled;
@@ -1336,6 +1345,32 @@ synth::drums::KitSettings ParagonX1AudioProcessor::getKitSettings() const noexce
     }
     for (int i = 0; i < 4; ++i)
         kit.pedalSteps[(size_t) i] = juce::roundToInt (param (ParamIDs::drumsPedalSteps[i].toRawUTF8()));
+    // THE MIXER (0.20.0).
+    for (int c = 0; c < synth::mixer::numChannels; ++c)
+    {
+        auto& ch = kit.channels[(size_t) c];
+        const auto& values = mixParameters[(size_t) c];
+        const auto get = [&values] (std::string_view what)
+        {
+            for (size_t s = 0; s < std::size (ParamIDs::mixSettings); ++s)
+                if (what == ParamIDs::mixSettings[s])
+                    return values[s]->load();
+            return 0.0f;
+        };
+        const auto level = get ("Level"), bleed = get ("Bleed");
+        ch.gain = level <= -59.95f ? 0.0f : juce::Decibels::decibelsToGain (level);
+        ch.pan = get ("Pan");
+        ch.mute = get ("Mute") > 0.5f;
+        ch.solo = get ("Solo") > 0.5f;
+        ch.invert = get ("Phase") > 0.5f;
+        ch.bleedGain = bleed <= -59.95f ? 0.0f : juce::Decibels::decibelsToGain (bleed);
+        ch.bleedOn = get ("BleedOn") > 0.5f;
+        ch.offsetSeconds = get ("Offset") * 0.001;
+        ch.releaseSeconds = get ("Release") * 0.001;
+        ch.output = juce::jlimit (0, synth::numOutputs - 1, juce::roundToInt (get ("Output")));
+    }
+    if (const auto* compiled = matrixForAudio.load())
+        kit.bleed = &compiled->bleed;
     // MIDI IN (0.18.0).
     kit.channel = juce::jlimit (0, 16, juce::roundToInt (param (ParamIDs::drumsMidiChannel)));
     if (const auto* in = midiInForAudio.load())

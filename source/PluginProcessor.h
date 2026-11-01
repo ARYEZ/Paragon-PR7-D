@@ -174,6 +174,8 @@ public:
     bool waitForInstruments (int timeoutMs = 60000);   // the loads finished and installed (tests; snapshots)
     // Which hit an instrument slot played last (layer, hit), for the page; -1, -1: none.
     std::pair<int, int> getLastHit (int slot) const noexcept { return drumKit.getLastChoice (slot); }
+    // THE MIXER (0.20.0): a mic channel's peak since last asked (the page's meter).
+    float takeMixerPeak (int channel) noexcept { return drumKit.takeChannelPeak (channel); }
     // The kit's settings now (any thread; the samples as the audio thread plays them).
     synth::drums::KitSettings getKitSettings() const noexcept;
     // The page's preview: a hit in the next block.
@@ -535,6 +537,8 @@ private:
     // Each drum's parameters, in ParamIDs::drumSettings' order, read every block (everything else by ID).
     struct DrumParameters { std::atomic<float>* values[std::size (ParamIDs::drumSettings)] {}; };
     std::array<DrumParameters, ParamIDs::numDrums> drumParameters {};
+    // THE MIXER's channels' parameters (0.20.0), in ParamIDs::mixSettings' order, read every block.
+    std::array<std::array<std::atomic<float>*, std::size (ParamIDs::mixSettings)>, synth::mixer::numChannels> mixParameters {};
 
     // THE DRUMS: the kit, the samples (the audio thread gets plain pointers;
     // replaced ones are kept a while), the page's preview hits, and the block's MIDI for the kit.
@@ -687,6 +691,7 @@ private:
         synth::drumseq::Patterns drumPatterns {};
         std::array<synth::mod::Shape, synth::drums::numSlots> drumEnvelopes {};
         std::array<synth::drums::VelocityCurve, synth::drums::numSlots> velocityCurves {};   // 0.18.0
+        synth::mixer::BleedMatrix bleed {};                                                 // 0.20.0
     };
     std::shared_ptr<const CompiledMatrix> compiledMatrix;
     std::atomic<const CompiledMatrix*> matrixForAudio { nullptr };

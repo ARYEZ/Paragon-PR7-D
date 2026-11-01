@@ -15,6 +15,7 @@ add_executable(ParagonX1Tests
     ArticulationTests.cpp
     MidiInTests.cpp
     InstrumentTests.cpp
+    MixerTests.cpp
     DrumSeqPluginTests.cpp
     StackSizeTests.cpp
     ParameterIdTests.cpp

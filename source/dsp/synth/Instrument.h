@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dsp/synth/Drums.h"
+#include "dsp/synth/Mixer.h"
 
 #include <map>
 #include <tuple>
@@ -31,8 +32,12 @@ namespace synth::drums
     {
         struct Hit
         {
-            std::shared_ptr<const Sample> sample;   // the hit, its files summed
+            std::shared_ptr<const Sample> sample;   // the hit, its files summed (the whole kit's mix of it)
             juce::StringArray files;                // where it came from (each mic's file)
+            // 0.20.0, MIC CHANNELS: a multi-mic kit's hit, each mic's recording apart (`channel`: synth::mixer::Channel,
+            // -1: the drum's own close channel). Empty for a single-mic hit (it plays `sample`, as before).
+            struct Mic { int channel = -1; std::shared_ptr<const Sample> sample; };
+            std::vector<Mic> mics;
         };
         struct Layer
         {
@@ -50,9 +55,11 @@ namespace synth::drums
         int note = -1;                              // SFZ: the note whose regions it is (-1: all of the file's)
 
         int numHits() const noexcept;
+        bool hasMics() const noexcept;               // its hits come in mic channels (0.20.0)
+        juce::Array<int> micChannels() const;        // which ones
         int layerFor (int velocity) const noexcept;   // 1-127 -> the layer's index (-1: none)
 
-        struct Choice { const Sample* sample = nullptr; float gain = 1.0f; int layer = -1, hit = -1; };
+        struct Choice { const Sample* sample = nullptr; const std::vector<Hit::Mic>* mics = nullptr; float gain = 1.0f; int layer = -1, hit = -1; };
         Choice choose (int velocity, bool randomize, bool adjacent, int layerLimit, HitMemory&) const noexcept;
     };
 
@@ -61,6 +68,8 @@ namespace synth::drums
         // A folder of hits (WAV, AIFF, FLAC...) as one instrument. Names that number their layers and round-robins
         // ("v3", "vel3", "rr2", "_3_2") are used as they say; otherwise the hits are sorted by loudness and shared out
         // into layers, as many as the square root of the number of hits (at most 16), quietest first: our own rule.
+        // 0.20.0: a folder with no hits of its own but a subfolder per mic ("Kick In", "OH", "Room"...) is a multi-mic
+        // instrument: each hit's file found by name in every mic's folder, its loudness that of them summed.
         std::shared_ptr<const Instrument> fromFolder (const juce::File& folder);
 
         // An SFZ file: its regions, by note. Each note's regions as an instrument: their velocity ranges as layers,

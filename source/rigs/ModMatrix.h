@@ -3,6 +3,7 @@
 #include <juce_core/juce_core.h>
 
 #include "dsp/synth/DrumSequencer.h"
+#include "dsp/synth/Mixer.h"
 #include "dsp/synth/MultiPoint.h"
 #include "dsp/synth/VelocityCurve.h"
 
@@ -108,10 +109,16 @@ struct ModMatrix
     std::vector<ModShapeData> drumEnvelopes = std::vector<ModShapeData> ((size_t) numDrumSlots, ModShapeData::flatDrumEnvelope());
     // 0.18.0: each drum's VELOCITY CURVE (XML "VelocityCurve", only those that aren't straight).
     std::vector<synth::drums::VelocityCurve> drumVelocityCurves = std::vector<synth::drums::VelocityCurve> ((size_t) numDrumSlots);
+    // 0.20.0, THE MIXER's BLEED FROM INSTRUMENTS: each channel's level, polarity and on for each piece (channel x
+    // numPieces + piece; XML "Bleed" channel / piece, only those changed).
+    std::vector<synth::mixer::BleedCell> mixerBleed = std::vector<synth::mixer::BleedCell> ((size_t) (synth::mixer::numChannels * synth::mixer::numPieces));
+    synth::mixer::BleedCell& bleed (int channel, int piece) { return mixerBleed[(size_t) (channel * synth::mixer::numPieces + piece)]; }
+    const synth::mixer::BleedCell& bleed (int channel, int piece) const { return mixerBleed[(size_t) (channel * synth::mixer::numPieces + piece)]; }
 
     bool operator== (const ModMatrix& o) const noexcept
     {
-        return drumPatterns == o.drumPatterns && drumEnvelopes == o.drumEnvelopes && drumVelocityCurves == o.drumVelocityCurves;
+        return drumPatterns == o.drumPatterns && drumEnvelopes == o.drumEnvelopes && drumVelocityCurves == o.drumVelocityCurves
+            && mixerBleed == o.mixerBleed;
     }
     bool isEmpty() const noexcept { return *this == ModMatrix {}; }
 
@@ -136,6 +143,17 @@ struct ModMatrix
                 e->setAttribute ("index", i + 1);
                 e->setAttribute ("curve", drumVelocityCurves[(size_t) i].encode());
             }
+        for (int c = 0; c < synth::mixer::numChannels; ++c)
+            for (int p = 0; p < synth::mixer::numPieces; ++p)
+                if (const auto& cell = bleed (c, p); ! (cell == synth::mixer::BleedCell {}))
+                {
+                    auto* e = xml->createNewChildElement ("Bleed");
+                    e->setAttribute ("channel", c + 1);
+                    e->setAttribute ("piece", p + 1);
+                    e->setAttribute ("gain", cell.gainDb);
+                    e->setAttribute ("invert", cell.invert);
+                    e->setAttribute ("on", cell.on);
+                }
         for (int p = 0; p < (int) drumPatterns.size(); ++p)
             if (! drumPatterns[(size_t) p].isEmpty())
             {
@@ -157,6 +175,12 @@ struct ModMatrix
                 if (d.points.size() >= 2)
                     m.drumEnvelopes[(size_t) index] = d;
             }
+        for (const auto* e : xml.getChildWithTagNameIterator ("Bleed"))
+        {
+            const auto c = e->getIntAttribute ("channel") - 1, p = e->getIntAttribute ("piece") - 1;
+            if (c >= 0 && c < synth::mixer::numChannels && p >= 0 && p < synth::mixer::numPieces)
+                m.bleed (c, p) = { (float) juce::jlimit (-60.0, 12.0, e->getDoubleAttribute ("gain")), e->getBoolAttribute ("invert"), e->getBoolAttribute ("on", true) };
+        }
         for (const auto* e : xml.getChildWithTagNameIterator ("VelocityCurve"))
             if (const auto index = e->getIntAttribute ("index") - 1; index >= 0 && index < numDrumSlots)
                 m.drumVelocityCurves[(size_t) index] = synth::drums::VelocityCurve::decode (e->getStringAttribute ("curve"));

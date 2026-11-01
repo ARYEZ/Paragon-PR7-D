@@ -126,23 +126,23 @@ TEST_CASE ("The window opens on the DRUMS page; GROOVES, FX, PRESETS and SETTING
     CHECK (w.view->getDrumPage().isVisible());
     checkLayout (*w.view, "drums");
 
-    // The five tabs, side by side in the header, the shown page's lit.
+    // The six tabs (0.20.0: MIXER), side by side in the header, the shown page's lit.
     std::vector<juce::Button*> tabs;
-    for (const auto* id : { "drumsTab", "groovesTab", "fxTab", "presetsTab", "settingsTab" })
+    for (const auto* id : { "drumsTab", "groovesTab", "mixerTab", "fxTab", "presetsTab", "settingsTab" })
     {
         auto* tab = dynamic_cast<juce::Button*> (w.view->findChildWithID (id));
         INFO (id);
         REQUIRE (tab != nullptr);
         CHECK (tab->getBottom() < 64);
-        CHECK (tab->getWidth() > 130);
+        CHECK (tab->getWidth() > 110);   // six share the group (each its icon and name)
         if (! tabs.empty())
             CHECK (tab->getX() >= tabs.back()->getRight());
         tabs.push_back (tab);
     }
     CHECK (tabs[0]->getToggleState());
 
-    const std::pair<MainView::Page, int> pages[] = { { MainView::Page::grooves, 1 }, { MainView::Page::fx, 2 }, { MainView::Page::presets, 3 },
-                                                     { MainView::Page::settings, 4 } };
+    const std::pair<MainView::Page, int> pages[] = { { MainView::Page::grooves, 1 }, { MainView::Page::mixer, 2 }, { MainView::Page::fx, 3 },
+                                                     { MainView::Page::presets, 4 }, { MainView::Page::settings, 5 } };
     for (const auto& [page, tab] : pages)
     {
         INFO (tab);

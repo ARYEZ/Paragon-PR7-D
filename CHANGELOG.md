@@ -2,6 +2,46 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.20.0
+
+**The sample engine, part 2: mic channels, bleed and the MIXER page** (from the Mixer chapter you sent; our own look, channels and words).
+
+- **Multi-mic kits keep their mics apart.** In 0.19.0 a hit's mic recordings were mixed into one. Now each mic plays through its own channel:
+  - kick in, kick out, snare top, snare bottom, hi-hat;
+  - toms 1-3, cymbals;
+  - overheads, room, ambience, other.
+- **Where each mic goes.** Recognised from its SFZ label (group / region / master label), or the sample's folder and file name ("Kick In", "OH", "Room", "SnareBottom"...).
+  - **The words it recognises are my own rules.** If a kit's mic lands in the wrong channel, send me its names and I'll teach it.
+  - **Folders work too:** a folder with no hits of its own, but a subfolder per mic ("Tom 1", "OH", "Room"), is a multi-mic drum. Each hit is matched by its file name in every mic's folder.
+- **The MIXER page** (a new tab after GROOVES): a strip per channel with:
+  - **BLEED:** on, and its level;
+  - **PAN** and a **fader** with a meter;
+  - **M** (mute), **S** (solo) and **Ø** (polarity);
+  - **OUTPUT:** MAIN or OUT 2 to 16, kept with the project like the drums' outputs;
+  - its name: click it to choose the channel.
+  - Channels no loaded kit plays into are dimmed.
+- **PROPERTIES** (the chosen channel):
+  - **CLOSE MIC AUDIO:** the drums the mic is meant for. Overheads, room and ambience hear the whole kit, so nothing is bleed there.
+  - **BLEED FROM INSTRUMENTS:** every other drum heard through that mic. Each has on, level and polarity, so you can take the snare out of the kick mic, or flip one to line it up.
+  - **TIME OFFSET:** the channel later, up to 10 ms, to line the overheads up with the close mics.
+  - **RELEASE:** each hit in the channel faded after that long, for shorter room tails or a gated sound. It only shortens, as the manual's own control does without an envelope.
+- **Only drums from multi-mic kits use the mixer**, as you chose. Synth drums and single samples go their own way (their INSERT, sends and OUTPUT), so your presets sound exactly as before. A multi-mic drum's own INSERT, sends, LP / HP and OUTPUT don't apply to it now; its sound goes through the mixer. Sends, buses and effects per channel come later.
+- **Presets** keep the channels' settings and the bleed table. Each channel's OUTPUT stays with the project.
+- **VOICES** counts hits, not mics: a hit through seven mics is still one hit.
+- **Not checked here:**
+  - how a real multi-mic kit sounds through it;
+  - how well my mic-name rules match real kits' names;
+  - the CPU with big kits (a hit is now a voice per mic; the kit can play 192 voices at once).
+- **Tests:**
+  - mic names into channels;
+  - multi-mic SFZ kits and mic folders keeping each mic apart, and single-mic ones not;
+  - each channel's pitch measured in the output: the fader exactly -6 dB, mute, solo, the channel's bleed off and at -12 dB, a drum's bleed at -6 dB and its polarity, a channel's polarity sample for sample;
+  - time offset 240 samples late, release silent after its fade, OUT 2 instead of MAIN;
+  - a synth drum still playing with every channel muted;
+  - VOICES counting hits;
+  - presets keeping channels and bleed;
+  - the page's channels in use.
+
 ## 0.19.0
 
 **The sample engine, part 1: velocity layers, round-robins and hit variation, from SFZ kits or folders of your own hits** (inspired by the reference's sampled kits and its Voice and Layer and Hit Variation boxes; our own design and code, and your own sounds, never theirs).

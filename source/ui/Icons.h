@@ -28,7 +28,9 @@ namespace Icons
                       // PR7-K 0.21: the drums
                       drums,
                       // PR7-D 0.4.0: the grooves
-                      grooves };
+                      grooves,
+                      // PR7-D 0.20.0: the mixer
+                      mixer };
 
     juce::Path get (Type type);
 

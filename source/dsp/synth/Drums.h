@@ -4,6 +4,7 @@
 
 #include "dsp/synth/DrumSequencer.h"
 #include "dsp/synth/MultiPoint.h"
+#include "dsp/synth/Mixer.h"
 #include "dsp/synth/Noise.h"
 #include "dsp/synth/VelocityCurve.h"
 
@@ -136,6 +137,32 @@ namespace synth::drums
                 if (pieces[(size_t) p].articulations[(size_t) a].slot == slot)
                     return juce::String (pieces[(size_t) p].name) + (pieces[(size_t) p].count > 1 ? " " + juce::String (pieces[(size_t) p].articulations[(size_t) a].name).toUpperCase() : juce::String());
         return {};
+    }
+
+    // THE MIXER (0.20.0): the mic channel a piece is close to (its own; a multi-mic hit's other close mics are bleed).
+    inline int homeChannel (int slot) noexcept
+    {
+        const juce::String name (pieceOfSlot (slot) >= 0 ? pieces[(size_t) pieceOfSlot (slot)].name : "");
+        if (name == "KICK") return mixer::kickIn;
+        if (name == "SNARE") return mixer::snareTop;
+        if (name == "HI-HAT") return mixer::hiHat;
+        if (name == "RACK TOM") return mixer::tom1;
+        if (name == "FLOOR TOM 1") return mixer::tom2;
+        if (name == "FLOOR TOM 2") return mixer::tom3;
+        if (name.startsWith ("CRASH") || name == "RIDE" || name == "CHINA" || name == "SPLASH") return mixer::cymbals;
+        return mixer::other;
+    }
+    // Whether a channel is a slot's own (direct sound) or bleed: its close mic(s), or a mic over the whole kit.
+    inline bool isDirect (int slot, int channel) noexcept
+    {
+        if (mixer::hearsWholeKit (channel))
+            return true;
+        const auto home = homeChannel (slot);
+        if (home == mixer::kickIn)
+            return channel == mixer::kickIn || channel == mixer::kickOut;
+        if (home == mixer::snareTop)
+            return channel == mixer::snareTop || channel == mixer::snareBottom;
+        return channel == home;
     }
 
     // STAND-INS: when an articulation is switched off (its ON), what plays its notes instead: the nearest one that's
@@ -301,6 +328,10 @@ namespace synth::drums
         // In `keys`, a note that plays the hi-hat at the pedal's openness.
         static constexpr std::int8_t hatPedal = 100;
 
+        // THE MIXER (0.20.0): the mic channels (multi-mic drums only) and the bleed from each piece into each.
+        std::array<mixer::ChannelSettings, mixer::numChannels> channels {};
+        const mixer::BleedMatrix* bleed = nullptr;   // null: every cell 0 dB, on
+
         // MIDI IN (0.18.0): only for MIDI from the DAW or a controller (not grooves, the song or the sequencer).
         int channel = 0;                                // 0: any, 1-16
         const VelocityCurve* inputCurve = nullptr;      // every incoming note's velocity first (null: straight)
@@ -400,6 +431,10 @@ namespace synth::drums
     {
         bool active = false;
         int slot = -1;
+        int channel = -1;                  // THE MIXER (0.20.0): a multi-mic hit's mic channel (-1: the slot's own way)
+        bool primary = true;               // the first of a hit's voices (a hit counts once for VOICES)
+        float micGain = 1.0f;              // its bleed / close-mic level
+        int releaseLeft = -1;              // the channel's RELEASE: samples until it fades (-1: never)
         Model model = Model::kick;
         std::uint64_t age = 0;
         int choke = 0;
@@ -454,7 +489,7 @@ namespace synth::drums
     class Kit
     {
     public:
-        static constexpr int maxVoices = 48, maxPerSlot = 6;
+        static constexpr int maxVoices = 192, maxPerSlot = 6;   // 192 since 0.20.0 (a multi-mic hit is a voice per mic)
 
         void prepare (double sampleRate, int maxBlockSize);
         void reset() noexcept;
@@ -521,6 +556,13 @@ namespace synth::drums
 
     private:
         void render (const Outputs&, int offset, int numSamples, const KitSettings&) noexcept;
+        void renderChannels (const Outputs&, int offset, int numSamples, const KitSettings&) noexcept;   // THE MIXER
+    public:
+        // THE MIXER: each channel's peak since the page last asked (any thread), and whether it played anything.
+        float takeChannelPeak (int channel) noexcept { return channelPeaks[(size_t) juce::jlimit (0, mixer::numChannels - 1, channel)].exchange (0.0f); }
+    private:
+        std::vector<float> channelScratch, voiceScratch;
+        std::array<std::atomic<float>, mixer::numChannels> channelPeaks {};
         static void filterSlot (const SlotSettings&, float* left, float* right, int numSamples, std::array<float, 2>& low,
                                 std::array<float, 2>& high, double sampleRate) noexcept;
         void startHit (int slot, float velocity, const KitSettings&, const HitOptions& = {}) noexcept;

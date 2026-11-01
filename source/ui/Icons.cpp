@@ -372,6 +372,20 @@ namespace Icons
                 break;
             }
 
+            case Type::mixer:
+            {
+                // Three fader slots, each with its cap at a different height.
+                const float caps[] = { 0.62f, 0.3f, 0.5f };
+                for (int i = 0; i < 3; ++i)
+                {
+                    const auto x = 0.2f + 0.3f * (float) i;
+                    p.startNewSubPath (x, 0.06f);
+                    p.lineTo (x, 0.94f);
+                    p.addRoundedRectangle (x - 0.1f, caps[i] - 0.06f, 0.2f, 0.12f, 0.03f);
+                }
+                break;
+            }
+
             case Type::drums:
             {
                 // A drum from the side (its head an ellipse, its shell below) and two sticks crossed above it.

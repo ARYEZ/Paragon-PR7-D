@@ -34,6 +34,11 @@ namespace ParamIDs
     // the drums they played before, through the stand-ins), so they sound as they did.
     inline const juce::StringArray articulationsAddedOff { "drum21On", "drum22On", "drum23On" };
     inline const juce::StringArray drumsPedalSteps { "drumsPedal1", "drumsPedal2", "drumsPedal3", "drumsPedal4" };
+    // THE MIXER (0.20.0, hint 29): each mic channel's settings, "mix<n>" plus a setting (n = 1 to 13, mixer::Channel + 1).
+    // OUTPUT is global, like the drums' (notInRigs).
+    inline juce::String mix (int channel, const char* what) { return "mix" + juce::String (channel + 1) + what; }
+    inline constexpr const char* mixSettings[] = { "Level", "Pan", "Mute", "Solo", "Phase", "Bleed", "BleedOn", "Offset", "Release", "Output" };
+
     // MIDI IN CHANNEL (0.18.0, hint 27): which channel the DAW's or a controller's MIDI plays the kit on ("Any", 1-16).
     // Global, like the note map.
     inline constexpr auto drumsMidiChannel = "drumsMidiChannel";
@@ -272,6 +277,8 @@ namespace ParamIDs
         juce::StringArray ids { outputGain, bypass, limitUnity, limitDelta, drumsMap, delayOutput, reverbOutput };
         ids.addArray (drumsPedalSteps);
         ids.add (drumsMidiChannel);
+        for (int c = 0; c < 13; ++c)
+            ids.add (mix (c, "Output"));
         for (int k = 0; k < numDrums; ++k)
             ids.add (drum (k, "Output"));
         for (int b = 0; b < numInsertBuses; ++b)

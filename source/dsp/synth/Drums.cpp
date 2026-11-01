@@ -840,6 +840,8 @@ namespace synth::drums
         sampleRate = newSampleRate;
         blockSize = juce::jmax (1, maxBlockSize);
         scratch.assign ((size_t) (2 * numSlots * blockSize), 0.0f);
+        channelScratch.assign ((size_t) (2 * mixer::numChannels * blockSize), 0.0f);
+        voiceScratch.assign ((size_t) (2 * blockSize), 0.0f);
         reset();
     }
 
@@ -923,6 +925,7 @@ namespace synth::drums
         SlotSettings chosenHit;
         const SlotSettings* use = &slotSettings;
         float hitGain = 1.0f;
+        const std::vector<Instrument::Hit::Mic>* mics = nullptr;   // THE MIXER (0.20.0): a multi-mic hit's parts
         if (slotSettings.model == Model::sample && slotSettings.instrument != nullptr)
         {
             const auto choice = slotSettings.instrument->choose (juce::jlimit (1, 127, juce::roundToInt (velocity * 127.0f)),
@@ -938,6 +941,8 @@ namespace synth::drums
             use = &chosenHit;
             hitGain = choice.gain;
             lastChoice[(size_t) slot] = choice.layer * 1000 + choice.hit + 1;
+            if (choice.mics != nullptr && ! choice.mics->empty())
+                mics = choice.mics;
         }
         const auto& s = *use;
         // 0.18.0: the articulation's VELOCITY GATE (on the velocity as it came) and VELOCITY CURVE.
@@ -967,31 +972,37 @@ namespace synth::drums
                 if (v.active && v.slot == slot)
                     v.fadeOut (0.002);
 
-        // Up to maxPerSlot hits of one slot overlap (a roll); past that, the oldest fades.
+        // Up to VOICES hits of one slot overlap (a roll); past that, the oldest fades (all of a multi-mic hit's
+        // voices: they share its age).
         Voice* oldestOfSlot = nullptr;
         int count = 0;
         for (auto& v : voices)
-            if (v.active && v.slot == slot && v.fadeStep <= 0.0f)
+            if (v.active && v.slot == slot && v.fadeStep <= 0.0f && v.primary)
             {
                 ++count;
                 if (oldestOfSlot == nullptr || v.age < oldestOfSlot->age)
                     oldestOfSlot = &v;
             }
         if (count >= juce::jlimit (1, maxVoices, s.voices) && oldestOfSlot != nullptr)
-            oldestOfSlot->fadeOut (0.002);
+        {
+            const auto oldAge = oldestOfSlot->age;
+            for (auto& v : voices)
+                if (v.active && v.age == oldAge)
+                    v.fadeOut (0.002);
+        }
 
-        // A free voice, or (rarely: 48 hits at once) the oldest one, cut.
-        Voice* chosen = nullptr;
-        for (auto& v : voices)
-            if (! v.active)
-            {
-                chosen = &v;
-                break;
-            }
-        if (chosen == nullptr)
+        // A free voice, or (rarely: every voice busy) the oldest one, cut.
+        const auto freeVoice = [this]
+        {
+            Voice* chosen = nullptr;
+            for (auto& v : voices)
+                if (! v.active)
+                    return &v;
             for (auto& v : voices)
                 if (chosen == nullptr || v.age < chosen->age)
                     chosen = &v;
+            return chosen;
+        };
 
         // The sequencer gives its notes' level as velocity squared, past the kit's VELOCITY: kept, from the curved one.
         auto velocityGain = options.velocityGain >= 0.0f ? hitVelocity * hitVelocity
@@ -1001,8 +1012,42 @@ namespace synth::drums
         if (s.instrument != nullptr)
             velocityGain = (s.velocityToVolume ? velocityGain : 1.0f) * hitGain;
         noiseSeed = noiseSeed * 1664525u + 1013904223u;
-        chosen->start (s, slot, velocityGain, sampleRate, noiseSeed, options);
-        chosen->age = ++ages;
+        const auto age = ++ages;
+        if (mics == nullptr)
+        {
+            auto* chosen = freeVoice();
+            chosen->start (s, slot, velocityGain, sampleRate, noiseSeed, options);
+            chosen->age = age;
+            chosen->channel = -1;
+            chosen->primary = true;
+            chosen->releaseLeft = -1;
+            return;
+        }
+        // THE MIXER (0.20.0): a voice per mic, into its channel, at the bleed / close-mic level the mixer gives this
+        // piece there, late by the channel's TIME OFFSET; the channel's RELEASE fades it after that long.
+        const auto piece = juce::jlimit (0, mixer::numPieces - 1, pieceOfSlot (slot));
+        auto first = true;
+        for (const auto& mic : *mics)
+        {
+            const auto channel = mic.channel >= 0 ? mic.channel : homeChannel (slot);
+            const auto& ch = settings.channels[(size_t) channel];
+            auto gain = settings.bleed != nullptr ? (*settings.bleed)[(size_t) channel][(size_t) piece].gain() : 1.0f;
+            if (! isDirect (slot, channel))
+                gain *= ch.bleedOn ? ch.bleedGain : 0.0f;
+            if (std::abs (gain) < 1.0e-9f || mic.sample == nullptr)
+                continue;
+            auto part = s;
+            part.sample = mic.sample.get();
+            part.delay = (float) (juce::jmax (0.0, (double) s.delay) + ch.offsetSeconds);
+            auto* voice = freeVoice();
+            voice->start (part, slot, velocityGain, sampleRate, noiseSeed, options);
+            voice->age = age;
+            voice->channel = channel;
+            voice->primary = first;
+            voice->micGain = gain;
+            voice->releaseLeft = ch.releaseSeconds > 0.0 ? juce::jmax (1, (int) (ch.releaseSeconds * sampleRate)) + voice->waitLeft : -1;
+            first = false;
+        }
     }
 
     double Kit::reverseSeconds (const SlotSettings& s, float notePitch, double) noexcept
@@ -1044,6 +1089,7 @@ namespace synth::drums
             {
                 const auto n = juce::jmin (blockSize, b - a);
                 render (outputs, a, n, settings);
+                renderChannels (outputs, a, n, settings);   // THE MIXER's mic channels (0.20.0)
                 a += n;
             }
         };
@@ -1235,7 +1281,7 @@ namespace synth::drums
 
         std::array<bool, numSlots> used {};
         for (const auto& v : voices)
-            if (v.active)
+            if (v.active && v.channel < 0)
                 used[(size_t) v.slot] = true;
 
         const auto glide = (float) (1.0 / (0.005 * sampleRate));   // MUTE / SOLO: 5 ms
@@ -1257,7 +1303,7 @@ namespace synth::drums
             std::fill (left, left + numSamples, 0.0f);
             std::fill (right, right + numSamples, 0.0f);
             for (auto& v : voices)
-                if (v.active && v.slot == slot)
+                if (v.active && v.slot == slot && v.channel < 0)
                     v.render (left, right, numSamples);
             filterSlot (s, left, right, numSamples, lowState[(size_t) slot], highState[(size_t) slot], sampleRate);
 
@@ -1298,6 +1344,75 @@ namespace synth::drums
                         sendRight[k][i] += r * s.send[k];
                     }
             }
+        }
+    }
+
+    void Kit::renderChannels (const Outputs& outputs, int offset, int numSamples, const KitSettings& settings) noexcept
+    {
+        // THE MIXER (0.20.0): each mic voice into its channel at its drum's VOLUME, GAIN, MUTE / SOLO and its bleed /
+        // close-mic level; then each channel's polarity, fader, pan, MUTE / SOLO, into its output.
+        auto anyVoice = false;
+        for (const auto& v : voices)
+            anyVoice = anyVoice || (v.active && v.channel >= 0);
+        if (! anyVoice)
+            return;
+        std::fill (channelScratch.begin(), channelScratch.begin() + (std::ptrdiff_t) (2 * mixer::numChannels * blockSize), 0.0f);
+        std::array<bool, mixer::numChannels> used {};
+        auto* vl = voiceScratch.data();
+        auto* vr = vl + blockSize;
+        for (auto& v : voices)
+        {
+            if (! v.active || v.channel < 0)
+                continue;
+            // RELEASE: the channel's fade once its time is up.
+            if (v.releaseLeft >= 0)
+            {
+                v.releaseLeft -= numSamples;
+                if (v.releaseLeft < 0 && v.fadeStep <= 0.0f)
+                    v.fadeOut (0.03);
+            }
+            std::fill (vl, vl + numSamples, 0.0f);
+            std::fill (vr, vr + numSamples, 0.0f);
+            v.render (vl, vr, numSamples);
+            const auto& s = settings.slots[(size_t) v.slot];
+            const auto g = v.micGain * settings.gain * s.gain * s.trim * (audible (settings, v.slot) ? 1.0f : 0.0f);
+            auto* cl = channelScratch.data() + (size_t) (2 * v.channel * blockSize);
+            auto* cr = cl + blockSize;
+            for (int i = 0; i < numSamples; ++i)
+            {
+                cl[i] += vl[i] * g;
+                cr[i] += vr[i] * g;
+            }
+            used[(size_t) v.channel] = true;
+        }
+        auto anySolo = false;
+        for (const auto& c : settings.channels)
+            anySolo = anySolo || c.solo;
+        for (int c = 0; c < mixer::numChannels; ++c)
+        {
+            if (! used[(size_t) c])
+                continue;
+            const auto& ch = settings.channels[(size_t) c];
+            const auto* cl = channelScratch.data() + (size_t) (2 * c * blockSize);
+            const auto* cr = cl + blockSize;
+            const auto audibleChannel = ! ch.mute && (! anySolo || ch.solo);
+            const auto g = audibleChannel ? ch.gain * (ch.invert ? -1.0f : 1.0f) : 0.0f;
+            const auto gl = g * (ch.pan > 0.0f ? 1.0f - ch.pan : 1.0f), gr = g * (ch.pan < 0.0f ? 1.0f + ch.pan : 1.0f);
+            const auto aux = ch.output - 1;
+            const auto toAux = aux >= 0 && aux < (int) outputs.auxLeft.size() && outputs.auxLeft[(size_t) aux] != nullptr;
+            auto* outLeft = (toAux ? outputs.auxLeft[(size_t) aux] : outputs.left) + offset;
+            auto* outRight = (toAux ? outputs.auxRight[(size_t) aux] : outputs.right) + offset;
+            auto peak = 0.0f;
+            for (int i = 0; i < numSamples; ++i)
+            {
+                const auto l = cl[i] * gl, r = cr[i] * gr;
+                outLeft[i] += l;
+                outRight[i] += r;
+                peak = juce::jmax (peak, std::abs (l), std::abs (r));
+            }
+            auto& meter = channelPeaks[(size_t) c];
+            if (peak > meter.load())
+                meter = peak;
         }
     }
 

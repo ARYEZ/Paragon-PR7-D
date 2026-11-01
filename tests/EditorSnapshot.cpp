@@ -27,6 +27,7 @@
 //                                    PARAGON_SNAPSHOT_VELOCITY=1: the snare's VELOCITY curve and gate;
 //                                    PARAGON_SNAPSHOT_INSTRUMENT=1: the snare from a folder of 16 hits, its layers)
 //   PARAGON_SNAPSHOT_PAGE=fx         THE RACK (PARAGON_SNAPSHOT_RACK=1: at work on a beat, the sends and bus A too; PARAGON_SNAPSHOT_FX=eq|dominion|comp|limiter|sends|delay|reverb|modfx|mod|mod2|lofi|inserts|insdrive|insglitch|insmod|inslofi: that view, the inserts' on bus PARAGON_SNAPSHOT_BUS=1-4)
+//   PARAGON_SNAPSHOT_PAGE=mixer      THE MIXER (0.20.0) with a multi-mic kit, a hit just played
 //   PARAGON_SNAPSHOT_NOTES=1         the kick, snare and closed hat's keys held on the keyboard (they light)
 //   PARAGON_SNAPSHOT_MIDI=1          demo MIDI links and a knob learning (with PAGE=settings: the links list)
 TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
@@ -655,6 +656,51 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         view->showPage (MainView::Page::drums);
         view->getDrumPage().showView (DrumPage::View::sequencer);
         view->getDrumPage().getSequencer().getGrid().itemDragEnter ({ "groove:1", nullptr, { 40, 40 } });
+    }
+    // 0.20.0: THE MIXER with a multi-mic SFZ kit of our own (kick, snare, hat; close mics, overheads, room), a hit
+    // just played, the snare top chosen, a little less kick in its bleed.
+    if (page == "mixer")
+    {
+        const auto kitFolder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ParagonX1SnapshotMultiMic");
+        kitFolder.deleteRecursively();
+        juce::WavAudioFormat wav;
+        juce::String sfz;
+        const std::pair<int, const char*> drums[] = { { 36, "kick" }, { 38, "snare" }, { 42, "hat" } };
+        const char* mics[] = { "kick in", "kick out", "snare top", "snare bottom", "hihat", "OH", "room" };
+        for (const auto& [note, name] : drums)
+        {
+            sfz << "<group> key=" << note << "\n";
+            for (const auto* mic : mics)
+            {
+                synth::drums::SlotSettings drum;
+                drum.model = note == 36 ? synth::drums::Model::kick : note == 38 ? synth::drums::Model::snare : synth::drums::Model::closedHat;
+                // Close to its own mic: loud there; elsewhere a quieter bleed; the room and overheads in between.
+                const juce::String m (mic);
+                const auto own = (note == 36 && m.startsWith ("kick")) || (note == 38 && m.startsWith ("snare")) || (note == 42 && m == "hihat");
+                const auto level = own ? 0.9f : (m == "OH" || m == "room") ? 0.45f : 0.12f;
+                const auto hit = synth::drums::Kit::renderHit (drum, level, 48000.0, 0.6);
+                const auto file = kitFolder.getChildFile (m.removeCharacters (" ")).getChildFile (juce::String (name) + ".wav");
+                file.getParentDirectory().createDirectory();
+                std::unique_ptr<juce::AudioFormatWriter> writer (wav.createWriterFor (new juce::FileOutputStream (file), 48000.0, 1, 24, {}, 0));
+                if (writer != nullptr)
+                    writer->writeFromAudioSampleBuffer (hit, 0, hit.getNumSamples());
+                sfz << "<region> sample=" << m.removeCharacters (" ") << "/" << name << ".wav group_label=" << m.removeCharacters (" ") << "\n";
+            }
+        }
+        kitFolder.getChildFile ("kit.sfz").replaceWithText (sfz);
+        processor.importSfzKit (kitFolder.getChildFile ("kit.sfz"), synth::drums::notemap::Layout::generalMidi);
+        processor.waitForInstruments();
+        auto matrix = processor.getModMatrix();
+        matrix.bleed (synth::mixer::snareTop, 0).gainDb = -6.0f;   // less kick in the snare mic
+        processor.setModMatrix (matrix);
+        view->showPage (MainView::Page::mixer);
+        view->getMixerPage().selectChannel (synth::mixer::snareTop);
+        juce::AudioBuffer<float> buffer (2, 512);
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (1, 38, (juce::uint8) 110), 0);
+        midi.addEvent (juce::MidiMessage::noteOn (1, 36, (juce::uint8) 110), 0);
+        processor.processBlock (buffer, midi);
+        view->getMixerPage().update();
     }
     if (page == "presets")
         view->showPage (MainView::Page::presets);

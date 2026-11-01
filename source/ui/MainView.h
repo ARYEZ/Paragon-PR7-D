@@ -11,6 +11,7 @@
 #include "ui/RigBrowser.h"
 #include "ui/DrumPage.h"
 #include "ui/GroovesPage.h"
+#include "ui/MixerPage.h"
 #include "ui/SongTrack.h"
 #include "ui/BlockEditor.h"
 #include "ui/SongCreator.h"
@@ -85,7 +86,7 @@ public:
     static constexpr int width = 1600;
     static constexpr int height = 900;
 
-    enum class Page { drums, fx, presets, settings, grooves };
+    enum class Page { drums, fx, presets, settings, grooves, mixer };   // mixer: 0.20.0
     void showPage (Page);
     Page getPage() const noexcept { return page; }
 
@@ -93,6 +94,7 @@ public:
     FxPage& getFxPage() noexcept { return fxPage; }
     DrumPage& getDrumPage() noexcept { return drumPage; }
     GroovesPage& getGroovesPage() noexcept { return groovesPage; }
+    MixerPage& getMixerPage() noexcept { return mixerPage; }
     SettingsPage& getSettingsPage() noexcept { return settingsPage; }
     KitKeyboard& getKeyboard() noexcept { return keyboard; }
     SongTrack& getSongTrack() noexcept { return songTrack; }
@@ -135,6 +137,7 @@ private:
     // Header
     IconButton drumsTab { "The drums: a kit of 20, the drum sequencer", Icons::Type::drums, "DRUMS" },
                groovesTab { "Your own MIDI grooves: browse, play through the kit, drag into your DAW", Icons::Type::grooves, "GROOVES" },
+               mixerTab { "The mixer: a multi-mic kit's mic channels, bleed, and where each goes", Icons::Type::mixer, "MIXER" },
                fxTab { "The effects: insert buses, DELAY and REVERB sends, and the MASTER rack after the kit", Icons::Type::rack, "FX" },
                presetsTab { "Browse, save and organise presets", Icons::Type::presets, "PRESETS" },
                settingsTab { "The keys, presets folder, MIDI links and more", Icons::Type::settings, "SETTINGS" };
@@ -155,6 +158,7 @@ private:
     // The pages
     DrumPage drumPage;
     GroovesPage groovesPage;
+    MixerPage mixerPage;
     FxPage fxPage;
     RigBrowser rigBrowser;
     SettingsPage settingsPage;

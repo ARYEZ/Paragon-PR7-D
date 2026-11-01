@@ -22,6 +22,7 @@ namespace
     constexpr int pr7d0170 = 26; // PR7-D 0.17.0: drums 21 to 23, ON, MUTE TAIL, the hi-hat pedal
     constexpr int pr7d0180 = 27; // PR7-D 0.18.0: the velocity gate, MIDI IN CHANNEL
     constexpr int pr7d0190 = 28; // PR7-D 0.19.0: the sample engine's hit variation, layer limit, voices
+    constexpr int pr7d0200 = 29; // PR7-D 0.20.0: the mixer's mic channels
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -153,6 +154,25 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
                  [] (float v, int) { return v < 0.5f ? juce::String ("All") : juce::String (juce::roundToInt (v)); }, pr7d0190);
             add (layout, drum (k, "Voices"), name + "Voices", { 1.0f, 48.0f, 1.0f }, (float) synth::drums::Kit::maxPerSlot,
                  [] (float v, int) { return juce::String (juce::roundToInt (v)); }, pr7d0190);
+        }
+
+        // THE MIXER (0.20.0): the mic channels.
+        for (int c = 0; c < synth::mixer::numChannels; ++c)
+        {
+            const auto name = "Mix " + synth::mixer::channelNames[c].toLowerCase() + " ";
+            const ToText asFader = [] (float v, int) { return v <= -59.95f ? juce::String ("-inf") : juce::String (v, 1) + " dB"; };
+            add (layout, mix (c, "Level"), name + "Level", { -60.0f, 12.0f, 0.1f }, 0.0f, asFader, pr7d0200);
+            add (layout, mix (c, "Pan"), name + "Pan", { -1.0f, 1.0f }, 0.0f, asPan, pr7d0200);
+            addSwitch (layout, mix (c, "Mute"), name + "Mute", false, pr7d0200);
+            addSwitch (layout, mix (c, "Solo"), name + "Solo", false, pr7d0200);
+            addSwitch (layout, mix (c, "Phase"), name + "Polarity", false, pr7d0200);
+            add (layout, mix (c, "Bleed"), name + "Bleed", { -60.0f, 12.0f, 0.1f }, 0.0f, asFader, pr7d0200);
+            addSwitch (layout, mix (c, "BleedOn"), name + "Bleed On", true, pr7d0200);
+            add (layout, mix (c, "Offset"), name + "Time Offset", { 0.0f, 10.0f, 0.01f }, 0.0f,
+                 [] (float v, int) { return juce::String (v, 2) + " ms"; }, pr7d0200);
+            add (layout, mix (c, "Release"), name + "Release", { 0.0f, 2000.0f, 1.0f }, 0.0f,
+                 [] (float v, int) { return v < 0.5f ? juce::String ("Off") : juce::String (juce::roundToInt (v)) + " ms"; }, pr7d0200);
+            addChoice (layout, mix (c, "Output"), name + "Output", outputNames, 0, pr7d0200);
         }
 
         // THE DRUM SEQUENCER (stage 6b).

@@ -12,6 +12,26 @@ namespace synth::drums
         return n;
     }
 
+    bool Instrument::hasMics() const noexcept
+    {
+        for (const auto& l : layers)
+            for (const auto& h : l.hits)
+                if (! h.mics.empty())
+                    return true;
+        return false;
+    }
+
+    juce::Array<int> Instrument::micChannels() const
+    {
+        juce::Array<int> channels;
+        for (const auto& l : layers)
+            for (const auto& h : l.hits)
+                for (const auto& m : h.mics)
+                    channels.addIfNotAlreadyThere (m.channel);
+        channels.sort();
+        return channels;
+    }
+
     int Instrument::layerFor (int velocity) const noexcept
     {
         if (layers.empty())
@@ -76,6 +96,7 @@ namespace synth::drums
         c.layer = layer;
         c.hit = index;
         c.sample = pool[(size_t) index].sample.get();
+        c.mics = &pool[(size_t) index].mics;
         // A neighbour's hit matched to this layer's loudness.
         if (layer != home && layers[(size_t) layer].level > 0.0f)
             c.gain = layers[(size_t) home].level / layers[(size_t) layer].level;
@@ -98,6 +119,34 @@ namespace synth::drums
 
         namespace
         {
+            // `from` added into `into` (made stereo, as long as needed), at `gain`, panned as a balance, from `offset`.
+            bool addInto (Sample& into, const Sample& from, float gain, float pan, int offset)
+            {
+                if (from.length() < 2)
+                    return false;
+                if (into.channels.empty())
+                {
+                    into.sampleRate = from.sampleRate;
+                    into.channels.assign (2, {});
+                }
+                if (std::abs (from.sampleRate - into.sampleRate) > 0.5)
+                    return false;
+                offset = juce::jlimit (0, from.length() - 1, offset);
+                const auto length = from.length() - offset;
+                for (auto& c : into.channels)
+                    if ((int) c.size() < length)
+                        c.resize ((size_t) length, 0.0f);
+                const float sideGain[2] = { gain * (pan > 0.0f ? 1.0f - pan : 1.0f), gain * (pan < 0.0f ? 1.0f + pan : 1.0f) };
+                for (int c = 0; c < 2; ++c)
+                {
+                    const auto& src = from.channels[(size_t) juce::jmin (c, (int) from.channels.size() - 1)];
+                    auto& dst = into.channels[(size_t) c];
+                    for (int i = 0; i < length; ++i)
+                        dst[(size_t) i] += src[(size_t) (i + offset)] * sideGain[c];
+                }
+                return true;
+            }
+
             void finish (Instrument& inst)
             {
                 std::sort (inst.layers.begin(), inst.layers.end(), [] (const auto& a, const auto& b) { return a.lo < b.lo; });
@@ -132,17 +181,46 @@ namespace synth::drums
 
         std::shared_ptr<const Instrument> fromFolder (const juce::File& folder)
         {
-            auto files = folder.findChildFiles (juce::File::findFiles, false, "*.wav;*.aif;*.aiff;*.flac;*.ogg");
+            const juce::String audio ("*.wav;*.aif;*.aiff;*.flac;*.ogg");
+            auto files = folder.findChildFiles (juce::File::findFiles, false, audio);
             files.sort();
-            struct Loaded { std::shared_ptr<const Sample> sample; juce::String path; float level; int layer, rr; };
+            struct Loaded { std::shared_ptr<const Sample> sample; juce::String path; float level; int layer, rr; std::vector<Instrument::Hit::Mic> mics; };
             std::vector<Loaded> hits;
+            const auto add = [&hits] (std::shared_ptr<const Sample> s, const juce::File& f, std::vector<Instrument::Hit::Mic> mics)
+            {
+                const auto name = f.getFileNameWithoutExtension();
+                hits.push_back ({ s, f.getFullPathName(), loudness (*s), numberAfter (name, { "vel", "v", "layer", "dyn" }),
+                                  numberAfter (name, { "rr", "round", "take" }), std::move (mics) });
+            };
             for (const auto& f : files)
                 if (auto s = sampleFiles::load (f))
+                    add (s, f, {});
+            // MIC FOLDERS (0.20.0): no hits of its own, a subfolder per mic: each hit by its name in every mic's folder.
+            if (hits.empty())
+            {
+                std::vector<std::pair<int, juce::File>> micFolders;
+                for (const auto& sub : folder.findChildFiles (juce::File::findDirectories, false))
+                    if (const auto channel = mixer::channelForName (sub.getFileName()); channel >= 0)
+                        micFolders.emplace_back (channel, sub);
+                if (! micFolders.empty())
                 {
-                    const auto name = f.getFileNameWithoutExtension();
-                    hits.push_back ({ s, f.getFullPathName(), loudness (*s), numberAfter (name, { "vel", "v", "layer", "dyn" }),
-                                      numberAfter (name, { "rr", "round", "take" }) });
+                    std::sort (micFolders.begin(), micFolders.end(), [] (const auto& a, const auto& b) { return a.second.getFileName() < b.second.getFileName(); });
+                    auto names = micFolders.front().second.findChildFiles (juce::File::findFiles, false, audio);
+                    names.sort();
+                    for (const auto& first : names)
+                    {
+                        auto sum = std::make_shared<Sample>();
+                        sum->name = first.getFileNameWithoutExtension();
+                        std::vector<Instrument::Hit::Mic> mics;
+                        for (const auto& [channel, sub] : micFolders)
+                            if (const auto f = sub.getChildFile (first.getFileName()); f.existsAsFile())
+                                if (auto s = sampleFiles::load (f); s != nullptr && addInto (*sum, *s, 1.0f, 0.0f, 0))
+                                    mics.push_back ({ channel, s });
+                        if (! sum->channels.empty())
+                            add (sum, first, micFolders.size() > 1 ? std::move (mics) : std::vector<Instrument::Hit::Mic> {});
+                    }
                 }
+            }
             if (hits.empty())
                 return nullptr;
             auto inst = std::make_shared<Instrument>();
@@ -192,7 +270,7 @@ namespace synth::drums
                 l.lo = 1 + 127 * i / n;
                 l.hi = 127 * (i + 1) / n;
                 for (const auto& h : groups[(size_t) i])
-                    l.hits.push_back ({ h.sample, juce::StringArray (h.path) });
+                    l.hits.push_back ({ h.sample, juce::StringArray (h.path), h.mics });
                 inst->layers.push_back (std::move (l));
             }
             finish (*inst);
@@ -429,6 +507,16 @@ namespace synth::drums
 
             // Each file once (a kit's regions share files across notes and layers).
             std::map<juce::String, std::shared_ptr<const Sample>> cache;
+            // A region's mic: its label (group, region, master or global), else its file's folder and name.
+            const auto micOf = [] (const Region& r)
+            {
+                for (const auto* key : { "region_label", "group_label", "master_label", "global_label" })
+                    if (const auto label = get (r.op, key); label.isNotEmpty())
+                        if (const auto channel = mixer::channelForName (label); channel >= 0)
+                            return channel;
+                const juce::File f ("/" + get (r.op, "sample").replaceCharacter ('\\', '/'));
+                return mixer::channelForName (f.getParentDirectory().getFileName() + " " + f.getFileNameWithoutExtension());
+            };
             const auto loadFile = [&] (const juce::String& relative) -> std::shared_ptr<const Sample>
             {
                 const auto path = (defaultPath + relative).replaceCharacter ('\\', '/');
@@ -451,8 +539,16 @@ namespace synth::drums
                 inst->source = file;
                 inst->note = onlyNote == wholeFile ? -1 : note;
                 std::map<std::pair<int, int>, Instrument::Layer> layers;
+                // Multi-mic: the note's regions in two or more mic channels.
+                juce::Array<int> noteMics;
+                for (const auto& [key, parts] : hits)
+                    for (const auto* r : parts)
+                        if (const auto m = micOf (*r); m >= 0)
+                            noteMics.addIfNotAlreadyThere (m);
+                const auto multiMic = noteMics.size() >= 2;
                 for (const auto& [key, parts] : hits)
                 {
+                    std::map<int, std::shared_ptr<Sample>> byMic;
                     // The hit: its regions' files summed, each at its volume / amplitude and pan, from its offset.
                     auto sum = std::make_shared<Sample>();
                     juce::StringArray files;
@@ -462,6 +558,15 @@ namespace synth::drums
                         if (s == nullptr || s->length() < 2)
                             continue;
                         files.add (get (r->op, "sample"));
+                        if (multiMic)
+                        {
+                            auto& part = byMic[micOf (*r)];
+                            if (part == nullptr)
+                                part = std::make_shared<Sample>();
+                            addInto (*part, *s, juce::Decibels::decibelsToGain (get (r->op, "volume", "0").getFloatValue())
+                                                    * get (r->op, "amplitude", "100").getFloatValue() / 100.0f,
+                                     juce::jlimit (-1.0f, 1.0f, get (r->op, "pan", "0").getFloatValue() / 100.0f), get (r->op, "offset", "0").getIntValue());
+                        }
                         const auto gain = juce::Decibels::decibelsToGain (get (r->op, "volume", "0").getFloatValue())
                                         * get (r->op, "amplitude", "100").getFloatValue() / 100.0f;
                         const auto pan = juce::jlimit (-1.0f, 1.0f, get (r->op, "pan", "0").getFloatValue() / 100.0f);
@@ -496,7 +601,11 @@ namespace synth::drums
                     auto& layer = layers[{ key.lo, key.hi }];
                     layer.lo = juce::jmax (1, key.lo);
                     layer.hi = key.hi;
-                    layer.hits.push_back ({ sum, files });
+                    std::vector<Instrument::Hit::Mic> mics;
+                    for (const auto& [channel, part] : byMic)
+                        if (! part->channels.empty())
+                            mics.push_back ({ channel, part });
+                    layer.hits.push_back ({ sum, files, mics });
                 }
                 for (auto& [range, l] : layers)
                     inst->layers.push_back (std::move (l));
