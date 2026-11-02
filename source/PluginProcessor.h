@@ -169,6 +169,14 @@ public:
     // that layout, else the note with the most regions). What went where, and the notes left over.
     struct KitImport { std::vector<std::pair<int, int>> slotNotes; juce::Array<int> unused; };
     KitImport importSfzKit (const juce::File& sfz, synth::drums::notemap::Layout);
+    // DRUMGIZMO KITS (0.27.0): a whole kit onto the slots (each its instrument(s), LIGHT or FULL), remembered by name
+    // (where this computer keeps it: factory presets name kits as "{kit:<name>}/<file>"). Which slot took which
+    // instruments, and those left out.
+    struct DrumGizmoImport { juce::String kitName; std::vector<std::pair<int, juce::StringArray>> slots; juce::StringArray unused; };
+    DrumGizmoImport importDrumGizmoKit (const juce::File& kitFile, bool full);
+    void rememberKit (const juce::String& name, const juce::File& folder);
+    void loadInstrumentRef (int slot, const juce::String& ref);   // a slot's instrument by its reference (as presets keep it)
+    juce::File knownKitFolder (const juce::String& name) const;
     bool isLoadingInstruments() const noexcept { return pendingLoads.load() > 0; }
     juce::String getInstrumentRef (int slot) const { return instrumentRefs[(size_t) juce::jlimit (0, ParamIDs::numDrums - 1, slot)]; }
     juce::StringArray getInstrumentProblems() const;
@@ -595,6 +603,8 @@ private:
     void installLoadedInstruments();
     void makeSlotPlaySample (int slot);   // SAMPLE, its shaping neutral (if it wasn't already SAMPLE)
     static juce::String refFor (const synth::drums::Instrument&);
+    juce::File knownKitsFile() const;
+    mutable std::mutex kitsLock;
 
     // THE GROOVE PLAYER: the preview, made on the message thread (its notes already drums), played by the audio
     // thread through a plain pointer; a replaced one kept a while (as samples are), in case a block is still on it.

@@ -4,8 +4,10 @@
 #include "dsp/effects/LoFi.h"
 #include "dsp/effects/Reverb.h"
 
+#include "MixerEffects.h"
 #include "Parameters.h"
 #include "dsp/synth/Drums.h"
+#include "dsp/synth/NoteMap.h"
 
 // PR7-D's factory presets: our own kits and beats, grown from PR7-K's drum presets (A40 Kit And Bass, A41 Beat And
 // Bass, A42 Tight Kit) with the bass taken out. Our own sounds and patterns, not copies of anyone's, and not yet tuned
@@ -263,6 +265,83 @@ std::vector<Rig> makeFactoryRigs()
     djent.set (ParamIDs::drumsMicSim, 1.0f).set (ParamIDs::drumsRoom, 2.0f).set (ParamIDs::drumsRoomTone, 0.55f)
          .set (ParamIDs::mix (synth::mixer::room, "Level"), -6.0f).set (ParamIDs::mix (synth::mixer::ambience, "Level"), -12.0f);
     add (djent);
+
+    // A07 (0.27.0): a real metal kit: the free CrocellKit (DrumGizmo, CC-BY 4.0: the kit of the Danish band Crocell,
+    // mic'd by JBOSound, sampled by Lars Muldjord), loaded from where the user unzipped it ("{kit:CrocellKit}": this
+    // computer's place for it, learnt when it's loaded once with LOAD... > A DRUMGIZMO KIT...). Its 15 mics through THE
+    // MIXER with a metal mix of our own (not tuned by ear yet): the kick's click up and its box out, a gate on each tom,
+    // the snare compressed and bright, the room squashed underneath, the overheads high-passed. The Djent Kit's grooves.
+    Builder crocell ("Crocell Metal", 7, { "Kit", "Sequencer", "Sampled", "Metal" },
+                     "A real metal kit, recorded: the free CrocellKit (DrumGizmo, CC-BY 4.0; kit: Crocell, crocell.dk; mics: "
+                     "JBOSound, jbosound.com; sampled by Lars Muldjord). Get it from drumgizmo.org (DRUMS > LOAD... > GET FREE "
+                     "KITS...), unzip it, then load CrocellKit_full.xml once with DRUMS > LOAD... > A DRUMGIZMO KIT...; this "
+                     "preset finds it after that. Its 15 mics play through THE MIXER with a metal mix of ours (gates on the toms, "
+                     "the kick's click, a compressed snare, a squashed room). The Djent Kit's four grooves.");
+    {
+        using namespace synth::drums::notemap;
+        using synth::drums::Model;
+        const std::pair<int, const char*> drums[] = {
+            { BD, "KDrumL,KDrumR" }, { RIM, "SnareRim" }, { SD, "Snare" }, { SD2, "SnareRimShot" }, { LT, "FTom1" }, { CH, "HihatClosed" },
+            { MT, "Tom2" }, { PH, "HihatPedal" }, { HT, "Tom1" }, { OH, "HihatOpen" }, { CY, "CrashL" }, { RD, "RideR" }, { RB, "RideRBell" },
+            { CR2, "CrashR" }, { CHN, "ChinaR" }, { SPL, "SplashL" }, { HH, "HihatSemiOpen" }, { HO1, "HihatClosedNoPedal" } };
+        for (const auto& [slot, names] : drums)
+        {
+            crocell.rig.drumInstruments[slot] = juce::String ("dg|") + names + ";light|{kit:CrocellKit}/CrocellKit_full.xml";
+            crocell.drum (slot, "Model", (float) (int) Model::sample);
+        }
+        crocell.drum (HO3, "On", 0.0f).drum (RE, "On", 0.0f);   // played by their stand-ins: open hat, ride
+        crocell.rig.modulation.drumPatterns = djent.rig.modulation.drumPatterns;
+        crocell.set (ParamIDs::dseqOn, 1.0f);
+        crocell.set (ParamIDs::compOn, 1.0f).set (ParamIDs::compThreshold, -16.0f).set (ParamIDs::compRatio, 3.0f)
+               .set (ParamIDs::compAttack, 10.0f).set (ParamIDs::compRelease, 150.0f).set (ParamIDs::compMakeUp, 4.0f)
+               .set (ParamIDs::compCharacter, 2.0f).set (ParamIDs::limitOn, 1.0f).set (ParamIDs::drumsLevel, 6.0f);
+
+        // The mix (our own, by the book of metal drum mixing; tune it by ear).
+        using namespace synth::mixer;
+        auto& m = crocell.rig.modulation;
+        const auto eq = [] (std::initializer_list<std::pair<int, float>> values)
+        {
+            auto slot = mixerfx::defaultSlot (mixerfx::eq);
+            for (const auto& [i, v] : values)
+                slot.values[(size_t) i] = v;
+            return slot;
+        };
+        const auto comp = [] (float threshold, float ratio, float attack, float release, float makeup, int character)
+        {
+            auto slot = mixerfx::defaultSlot (mixerfx::compressor);
+            slot.values[0] = threshold; slot.values[1] = ratio; slot.values[2] = attack; slot.values[3] = release;
+            slot.values[4] = makeup; slot.values[5] = (float) character;
+            return slot;
+        };
+        const auto gate = [] (float threshold, float range, float hold, float release)
+        {
+            auto slot = mixerfx::defaultSlot (mixerfx::gate);
+            slot.values[0] = threshold; slot.values[1] = range; slot.values[3] = hold; slot.values[4] = release;
+            return slot;
+        };
+        // EQ values by index: 0 LOW CUT, 1 LOW, 2 LOW GAIN, 3 MID 1, 4 its gain, 5 its Q, 6 MID 2, 7 its gain, 8 its Q,
+        // 9 HIGH, 10 HIGH GAIN, 11 HIGH CUT.
+        m.effect (kickIn, 0) = eq ({ { 0, 30.0f }, { 1, 60.0f }, { 2, 3.0f }, { 3, 350.0f }, { 4, -6.0f }, { 5, 1.2f }, { 6, 4000.0f }, { 7, 6.0f } });
+        m.effect (kickIn, 1) = comp (-20.0f, 4.0f, 5.0f, 80.0f, 3.0f, 2);
+        m.effect (kickOut, 0) = eq ({ { 1, 60.0f }, { 2, 4.0f }, { 3, 300.0f }, { 4, -4.0f }, { 11, 6000.0f } });
+        m.effect (snareTop, 0) = eq ({ { 0, 80.0f }, { 1, 200.0f }, { 2, 3.0f }, { 3, 900.0f }, { 4, -3.0f }, { 6, 5000.0f }, { 7, 4.0f }, { 10, 2.0f } });
+        m.effect (snareTop, 1) = comp (-22.0f, 4.0f, 8.0f, 120.0f, 4.0f, 2);
+        m.effect (snareBottom, 0) = eq ({ { 0, 300.0f }, { 6, 6000.0f }, { 7, 3.0f } });
+        m.effect (hiHat, 0) = eq ({ { 0, 400.0f }, { 10, 2.0f } });
+        for (const auto tom : { tom1, tom2, tom3 })
+        {
+            m.effect (tom, 0) = gate (-30.0f, 30.0f, 120.0f, 400.0f);
+            m.effect (tom, 1) = eq ({ { 0, 50.0f }, { 3, 400.0f }, { 4, -6.0f }, { 6, 3500.0f }, { 7, 4.0f } });
+        }
+        m.effect (cymbals, 0) = eq ({ { 0, 400.0f } });
+        m.effect (overheads, 0) = eq ({ { 0, 250.0f }, { 10, 2.0f } });
+        m.effect (room, 0) = comp (-30.0f, 8.0f, 10.0f, 120.0f, 8.0f, 2);
+        m.effect (room, 1) = eq ({ { 0, 60.0f } });
+        crocell.set (ParamIDs::mix (kickOut, "Level"), -3.0f).set (ParamIDs::mix (snareBottom, "Level"), -8.0f)
+               .set (ParamIDs::mix (hiHat, "Level"), -6.0f).set (ParamIDs::mix (cymbals, "Level"), -6.0f)
+               .set (ParamIDs::mix (room, "Level"), -8.0f);
+    }
+    add (crocell);
 
     return rigs;
 }

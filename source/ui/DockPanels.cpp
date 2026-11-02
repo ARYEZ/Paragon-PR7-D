@@ -337,7 +337,10 @@ void SettingsPage::paint (juce::Graphics& g)
                  + ". The PR7 family's drum instrument: drum synths and your own samples, a drum sequencer and effects, "
                    "grown from PR7-K's drum section (our own design and code). "
                    "Free and open source under the GNU AGPLv3.\n"
-                   "Built with JUCE (AGPLv3) and the Inter typeface (SIL OFL).");
+                   "Built with JUCE (AGPLv3) and the Inter typeface (SIL OFL).\n"
+                   "Loads DrumGizmo kits (drumgizmo.org) from your computer; none ship with it. The Crocell Metal preset uses the "
+                   "CrocellKit (CC-BY 4.0): kit by Crocell, mics by JBOSound, sampled by Lars Muldjord. Credit them when you "
+                   "release music made with it.");
 }
 
 void SettingsPage::resized()

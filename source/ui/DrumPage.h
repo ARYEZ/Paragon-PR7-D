@@ -163,6 +163,7 @@ private:
     bool showingInstrument = false;   // the chosen drum holds an instrument (THE SAMPLE ENGINE, 0.19.0): its controls show
     void showLoadMenu();
     void importSfzKit();
+    void importDrumGizmoKit();   // 0.27.0
     DrumHitDisplay display;
     MultiPointEditor envelope;
     juce::TextButton play { "PLAY" }, load { "LOAD SAMPLE..." }, clear { "CLEAR" }, wholeFile { "WHOLE FILE" };

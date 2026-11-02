@@ -1,5 +1,6 @@
 #include "DrumPage.h"
 
+#include "dsp/synth/DrumGizmo.h"
 #include "dsp/synth/Instrument.h"
 
 #include "ui/DockPanels.h"
@@ -1063,6 +1064,12 @@ void DrumPage::showLoadMenu()
     });
     menu.addSeparator();
     menu.addItem ("A whole SFZ kit (onto every drum)...", [this] { importSfzKit(); });
+    // 0.27.0: DRUMGIZMO KITS: free multi-mic kits recorded in real studios.
+    menu.addItem ("A DrumGizmo kit (onto every drum)...", [this] { importDrumGizmoKit(); });
+    menu.addItem ("Get free kits (drumgizmo.org)...", []
+    {
+        juce::URL ("https://drumgizmo.org/wiki/doku.php?id=kits").launchInDefaultBrowser();
+    });
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&load));
 }
 
@@ -1100,6 +1107,46 @@ void DrumPage::importSfzKit()
         layouts.addItem ("The groove library's layout", [import] { import (synth::drums::notemap::Layout::grooveLibrary); });
         layouts.addItem ("The map I'm using now", [import, self] { if (self != nullptr) import (self->processor.getMapLayout()); });
         layouts.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&load));
+    });
+}
+
+void DrumPage::importDrumGizmoKit()
+{
+    chooser = std::make_unique<juce::FileChooser> ("A DrumGizmo kit's file (e.g. CrocellKit_full.xml)", juce::File(), "*.xml");
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectFiles, [this] (const juce::FileChooser& fc)
+    {
+        const auto file = fc.getResult();
+        if (! file.existsAsFile())
+            return;
+        if (! synth::drums::drumgizmo::isKit (file))
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "Not a DrumGizmo kit",
+                                                   "Choose the kit's own file: the .xml beside its instrument folders whose name is "
+                                                   "the kit's (e.g. CrocellKit_full.xml), not a midimap or an instrument's file.");
+            return;
+        }
+        // How much of it to load: LIGHT fits in about a gigabyte; FULL is every hit (several gigabytes).
+        juce::PopupMenu sizes;
+        juce::Component::SafePointer<DrumPage> self (this);
+        const auto import = [self, file] (bool full)
+        {
+            if (self == nullptr)
+                return;
+            const auto result = self->processor.importDrumGizmoKit (file, full);
+            juce::String text;
+            for (const auto& [slot, names] : result.slots)
+                text << synth::drums::slotDefaults[(size_t) slot].key << " " << synth::drums::articulationName (slot) << ": "
+                     << names.joinIntoString (" + ") << "\n";
+            if (! result.unused.isEmpty())
+                text << "\nNot used (no drum of ours for them, or another took its place): " << result.unused.joinIntoString (", ");
+            text << "\n\nIts mics play through THE MIXER's channels. Loading takes a few seconds.";
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::NoIcon, "DrumGizmo kit: " + result.kitName,
+                                                   result.slots.empty() ? "None of its instruments matched a drum." : text);
+        };
+        sizes.addSectionHeader ("HOW MUCH OF IT...");
+        sizes.addItem ("LIGHT: up to 8 layers of 2 hits, tails trimmed (about 1 GB for a big kit)", [import] { import (false); });
+        sizes.addItem ("FULL: every hit, every mic, full length (several GB of memory)", [import] { import (true); });
+        sizes.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&self->load));
     });
 }
 

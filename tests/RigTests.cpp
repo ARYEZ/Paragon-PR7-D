@@ -197,7 +197,10 @@ TEST_CASE ("Every factory preset plays: its drums sound, stay clean, and fade aw
         loudest = 0.0f;
         run (48000 * 2 / 256, false);
         song.playing = false;
-        CHECK ((juce::Decibels::gainToDecibels (loudest) > -24.0f) == beat);
+        // 0.27.0: a preset whose drums are a downloaded kit's (Crocell Metal) has nothing to play until the kit's here.
+        const auto needsKit = std::any_of (rig.drumInstruments.begin(), rig.drumInstruments.end(),
+                                           [] (const auto& ref) { return ref.second.contains ("{kit:"); });
+        CHECK ((juce::Decibels::gainToDecibels (loudest) > -24.0f) == (beat && ! needsKit));
         run (48000 * 8 / 256, false);
     }
     r.processor.setPlayHead (nullptr);
@@ -306,7 +309,7 @@ TEST_CASE ("Rigs are sorted by bank and number, and < > wrap round", "[rigs]")
     CHECK (library.step (&entries.front(), -1) == &entries.back());
     CHECK (library.step (nullptr, 1) == &entries.front());
 
-    CHECK (library.nextFreeNumber (0) == 7);   // the factory presets fill A01 to A06 (0.24.0: A06 Djent Kit)
+    CHECK (library.nextFreeNumber (0) == 8);   // the factory presets fill A01 to A07 (0.27.0: A07 Crocell Metal)
 }
 
 TEST_CASE ("Saving and loading a preset restores the sound but not the global settings", "[rigs]")
@@ -396,10 +399,10 @@ TEST_CASE ("< and > step through the presets in order", "[rigs]")
 {
     RigRig r;
     r.processor.loadRig (r.entryNamed ("Init"));
-    REQUIRE (r.processor.saveCurrentRigAs ("Second"));   // filed after bank A's factory presets, at A07
-    REQUIRE (r.processor.saveCurrentRigAs ("Third"));    // A08
-    CHECK (r.entryNamed ("Second").rig.getSlotName() == "A07");
-    r.processor.loadRig (r.entryNamed ("Djent Kit"));   // A06, the last factory one
+    REQUIRE (r.processor.saveCurrentRigAs ("Second"));   // filed after bank A's factory presets, at A08
+    REQUIRE (r.processor.saveCurrentRigAs ("Third"));    // A09
+    CHECK (r.entryNamed ("Second").rig.getSlotName() == "A08");
+    r.processor.loadRig (r.entryNamed ("Crocell Metal"));   // A07, the last factory one
     r.processor.stepRig (1);
     CHECK (r.processor.getCurrentRig().name == "Second");
     r.processor.stepRig (1);

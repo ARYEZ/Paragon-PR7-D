@@ -79,6 +79,9 @@ PR7-D is built in stages, each one released:
   simulated close mics, overheads, a room pair and a far ambience pair, each in its own channel, the other drums
   bleeding into each close mic; a ROOM (Small Room, Studio, Live Room, Big Hall) with DECAY and TONE; which drums go
   through them. The Djent Kit uses them.
+- **DRUMGIZMO KITS** (0.27.0): LOAD... > A DRUMGIZMO KIT... loads a free multi-mic kit in the open DrumGizmo format
+  (drumgizmo.org; GET FREE KITS... opens its page) onto every drum, its mics through the MIXER with their real bleed,
+  LIGHT (about 1 GB) or FULL. Factory preset A07 Crocell Metal uses the CrocellKit (CC-BY 4.0, credited in ABOUT).
   - **VELOCITY** (0.18.0, beside ENVELOPE on the DRUM view): the chosen drum's velocity curve (drag the end points to
     limit, double-click to bend, SOFT, GATE) and its VELOCITY GATE (the range of hits that play it).
   - **MIDI IN / E-DRUMS** (0.18.0, SETTINGS): click a note to edit it: its drum and LEARN, CC ZONES for pads that sense

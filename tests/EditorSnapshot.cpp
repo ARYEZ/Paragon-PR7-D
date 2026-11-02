@@ -34,6 +34,8 @@
 //                                    PARAGON_SNAPSHOT_MIXERROUTE=1: ROUTE MICS on the snare, =2 the user channels;
 //                                    PARAGON_SNAPSHOT_MICSIM=1: the Djent Kit through SIMULATED MICS, their panel open,
 //                                    =2 its strips after a kick and snare)
+//   PARAGON_SNAPSHOT_DGKIT=<kit file> a DrumGizmo kit (0.27.0) loaded LIGHT from your computer (none ships with the
+//                                    tests): DRUMS shows the snare's layers; with PAGE=mixer its channels after a hit
 //   PARAGON_SNAPSHOT_NOTES=1         the kick, snare and closed hat's keys held on the keyboard (they light)
 //   PARAGON_SNAPSHOT_MIDI=1          demo MIDI links and a knob learning (with PAGE=settings: the links list)
 TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
@@ -404,6 +406,20 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             drums.resized();
             drums.refreshPictures();
         }
+        // 0.27.0: a DrumGizmo kit from this computer (PARAGON_SNAPSHOT_DGKIT): the snare's layers, a hit played.
+        if (const auto dg = env ("PARAGON_SNAPSHOT_DGKIT"); dg.isNotEmpty() && page != "mixer")
+        {
+            processor.importDrumGizmoKit (juce::File (dg), false);
+            processor.waitForInstruments (600000);
+            drums.showView (DrumPage::View::drum);
+            drums.select (2);
+            juce::AudioBuffer<float> buffer (2, 512);
+            juce::MidiBuffer midi;
+            midi.addEvent (juce::MidiMessage::noteOn (1, 38, (juce::uint8) 110), 0);
+            processor.processBlock (buffer, midi);
+            drums.resized();
+            drums.refreshPictures();
+        }
         // 0.18.0: the snare's VELOCITY: a curve with soft hits lifted and a bend, SOFT on, the gate raised.
         if (env ("PARAGON_SNAPSHOT_VELOCITY") == "1")
         {
@@ -666,7 +682,37 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
     // 0.20.0: THE MIXER with a multi-mic SFZ kit of our own (kick, snare, hat; close mics, overheads, room), a hit
     // just played, the snare top chosen, a little less kick in its bleed.
     const auto micSimShot = env ("PARAGON_SNAPSHOT_MICSIM").getIntValue();
-    if (page == "mixer" && micSimShot > 0)
+    if (const auto dg = env ("PARAGON_SNAPSHOT_DGKIT"); page == "mixer" && dg.isNotEmpty())
+    {
+        processor.importDrumGizmoKit (juce::File (dg), false);
+        processor.waitForInstruments (600000);
+        for (const auto& rig : makeFactoryRigs())
+            if (rig.name == "Crocell Metal")
+            {
+                auto m = processor.getModMatrix();
+                m.mixerEffects = rig.modulation.mixerEffects;
+                processor.setModMatrix (m);
+                for (const auto& [id, value] : rig.parameters)
+                    if (id.startsWith ("mix"))
+                        if (auto* parameter = processor.getParameters().getParameter (id))
+                            parameter->setValueNotifyingHost (dynamic_cast<juce::RangedAudioParameter*> (parameter)->convertTo0to1 (value));
+            }
+        view->showPage (MainView::Page::mixer);
+        view->getMixerPage().selectChannel (synth::mixer::snareTop);
+        view->getMixerPage().showTab (MixerPage::Tab::effects);
+        juce::AudioBuffer<float> buffer (2, 512);
+        juce::MidiBuffer midi;
+        for (const auto note : { 36, 38, 48 })
+            midi.addEvent (juce::MidiMessage::noteOn (1, note, (juce::uint8) 115), 0);
+        processor.processBlock (buffer, midi);
+        for (int b = 0; b < 4; ++b)
+        {
+            juce::MidiBuffer none;
+            processor.processBlock (buffer, none);
+        }
+        view->getMixerPage().update();
+    }
+    else if (page == "mixer" && micSimShot > 0)
     {
         // 0.26.0: SIMULATED MICS: the Djent Kit (its modelled drums through them, a Live Room).
         for (const auto& rig : makeFactoryRigs())

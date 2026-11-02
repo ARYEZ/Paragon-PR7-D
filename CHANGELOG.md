@@ -2,6 +2,52 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.27.0
+
+**A real recorded metal kit: DrumGizmo kits, and the CrocellKit.** You said the modelled drums, the snare and cymbals worst, sound fake and thin, and chose samples. PR7-D now loads **DrumGizmo kits**: free, multi-mic drum kits recorded in real studios, in an open format. The one to start with is the **CrocellKit**, the kit of the Danish metal band Crocell, recorded with 15 mics through a studio's setup.
+
+- **Getting the kit:**
+  - DRUMS > LOAD... > **GET FREE KITS...** opens drumgizmo.org's kits page. Download the CrocellKit (5.6 GB) and unzip it anywhere.
+  - Then DRUMS > LOAD... > **A DRUMGIZMO KIT...**: choose `CrocellKit_full.xml`, then LIGHT or FULL.
+  - PR7-D doesn't include the kit. It loads it from your computer, which keeps the plugin small and within the kit's licence.
+- **LIGHT or FULL:**
+  - **LIGHT** (about 1.1 GB of memory, a few seconds to load): up to 8 velocity layers of 2 hits each (cymbals 6 layers). Tails are trimmed to 4.5 s (cymbals 5 s) with a smooth fade. Bleed into other drums' mics is kept for its first second. Mics that hardly hear a hit are left out.
+  - **FULL:** every hit, every mic, full length (about 6 GB for this kit).
+  - Disk streaming comes next, so the full kit can play without filling memory.
+- **What goes where** (our rules, from the kit's names and its General MIDI note map):
+  - **Kick:** both feet of its double kick, alternating, so double-kick runs don't machine-gun.
+  - **Snare:** center, rimshot (SD2) and sidestick (RIM).
+  - **Hi-hat:** closed, loose ("closed, no pedal": OPEN 1), half open, open and pedal.
+  - **Ride:** bow and bell.
+  - **Cymbals:** two crashes, china and splash.
+  - **Toms:** three of its four toms.
+  - Articulations it has no hits for are switched off, so their nearest sibling plays.
+  - Left out: its stopped crashes, the hat's pedal splash, the snare's hand-rest hits, its second china and splash, and the fourth tom.
+- **Its 15 mics go into THE MIXER's channels**, with the real bleed between them:
+  - the kick in and out;
+  - the snare top and bottom;
+  - the hi-hat and ride mics (the ride into CYMBALS);
+  - the toms;
+  - the overheads as a stereo pair, with the centre overhead in both sides;
+  - the ambience pair as ROOM.
+- **Level:** kits are recorded with headroom (the CrocellKit's loudest hits peak at -12 to -16 dBFS), so each drum is brought up as it loads until its hardest hit peaks at -8 dBFS. Every mic of a drum gets the same gain, so its bleed and close mics keep their recorded balance.
+- **A07 Crocell Metal**, a new factory preset: the CrocellKit with a metal mix of our own on THE MIXER, and the Djent Kit's four grooves.
+  - **The mix:** the kick's click up and its boxiness cut, a compressed kick; the snare bright and compressed; gates on the toms (less bleed ring); the overheads high-passed; the room squashed underneath; a master compressor and LIMITER.
+  - Load the kit once with LOAD... > A DRUMGIZMO KIT... and the preset finds it after that. PR7-D remembers where each kit is, in `Sample Kits.xml` in the presets folder.
+- **Credit:** the CrocellKit is CC-BY 4.0 (kit by Crocell, mics by JBOSound, sampled by Lars Muldjord). It's credited in SETTINGS > ABOUT and in the preset's notes; credit them when you release music made with it.
+- **Honest limits:**
+  - These are real recordings, but I can't hear the result. The levels are measured and I rendered demos for you; the metal mix is my starting point, so tune it by ear.
+  - It's one kit's sound, a 2017 studio metal kit, not a djent kit tuned for you.
+- **Tests (a tiny DrumGizmo kit of test tones, made in the test):**
+  - each mic channel to its mixer channel and side;
+  - which instruments go to which drums;
+  - layers by power, velocities rising;
+  - a stereo pair and a centre mic;
+  - LIGHT's trimming (bleed cut to 1 s, silent mics left out);
+  - the level;
+  - the whole kit through the processor and mixer;
+  - a preset finding a kit by name, and saying so when it's missing.
+
 ## 0.26.0
 
 **Simulated mics and a room for the synth drums.** The modelled kit (and any synth drum or single sample) can now be heard the way a recorded kit is: through close mics, a pair of overheads, a room pair and a far ambience pair, each in its own MIXER channel, with the other drums bleeding into each close mic and a modelled room around it all. Every mixer tool now works on synth drums too: faders, bleed, sends, effects, buses and ROUTE MICS.

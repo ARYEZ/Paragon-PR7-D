@@ -1,4 +1,5 @@
 #include "PluginProcessor.h"
+#include "dsp/synth/DrumGizmo.h"
 #include "dsp/synth/Instrument.h"
 
 #include <map>
@@ -1069,9 +1070,31 @@ void ParagonX1AudioProcessor::startLoading (std::vector<std::pair<int, juce::Str
             const auto parts = juce::StringArray::fromTokens (ref, "|", {});
             if (parts.size() < 3)
                 continue;
-            const juce::File source (ref.fromFirstOccurrenceOf ("|", false, false).fromFirstOccurrenceOf ("|", false, false));
+            // 0.27.0: a kit's place may be "{kit:<name>}/..." (a factory preset's), where this computer keeps that kit.
+            auto path = ref.fromFirstOccurrenceOf ("|", false, false).fromFirstOccurrenceOf ("|", false, false);
+            if (path.startsWith ("{kit:"))
+            {
+                const auto kitName = path.fromFirstOccurrenceOf ("{kit:", false, false).upToFirstOccurrenceOf ("}", false, false);
+                const auto known = knownKitFolder (kitName);
+                if (known == juce::File())
+                {
+                    problems.add ("the " + kitName + " kit isn't on this computer yet: DRUMS > LOAD... > GET FREE KITS..., then LOAD... > A DRUMGIZMO KIT...");
+                    done.emplace_back (slot, nullptr);
+                    continue;
+                }
+                path = known.getChildFile (path.fromFirstOccurrenceOf ("}/", false, false)).getFullPathName();
+            }
+            const juce::File source (path);
             std::shared_ptr<const synth::drums::Instrument> instrument;
-            if (parts[0] == "folder")
+            if (parts[0] == "dg")
+            {
+                // A DrumGizmo kit's instrument(s): "dg|<names, by commas>;<light | full>|<kit file>".
+                const auto names = juce::StringArray::fromTokens (parts[1].upToFirstOccurrenceOf (";", false, false), ",", {});
+                const auto full = parts[1].fromFirstOccurrenceOf (";", false, false) == "full";
+                instrument = synth::drums::drumgizmo::load (source, names, full ? synth::drums::drumgizmo::Trim::everything()
+                                                                                  : synth::drums::drumgizmo::Trim::light(), problems);
+            }
+            else if (parts[0] == "folder")
                 instrument = synth::drums::instruments::fromFolder (source);
             else
             {
@@ -1198,6 +1221,81 @@ ParagonX1AudioProcessor::KitImport ParagonX1AudioProcessor::importSfzKit (const 
     markModified();
     requestCheckpoint();
     return result;
+}
+
+ParagonX1AudioProcessor::DrumGizmoImport ParagonX1AudioProcessor::importDrumGizmoKit (const juce::File& kitFile, bool full)
+{
+    // 0.27.0: a whole DrumGizmo kit onto the slots (our rules: drumgizmo::assign), its mics into the mixer's channels.
+    DrumGizmoImport result;
+    const auto info = synth::drums::drumgizmo::read (kitFile);
+    if (! info.valid())
+        return result;
+    result.kitName = info.name;
+    const auto assigned = synth::drums::drumgizmo::assign (info);
+    result.unused = assigned.unused;
+    std::vector<std::pair<int, juce::String>> refs;
+    for (const auto& [slot, names] : assigned.slots)
+    {
+        result.slots.emplace_back (slot, names);
+        setDrumSample (slot, nullptr);
+        makeSlotPlaySample (slot);
+        setParameterNow (ParamIDs::drum (slot, "On"), 1.0f);
+        refs.emplace_back (slot, "dg|" + names.joinIntoString (",") + (full ? ";full" : ";light") + "|" + kitFile.getFullPathName());
+    }
+    // The hi-hat's and ride's articulations the kit has no hits for: off, so they play the nearest it has (their
+    // stand-ins), not a synth drum among recorded ones.
+    for (const auto slot : { synth::drums::notemap::HO1, synth::drums::notemap::HO3, synth::drums::notemap::RE, synth::drums::notemap::HH })
+        if (assigned.slots.count (slot) == 0)
+            setParameterNow (ParamIDs::drum (slot, "On"), 0.0f);
+    rememberKit (info.name, kitFile.getParentDirectory());
+    startLoading (refs);
+    markModified();
+    requestCheckpoint();
+    return result;
+}
+
+void ParagonX1AudioProcessor::loadInstrumentRef (int slot, const juce::String& ref)
+{
+    slot = juce::jlimit (0, ParamIDs::numDrums - 1, slot);
+    setDrumSample (slot, nullptr);
+    makeSlotPlaySample (slot);
+    startLoading ({ { slot, ref } });
+    markModified();
+    requestCheckpoint();
+}
+
+juce::File ParagonX1AudioProcessor::knownKitsFile() const { return rigLibrary->getFolder().getChildFile ("Sample Kits.xml"); }
+
+void ParagonX1AudioProcessor::rememberKit (const juce::String& name, const juce::File& folder)
+{
+    // "Sample Kits.xml" in the presets folder: where each kit was last loaded from on this computer.
+    const std::scoped_lock lock (kitsLock);
+    auto xml = juce::XmlDocument::parse (knownKitsFile());
+    if (xml == nullptr || ! xml->hasTagName ("SampleKits"))
+        xml = std::make_unique<juce::XmlElement> ("SampleKits");
+    for (auto* k : xml->getChildWithTagNameIterator ("Kit"))
+        if (k->getStringAttribute ("name") == name)
+        {
+            k->setAttribute ("folder", folder.getFullPathName());
+            xml->writeTo (knownKitsFile());
+            return;
+        }
+    auto* k = xml->createNewChildElement ("Kit");
+    k->setAttribute ("name", name);
+    k->setAttribute ("folder", folder.getFullPathName());
+    knownKitsFile().getParentDirectory().createDirectory();
+    xml->writeTo (knownKitsFile());
+}
+
+juce::File ParagonX1AudioProcessor::knownKitFolder (const juce::String& name) const
+{
+    const std::scoped_lock lock (kitsLock);
+    if (const auto xml = juce::XmlDocument::parse (knownKitsFile()))
+        for (const auto* k : xml->getChildWithTagNameIterator ("Kit"))
+            if (k->getStringAttribute ("name") == name)
+                if (const juce::File folder (k->getStringAttribute ("folder")); folder.isDirectory())
+                    return folder;
+    return {};
 }
 
 std::shared_ptr<const synth::drums::Sample> ParagonX1AudioProcessor::getDrumSample (int slot) const
