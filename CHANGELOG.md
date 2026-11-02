@@ -2,6 +2,50 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.26.0
+
+**Simulated mics and a room for the synth drums.** The modelled kit (and any synth drum or single sample) can now be heard the way a recorded kit is: through close mics, a pair of overheads, a room pair and a far ambience pair, each in its own MIXER channel, with the other drums bleeding into each close mic and a modelled room around it all. Every mixer tool now works on synth drums too: faders, bleed, sends, effects, buses and ROUTE MICS.
+
+- **SIM MICS...** (on the MIXER page, beside ROUTE MICS) opens the panel:
+  - **SIMULATED MICS:** on or off. It's off unless you switch it on, so your presets and projects sound as they did.
+  - **ROOM:** Small Room, Studio, Live Room or Big Hall.
+  - **DECAY:** the room's ring, from 0.3 to 3 times its own.
+  - **TONE:** the room dark or bright.
+  - **DRUMS THROUGH THE MICS:** a button per drum. Switch one off (an 808 clap, say) and it plays its own way again, with its OUTPUT, INSERT and sends.
+- **How it works** (our own design, nothing measured from a real room or mic):
+  - Every piece and mic has a place around a right-handed kit, in metres from the drummer's seat. Sound reaches each mic late by its distance (343 m/s) and quieter by it.
+  - The overheads hear the hi-hat on the left first. The room is about 3 m away, the ambience about 5.5 m. TIME OFFSET in the mixer still shifts a channel.
+  - **Bleed:** a close mic hears the drums it isn't pointed at quieter and duller (the snare in the hi-hat mic is about 10-20 dB down). The channel's BLEED and the BLEED FROM INSTRUMENTS table set it, as for a sampled kit.
+  - **Each mic has its own colour**, our choices:
+    - kick in: the beater's click, less box;
+    - kick out: the boom;
+    - snare bottom: the wires;
+    - hi-hat and cymbal mics: low end cut;
+    - overheads: airy;
+    - room: warm;
+    - ambience: dark.
+  - **The room:** early reflections, then a reverb tail. The room mics hear both; the ambience hears the tail later and louder.
+- **Level:** a hit through every mic, with every fader at 0 dB, is about as loud as it was without them.
+- **The Djent Kit (A06)** now plays through the simulated mics in a Live Room, with the room 6 dB and the ambience 12 dB down (close and tight, as djent usually is). Move the ROOM and AMBIENCE faders for more room.
+- **Fixed:** a USER channel's level meter (0.23.0) wrote past the end of the meters' table. It now shows its own level.
+- **CPU:** the Djent Kit's beat through every mic and the room takes about 8% of one core here.
+- **Honest limits:**
+  - I can't listen to it. The timings and levels are measured, but whether it sounds like a real room is up to your ears.
+  - The room's sound stays in the ROOM and AMBIENCE channels even if ROUTE MICS moves a drum's room mic elsewhere (that only moves its direct sound).
+  - The snare bottom mic comes in phase with the top, as if already flipped.
+- **Tests:**
+  - off by default (nothing changes);
+  - each mic hearing the drum on time to the sample;
+  - the overheads' left before right;
+  - bleed quieter and duller, set by BLEED and BLEED FROM INSTRUMENTS;
+  - the room's tail longer for a bigger room and more DECAY, brighter with TONE;
+  - the level kept;
+  - a drum left out;
+  - routing to none and to a USER channel (its meter);
+  - kits and presets keeping it;
+  - the panel;
+  - the CPU.
+
 ## 0.25.0
 
 **Modelled cymbals: crash, ride, china, splash, stack, hi-hat and hat pedal, all built from scratch** (the second part of building drums from the physics). The Djent Kit now has them too. **This release includes 0.24.0** (the modelled kick, snare and toms, below). 0.24.0's own build was stopped by a known crash in the Linux test host after every test had passed, so it was never published on its own.

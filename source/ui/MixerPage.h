@@ -2,6 +2,7 @@
 
 #include "PluginProcessor.h"
 #include "dsp/synth/Mixer.h"
+#include "dsp/synth/MicSim.h"
 
 // THE MIXER page (PR7-D 0.20.0, buses and sends 0.21.0): a multi-mic kit's mic channels and the mixer's buses, as a
 // sampled drum kit's mixer has them (inspired by the reference's mixer chapter; our own look and words). A strip per
@@ -59,6 +60,12 @@ public:
     int getRouterPiece() const;
     juce::Array<int> getRouterMics() const;
     void routingChanged();
+    // SIMULATED MICS AND ROOM (0.26.0): the panel over the strips; whether a drum (all its articulations) goes
+    // through them.
+    void openMicSim (bool open);
+    bool isMicSimOpen() const;
+    bool isPieceMiked (int piece) const;
+    void setPieceMiked (int piece, bool miked);
     void runMenuItem (int item);                     // MENU...'s (tests)
     enum MenuItem { preSend = 1, postSend, stereoReverse, stereoOutputs, multichannelOutputs };
     juce::String getNote() const { return note; }
@@ -81,6 +88,9 @@ private:
     class EffectEditor;
     class MicRouter;
     std::unique_ptr<MicRouter> router;
+    class MicSimPanel;
+    std::unique_ptr<MicSimPanel> micSimPanel;
+    juce::TextButton micSimButton { "SIM MICS..." };
     juce::Array<int> shownUsers;
     std::vector<juce::String> shownUserNames;
     juce::TextButton routeButton { "ROUTE MICS..." };

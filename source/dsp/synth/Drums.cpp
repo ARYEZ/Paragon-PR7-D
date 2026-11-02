@@ -1308,6 +1308,17 @@ namespace synth::drums
         channelScratch.assign ((size_t) (4 * mixer::numMicChannels * blockSize), 0.0f);
         busScratch.assign ((size_t) (2 * mixer::numBuses * blockSize), 0.0f);
         voiceScratch.assign ((size_t) (2 * blockSize), 0.0f);
+        // SIMULATED MICS (0.26.0).
+        static_assert (micsim::Simulator::numSlots == numSlots && micsim::numPieces == numPieces);
+        micSim.prepare (sampleRate, blockSize);
+        simScratch.assign ((size_t) (8 * blockSize), 0.0f);   // a mic's 4 lines, the room's 4
+        for (int p = 0; p < numPieces; ++p)
+            for (int c = 0; c < mixer::numChannels; ++c)
+                for (int side = 0; side < 2; ++side)
+                {
+                    const auto slot = pieces[(size_t) p].articulations[0].slot;
+                    simTaps[(size_t) p][(size_t) c][(size_t) side] = micsim::tapFor (p, c, side == 1, isDirect (slot, c) && ! mixer::hearsWholeKit (c), sampleRate);
+                }
         reset();
     }
 
@@ -1318,6 +1329,7 @@ namespace synth::drums
         slotGain.fill (1.0f);
         lastHit.fill (-1.0);
         stripTail = {};
+        micSim.reset();
         lowState = {};
         highState = {};
     }
@@ -1807,6 +1819,24 @@ namespace synth::drums
             auto* right = left + blockSize;
             filterSlot (s, left, right, numSamples, lowState[(size_t) slot], highState[(size_t) slot], sampleRate);
 
+            // SIMULATED MICS (0.26.0): the drum's sound (mono, at its level) into the mics; the mixer takes it on.
+            if (settings.micSim.on && s.miked)
+            {
+                const auto gain = settings.gain * s.gain * s.trim * 0.5f;
+                auto* in = micSim.input (slot);
+                auto& current = slotGain[(size_t) slot];
+                for (int i = 0; i < numSamples; ++i)
+                {
+                    if (current < target)
+                        current = juce::jmin (target, current + glide);
+                    else if (current > target)
+                        current = juce::jmax (target, current - glide);
+                    in[i] = (left[i] + right[i]) * gain * current;
+                }
+                micSim.fed (slot, numSamples);
+                continue;
+            }
+
             // Into the slot's bus, or its output (the mix, or another the DAW has on), and (while each effect is on)
             // the sends.
             const auto gain = settings.gain * s.gain * s.trim;
@@ -1847,6 +1877,122 @@ namespace synth::drums
         }
     }
 
+    void Kit::simulateMics (const KitSettings& settings, int numSamples, std::array<bool, mixer::numMicChannels>& used) noexcept
+    {
+        // SIMULATED MICS (0.26.0): each sounding drum's line tapped into each mic it's heard in, at the delay and level
+        // its distance gives, as direct sound (its own close mics, the overheads, room and ambience) or bleed; each
+        // mic's sound coloured as that mic is, into the channel it's routed to (ROUTE INSTRUMENT MICROPHONES), at the
+        // BLEED FROM INSTRUMENTS cell and that channel's BLEED and TIME OFFSET, as a multi-mic sampled drum would be.
+        micSim.begin (numSamples);
+        const auto bs = (size_t) blockSize;
+        std::array<int, numSlots> pieceOf {};
+        auto any = false;
+        for (int slot = 0; slot < numSlots; ++slot)
+        {
+            pieceOf[(size_t) slot] = micSim.sounding (slot) ? pieceOfSlot (slot) : -1;
+            any = any || pieceOf[(size_t) slot] >= 0;
+        }
+        // The room hears every drum along the room mics' paths; its sound goes to the room and ambience channels.
+        constexpr float roomSend = 0.5f;
+        if (any)
+            for (int slot = 0; slot < numSlots; ++slot)
+                if (const auto p = pieceOf[(size_t) slot]; p >= 0)
+                    for (int side = 0; side < 2; ++side)
+                    {
+                        const auto& t = simTaps[(size_t) p][mixer::room][(size_t) side];
+                        micSim.tap (slot, t.delay, t.gain * roomSend, micSim.roomInput (side == 1), numSamples);
+                    }
+        auto* roomOut = simScratch.data() + 4 * bs;
+        std::fill (roomOut, roomOut + 4 * bs, 0.0f);
+        micSim.runRoom (settings.micSim, numSamples, roomOut, roomOut + bs, roomOut + 2 * bs, roomOut + 3 * bs);
+        const auto reverb = micSim.roomRinging();
+
+        // The level all of it is played at: a hit through every mic with every fader at 0 dB about as loud as it was
+        // without them (our choice, measured on the modelled snare: see the tests).
+        constexpr float simLevel = 0.8f;
+        for (int source = 0; source < mixer::numChannels; ++source)
+        {
+            const auto roomPart = reverb && (source == mixer::room || source == mixer::ambience);
+            // The channels this mic's sound goes to (one, unless routes split it by drum).
+            std::array<int, 4> destinations {};
+            int numDestinations = 0;
+            const auto addDestination = [&] (int d)
+            {
+                for (int k = 0; k < numDestinations; ++k)
+                    if (destinations[(size_t) k] == d)
+                        return;
+                if (numDestinations < (int) destinations.size())
+                    destinations[(size_t) numDestinations++] = d;
+            };
+            for (int slot = 0; slot < numSlots; ++slot)
+                if (const auto p = pieceOf[(size_t) slot]; p >= 0 && micsim::hears (p, source))
+                    if (const auto d = mixer::routedChannel (settings.micRoutes, p, source); d >= 0)
+                        addDestination (d);
+            if (roomPart)
+                addDestination (source);   // the room's sound stays in its own channel
+            const auto stereo = micsim::micFor (source).stereo;
+            for (int k = 0; k < numDestinations; ++k)
+            {
+                const auto destination = destinations[(size_t) k];
+                const auto& ch = settings.channels[(size_t) destination];
+                const auto offset = (int) std::lround (ch.offsetSeconds * sampleRate);
+                auto* lines = simScratch.data();
+                std::fill (lines, lines + 4 * bs, 0.0f);
+                auto hasDirect = false, hasBleed = false;
+                for (int slot = 0; slot < numSlots; ++slot)
+                {
+                    const auto p = pieceOf[(size_t) slot];
+                    if (p < 0 || ! micsim::hears (p, source) || mixer::routedChannel (settings.micRoutes, p, source) != destination)
+                        continue;
+                    const auto direct = isDirect (slot, source);
+                    auto gain = settings.bleed != nullptr ? (*settings.bleed)[(size_t) source][(size_t) p].gain() : 1.0f;
+                    if (! direct)
+                        gain *= ch.bleedOn ? ch.bleedGain : 0.0f;
+                    if (std::abs (gain) < 1.0e-9f)
+                        continue;
+                    gain *= simLevel;
+                    auto* line = lines + (direct ? 0 : 2 * bs);
+                    const auto& tl = simTaps[(size_t) p][(size_t) source][0];
+                    micSim.tap (slot, tl.delay + offset, gain * tl.gain, line, numSamples);
+                    if (stereo)
+                    {
+                        const auto& tr = simTaps[(size_t) p][(size_t) source][1];
+                        micSim.tap (slot, tr.delay + offset, gain * tr.gain, line + bs, numSamples);
+                    }
+                    (direct ? hasDirect : hasBleed) = true;
+                }
+                if (roomPart && destination == source)
+                {
+                    const auto* from = roomOut + (source == mixer::ambience ? 2 * bs : 0);
+                    for (size_t i = 0; i < (size_t) numSamples; ++i)
+                    {
+                        lines[i] += from[i] * simLevel;
+                        lines[bs + i] += from[bs + i] * simLevel;
+                    }
+                    hasDirect = true;
+                }
+                if (! hasDirect && ! hasBleed)
+                    continue;
+                // The mic's colour (a mono mic: one side, copied), then into the channel.
+                auto* into = channelScratch.data() + 4 * (size_t) destination * bs;
+                for (int which = 0; which < 4; ++which)
+                {
+                    if ((which < 2 && ! hasDirect) || (which >= 2 && ! hasBleed))
+                        continue;
+                    auto* line = lines + (size_t) which * bs;
+                    if ((which & 1) == 1 && ! stereo)
+                        std::copy (line - bs, line - bs + numSamples, line);
+                    else
+                        micSim.colour (source, destination, line, which, numSamples);
+                    auto* to = into + (size_t) which * bs;
+                    for (size_t i = 0; i < (size_t) numSamples; ++i)
+                        to[i] += line[i];
+                }
+                used[(size_t) destination] = true;
+            }
+        }
+    }
+
     void Kit::renderChannels (const Outputs& outputs, int offset, int numSamples, const KitSettings& settings) noexcept
     {
         // THE MIXER (0.20.0): each mic voice into its channel at its drum's VOLUME, GAIN, MUTE / SOLO and its bleed /
@@ -1857,7 +2003,8 @@ namespace synth::drums
             anyVoice = anyVoice || (v.active && v.channel >= 0);
         for (const auto t : stripTail)
             anyTail = anyTail || t > 0;
-        if (! anyVoice && ! anyTail)
+        const auto simBusy = micSim.busy();
+        if (! anyVoice && ! anyTail && ! simBusy)
             return;
         auto* const host = settings.effects;
         const auto hasEffects = [host] (int strip) { return host != nullptr && host->hasEffects (strip); };
@@ -1892,6 +2039,12 @@ namespace synth::drums
                 cr[i] += vr[i] * g;
             }
             used[(size_t) v.channel] = true;
+        }
+        if (simBusy)
+        {
+            if (settings.micSim.on)
+                simulateMics (settings, numSamples, used);
+            micSim.advance (numSamples);
         }
         for (int c = 0; c < mixer::numMicChannels; ++c)
         {
@@ -2033,7 +2186,7 @@ namespace synth::drums
             const auto g = ! ch.mute && ! soloedOut ? ch.gain * polarity : 0.0f;
             const auto to = destination (c, ch.route, ch.output);
             const auto peak = fx ? addIn (dl, dr, to, g, ch.pan) : juce::jmax (addIn (dl, dr, to, g, ch.pan), addIn (bl, br, to, g, ch.pan));
-            auto& meter = channelPeaks[(size_t) c];
+            auto& meter = channelPeaks[(size_t) channel];   // by channel (0.26.0: was by strip, past the end for USER 1-8)
             if (peak > meter.load())
                 meter = peak;
             if (sends != nullptr)

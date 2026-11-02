@@ -1555,6 +1555,7 @@ synth::drums::KitSettings ParagonX1AudioProcessor::getKitSettings() const noexce
         s.position = get (drumSetting ("Position"));
         s.shell = get (drumSetting ("Shell"));
         s.variation = get (drumSetting ("Variation"));
+        s.miked = get (drumSetting ("Mics")) > 0.5f;
         s.velMin = get (drumSetting ("VelMin")) / 127.0f - 1.0e-4f;
         s.velMax = get (drumSetting ("VelMax")) / 127.0f + 1.0e-4f;
         s.envelopeSeconds = hitLengths[k].load();
@@ -1610,6 +1611,11 @@ synth::drums::KitSettings ParagonX1AudioProcessor::getKitSettings() const noexce
         kit.micRoutes = &compiled->micRoutes;
     }
     kit.effects = &mixerEffects;
+    // SIMULATED MICS AND ROOM (0.26.0).
+    kit.micSim.on = param (ParamIDs::drumsMicSim) > 0.5f;
+    kit.micSim.room = juce::jlimit (0, synth::micsim::roomNames.size() - 1, juce::roundToInt (param (ParamIDs::drumsRoom)));
+    kit.micSim.decay = param (ParamIDs::drumsRoomDecay);
+    kit.micSim.tone = param (ParamIDs::drumsRoomTone);
     // MIDI IN (0.18.0).
     kit.channel = juce::jlimit (0, 16, juce::roundToInt (param (ParamIDs::drumsMidiChannel)));
     if (const auto* in = midiInForAudio.load())
@@ -1707,6 +1713,7 @@ namespace
         // The kit's LEVEL and VELOCITY, and every slot's "drum<n>..." setting (not DRUMS ON or ROOT: how it's played).
         // Not each drum's OUTPUT (0.3.0): that's the DAW project's mixer, as for presets.
         return id == ParamIDs::drumsLevel || id == ParamIDs::drumsVelocity
+            || id == ParamIDs::drumsMicSim || id == ParamIDs::drumsRoom || id == ParamIDs::drumsRoomDecay || id == ParamIDs::drumsRoomTone
             || (id.startsWith ("drum") && juce::CharacterFunctions::isDigit (id[4]) && ! ParamIDs::isOutputChoice (id));
     }
     const juce::StringArray sequenceParameters { ParamIDs::dseqDivision, ParamIDs::dseqTiming, ParamIDs::dseqLength, ParamIDs::dseqVelocity };

@@ -6,6 +6,7 @@
 #include "dsp/effects/Drive.h"
 #include "dsp/effects/LoFi.h"
 #include "dsp/effects/Reverb.h"
+#include "rigs/FactoryRigs.h"
 #include "ui/ParagonLookAndFeel.h"
 
 // Hidden test (the "[.]" tag): renders the editor to a PNG for reviewing the
@@ -30,7 +31,9 @@
 //   PARAGON_SNAPSHOT_PAGE=mixer      THE MIXER (0.20.0) with a multi-mic kit, a hit just played
 //                                    (PARAGON_SNAPSHOT_MIXERBUS=1: buses and sends, the snare top's SENDS; =2 the buses;
 //                                    PARAGON_SNAPSHOT_MIXERFX=1: effects on the snare top, its EFFECTS tab;
-//                                    PARAGON_SNAPSHOT_MIXERROUTE=1: ROUTE MICS on the snare, =2 the user channels)
+//                                    PARAGON_SNAPSHOT_MIXERROUTE=1: ROUTE MICS on the snare, =2 the user channels;
+//                                    PARAGON_SNAPSHOT_MICSIM=1: the Djent Kit through SIMULATED MICS, their panel open,
+//                                    =2 its strips after a kick and snare)
 //   PARAGON_SNAPSHOT_NOTES=1         the kick, snare and closed hat's keys held on the keyboard (they light)
 //   PARAGON_SNAPSHOT_MIDI=1          demo MIDI links and a knob learning (with PAGE=settings: the links list)
 TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
@@ -662,7 +665,35 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
     }
     // 0.20.0: THE MIXER with a multi-mic SFZ kit of our own (kick, snare, hat; close mics, overheads, room), a hit
     // just played, the snare top chosen, a little less kick in its bleed.
-    if (page == "mixer")
+    const auto micSimShot = env ("PARAGON_SNAPSHOT_MICSIM").getIntValue();
+    if (page == "mixer" && micSimShot > 0)
+    {
+        // 0.26.0: SIMULATED MICS: the Djent Kit (its modelled drums through them, a Live Room).
+        for (const auto& rig : makeFactoryRigs())
+            if (rig.name == "Djent Kit")
+                for (const auto& [id, value] : rig.parameters)
+                    if (auto* parameter = processor.getParameters().getParameter (id))
+                        parameter->setValueNotifyingHost (dynamic_cast<juce::RangedAudioParameter*> (parameter)->convertTo0to1 (value));
+        view->showPage (MainView::Page::mixer);
+        auto& mixerPage = view->getMixerPage();
+        mixerPage.selectChannel (synth::mixer::snareTop);
+        mixerPage.routingChanged();
+        if (micSimShot == 1)
+            mixerPage.openMicSim (true);
+        juce::AudioBuffer<float> buffer (2, 512);
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (1, 38, (juce::uint8) 120), 0);
+        midi.addEvent (juce::MidiMessage::noteOn (1, 36, (juce::uint8) 120), 0);
+        midi.addEvent (juce::MidiMessage::noteOn (1, 47, (juce::uint8) 100), 0);
+        processor.processBlock (buffer, midi);
+        for (int b = 0; b < 6; ++b)
+        {
+            juce::MidiBuffer none;
+            processor.processBlock (buffer, none);
+        }
+        mixerPage.update();
+    }
+    else if (page == "mixer")
     {
         const auto kitFolder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ParagonX1SnapshotMultiMic");
         kitFolder.deleteRecursively();

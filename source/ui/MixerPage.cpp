@@ -765,7 +765,7 @@ public:
     }
 
     // The pieces with multi-mic sounds, and each one's mics (the channels their names sorted them into).
-    static std::map<int, juce::Array<int>> micsByPiece (const ParagonX1AudioProcessor& processor)
+    static std::map<int, juce::Array<int>> micsByPiece (ParagonX1AudioProcessor& processor)
     {
         std::map<int, juce::Array<int>> found;
         for (int k = 0; k < drums::numSlots; ++k)
@@ -773,6 +773,13 @@ public:
                 if (const auto piece = drums::pieceOfSlot (k); piece >= 0)
                     for (const auto c : instrument->micChannels())
                         found[piece].addIfNotAlreadyThere (c >= 0 ? c : drums::homeChannel (k));
+        // 0.26.0: the drums heard through SIMULATED MICS, and their mics.
+        if (auto* on = processor.getParameters().getRawParameterValue (ParamIDs::drumsMicSim); on != nullptr && on->load() > 0.5f)
+            for (int pc = 0; pc < drums::numPieces; ++pc)
+                if (auto* miked = processor.getParameters().getRawParameterValue (ParamIDs::drum (drums::pieces[(size_t) pc].articulations[0].slot, "Mics"));
+                    miked != nullptr && miked->load() > 0.5f)
+                    for (const auto c : synth::micsim::channelsFor (pc))
+                        found[pc].addIfNotAlreadyThere (c);
         for (auto& [piece, mics] : found)
         {
             // Close mics first (as the reference lists them), then the rest, each in channel order.
@@ -888,7 +895,7 @@ public:
         {
             g.setFont (juce::FontOptions (11.0f));
             g.setColour (ParagonColours::textDim);
-            g.drawText ("No multi-mic drums loaded (DRUMS > LOAD...).", a.withHeight (30), juce::Justification::centredLeft, false);
+            g.drawText ("No multi-mic drums loaded (DRUMS > LOAD...), and SIMULATED MICS off.", a.withHeight (30), juce::Justification::centredLeft, false);
             return;
         }
         a.removeFromLeft (230);
@@ -950,6 +957,111 @@ private:
 };
 
 //==============================================================================
+// SIMULATED MICS AND ROOM (0.26.0): the switch, the room, and which drums go through the mics.
+class MixerPage::MicSimPanel final : public juce::Component
+{
+public:
+    explicit MicSimPanel (MixerPage& p) : page (p)
+    {
+        auto& apvts = page.processor.getParameters();
+        DrumSeqPanel::style (close);
+        close.setButtonText ("CLOSE");
+        close.onClick = [this] { page.openMicSim (false); };
+        addAndMakeVisible (close);
+        styleToggle (onButton, "SIMULATED MICS: the kit's synth drums and single samples heard through close mics, overheads, a room "
+                               "pair and a far ambience pair, each in its own mixer channel (our own model of a miked kit).");
+        onButton.setButtonText ("SIMULATED MICS");
+        addAndMakeVisible (onButton);
+        onAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment> (apvts, ParamIDs::drumsMicSim, onButton);
+        room.addItemList (synth::micsim::roomNames, 1);
+        room.setTooltip ("ROOM: the space the room and ambience mics hear (our own rooms: their size, how long and how bright they ring).");
+        addAndMakeVisible (room);
+        roomAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment> (apvts, ParamIDs::drumsRoom, room);
+        for (auto* k : { &decay, &tone })
+        {
+            k->setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            k->setTextBoxStyle (juce::Slider::TextBoxBelow, false, 70, 16);
+            addAndMakeVisible (*k);
+        }
+        decay.setTooltip ("DECAY: the room's ring, shorter or longer than its own.");
+        tone.setTooltip ("TONE: the room dark (left) or bright (right).");
+        decayAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (apvts, ParamIDs::drumsRoomDecay, decay);
+        toneAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (apvts, ParamIDs::drumsRoomTone, tone);
+        for (int pc = 0; pc < drums::numPieces; ++pc)
+        {
+            auto b = std::make_unique<juce::TextButton> (juce::String (drums::pieces[(size_t) pc].name));
+            styleToggle (*b, "Whether this drum is heard through the simulated mics (off: it plays its own way, its OUTPUT, INSERT and sends).");
+            b->onClick = [this, pc, button = b.get()] { page.setPieceMiked (pc, button->getToggleState()); };
+            addAndMakeVisible (*b);
+            pieceButtons.push_back (std::move (b));
+        }
+        refresh();
+    }
+
+    void refresh()
+    {
+        for (int pc = 0; pc < drums::numPieces; ++pc)
+            pieceButtons[(size_t) pc]->setToggleState (page.isPieceMiked (pc), juce::dontSendNotification);
+    }
+
+    void resized() override
+    {
+        auto a = getLocalBounds().reduced (18, 0);
+        auto header = a.removeFromTop (44);
+        close.setBounds (header.removeFromRight (80).withSizeKeepingCentre (80, 26));
+        a.removeFromTop (8);
+        auto controls = a.removeFromTop (92);
+        onButton.setBounds (controls.removeFromLeft (150).withSizeKeepingCentre (150, 28));
+        controls.removeFromLeft (24);
+        room.setBounds (controls.removeFromLeft (150).withSizeKeepingCentre (150, 26).translated (0, 8));
+        controls.removeFromLeft (20);
+        decay.setBounds (controls.removeFromLeft (80).withTrimmedTop (14));
+        controls.removeFromLeft (8);
+        tone.setBounds (controls.removeFromLeft (80).withTrimmedTop (14));
+        a.removeFromTop (36);   // DRUMS THROUGH THE MICS
+        const auto columns = juce::jmax (1, a.getWidth() / 140);
+        for (size_t i = 0; i < pieceButtons.size(); ++i)
+            pieceButtons[i]->setBounds (a.getX() + (int) (i % (size_t) columns) * 140, a.getY() + (int) (i / (size_t) columns) * 32, 132, 26);
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        DockStyle::drawPanel (g, getLocalBounds().toFloat());
+        auto a = getLocalBounds().reduced (18, 0);
+        auto header = a.removeFromTop (44);
+        g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
+        g.setGradientFill (ParagonLookAndFeel::menuHighlight (header.toFloat().withWidth (260.0f)));
+        g.drawText ("SIMULATED MICS AND ROOM", header, juce::Justification::centredLeft, false);
+        g.setFont (juce::FontOptions (11.0f));
+        g.setColour (ParagonColours::textDim);
+        g.drawFittedText ("The synth drums heard as a recorded kit: close mics, overheads, room and ambience, each its own channel "
+                          "below, the other drums bleeding into each close mic. Our own model, not a real room's.",
+                          header.withTrimmedLeft (270).withTrimmedRight (100), juce::Justification::centredLeft, 2);
+        a.removeFromTop (8);
+        auto labels = a.removeFromTop (92);
+        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+        g.setColour (ParagonColours::text);
+        labels.removeFromLeft (174);
+        g.drawText ("ROOM", labels.removeFromLeft (150).withHeight (20).translated (0, 16), juce::Justification::centredLeft, false);
+        labels.removeFromLeft (20);
+        g.drawText ("DECAY", labels.removeFromLeft (80).withHeight (14), juce::Justification::centred, false);
+        labels.removeFromLeft (8);
+        g.drawText ("TONE", labels.removeFromLeft (80).withHeight (14), juce::Justification::centred, false);
+        g.drawText ("DRUMS THROUGH THE MICS", a.removeFromTop (30).withTrimmedTop (10), juce::Justification::centredLeft, false);
+    }
+
+private:
+    MixerPage& page;
+    juce::TextButton close, onButton;
+    juce::ComboBox room;
+    juce::Slider decay, tone;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> onAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> roomAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> decayAttachment, toneAttachment;
+    std::vector<std::unique_ptr<juce::TextButton>> pieceButtons;
+};
+
+//==============================================================================
 MixerPage::MixerPage (ParagonX1AudioProcessor& p) : processor (p)
 {
     addAndMakeVisible (viewport);
@@ -975,6 +1087,13 @@ MixerPage::MixerPage (ParagonX1AudioProcessor& p) : processor (p)
     addChildComponent (*effectEditor);
     router = std::make_unique<MicRouter> (*this);
     addChildComponent (*router);
+    micSimPanel = std::make_unique<MicSimPanel> (*this);
+    addChildComponent (*micSimPanel);
+    DrumSeqPanel::style (micSimButton);
+    micSimButton.setTooltip ("SIMULATED MICS AND ROOM: the synth drums through close mics, overheads, room and ambience, in a room of "
+                             "your choice.");
+    micSimButton.onClick = [this] { openMicSim (! isMicSimOpen()); };
+    addAndMakeVisible (micSimButton);
     DrumSeqPanel::style (routeButton);
     routeButton.setTooltip ("ROUTE INSTRUMENT MICROPHONES: each drum's mics to a channel of your choice, a new channel of their own, or none.");
     routeButton.onClick = [this] { openRouter (! isRouterOpen()); };
@@ -1033,6 +1152,18 @@ juce::Array<int> MixerPage::getChannelsInUse() const
                 else if (to >= 0)
                     channels.addIfNotAlreadyThere (to);
             }
+    // 0.26.0: SIMULATED MICS: each miked drum's mics, through the routes too.
+    if (auto* on = processor.getParameters().getRawParameterValue (ParamIDs::drumsMicSim); on != nullptr && on->load() > 0.5f)
+        for (int pc = 0; pc < drums::numPieces; ++pc)
+            if (isPieceMiked (pc))
+                for (const auto c : synth::micsim::channelsFor (pc))
+                {
+                    const auto to = processor.getMicRoute (pc, c);
+                    if (to == mixer::routeAuto)
+                        channels.addIfNotAlreadyThere (c);
+                    else if (to >= 0)
+                        channels.addIfNotAlreadyThere (to);
+                }
     channels.sort();
     return channels;
 }
@@ -1345,8 +1476,44 @@ void MixerPage::showEffectMenu (int strip, int slot, juce::Component& from)
     });
 }
 
+void MixerPage::openMicSim (bool open)
+{
+    if (open)
+        openRouter (false);
+    micSimPanel->setVisible (open);
+    micSimButton.setToggleState (open, juce::dontSendNotification);
+    if (open)
+    {
+        micSimPanel->refresh();
+        micSimPanel->toFront (false);
+    }
+}
+
+bool MixerPage::isMicSimOpen() const { return micSimPanel->isVisible(); }
+
+bool MixerPage::isPieceMiked (int piece) const
+{
+    const auto& pc = drums::pieces[(size_t) juce::jlimit (0, drums::numPieces - 1, piece)];
+    auto* parameter = processor.getParameters().getRawParameterValue (ParamIDs::drum (pc.articulations[0].slot, "Mics"));
+    return parameter != nullptr && parameter->load() > 0.5f;
+}
+
+void MixerPage::setPieceMiked (int piece, bool miked)
+{
+    // Every articulation of the drum (one undo step).
+    const auto& pc = drums::pieces[(size_t) juce::jlimit (0, drums::numPieces - 1, piece)];
+    for (int a = 0; a < pc.count; ++a)
+        if (auto* parameter = processor.getParameters().getParameter (ParamIDs::drum (pc.articulations[(size_t) a].slot, "Mics")))
+            parameter->setValueNotifyingHost (miked ? 1.0f : 0.0f);
+    processor.modMatrixEditFinished();   // one undo step
+    micSimPanel->refresh();
+    update();
+}
+
 void MixerPage::openRouter (bool open)
 {
+    if (open && micSimPanel != nullptr)
+        openMicSim (false);
     router->setVisible (open);
     routeButton.setToggleState (open, juce::dontSendNotification);
     if (open)
@@ -1472,7 +1639,10 @@ void MixerPage::resized()
     micsButton.setBounds (header.removeFromRight (56));
     header.removeFromRight (8);
     routeButton.setBounds (header.removeFromRight (110));
+    header.removeFromRight (8);
+    micSimButton.setBounds (header.removeFromRight (100));
     router->setBounds (stripsArea);
+    micSimPanel->setBounds (stripsArea);
 
     viewport.setBounds (stripsArea.reduced (14, 0).withTrimmedTop (headerHeight).withTrimmedBottom (4));
     int shown = 0;
@@ -1588,9 +1758,9 @@ void MixerPage::paint (juce::Graphics& g)
     g.setColour (ParagonColours::textDim);
     const auto hint = note.isNotEmpty() ? note
                     : inUse.isEmpty() ? juce::String ("Load a multi-mic kit (DRUMS > LOAD...: an SFZ kit, or a folder with a folder per mic) to use "
-                                                      "the mixer. Synth drums and single samples go their own way.")
-                                      : juce::String ("Your multi-mic drums' channels, then the buses. Click a name for its properties.");
-    g.drawFittedText (hint, stripsArea.reduced (18, 0).withHeight (headerHeight).withTrimmedLeft (90).withTrimmedRight (230),
+                                                      "the mixer, or SIM MICS... to hear the synth drums through simulated mics.")
+                                      : juce::String ("The mic channels (multi-mic drums, or SIM MICS' simulated ones), then the buses. Click a name for its properties.");
+    g.drawFittedText (hint, stripsArea.reduced (18, 0).withHeight (headerHeight).withTrimmedLeft (90).withTrimmedRight (340),
                       juce::Justification::centredLeft, 2);
 
     const auto bus = isBus (selected);

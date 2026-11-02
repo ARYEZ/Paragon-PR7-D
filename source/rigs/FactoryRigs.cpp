@@ -168,7 +168,7 @@ std::vector<Rig> makeFactoryRigs()
                    "Modelled drums, built from the physics with no samples: a tight, clicky kick (hard beater, heavily muffled), "
                    "a high, cracking snare, three deep toms, and modelled cymbals (0.25.0): hats at five openings and a pedal, two crashes, a "
                    "ride (bow, bell, edge), a trashy china, and a stack in the splash's slot (SPL). The master's compressor (FET) and "
-                   "LIMITER hold it together. The sequencer has four grooves: A syncopated half time, B double-kick sixteenths, "
+                   "LIMITER hold it together. Since 0.26.0 it's heard through simulated mics in a Live Room (THE MIXER: each mic's fader). The sequencer has four grooves: A syncopated half time, B double-kick sixteenths, "
                    "C a ghost-note groove, D a tom fill. Our own settings, not tuned by ear yet.");
     {
         using synth::drums::Model;
@@ -258,6 +258,10 @@ std::vector<Rig> makeFactoryRigs()
         note (d, bd, 15.0);
         note (d, cy, 15.0, 0.6f);
     }
+    // 0.26.0: heard through SIMULATED MICS in a Live Room, mixed as djent usually is: close mics up front, the room
+    // and ambience well down.
+    djent.set (ParamIDs::drumsMicSim, 1.0f).set (ParamIDs::drumsRoom, 2.0f).set (ParamIDs::drumsRoomTone, 0.55f)
+         .set (ParamIDs::mix (synth::mixer::room, "Level"), -6.0f).set (ParamIDs::mix (synth::mixer::ambience, "Level"), -12.0f);
     add (djent);
 
     return rigs;

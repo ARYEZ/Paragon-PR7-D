@@ -5,6 +5,7 @@
 #include "dsp/synth/DrumSequencer.h"
 #include "dsp/synth/MultiPoint.h"
 #include "dsp/synth/Mixer.h"
+#include "dsp/synth/MicSim.h"
 #include "dsp/synth/Noise.h"
 #include "dsp/synth/VelocityCurve.h"
 
@@ -295,6 +296,8 @@ namespace synth::drums
         // THE ACOUSTIC MODELS (0.24.0): where the head is struck (0 the centre, 1 the edge), the shell's ring (the
         // kick: its front head), and how much each hit differs from the last (a drummer's hits aren't identical).
         float position = 0.3f, shell = 0.4f, variation = 0.3f;
+        // SIMULATED MICS (0.26.0): while the kit's are on, this drum is heard through them (else its own way).
+        bool miked = true;
 
         bool filtered() const noexcept { return lowPass < 19999.0f || highPass > 20.01f; }
         // The sequencer's lead for the anchor (seconds early).
@@ -348,6 +351,8 @@ namespace synth::drums
         const mixer::SendTable* sends = nullptr;
         mixer::MuteMode muteMode = mixer::MuteMode::preSend;
         mixer::EffectHost* effects = nullptr;   // 0.22.0: the strips' effects (null: none)
+        // 0.26.0: SIMULATED MICS AND ROOM: synth drums and single samples through the mixer's mic channels.
+        micsim::Settings micSim;
 
         // MIDI IN (0.18.0): only for MIDI from the DAW or a controller (not grooves, the song or the sequencer).
         int channel = 0;                                // 0: any, 1-16
@@ -625,6 +630,12 @@ namespace synth::drums
         std::array<std::atomic<float>, mixer::numBuses> busPeaks {};
         // 0.22.0: samples a strip with effects keeps running after its sound stops (their tails).
         std::array<int, mixer::numStrips> stripTail {};
+        // SIMULATED MICS (0.26.0): the lines and room, each piece's taps into each mic (left, right), and the lines a
+        // source mic's sound is gathered in before its colour (direct L / R, bleed L / R).
+        micsim::Simulator micSim;
+        std::array<std::array<std::array<micsim::Tap, 2>, mixer::numChannels>, numPieces> simTaps {};
+        std::vector<float> simScratch;
+        void simulateMics (const KitSettings&, int numSamples, std::array<bool, mixer::numMicChannels>& used) noexcept;
         static void filterSlot (const SlotSettings&, float* left, float* right, int numSamples, std::array<float, 2>& low,
                                 std::array<float, 2>& high, double sampleRate) noexcept;
         void startHit (int slot, float velocity, const KitSettings&, const HitOptions& = {}) noexcept;

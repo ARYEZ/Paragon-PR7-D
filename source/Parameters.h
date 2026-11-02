@@ -43,6 +43,12 @@ namespace ParamIDs
     inline juce::String mixBus (int bus, const char* what) { return "mixBus" + juce::String (bus + 1) + what; }
     inline constexpr const char* busSettings[] = { "Level", "Pan", "Mute", "Solo", "Phase", "Output", "Route" };
     inline constexpr auto mixMuteMode = "mixMuteMode";   // mixer::muteModeNames' index (in presets)
+    // SIMULATED MICS AND ROOM (0.26.0, hint 33): the kit's synth drums through the mixer's mic channels, and the room
+    // the room and ambience mics hear (micsim::roomNames' index; its decay, times its own; its tone). In presets and kits.
+    inline constexpr auto drumsMicSim = "drumsMicSim";
+    inline constexpr auto drumsRoom = "drumsRoom";
+    inline constexpr auto drumsRoomDecay = "drumsRoomDecay";
+    inline constexpr auto drumsRoomTone = "drumsRoomTone";
 
     // MIDI IN CHANNEL (0.18.0, hint 27): which channel the DAW's or a controller's MIDI plays the kit on ("Any", 1-16).
     // Global, like the note map.
@@ -65,7 +71,8 @@ namespace ParamIDs
                                                     // 0.19.0 (hint 28): THE SAMPLE ENGINE's hit variation and limits
                                                     "Randomize", "Adjacent", "VelToVol", "LayerLimit", "Voices",
                                                     // 0.24.0 (hint 32): THE ACOUSTIC MODELS' strike POSITION, SHELL, VARIATION
-                                                    "Position", "Shell", "Variation" };
+                                                    "Position", "Shell", "Variation",
+                                                    "Mics" };   // 0.26.0 (hint 33): heard through SIMULATED MICS
     consteval int drumSetting (std::string_view what)
     {
         for (int i = 0; i < (int) std::size (drumSettings); ++i)
