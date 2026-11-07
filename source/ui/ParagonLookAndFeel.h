@@ -66,6 +66,8 @@ public:
     // Set this (to a font size) on a TextButton to draw just its text, no
     // box: the header's rig name and tempo, which sit in framed groups.
     static constexpr const char* plainTextProperty = "plainText";
+    // A plain button's text size (points); its text may break into lines (0.61.0).
+    static constexpr const char* textSizeProperty = "textSize";
 
     // Set this on a vertical slider to draw it as a graphic-EQ fader: a thin
     // groove lit from its centre (0 dB) to the cap, and a small black cap.

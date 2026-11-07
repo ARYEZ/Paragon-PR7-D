@@ -243,7 +243,7 @@ TEST_CASE ("THE DRUM MACHINE's face: over the window, its steps, columns, keys, 
     machine.getKey ("KIT").onClick();
     CHECK_FALSE (view->isShowingMachine());
     CHECK (drums.isVisible());
-    CHECK (view->getSongTrack().isVisible());
+    CHECK (view->getSongTrack().isVisible() == view->isTrackShown());   // (0.61.0: hidden unless shown)
     CHECK (drums.getView() == DrumPage::View::kit);
     drums.showView (DrumPage::View::machine);
 

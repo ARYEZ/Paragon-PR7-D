@@ -5,6 +5,7 @@
 #include "Parameters.h"
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
+#include "PluginTestUtils.h"
 
 using Catch::Matchers::WithinAbs;
 
@@ -70,6 +71,7 @@ namespace
     {
         Window()
         {
+            testkit::useRootKeys (processor);   // (0.59.0: ROOT's keys, as these tests play them)
             editor.reset (processor.createEditor());
             editor->setSize (1600, 900);
             view = dynamic_cast<MainView*> (editor->getChildComponent (0));
@@ -123,6 +125,8 @@ TEST_CASE ("The window opens on the DRUMS page; GROOVES, FX, PRESETS and SETTING
     // 0.41.0: no on-screen keyboard anywhere; the SONG track has its strip.
     CHECK (inside<juce::MidiKeyboardComponent> (*w.view) == nullptr);
     auto* keyboard = &w.view->getSongTrack();
+    CHECK_FALSE (keyboard->isVisible());   // 0.61.0: hidden when the window opens
+    w.view->setTrackShown (true);
     CHECK (keyboard->isVisible());
     CHECK (w.view->getPage() == MainView::Page::drums);
     CHECK (w.view->getDrumPage().isVisible());
@@ -158,6 +162,79 @@ TEST_CASE ("The window opens on the DRUMS page; GROOVES, FX, PRESETS and SETTING
     CHECK (w.view->getGroovesPage().isVisible() == false);
     tabs[0]->onClick();   // as clicking DRUMS does
     CHECK (w.view->getDrumPage().isVisible());
+}
+
+TEST_CASE ("SHOW / HIDE MIDI TRACK (0.61.0): the window opens without the track, shorter; the button and the song's tools bring it back", "[ui][track]")
+{
+    ParagonX1AudioProcessor processor;
+    std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
+    auto* view = dynamic_cast<MainView*> (editor->getChildComponent (0));
+    REQUIRE (view != nullptr);
+
+    // Opens hidden: the view 752 tall, the window that shape (wider than 16:9).
+    CHECK_FALSE (view->isTrackShown());
+    CHECK_FALSE (view->getSongTrack().isVisible());
+    CHECK (view->getHeight() == MainView::heightFor (false));
+    CHECK (MainView::heightFor (false) == 752);
+    const auto width = editor->getWidth();
+    CHECK (editor->getHeight() == width * 752 / MainView::width);
+    checkLayout (*view, "hidden");
+
+    // The button at the OUTPUT strip's foot says what it will do.
+    juce::TextButton* button = nullptr;
+    std::vector<juce::TextButton*> buttons;
+    findAll (*view, buttons);
+    for (auto* b : buttons)
+        if (b->getButtonText() == "SHOW\nMIDI TRACK")
+            button = b;
+    REQUIRE (button != nullptr);
+    CHECK (button->isVisible());
+    CHECK (button->getBottom() <= view->getHeight());
+    CHECK (button->getX() > 1480);
+
+    // Shown: the track, the full 900, the window taller at the same width.
+    button->onClick();
+    CHECK (view->isTrackShown());
+    CHECK (view->getSongTrack().isVisible());
+    CHECK (button->getButtonText() == "HIDE\nMIDI TRACK");
+    CHECK (view->getHeight() == MainView::height);
+    CHECK (editor->getWidth() == width);
+    CHECK (std::abs (editor->getHeight() - width * 900 / MainView::width) <= 1);
+    CHECK (view->getSongTrack().getBottom() <= view->getHeight());
+    checkLayout (*view, "shown");
+
+    // Hidden again: back to the shorter window, same width.
+    button->onClick();
+    CHECK_FALSE (view->getSongTrack().isVisible());
+    CHECK (std::abs (editor->getHeight() - width * 752 / MainView::width) <= 1);
+
+    // A width the person dragged to is kept through it.
+    editor->setSize (1280, 1280 * 752 / 1600);
+    view->setTrackShown (true);
+    CHECK (editor->getWidth() == 1280);
+    CHECK (editor->getHeight() == 720);
+    view->setTrackShown (false);
+
+    // The song's tools bring it back (ADD TO SONG, EDIT PLAY STYLE, the GRID EDITOR, the SONG CREATOR call showSong).
+    view->showSong (true);
+    CHECK (view->isTrackShown());
+    view->setTrackShown (false);
+
+    // THE DRUM MACHINE keeps the full height (it covers everything under the header) and hides the button.
+    view->getDrumPage().showView (DrumPage::View::machine);
+    CHECK (view->getHeight() == MainView::height);
+    CHECK_FALSE (button->isVisible());
+    CHECK_FALSE (view->getSongTrack().isVisible());
+    view->getDrumPage().showView (DrumPage::View::kit);
+    CHECK (view->getHeight() == MainView::heightFor (false));
+    CHECK (button->isVisible());
+
+    // Each window opens with it hidden again (not saved).
+    view->setTrackShown (true);
+    editor.reset();
+    editor.reset (processor.createEditor());
+    view = dynamic_cast<MainView*> (editor->getChildComponent (0));
+    CHECK_FALSE (view->isTrackShown());
 }
 
 TEST_CASE ("Notes play the kit (the processor's keyboard state, as the DAW's notes); others don't", "[ui]")

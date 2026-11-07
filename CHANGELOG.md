@@ -2,6 +2,73 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.61.0
+
+**SHOW MIDI TRACK / HIDE MIDI TRACK** (you asked to borrow PR7-G's SHOW RACK / HIDE RACK so the kit view stands on its own).
+
+- **The window opens with the MIDI track (the song strip) hidden.** It gets shorter instead of leaving an empty band, and keeps the width you chose. It's set per window and not saved, like PR7-G's rack, so each time the plugin opens it starts clean.
+- **The button** is at the foot of the OUTPUT strip: SHOW MIDI TRACK brings the track back and the window grows to its full height. If the taller window wouldn't fit below where it sits on your screen, it gets a little narrower so it fits.
+- **The song's tools bring it back by themselves:** ADD TO SONG, EDIT PLAY STYLE, the GRID EDITOR and the SONG CREATOR show the track when they open.
+- **THE DRUM MACHINE** keeps its full height (it covers everything under the header), so the window grows while it's shown and goes back when you return to the kit view.
+
+## 0.60.0
+
+**The KIT VIEW's holograms: smaller bases, a glitched look** (you asked for the rings 2/3 the size, and scanlines "more dramatic so it really sells the idea of a glitched hologram").
+
+- **Smaller rings.** The rings on the floor are 2/3 the size they were, and the beam's foot is narrower to match.
+- **Harder scanlines.** The icon is much dimmer between its lines and bright on them, two lines on and two off, still drifting slowly up.
+- **Glitches.** About every two seconds, each hologram breaks up for a split second:
+  - one to three strips of it jump sideways;
+  - a faint ghost copy shows beside it;
+  - it flickers.
+
+  The two sides glitch on their own timing, so they rarely break up together.
+- **A rolling band.** Every four seconds a brighter band sweeps down through each icon.
+- **The kick flash is still there.** It reads a little less strongly than before (about 10% brighter instead of 14%), because the bright lines are already near white.
+- **What it costs:** the extra drawing runs only while a glitch or sweep is happening, and only over the icon, not the whole kit view.
+
+## 0.59.0
+
+**A new PR7-D starts on GROOVE LIBRARY** (your map, from 0.58.0), since it's the map you'll use for everything. Before, a new instance started on ROOT.
+
+- **What starts on it:** every PR7-D you add to a project from now on, and the factory presets loaded into it. The map isn't part of a preset, so loading a preset doesn't change it.
+- **Projects you've already saved keep the map they were saved with.** If one was on ROOT, it stays on ROOT, so MIDI written for ROOT's keys still plays the same drums. To move one over: SETTINGS > MIDI IN / E-DRUMS > MAP > Groove Library, then save the project.
+- **ROOT is still there** under MAP. The drum sequencer's KEY mode (four keys below ROOT starting patterns) still works only on ROOT.
+
+## 0.58.0
+
+**GROOVE LIBRARY is now your full map, note for note** (you sent the complete MIDI mapping of your big progressive kit, notes 0 to 127, and asked for ours to match exactly). Choose **Groove Library** under SETTINGS > MIDI IN / E-DRUMS > MAP.
+
+- **Every note from 6 to 127 now plays what your map says it plays.** Notes 0 to 5 play nothing, as in your map. Each note's name in your map ("Hats: Open 2", "Racktom 1: Rimshot"...) is shown beside it in the SETTINGS list, between the note and the drum we play, so you can check them line by line against your screenshots.
+- **What changed from before:**
+  - **Toms:** 48 Racktom 1 = TOM 1, 47 Racktom 2 = TOM 2, 45 Racktom 3 = TOM 3, 43 Floortom 1 = FLOOR (T4), 41 Floortom 2 = FLOOR 2 (T5). Before, 47 and 48 were both TOM 1, and the floor toms were on TOM 2 / TOM 3.
+  - **Cymbals each on their own drum:** Cymbal 1 (28) = CRASH, Cymbal 2 (49) = CRASH 2, Cymbals 3-6 (30, 31, 57, 32) = CRASH 3-6, China 1 (27) = CHINA, China 2 (52) = CHINA 2, Splash (55) = SPLASH, the holed cymbal (29) = FX CRASH. Before, almost every crash note played CRASH.
+  - **Mute hits:** Cymbal 1, Cymbal 2, China 1 and the Splash play their CHOKE drums (94, 50, 83, 56).
+  - **Hats:** Closed Edge and Tight Edge (11, 22, 62, 122) play the SHOULDER. Open 0-5 play OPEN 1 to OPEN 4 by name. Edge / Tip Trigger (7-9, 18-20) follow the pedal (CC 4). Note 46 is Open 2, so it plays OPEN 2 now, not OPEN 4.
+  - **Ride:** every Edge note plays RIDE EDGE (86 was a crash before). Bow Tip / Shank play the bow, Bell Tip / Shank the bell.
+  - **2 and 3 play nothing now** (they were the shaker and tambourine).
+- **Where we have no such articulation, the nearest drum plays it** (our choices):
+  - **Kick:** Kick Open plays the kick.
+  - **Snare:** Snare Edge, Flams, Ruffs and Zone Trigger play the snare. Snare Rim Only plays the sidestick, since both are a rim click (a guess).
+  - **Toms:** every tom's Rimshot and Rim Only play that tom.
+  - **Hats:** Open 0 plays OPEN 1 and Open 5 plays OPEN 4 (your map has six open steps, we have four). Open Pedal plays the PEDAL. Seq Hits plays the closed hat.
+  - **Ride:** Ride Mute Hit plays the bow.
+  - **Cymbals with no choke drum:** Cymbals 3-6, China 2 and the holed cymbal play their own crash on a Mute Hit.
+- **Grooves in GROOVE LIBRARY folders are read again once** the next time GROOVES opens, since what their notes play changed.
+- **Your saved CUSTOM map isn't touched.** It's your own copy. Choose Groove Library to use the new one.
+
+## 0.57.0
+
+**The PR7-D hologram on the KIT VIEW's floor** (the mock-up you chose, B, with the scanlines drifting and a pulse on the kick). On each side of the kit, where the floor was empty, the PR7-D icon now floats over a glowing ring on the grid, with a beam of light running from the ring up to it. The left one is pink, the hi-hat side's glow colour. The right one is orange, the ride side's.
+
+- **The icon** is new, made in the style of PR7-S's "7S" icon: a big slanted "7D" (the 7 red above its first speed cut and orange below), a line, the "PR7-D" mark under it, all in a rounded frame. It's drawn from the logo's own letter shapes, not a picture.
+- **It sits in the 3D scene.** The rings and icons are placed through the same camera the kit was rendered with, fitted to the floor grid. So the rings lie flat on the floor at the right perspective, and the icons are the size a 56 cm sign would be at that distance, standing 22 cm off the floor and facing you.
+- **Scanlines** run across the icon and beam, and drift up a line every quarter second.
+- **Each kick makes it flash.** The icon, beam and ring get about half as bright again and settle over a third of a second. The soft glow around them stays as it is, so a kick only redraws the part that changes.
+- **Clicks go through it.** It's on empty floor, so there's nothing there to click anyway, and it doesn't change what the kit's pieces do. EDIT PLAY STYLE's kit (which dims everything but the block's drums) doesn't show it.
+- **What it costs:** a kick's flash redraws in about 0.4 ms per side at 100% display scaling, and about 1.7 ms at 200%. It redraws in steps, about seven times per kick, not every frame. The scanlines' move redraws only the icon, four times a second. The pictures are made once when the page is first shown at a size.
+- **Known:** with the hi-hat chosen, its articulation list (the tallest one) covers the left ring. The icon stays clear.
+
 ## 0.56.0
 
 **Sampled kits play with about 35-40% less work** (you asked to make the plugin run smoother and more efficiently). This time measured with the kind of kit you play: a sample pack laid out like your Djent Drums (five mics on the kick, four on the snare, toms, hats, crash, china and ride, streamed from disk), with mixer effects on the kick, snare and toms, playing a 180 BPM beat with 16th-note double kicks.
