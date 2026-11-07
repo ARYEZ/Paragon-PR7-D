@@ -38,6 +38,7 @@ namespace grooves
         // (lower first; 0 for most).
         juce::StringArray tags;
         int priority = 0;
+        bool fromDatabase = false;   // 0.62.0: a groove inside a groove database (its folders aren't on the disk)
         // 0.30.0: worked out once when the library lists it (null for an entry made elsewhere: worked out each time),
         // so the page's filters, counts, search and sorting don't redo them for every groove on every click.
         struct Cached
@@ -113,6 +114,38 @@ namespace grooves
             return true;
         }
     };
+
+    // 0.62.0: a listing of the grooves, made once each time the list changes (in the scanner's thread) and shared,
+    // never copied: with 100,000 grooves a copy for each click was a twentieth of a second, and the page's counts and
+    // folders were worked out again on every click. Besides the grooves: what the page asks of them all the time.
+    struct Catalogue
+    {
+        std::vector<Entry> entries;
+        std::vector<juce::String> paths;   // each groove's full path
+        // Every value each filter column has among them, in the column's order (sortedValues), and each groove's
+        // values as numbers into it: entry i's in column c are ids[c][first[c][i]] up to ids[c][first[c][i + 1]].
+        std::array<juce::StringArray, numColumns> values;
+        std::array<std::vector<int>, numColumns> first;
+        std::array<std::vector<int>, numColumns> ids;
+        // Inside groove databases (folders that aren't on the disk): each folder's subfolders, by the folder's full
+        // path; a database's own top folders are listed under the folder the database file is in too (the browser
+        // shows them there). Worked out from the grooves' paths, so the browser never opens a database to list them.
+        std::map<juce::String, std::vector<juce::File>> databaseFolders;
+
+        template <typename Fn> void forEachValueId (size_t entry, int column, Fn&& fn) const
+        {
+            const auto& f = first[(size_t) column];
+            const auto& v = ids[(size_t) column];
+            for (int k = f[entry]; k < f[entry + 1]; ++k)
+                fn (v[(size_t) k]);
+        }
+    };
+    // Makes one (the entries cached first: cacheEntries).
+    std::shared_ptr<const Catalogue> makeCatalogue (std::vector<Entry>&&);
+    // Whether a full path is `folder` itself or inside it (by the text: no disk, no copies), and whether it's directly
+    // in it.
+    bool pathIsIn (const juce::String& path, const juce::String& folder);
+    bool pathIsDirectlyIn (const juce::String& path, const juce::String& folder);
 
     struct LinkedFolder
     {
@@ -191,6 +224,8 @@ namespace grooves
 
         // THE GROOVES (a copy: safe while the scan replaces them).
         std::vector<Entry> getEntries() const;
+        // 0.62.0: the listing itself, shared (no copy; it never changes: a new list is a new catalogue).
+        std::shared_ptr<const Catalogue> getCatalogue() const;
         int getNumEntries() const;
         // 0.54.0: goes up each time the list of grooves changes (what's learned from them is learned again).
         int getGeneration() const noexcept { return generation.load(); }
@@ -208,6 +243,17 @@ namespace grooves
         std::vector<Entry> query (const juce::File& within, const juce::String& text, bool favouritesOnly, SortOrder sort,
                                   double songBpm, int songNumerator, int songDenominator, const Filters& filters = {},
                                   const TapSearch* tap = nullptr) const;
+        // 0.62.0: the same without copying the grooves: which of the catalogue's (by index, in order), and with a tap
+        // search each one's match (else empty).
+        struct Found
+        {
+            std::shared_ptr<const Catalogue> catalogue;
+            std::vector<int> rows;
+            std::vector<float> match;
+        };
+        Found find (const juce::File& within, const juce::String& text, bool favouritesOnly, SortOrder sort,
+                    double songBpm, int songNumerator, int songDenominator, const Filters& filters = {},
+                    const TapSearch* tap = nullptr) const;
 
         // FAVOURITES.
         bool isFavourite (const juce::File&) const;
@@ -247,8 +293,9 @@ namespace grooves
         Preview preview;
 
         std::atomic<bool> indexLoaded { false };   // set by a scan too
-        mutable std::mutex lock;        // guards entries
-        std::vector<Entry> entries;
+        mutable std::mutex lock;        // guards catalogue
+        std::shared_ptr<const Catalogue> catalogue = std::make_shared<const Catalogue>();
+        void publish (std::vector<Entry>&&);   // the new list as the catalogue (made outside the lock)
         mutable std::vector<juce::File> knownPacks;   // getPacks's, while packsKnown (both under the lock)
         mutable bool packsKnown = false;
         std::atomic<int> generation { 0 };

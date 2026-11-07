@@ -47,7 +47,7 @@ public:
 
     // For tests and snapshots.
     void refresh();                                   // the browser and the list, afresh
-    const std::vector<grooves::Entry>& getResults() const noexcept { return results; }
+    std::vector<grooves::Entry> getResults() const;   // the list's grooves, in order (copies, with their MATCH)
     void chooseFolder (const juce::File&);            // as clicking it in the browser (shown there; nothing: all)
     juce::File getFolder() const noexcept { return within; }
     void setSearch (const juce::String&);
@@ -209,7 +209,10 @@ private:
 
     // The results.
     juce::TableListBox table { "Grooves", this };
-    std::vector<grooves::Entry> results;
+    // 0.62.0: rows of the library's catalogue (kept alive by `shown`), not copies of its grooves.
+    struct Row { const grooves::Entry* entry = nullptr; float match = -1.0f; int textIndex = 0; };
+    std::shared_ptr<const grooves::Catalogue> shown;
+    std::vector<Row> results;
     int hoveredRow = -1;
     int headerSort = 0;                          // a result column clicked to sort by (0: the sorting ticks)
     bool headerForwards = true;
