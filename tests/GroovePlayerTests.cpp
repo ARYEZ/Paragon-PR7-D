@@ -926,8 +926,9 @@ TEST_CASE ("TAP TO FIND page: open taps with a loop; FIND sorts by MATCH; FIND S
     CHECK_THAT (page.getResults()[0].match, WithinAbs (1.0, 1e-6));
 
     // FIND SIMILAR on the rock beat: it first.
-    const auto rock = std::find_if (page.getResults().begin(), page.getResults().end(), [] (const auto& e) { return e.name == "A Rock"; });
-    page.findSimilar ((int) std::distance (page.getResults().begin(), rock));
+    const auto listed = page.getResults();
+    const auto rock = std::find_if (listed.begin(), listed.end(), [] (const auto& e) { return e.name == "A Rock"; });
+    page.findSimilar ((int) std::distance (listed.begin(), rock));
     CHECK (page.getResults()[0].name == "A Rock");
 
     // A MIDI file dropped: the half-time one's rhythm.

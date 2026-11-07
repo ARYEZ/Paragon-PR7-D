@@ -48,6 +48,7 @@ public:
     // For tests and snapshots.
     void refresh();                                   // the browser and the list, afresh
     std::vector<grooves::Entry> getResults() const;   // the list's grooves, in order (copies, with their MATCH)
+    juce::File fileOfRow (int row) const;   // a row's groove's file (none: no such row)
     void chooseFolder (const juce::File&);            // as clicking it in the browser (shown there; nothing: all)
     juce::File getFolder() const noexcept { return within; }
     void setSearch (const juce::String&);

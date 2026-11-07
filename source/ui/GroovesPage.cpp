@@ -1302,6 +1302,11 @@ std::vector<grooves::Entry> GroovesPage::getResults() const
     return out;
 }
 
+juce::File GroovesPage::fileOfRow (int row) const
+{
+    return row >= 0 && row < (int) results.size() ? results[(size_t) row].entry->file : juce::File();
+}
+
 void GroovesPage::sortResults()
 {
     if (headerSort == 0)
