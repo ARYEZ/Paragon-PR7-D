@@ -27,10 +27,13 @@ namespace
         return out.getMemoryBlock();
     }
 
+    // A made-up place (the computer's own kind of path: Windows wants a drive).
+    const juce::File base = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ParagonCatalogueMadeUp");
+
     grooves::Entry entry (const juce::String& path, bool fromDatabase = false)
     {
         grooves::Entry e;
-        e.file = juce::File (path);
+        e.file = base.getChildFile (path);
         e.name = e.file.getFileNameWithoutExtension();
         e.family = e.file.getParentDirectory().getFileName();
         e.fromDatabase = fromDatabase;
@@ -44,25 +47,29 @@ TEST_CASE ("GROOVE CATALOGUE: a path inside a folder, by its text", "[grooves][c
 {
     using grooves::pathIsIn;
     using grooves::pathIsDirectlyIn;
-    CHECK (pathIsIn ("/a/b/c.mid", "/a/b"));
-    CHECK (pathIsIn ("/a/b/c.mid", "/a"));
-    CHECK (pathIsIn ("/a/b", "/a/b"));
-    CHECK_FALSE (pathIsIn ("/a/bc/d.mid", "/a/b"));   // not just the same start
-    CHECK_FALSE (pathIsIn ("/a/b/c.mid", ""));
-    CHECK (pathIsDirectlyIn ("/a/b/c.mid", "/a/b"));
-    CHECK_FALSE (pathIsDirectlyIn ("/a/b/c/d.mid", "/a/b"));
-    CHECK_FALSE (pathIsDirectlyIn ("/a/b", "/a/b"));
+    const auto p = [] (const juce::String& path) { return base.getChildFile (path).getFullPathName(); };
+    CHECK (pathIsIn (p ("a/b/c.mid"), p ("a/b")));
+    CHECK (pathIsIn (p ("a/b/c.mid"), p ("a")));
+    CHECK (pathIsIn (p ("a/b"), p ("a/b")));
+    CHECK_FALSE (pathIsIn (p ("a/bc/d.mid"), p ("a/b")));   // not just the same start
+    CHECK_FALSE (pathIsIn (p ("a/b/c.mid"), ""));
+    CHECK (pathIsDirectlyIn (p ("a/b/c.mid"), p ("a/b")));
+    CHECK_FALSE (pathIsDirectlyIn (p ("a/b/c/d.mid"), p ("a/b")));
+    CHECK_FALSE (pathIsDirectlyIn (p ("a/b"), p ("a/b")));
+    // Windows' separator too.
+    CHECK (pathIsIn ("C:\\a\\b\\c.mid", "C:\\a\\b"));
+    CHECK_FALSE (pathIsDirectlyIn ("C:\\a\\b\\c\\d.mid", "C:\\a\\b"));
 }
 
 TEST_CASE ("GROOVE CATALOGUE: every column's values, each groove's as numbers into them", "[grooves][catalogue]")
 {
     std::vector<grooves::Entry> list;
-    auto a = entry ("/g/Rock/Verse 01.mid");
+    auto a = entry ("g/Rock/Verse 01.mid");
     a.tags = { "Genre:Rock", "Type:Beat", "Type:Straight" };
-    auto b = entry ("/g/Jazz/Fill 02.mid");
+    auto b = entry ("g/Jazz/Fill 02.mid");
     b.tags = { "Genre:Jazz", "Type:Fill", "Type:Swing" };
     b.bpm = 60.0;
-    auto c = entry ("/g/Rock/Chorus 01.mid");
+    auto c = entry ("g/Rock/Chorus 01.mid");
     c.bpmKnown = false;
     for (auto* e : { &a, &b, &c })
         list.push_back (*e);
@@ -70,7 +77,7 @@ TEST_CASE ("GROOVE CATALOGUE: every column's values, each groove's as numbers in
     const auto made = grooves::makeCatalogue (std::move (list));
     REQUIRE (made->entries.size() == 3);
     REQUIRE (made->paths.size() == 3);
-    CHECK (made->paths[1] == "/g/Jazz/Fill 02.mid");
+    CHECK (made->paths[1] == base.getChildFile ("g/Jazz/Fill 02.mid").getFullPathName());
     for (int col = 0; col < grooves::numColumns; ++col)
     {
         INFO (grooves::columnNames[col]);
@@ -95,27 +102,28 @@ TEST_CASE ("GROOVE CATALOGUE: every column's values, each groove's as numbers in
 TEST_CASE ("GROOVE CATALOGUE: the folders inside groove databases, from the grooves' paths; the packs", "[grooves][catalogue]")
 {
     std::vector<grooves::Entry> list;
-    list.push_back (entry ("/lib/Packs/midiDB/Pack B/Straight/Song 1/Verse.mid", true));
-    list.push_back (entry ("/lib/Packs/midiDB/Pack B/Straight/Song 2/Fill.mid", true));
-    list.push_back (entry ("/lib/Packs/midiDB/Pack A/Waltz/Intro.mid", true));
-    list.push_back (entry ("/lib/Files/Song/Verse.mid"));   // a plain file: no virtual folders for it
+    list.push_back (entry ("lib/Packs/midiDB/Pack B/Straight/Song 1/Verse.mid", true));
+    list.push_back (entry ("lib/Packs/midiDB/Pack B/Straight/Song 2/Fill.mid", true));
+    list.push_back (entry ("lib/Packs/midiDB/Pack A/Waltz/Intro.mid", true));
+    list.push_back (entry ("lib/Files/Song/Verse.mid"));   // a plain file: no virtual folders for it
     grooves::cacheEntries (list);
     const auto made = grooves::makeCatalogue (std::move (list));
+    const auto at = [] (const juce::String& path) { return base.getChildFile (path).getFullPathName(); };
     const auto kids = [&] (const juce::String& folder)
     {
         juce::StringArray out;
-        if (const auto f = made->databaseFolders.find (folder); f != made->databaseFolders.end())
+        if (const auto f = made->databaseFolders.find (at (folder)); f != made->databaseFolders.end())
             for (const auto& k : f->second)
                 out.add (k.getFullPathName());
         return out;
     };
     // The packs: under the database, and under the folder the database file is in (where the browser shows them).
-    CHECK (kids ("/lib/Packs/midiDB") == juce::StringArray { "/lib/Packs/midiDB/Pack A", "/lib/Packs/midiDB/Pack B" });
-    CHECK (kids ("/lib/Packs") == juce::StringArray { "/lib/Packs/midiDB/Pack A", "/lib/Packs/midiDB/Pack B" });
-    CHECK (kids ("/lib/Packs/midiDB/Pack B") == juce::StringArray { "/lib/Packs/midiDB/Pack B/Straight" });
-    CHECK (kids ("/lib/Packs/midiDB/Pack B/Straight") == juce::StringArray { "/lib/Packs/midiDB/Pack B/Straight/Song 1",
-                                                                             "/lib/Packs/midiDB/Pack B/Straight/Song 2" });
-    CHECK (kids ("/lib/Files").isEmpty());
+    CHECK (kids ("lib/Packs/midiDB") == juce::StringArray { at ("lib/Packs/midiDB/Pack A"), at ("lib/Packs/midiDB/Pack B") });
+    CHECK (kids ("lib/Packs") == juce::StringArray { at ("lib/Packs/midiDB/Pack A"), at ("lib/Packs/midiDB/Pack B") });
+    CHECK (kids ("lib/Packs/midiDB/Pack B") == juce::StringArray { at ("lib/Packs/midiDB/Pack B/Straight") });
+    CHECK (kids ("lib/Packs/midiDB/Pack B/Straight") == juce::StringArray { at ("lib/Packs/midiDB/Pack B/Straight/Song 1"),
+                                                                            at ("lib/Packs/midiDB/Pack B/Straight/Song 2") });
+    CHECK (kids ("lib/Files").isEmpty());
     REQUIRE (made->packs.size() == 2);
     CHECK (made->packs[0].getFileName() == "Pack A");
     CHECK (made->packs[1].getFileName() == "Pack B");
