@@ -60,6 +60,19 @@ public:
     static constexpr int width = 1600;
     static constexpr int height = 900;
 
+    // 0.61.0, SHOW / HIDE MIDI TRACK (PR7-G's SHOW / HIDE RACK): hiding the song strip takes its 148 canvas pixels
+    // out (the strip and the gap above it), so the canvas, and the window, get shorter; THE DRUM MACHINE (which covers
+    // everything under the header) keeps the full height while it's shown.
+    static constexpr int trackHeight = 148;
+    static constexpr int heightFor (bool tall) { return tall ? height : height - trackHeight; }
+    // Told after the track is shown or hidden and the view has its new height, so the editor can resize the window.
+    std::function<void()> onHeightChanged;
+    // The track (the song strip). Every window opens with it hidden, to start clean; SHOW MIDI TRACK / HIDE MIDI
+    // TRACK at the foot of the OUTPUT strip switches it, and anything that needs it (ADD TO SONG, EDIT PLAY STYLE,
+    // the GRID EDITOR, the SONG CREATOR) brings it back. Each window has its own: not saved.
+    bool isTrackShown() const noexcept { return trackShown; }
+    void setTrackShown (bool shown);
+
     enum class Page { drums, fx, presets, settings, grooves, mixer };   // mixer: 0.20.0
     void showPage (Page);
     Page getPage() const noexcept { return page; }
@@ -104,7 +117,7 @@ public:
     juce::Rectangle<int> getDrumsTabBounds() const { return drumsTab.getBounds(); }
     // THE SONG TRACK (0.8.0): the strip under the pages (since 0.41.0 only it: no keyboard, no KEYS | SONG).
     void showSong (bool);
-    bool isShowingSong() const noexcept { return songTrack.isVisible(); }   // (0.41.0: always, but under the machine)
+    bool isShowingSong() const noexcept { return songTrack.isVisible(); }   // (0.61.0: while the track is shown, not under the machine)
     // THE DRUM MACHINE (0.38.0): the DRUMS page's MACHINE view, over everything under the header (the page, the
     // song strip and OUTPUT hidden under it while it's shown).
     MachineView& getMachine() noexcept { return machine; }
@@ -173,6 +186,9 @@ private:
     std::unique_ptr<GridWindow> gridWindow;   // 0.48.0 (after the editor: it lets go of the editor first)
     juce::Label groovesAwayNote;
     juce::TextButton groovesShowWindow { "SHOW ITS WINDOW" }, groovesBringBack { "BACK IN PLUGIN" };
+    juce::TextButton trackButton { "SHOW\nMIDI TRACK" };   // 0.61.0: at the foot of the OUTPUT strip
+    bool trackShown = false;
+    void applyTrackView();
     void showGroovesAway();
     ProgressBox progressBox;   // over everything while a long job runs (0.40.0)
     double loadingSince = -1.0;

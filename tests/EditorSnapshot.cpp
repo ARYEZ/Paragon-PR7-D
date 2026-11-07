@@ -1269,7 +1269,10 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         view->setGroovesInOwnWindow (true);
     }
     const auto width = juce::jmax (960, juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_WIDTH", "1600").getIntValue());
-    editor->setSize (width, width * 9 / 16);
+    // 0.61.0: PARAGON_SNAPSHOT_TRACK=1 shows the MIDI track (hidden when a window opens); the window has the view's shape.
+    if (env ("PARAGON_SNAPSHOT_TRACK") == "1")
+        view->setTrackShown (true);
+    editor->setSize (width, width * view->getHeight() / MainView::width);
     editor->resized();
 
     const auto image = editor->createComponentSnapshot (editor->getLocalBounds());

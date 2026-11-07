@@ -231,6 +231,17 @@ void ParagonLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& bu
         return;
     }
 
+    // 0.61.0: a plain button with its own text size, a line per line break in its text (SHOW / MIDI TRACK).
+    if (const auto* size = button.getProperties().getVarPointer (textSizeProperty))
+    {
+        g.setFont (juce::FontOptions ((float) *size));
+        g.setColour (button.findColour (button.getToggleState() ? juce::TextButton::textColourOnId : juce::TextButton::textColourOffId)
+                         .withMultipliedAlpha (button.isEnabled() ? 1.0f : 0.5f));
+        const auto lines = 1 + button.getButtonText().retainCharacters ("\n").length();
+        g.drawFittedText (button.getButtonText(), button.getLocalBounds().reduced (4, 2), juce::Justification::centred, lines, 0.8f);
+        return;
+    }
+
     if (! button.getProperties()[pedalButtonProperty])
     {
         LookAndFeel_V4::drawButtonText (g, button, highlighted, down);

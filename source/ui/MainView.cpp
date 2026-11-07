@@ -259,10 +259,17 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     addChildComponent (rigBrowser);
     addChildComponent (settingsPage);
 
+    // 0.61.0: SHOW / HIDE MIDI TRACK (the window opens with the track hidden).
+    trackButton.setTooltip ("Shows or hides the song track under the pages; the window gets taller or shorter with it.");
+    trackButton.onClick = [this] { setTrackShown (! trackShown); };
+    trackButton.getProperties().set (ParagonLookAndFeel::textSizeProperty, 12.0);
+    addAndMakeVisible (trackButton);
+
     audioProcessor.rigBroadcaster.addChangeListener (this);
     refreshRig();
     startTimerHz (5);
     setWantsKeyboardFocus (true);
+    applyTrackView();   // the view's height (the editor sizes the window from it)
 }
 
 MainView::~MainView()
@@ -438,7 +445,31 @@ void MainView::updateMachine()
         progressBox.toFront (false);   // (a long job's box stays over everything)
     drumPage.setVisible (page == Page::drums && ! shown);
     outputColumn.setVisible (! shown);
-    songTrack.setVisible (! shown);
+    trackButton.setVisible (! shown);
+    applyTrackView();
+}
+
+void MainView::setTrackShown (bool shown)
+{
+    if (shown == trackShown)
+        return;
+    trackShown = shown;
+    applyTrackView();
+}
+
+void MainView::applyTrackView()
+{
+    trackButton.setButtonText (trackShown ? "HIDE\nMIDI TRACK" : "SHOW\nMIDI TRACK");
+    songTrack.setVisible (trackShown && ! machine.isVisible());
+    const auto wanted = heightFor (trackShown || machine.isVisible());
+    if (getHeight() != wanted)
+    {
+        setSize (width, wanted);   // lays it out again
+        if (onHeightChanged)
+            onHeightChanged();
+    }
+    else
+        backgroundCache.invalidate(), repaint();   // (the strip's frame drawn or not)
 }
 
 void MainView::refreshRig()
@@ -606,8 +637,9 @@ void MainView::paintBackground (juce::Graphics& g)
     g.setColour (ParagonColours::panelEdge);
     g.drawHorizontalLine (juce::roundToInt (64.0f * mockScale), 0.0f, (float) getWidth());
 
-    // The song strip's frame (the keyboard's until 0.41.0).
-    DockStyle::drawPanel (g, stripArea.toFloat().expanded (0.0f, 0.0f));
+    // The song strip's frame (the keyboard's until 0.41.0; 0.61.0: while the track is shown).
+    if (trackShown && getHeight() >= height)
+        DockStyle::drawPanel (g, stripArea.toFloat().expanded (0.0f, 0.0f));
 }
 
 void MainView::resized()
@@ -627,7 +659,9 @@ void MainView::resized()
     saveButton.setBounds (mock (1551, 14, 1589, 50));
     settingsButton.setBounds (mock (1611, 14, 1649, 50));
 
-    outputColumn.setBounds (outputArea);
+    // 0.61.0: SHOW / HIDE MIDI TRACK at the OUTPUT strip's foot, the strip shortened over it.
+    outputColumn.setBounds (outputArea.withTrimmedBottom (48));
+    trackButton.setBounds (outputArea.withTrimmedTop (outputArea.getHeight() - 42).reduced (2, 0));
 
     songTrack.setBounds (stripArea.reduced (8, 6));   // the whole strip (0.41.0: no keyboard, no KEYS | SONG)
 
@@ -649,10 +683,10 @@ void MainView::resized()
     progressBox.setCentrePosition (getLocalBounds().getCentre());
 }
 
-void MainView::showSong (bool)
+void MainView::showSong (bool shown)
 {
-    // 0.41.0: the song track is always the strip under the pages (the keyboard it switched with is gone).
-    songTrack.setVisible (! machine.isVisible());
+    // 0.41.0: the song track is the strip under the pages; 0.61.0: shown or hidden with SHOW / HIDE MIDI TRACK.
+    setTrackShown (shown);
 }
 
 void MainView::openPlayStyle (int block)
