@@ -237,9 +237,8 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     };
     songCreator.onGrooveRowDropped = [this] (int row)
     {
-        const auto& results = groovesPage.getResults();
-        if (row >= 0 && row < (int) results.size())
-            songCreator.setSource (results[(size_t) row].file);
+        if (const auto file = groovesPage.fileOfRow (row); file != juce::File())
+            songCreator.setSource (file);
     };
     groovesPage.onAddedToSong = [this] { showSong (true); };
 

@@ -2,6 +2,34 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.62.0
+
+**GROOVES at 100,000 grooves** (you said the GROOVES tab still hangs where Superior Drummer doesn't, with a library of 100,000 grooves). I built a test library that size (70,000 MIDI files and 30,000 grooves in 43 groove databases, all invented) and timed every click on the window's own thread, where a hang comes from.
+
+What it was:
+- **Every click copied the whole library.** Each time you chose a folder, typed a letter in SEARCH or clicked a filter, PR7-D copied all 100,000 grooves and counted every filter value as text. At your library's size that was 0.1 to 0.5 seconds of frozen window for each click.
+- **The list was rebuilt on every update.** While new grooves were being read in, the whole page was rebuilt twice a second, and freeing the old list took another third of a second each time.
+- **Checking for new grooves was very slow.** Even with nothing changed, the background check took about 5 minutes of a whole processor core. Each groove was added to the end of the index by walking the whole list first, so 100,000 grooves cost billions of steps.
+
+What changed:
+- The library now makes its list once, in the background, with the filter values, the folders inside the groove databases and the packs worked out there too. The page reads that list in place instead of copying it.
+- Old lists are freed on a background thread.
+- The index is written without walking the list for each groove.
+
+Measured on the 100,000-groove test library (each click on the window's thread):
+
+| | before | now |
+|---|---|---|
+| choosing a pack | 0.52 s | 0.06 s |
+| choosing a song folder | 0.35 s | 0.04 s |
+| a letter typed in SEARCH | 0.07–0.16 s | 0.02–0.03 s |
+| a filter clicked | 0.18–0.19 s | 0.04 s |
+| the page updating while grooves are read | 0.28 s + 0.34 s freeing | 0.02 s |
+| checking for new grooves, nothing changed (background) | about 5 minutes | about 7 s |
+| reading 100,000 new grooves the first time (background) | about 8.5 minutes | about 8–12 s |
+
+Not changed: the first time EDIT PLAY STYLE learns AMOUNT from your grooves after the library changes (0.2 s, once), and the SONG CREATOR's columns for a new source groove (0.07 s). Not checked here: your own library on your Windows computer. Its disk and files are different, so tell me where it still hangs and I'll measure that.
+
 ## 0.61.0
 
 **SHOW MIDI TRACK / HIDE MIDI TRACK** (you asked to borrow PR7-G's SHOW RACK / HIDE RACK so the kit view stands on its own).

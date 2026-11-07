@@ -153,11 +153,7 @@ namespace grooves
                     }
             }
             cacheEntries (known);
-            std::lock_guard<std::mutex> guard (lock);
-            entries = std::move (known);
-            packsKnown = false;
-            ++generation;
-            matchScores.clear();
+            publish (std::move (known));
         }
     }
 
@@ -329,35 +325,17 @@ namespace grooves
             if (item.getModificationTime() > lastChecked)
                 return true;   // added or changed since the last check
         }
-        std::lock_guard<std::mutex> guard (lock);
-        const auto listed = std::count_if (entries.begin(), entries.end(), [&root] (const Entry& e) { return e.file.isAChildOf (root); });
+        const auto now = getCatalogue();
+        const auto rootPath = root.getFullPathName();
+        const auto listed = std::count_if (now->paths.begin(), now->paths.end(), [&rootPath] (const juce::String& path) { return pathIsIn (path, rootPath); });
         return onDisk != (int) listed;
     }
 
     std::vector<juce::File> Library::getPacks() const
     {
         // A groove's path inside a database is <database file>/<pack>/...: the pack is the folder right inside the
-        // database, found by walking up to the first path that exists on disk (the database).
-        std::set<juce::String> seen;
-        std::vector<juce::File> packs;
-        std::lock_guard<std::mutex> guard (lock);
-        if (packsKnown)
-            return knownPacks;   // 0.30.0: worked out once each time the grooves are listed
-        for (const auto& e : entries)
-        {
-            if (! e.file.getFullPathName().containsIgnoreCase ("mididb"))
-                continue;
-            auto f = e.file.getParentDirectory();
-            while (f.getParentDirectory() != f && ! f.getParentDirectory().getFileName().equalsIgnoreCase ("mididb")
-                   && ! f.getParentDirectory().getFileName().endsWithIgnoreCase (".mididb"))
-                f = f.getParentDirectory();
-            if (f.getParentDirectory() != f && seen.insert (f.getFullPathName()).second)
-                packs.push_back (f);
-        }
-        std::sort (packs.begin(), packs.end(), [] (const juce::File& a, const juce::File& b) { return a.getFileName().compareNatural (b.getFileName()) < 0; });
-        knownPacks = packs;
-        packsKnown = true;
-        return packs;
+        // database (0.62.0: worked out with the catalogue, in the background).
+        return getCatalogue()->packs;
     }
 
     void Library::removeFolder (int index)
@@ -456,6 +434,7 @@ namespace grooves
             for (const auto& [path, item] : before)
             {
                 auto e = item.second;
+                e.fromDatabase = item.first.startsWith ("db");
                 for (int f = 0; f < (int) folders.size(); ++f)
                     if (e.file.isAChildOf (folders[(size_t) f].folder))
                     {
@@ -468,13 +447,7 @@ namespace grooves
                     }
             }
             cacheEntries (known);
-            {
-                std::lock_guard<std::mutex> guard (lock);
-                entries = std::move (known);
-                packsKnown = false;
-                ++generation;
-                matchScores.clear();
-            }
+            publish (std::move (known));
             indexLoaded = true;
             sendChangeMessage();
         }
@@ -497,28 +470,32 @@ namespace grooves
                 paths.insert (e.file.getFullPathName());
             std::vector<Entry> listed;
             {
-                std::lock_guard<std::mutex> guard (lock);
-                listed.reserve (entries.size() + fresh.size());
-                for (const auto& e : entries)
-                    if (paths.count (e.file.getFullPathName()) == 0)
-                        listed.push_back (e);
+                const auto now = getCatalogue();
+                listed.reserve (now->entries.size() + fresh.size());
+                for (size_t i = 0; i < now->entries.size(); ++i)
+                    if (paths.count (now->paths[i]) == 0)
+                        listed.push_back (now->entries[i]);
             }
             for (auto& e : fresh)
                 listed.push_back (std::move (e));
             fresh.clear();
             cacheEntries (listed, true);
-            {
-                std::lock_guard<std::mutex> guard (lock);
-                entries = std::move (listed);
-                packsKnown = false;
-                ++generation;
-                matchScores.clear();
-                indexLoaded = true;
-            }
+            publish (std::move (listed));
+            indexLoaded = true;
             lastShown = juce::Time::getMillisecondCounterHiRes();
             sendChangeMessage();
         };
         juce::XmlElement index ("GrooveIndex");
+        // 0.62.0: the index's entries gathered here and put in once at the end (`finishIndex`): juce::XmlElement's
+        // addChildElement walks its whole list to the end each time, so 100,000 grooves cost about 5 billion steps (a
+        // check with nothing changed took 5 minutes of a core).
+        std::vector<std::unique_ptr<juce::XmlElement>> indexItems;
+        const auto finishIndex = [&]
+        {
+            for (auto it = indexItems.rbegin(); it != indexItems.rend(); ++it)
+                index.prependChildElement (it->release());   // (in front: no walk; reversed, so in the order read)
+            indexItems.clear();
+        };
         // 0.33.2: the folder the page is showing is walked first (then every linked folder, skipping what it read), so
         // the grooves you're looking at come in first however big the rest is.
         const auto walk = [&] (int f, const juce::File& from)
@@ -549,11 +526,12 @@ namespace grooves
                 else
                     return;   // not a groove: no notes, or not a MIDI file
                 seen.insert (file.getFullPathName());
+                e.fromDatabase = key.startsWith ("db");
                 e.folder = f;
                 e.name = file.getFileNameWithoutExtension();
                 e.family = file.getParentDirectory().getFileName();
                 e.part = partOf (file);
-                index.addChildElement (toXml (e, key).release());
+                indexItems.push_back (toXml (e, key));
                 if (isNew)
                 {
                     fresh.push_back (e);
@@ -624,23 +602,21 @@ namespace grooves
             {
                 for (const auto& [path, item] : before)
                     if (seen.count (path) == 0)
-                        index.addChildElement (toXml (item.second, item.first).release());
+                        indexItems.push_back (toXml (item.second, item.first));
+                finishIndex();
                 index.writeTo (indexFile);
             }
             return;
         }
         cacheEntries (found);
-        {
-            std::lock_guard<std::mutex> guard (lock);
-            entries = std::move (found);
-            packsKnown = false;
-            ++generation;
-            matchScores.clear();
-            indexLoaded = true;   // what's listed is newer than the index
-        }
+        publish (std::move (found));
+        indexLoaded = true;   // what's listed is newer than the index
         // Written only when something changed (a file read anew, or one gone): 10,000 grooves are megabytes.
         if (changed || seen.size() != before.size() || ! indexFile.existsAsFile())
+        {
+            finishIndex();
             index.writeTo (indexFile);
+        }
         lastChecked = juce::Time::getCurrentTime();
         std::lock_guard<std::mutex> guard (sessionLock);
         checkedThisSession[indexFile.getFullPathName()] = foldersChecked() + "#" + indexStamp (indexFile);
@@ -665,10 +641,11 @@ namespace grooves
             return false;
         std::set<juce::String> listed;
         {
-            std::lock_guard<std::mutex> guard (lock);
-            for (const auto& e : entries)
-                if (e.file.isAChildOf (folder))
-                    listed.insert (e.file.getFullPathName());
+            const auto now = getCatalogue();
+            const auto folderPath = folder.getFullPathName();
+            for (const auto& path : now->paths)
+                if (pathIsIn (path, folderPath))
+                    listed.insert (path);
         }
         auto count = 0;
         for (const auto& item : juce::RangedDirectoryIterator (folder, true, "*.mid;*.midi", juce::File::findFiles))
@@ -683,14 +660,142 @@ namespace grooves
 
     std::vector<Entry> Library::getEntries() const
     {
+        return getCatalogue()->entries;
+    }
+
+    std::shared_ptr<const Catalogue> Library::getCatalogue() const
+    {
         std::lock_guard<std::mutex> guard (lock);
-        return entries;
+        return catalogue;
+    }
+
+    void Library::publish (std::vector<Entry>&& list)
+    {
+        auto made = makeCatalogue (std::move (list));
+        {
+            std::lock_guard<std::mutex> guard (lock);
+            std::swap (catalogue, made);
+            ++generation;
+            matchScores.clear();
+        }
+        letGo (std::move (made));   // (the old one)
+    }
+
+    void letGo (std::shared_ptr<const Catalogue>&& old)
+    {
+        if (old == nullptr)
+            return;
+        if (old.use_count() > 1 || old->entries.size() < 2000)
+        {
+            old.reset();   // (someone else still has it, or it's small)
+            return;
+        }
+        juce::Thread::launch ([last = std::move (old)]() mutable { last.reset(); });
     }
 
     int Library::getNumEntries() const
     {
-        std::lock_guard<std::mutex> guard (lock);
-        return (int) entries.size();
+        return (int) getCatalogue()->entries.size();
+    }
+
+    bool pathIsIn (const juce::String& path, const juce::String& folder)
+    {
+        // (As juce::File compares paths: without case on Windows.)
+       #if JUCE_WINDOWS
+        if (folder.isEmpty() || ! path.startsWithIgnoreCase (folder))
+       #else
+        if (folder.isEmpty() || ! path.startsWith (folder))
+       #endif
+            return false;
+        if (path.length() == folder.length())
+            return true;
+        const auto next = path[folder.length()];
+        return next == '/' || next == '\\' || folder.endsWithChar ('/') || folder.endsWithChar ('\\');
+    }
+
+    bool pathIsDirectlyIn (const juce::String& path, const juce::String& folder)
+    {
+        if (! pathIsIn (path, folder) || path.length() == folder.length())
+            return false;
+        const auto rest = path.substring (folder.length() + (folder.endsWithChar ('/') || folder.endsWithChar ('\\') ? 0 : 1));
+        return ! rest.containsAnyOf ("/\\");
+    }
+
+    std::shared_ptr<const Catalogue> makeCatalogue (std::vector<Entry>&& list)
+    {
+        auto made = std::make_shared<Catalogue>();
+        made->entries = std::move (list);
+        const auto n = made->entries.size();
+        made->paths.reserve (n);
+        for (const auto& e : made->entries)
+            made->paths.push_back (e.file.getFullPathName());
+
+        // The filter columns' values, and each groove's as numbers.
+        juce::StringArray scratch;
+        for (int c = 0; c < numColumns; ++c)
+        {
+            std::set<juce::String> seen;
+            for (const auto& e : made->entries)
+                for (const auto& v : valuesIn (e, (Column) c, scratch))
+                    seen.insert (v);
+            juce::StringArray all;
+            for (const auto& v : seen)
+                all.add (v);
+            all = sortedValues ((Column) c, all);
+            std::map<juce::String, int> idOf;
+            for (int k = 0; k < all.size(); ++k)
+                idOf[all[k]] = k;
+            auto& first = made->first[(size_t) c];
+            auto& ids = made->ids[(size_t) c];
+            first.reserve (n + 1);
+            ids.reserve (n);
+            for (const auto& e : made->entries)
+            {
+                first.push_back ((int) ids.size());
+                for (const auto& v : valuesIn (e, (Column) c, scratch))
+                    ids.push_back (idOf[v]);
+            }
+            first.push_back ((int) ids.size());
+            made->values[(size_t) c] = std::move (all);
+        }
+
+        // The folders inside groove databases, from the grooves' paths: each folder up to the database under its
+        // parent; the database's own top folders under the folder the database is in too.
+        std::map<juce::String, std::set<juce::String>> kids;
+        std::set<juce::String> done, packs;
+        const auto isDatabaseName = [] (const juce::String& name)
+        {
+            const auto lower = name.toLowerCase();
+            return lower == "mididb" || lower.endsWith (".mididb");
+        };
+        for (const auto& e : made->entries)
+        {
+            if (! e.fromDatabase)
+                continue;
+            auto folder = e.file.getParentDirectory();
+            while (folder.getParentDirectory() != folder && done.insert (folder.getFullPathName()).second)
+            {
+                const auto parent = folder.getParentDirectory();
+                kids[parent.getFullPathName()].insert (folder.getFullPathName());
+                if (isDatabaseName (parent.getFileName()))
+                {
+                    kids[parent.getParentDirectory().getFullPathName()].insert (folder.getFullPathName());
+                    packs.insert (folder.getFullPathName());
+                    break;
+                }
+                folder = parent;
+            }
+        }
+        for (const auto& [parent, children] : kids)
+        {
+            auto& list = made->databaseFolders[parent];
+            for (const auto& k : children)
+                list.push_back (juce::File (k));
+        }
+        for (const auto& p : packs)
+            made->packs.push_back (juce::File (p));
+        std::sort (made->packs.begin(), made->packs.end(), [] (const juce::File& a, const juce::File& b) { return a.getFileName().compareNatural (b.getFileName()) < 0; });
+        return made;
     }
 
     juce::StringArray Entry::tagged (const juce::String& group) const
@@ -824,56 +929,59 @@ namespace grooves
                                        double songBpm, int songNumerator, int songDenominator, const Filters& filters,
                                        const TapSearch* tap) const
     {
+        const auto found = find (within, text, favouritesOnly, sort, songBpm, songNumerator, songDenominator, filters, tap);
+        std::vector<Entry> result;
+        result.reserve (found.rows.size());
+        for (size_t k = 0; k < found.rows.size(); ++k)
+        {
+            result.push_back (found.catalogue->entries[(size_t) found.rows[k]]);
+            if (! found.match.empty())
+                result.back().match = found.match[k];
+        }
+        return result;
+    }
+
+    Library::Found Library::find (const juce::File& within, const juce::String& text, bool favouritesOnly, SortOrder sort,
+                                  double songBpm, int songNumerator, int songDenominator, const Filters& filters,
+                                  const TapSearch* tap) const
+    {
         juce::StringArray words;
         words.addTokens (text.toLowerCase(), " ", "\"");
         words.removeEmptyStrings();
-        std::vector<Entry> result;
+        Found out;
+        out.catalogue = getCatalogue();
+        const auto& all = *out.catalogue;
+        const auto withinPath = within.getFullPathName();
+        // Folders left out of searches (0.16.0): only when browsing inside them.
+        juce::StringArray leftOut;
+        for (const auto& f : folders)
+            if (f.excluded && ! (within == f.folder || within.isAChildOf (f.folder)))
+                leftOut.add (f.folder.getFullPathName());
+        std::set<juce::String> favouriteSet;
+        if (favouritesOnly)
+            for (const auto& f : favourites)
+                favouriteSet.insert (f);
+        const auto filtering = ! filters.isEmpty();
+        for (size_t i = 0; i < all.entries.size(); ++i)
         {
-            std::lock_guard<std::mutex> guard (lock);
-            // Folders left out of searches (0.16.0): only when browsing inside them.
-            std::vector<juce::File> leftOut;
-            for (const auto& f : folders)
-                if (f.excluded && ! (within == f.folder || within.isAChildOf (f.folder)))
-                    leftOut.push_back (f.folder);
-            if (tap != nullptr)
+            const auto& e = all.entries[i];
+            const auto& path = all.paths[i];
+            if (within != juce::File() && ! (subfolders ? pathIsIn (path, withinPath) : pathIsDirectlyIn (path, withinPath)))
+                continue;
+            if (favouritesOnly && favouriteSet.count (path) == 0)
+                continue;
+            if (! leftOut.isEmpty() && std::any_of (leftOut.begin(), leftOut.end(), [&path] (const juce::String& f) { return pathIsIn (path, f); }))
+                continue;
+            if (! words.isEmpty())
             {
-                const auto key = tap->riff != nullptr ? "riff#" + tap->riff->key
-                                                      : tap->rhythm.encode() + "#" + juce::String (tap->rhythm.slackBeats, 6) + "#" + juce::String (tap->grid, 6);
-                if (key != matchKey)
-                {
-                    matchKey = key;
-                    matchScores.clear();
-                }
+                const auto haystack = e.cached != nullptr ? e.cached->haystack
+                    : (e.name + " " + e.family + " " + e.file.getParentDirectory().getParentDirectory().getFileName()).toLowerCase();
+                if (! std::all_of (words.begin(), words.end(), [&] (const juce::String& w) { return haystack.contains (w); }))
+                    continue;
             }
-            for (const auto& e : entries)
-            {
-                if (within != juce::File() && ! (subfolders ? e.file.isAChildOf (within) : e.file.getParentDirectory() == within))
-                    continue;
-                if (favouritesOnly && ! favourites.contains (e.file.getFullPathName()))
-                    continue;
-                if (std::any_of (leftOut.begin(), leftOut.end(), [&e] (const juce::File& f) { return e.file.isAChildOf (f); }))
-                    continue;
-                if (! words.isEmpty())
-                {
-                    const auto haystack = e.cached != nullptr ? e.cached->haystack
-                        : (e.name + " " + e.family + " " + e.file.getParentDirectory().getParentDirectory().getFileName()).toLowerCase();
-                    if (! std::all_of (words.begin(), words.end(), [&] (const juce::String& w) { return haystack.contains (w); }))
-                        continue;
-                }
-                if (! filters.passes (e))
-                    continue;
-                result.push_back (e);
-                if (tap != nullptr)
-                {
-                    const auto key = e.file.getFullPathName();
-                    if (const auto known = matchScores.find (key); known != matchScores.end())
-                        result.back().match = known->second;
-                    else
-                        result.back().match = matchScores[key] = e.rhythm == nullptr ? 0.0f
-                            : tap->riff != nullptr ? (float) riffMatch (*tap->riff, *e.rhythm, e.feel)
-                            : (float) match (tap->rhythm, *e.rhythm, tap->grid);
-                }
-            }
+            if (filtering && ! filters.passes (e))
+                continue;
+            out.rows.push_back ((int) i);
         }
         const auto byName = [] (const Entry& a, const Entry& b)
         {
@@ -885,14 +993,43 @@ namespace grooves
         };
         if (tap != nullptr)
         {
-            std::stable_sort (result.begin(), result.end(), [&] (const Entry& a, const Entry& b)
+            // Each groove's match, kept for the same search (filters and folders clicked during one ask again).
+            std::vector<float> score (all.entries.size(), 0.0f);
             {
-                return a.match != b.match ? a.match > b.match : byName (a, b);
+                std::lock_guard<std::mutex> guard (lock);
+                const auto key = tap->riff != nullptr ? "riff#" + tap->riff->key
+                                                      : tap->rhythm.encode() + "#" + juce::String (tap->rhythm.slackBeats, 6) + "#" + juce::String (tap->grid, 6);
+                if (key != matchKey)
+                {
+                    matchKey = key;
+                    matchScores.clear();
+                }
+                for (const auto r : out.rows)
+                {
+                    const auto& e = all.entries[(size_t) r];
+                    const auto& path = all.paths[(size_t) r];
+                    if (const auto known = matchScores.find (path); known != matchScores.end())
+                        score[(size_t) r] = known->second;
+                    else
+                        score[(size_t) r] = matchScores[path] = e.rhythm == nullptr ? 0.0f
+                            : tap->riff != nullptr ? (float) riffMatch (*tap->riff, *e.rhythm, e.feel)
+                            : (float) match (tap->rhythm, *e.rhythm, tap->grid);
+                }
+            }
+            std::stable_sort (out.rows.begin(), out.rows.end(), [&] (int ra, int rb)
+            {
+                const auto ma = score[(size_t) ra], mb = score[(size_t) rb];
+                return ma != mb ? ma > mb : byName (all.entries[(size_t) ra], all.entries[(size_t) rb]);
             });
-            return result;
+            out.match.reserve (out.rows.size());
+            for (const auto r : out.rows)
+                out.match.push_back (score[(size_t) r]);
+            return out;
         }
-        std::sort (result.begin(), result.end(), [&] (const Entry& a, const Entry& b)
+        std::sort (out.rows.begin(), out.rows.end(), [&] (int ra, int rb)
         {
+            const auto& a = all.entries[(size_t) ra];
+            const auto& b = all.entries[(size_t) rb];
             if (sort.songSignature)
             {
                 const auto ma = a.numerator == songNumerator && a.denominator == songDenominator;
@@ -915,7 +1052,7 @@ namespace grooves
             }
             return byName (a, b);
         });
-        return result;
+        return out;
     }
 
     bool Library::isFavourite (const juce::File& f) const

@@ -739,6 +739,8 @@ GroovesPage::~GroovesPage()
     *alive = false;
     library.removeChangeListener (this);
     table.removeMouseListener (this);
+    results.clear();
+    grooves::letGo (std::move (shown));   // (0.62.0: not freed on the window's thread)
 }
 
 void GroovesPage::visibilityChanged()
@@ -760,20 +762,11 @@ void GroovesPage::refresh()
     // The folders on disk may have changed: read again when asked.
     childCache.clear();
     rowCache.clear();
-    // Every value each filter column has anywhere in the library (those none of the grooves here have show greyed).
-    std::array<std::set<juce::String>, grooves::numColumns> seen;
-    juce::StringArray scratch;
-    for (const auto& e : library.getEntries())
-        for (int c = 0; c < grooves::numColumns; ++c)
-            for (const auto& v : grooves::valuesIn (e, (grooves::Column) c, scratch))
-                seen[(size_t) c].insert (v);
+    // Every value each filter column has anywhere in the library (those none of the grooves here have show greyed):
+    // the catalogue's (0.62.0: worked out when it was listed).
+    const auto all = library.getCatalogue();
     for (int c = 0; c < grooves::numColumns; ++c)
-    {
-        juce::StringArray values;
-        for (const auto& v : seen[(size_t) c])
-            values.add (v);
-        knownValues[(size_t) c] = grooves::sortedValues ((grooves::Column) c, values);
-    }
+        knownValues[(size_t) c] = all->values[(size_t) c];
     // The folder chosen still there? (A linked folder removed, a pack gone.)
     if (within != juce::File() && folderIndexOf (within) < 0)
         within = juce::File();
@@ -797,8 +790,11 @@ std::vector<juce::File> GroovesPage::childrenOf (const juce::File& folder) const
             if (! f.isHidden())
                 kids.push_back (f);
     }
-    for (const auto& f : grooves::db::foldersIn (folder))   // a groove database's folders
-        kids.push_back (f);
+    // A groove database's folders (0.62.0: from the catalogue: the database isn't opened to list them).
+    const auto all = library.getCatalogue();
+    if (const auto inside = all->databaseFolders.find (key); inside != all->databaseFolders.end())
+        for (const auto& f : inside->second)
+            kids.push_back (f);
     std::stable_sort (kids.begin(), kids.end(), [] (const juce::File& a, const juce::File& b)
     {
         return a.getFileName().compareNatural (b.getFileName()) < 0;
@@ -1239,34 +1235,56 @@ void GroovesPage::requery()
 {
     // The grooves the folder, words, favourites (and a rhythm) leave are the scope: each filter column counts its
     // values in them; the list shows those that pass the filters.
+    // 0.62.0: rows of the library's catalogue (no copies), the counts by each value's number (no text compared).
     const auto p = library.getPreview();
-    const auto scope = library.query (within, search.getText(), favouritesOnly, p.sortOrder, processor.getHostBpm(),
-                                      processor.getHostNumerator(), processor.getHostDenominator(), {},
-                                      tapSearch.has_value() ? &*tapSearch : nullptr);
+    const auto scope = library.find (within, search.getText(), favouritesOnly, p.sortOrder, processor.getHostBpm(),
+                                     processor.getHostNumerator(), processor.getHostDenominator(), {},
+                                     tapSearch.has_value() ? &*tapSearch : nullptr);
+    if (shown != scope.catalogue)
+    {
+        auto old = std::move (shown);
+        shown = scope.catalogue;
+        results.clear();   // (its rows point into the old one)
+        grooves::letGo (std::move (old));
+    }
+    const auto& all = *shown;
     results.clear();
-    for (const auto& e : scope)
-        if (filters.passes (e))
-            results.push_back (e);
+    results.reserve (scope.rows.size());
+    const auto filtering = ! filters.isEmpty();
+    for (size_t k = 0; k < scope.rows.size(); ++k)
+    {
+        const auto& e = all.entries[(size_t) scope.rows[k]];
+        if (! filtering || filters.passes (e))
+            results.push_back ({ &e, scope.match.empty() ? -1.0f : scope.match[k] });
+    }
     for (int c = 0; c < grooves::numColumns; ++c)
     {
         const auto column = (grooves::Column) c;
-        std::map<juce::String, int> counts;
-        juce::StringArray scratch;
-        for (const auto& e : scope)
-            for (const auto& v : grooves::valuesIn (e, column, scratch))
-                ++counts[v];
-        auto values = knownValues[(size_t) c];
+        const auto& known = all.values[(size_t) c];
+        std::vector<int> counts ((size_t) known.size(), 0);
+        for (const auto r : scope.rows)
+            all.forEachValueId ((size_t) r, c, [&counts] (int id) { ++counts[(size_t) id]; });
+        // Every value the library has (those none here have greyed), and any chosen that it hasn't (any more).
+        auto values = known;
+        auto extra = false;
         for (const auto* chosenOnes : { &filters.include[(size_t) c], &filters.exclude[(size_t) c] })
             for (const auto& v : *chosenOnes)
-                values.addIfNotAlreadyThere (v);
-        for (const auto& [v, n] : counts)
-            values.addIfNotAlreadyThere (v);
-        values = grooves::sortedValues (column, values);
+                if (! values.contains (v))
+                    values.add (v), extra = true;
         juce::Array<int> numbers;
-        for (const auto& v : values)
+        if (! extra)
         {
-            const auto found = counts.find (v);
-            numbers.add (found != counts.end() ? found->second : 0);
+            for (const auto n : counts)
+                numbers.add (n);
+        }
+        else
+        {
+            values = grooves::sortedValues (column, values);
+            for (const auto& v : values)
+            {
+                const auto at = known.indexOf (v);
+                numbers.add (at >= 0 ? counts[(size_t) at] : 0);
+            }
         }
         filterColumns[(size_t) c]->setValues (values, numbers);
     }
@@ -1280,14 +1298,45 @@ void GroovesPage::requery()
     timerCallback();
 }
 
+std::vector<grooves::Entry> GroovesPage::getResults() const
+{
+    std::vector<grooves::Entry> out;
+    out.reserve (results.size());
+    for (const auto& r : results)
+    {
+        out.push_back (*r.entry);
+        out.back().match = r.match;
+    }
+    return out;
+}
+
+juce::File GroovesPage::fileOfRow (int row) const
+{
+    return row >= 0 && row < (int) results.size() ? results[(size_t) row].entry->file : juce::File();
+}
+
 void GroovesPage::sortResults()
 {
     if (headerSort == 0)
         return;
     const auto column = headerSort;
     const auto forwards = headerForwards;
-    std::stable_sort (results.begin(), results.end(), [column, forwards] (const grooves::Entry& a, const grooves::Entry& b)
+    // (Text columns: each row's text worked out once, not in every comparison.)
+    std::vector<juce::String> texts;
+    const auto textual = column != signature && column != bars && column != tempo && column != intensity && column != matchScore;
+    if (textual)
     {
+        texts.reserve (results.size());
+        for (size_t k = 0; k < results.size(); ++k)
+        {
+            texts.push_back (cellText (*results[k].entry, column));
+            results[k].textIndex = (int) k;
+        }
+    }
+    std::stable_sort (results.begin(), results.end(), [&] (const Row& ra, const Row& rb)
+    {
+        const auto& a = *ra.entry;
+        const auto& b = *rb.entry;
         int order = 0;
         switch (column)
         {
@@ -1296,8 +1345,8 @@ void GroovesPage::sortResults()
             case bars: order = a.bars < b.bars ? -1 : a.bars > b.bars ? 1 : 0; break;
             case tempo: order = a.bpm < b.bpm ? -1 : a.bpm > b.bpm ? 1 : 0; break;
             case intensity: order = a.intensity < b.intensity ? -1 : a.intensity > b.intensity ? 1 : 0; break;
-            case matchScore: order = a.match > b.match ? -1 : a.match < b.match ? 1 : 0; break;
-            default: order = cellText (a, column).compareNatural (cellText (b, column)); break;
+            case matchScore: order = ra.match > rb.match ? -1 : ra.match < rb.match ? 1 : 0; break;
+            default: order = texts[(size_t) ra.textIndex].compareNatural (texts[(size_t) rb.textIndex]); break;
         }
         return forwards ? order < 0 : order > 0;
     });
@@ -1456,7 +1505,8 @@ void GroovesPage::updateSuggestions()
                 if (v.containsIgnoreCase (text) && suggested.size() < 6)
                     suggested.push_back ({ c, v });
         std::set<juce::String> names;
-        for (const auto& e : library.getEntries())
+        const auto all = library.getCatalogue();
+        for (const auto& e : all->entries)
         {
             if (names.size() >= 6)
                 break;
@@ -1512,7 +1562,7 @@ void GroovesPage::toPattern (int pattern)
         message = "Choose a groove first (click it in the list)";
     else
     {
-        const auto r = processor.grooveToPattern (*g, results[(size_t) row].folder, pattern);
+        const auto r = processor.grooveToPattern (*g, results[(size_t) row].entry->folder, pattern);
         message = g->name + " is pattern " + synth::drumseq::patternNames[pattern] + " now (" + juce::String (r.lengthBeats) + " beats)";
         if (r.pastEnd > 0)
             message << ", its first 16 beats";
@@ -1655,9 +1705,9 @@ void GroovesPage::findByRhythm (const grooves::Rhythm& rhythm, double grid, cons
 
 void GroovesPage::findSimilar (int row)
 {
-    if (row < 0 || row >= (int) results.size() || results[(size_t) row].rhythm == nullptr)
+    if (row < 0 || row >= (int) results.size() || results[(size_t) row].entry->rhythm == nullptr)
         return;
-    const auto& e = results[(size_t) row];
+    const auto& e = *results[(size_t) row].entry;
     findByRhythm (grooves::searchRhythm (*e.rhythm), tapPanel->getGrid(), e.name);   // 0.31.0: up to four bars
 }
 
@@ -1683,7 +1733,7 @@ void GroovesPage::searchWithTags (int row)
 {
     if (row < 0 || row >= (int) results.size())
         return;
-    const auto e = results[(size_t) row];
+    const auto e = *results[(size_t) row].entry;
     filters = {};
     filterOrder.clear();
     for (const auto c : { grooves::Column::genre, grooves::Column::playStyle, grooves::Column::type, grooves::Column::time, grooves::Column::hand })
@@ -1702,10 +1752,10 @@ void GroovesPage::showInBrowser (int row)
 {
     if (row < 0 || row >= (int) results.size())
         return;
-    const auto file = results[(size_t) row].file;
+    const auto file = results[(size_t) row].entry->file;
     browseTo (file.getParentDirectory(), true);
     for (int r = 0; r < (int) results.size(); ++r)
-        if (results[(size_t) r].file == file)
+        if (results[(size_t) r].entry->file == file)
         {
             table.selectRow (r);
             table.scrollToEnsureRowIsOnscreen (r);
@@ -1811,7 +1861,7 @@ void GroovesPage::findPlayingRow()
     if (shownPlaying == juce::File())
         return;
     for (int row = 0; row < (int) results.size(); ++row)
-        if (results[(size_t) row].file == shownPlaying)
+        if (results[(size_t) row].entry->file == shownPlaying)
         {
             playingRow = row;
             return;
@@ -1822,7 +1872,7 @@ std::optional<grooves::Groove> GroovesPage::readRow (int row) const
 {
     if (row < 0 || row >= (int) results.size())
         return std::nullopt;
-    const auto& e = results[(size_t) row];
+    const auto& e = *results[(size_t) row].entry;
     return grooves::read (e.file, processor.grooveLayout (e.folder));
 }
 
@@ -1831,7 +1881,7 @@ bool GroovesPage::addRowToSong (int row, double beat)
     const auto g = readRow (row);
     if (! g.has_value())
         return false;
-    processor.addToSong (*g, results[(size_t) row].folder, beat);
+    processor.addToSong (*g, results[(size_t) row].entry->folder, beat);
     message = g->name + " is in the song now";
     messageUntil = juce::Time::getMillisecondCounterHiRes() + 3000.0;
     if (onAddedToSong != nullptr)
@@ -1844,7 +1894,7 @@ bool GroovesPage::rowToPattern (int row, int pattern)
     const auto g = readRow (row);
     if (! g.has_value())
         return false;
-    const auto folder = results[(size_t) row].folder;
+    const auto folder = results[(size_t) row].entry->folder;
     const auto r = chosenParts == grooves::allParts ? processor.grooveToPattern (*g, folder, pattern)
                                                     : processor.layerParts (*g, folder, chosenParts, pattern);
     message = g->name + " is in pattern " + synth::drumseq::patternNames[pattern] + " now";
@@ -1858,7 +1908,7 @@ bool GroovesPage::partToPattern (int part, int pattern)
     const auto g = readRow (row);
     if (! g.has_value())
         return false;
-    return processor.layerParts (*g, results[(size_t) row].folder, 1u << juce::jlimit (0, grooves::numDrumParts - 1, part), pattern).placed > 0;
+    return processor.layerParts (*g, results[(size_t) row].entry->folder, 1u << juce::jlimit (0, grooves::numDrumParts - 1, part), pattern).placed > 0;
 }
 
 juce::String GroovesPage::describeRowDrop (int pattern) const
@@ -1878,7 +1928,7 @@ bool GroovesPage::copyRowForSong (int row)
     const auto g = readRow (row);
     if (! g.has_value())
         return false;
-    processor.copyGrooveForSong (*g, results[(size_t) row].folder, chosenParts);
+    processor.copyGrooveForSong (*g, results[(size_t) row].entry->folder, chosenParts);
     message = g->name + " copied: right-click a block in the song, PASTE DRUMS ONTO IT";
     messageUntil = juce::Time::getMillisecondCounterHiRes() + 4000.0;
     return true;
@@ -1887,7 +1937,7 @@ bool GroovesPage::copyRowForSong (int row)
 void GroovesPage::playRow (int row, bool loop)
 {
     if (const auto g = readRow (row))
-        processor.playGroove (*g, results[(size_t) row].folder, loop, chosenParts);
+        processor.playGroove (*g, results[(size_t) row].entry->folder, loop, chosenParts);
 }
 
 void GroovesPage::selectedRowsChanged (int row)
@@ -1897,7 +1947,7 @@ void GroovesPage::selectedRowsChanged (int row)
     if (const auto g = readRow (row))
     {
         partsOf = g->file;
-        const auto map = processor.grooveLayout (results[(size_t) row].folder);
+        const auto map = processor.grooveLayout (results[(size_t) row].entry->folder);
         for (const auto& h : g->hits)
             if (const auto part = grooves::drumPartOf (synth::drums::notemap::slotOf (map, h.note)); part >= 0)
                 ++partCounts[(size_t) part];
@@ -1919,7 +1969,7 @@ void GroovesPage::toggleDrumPart (int part)
     }
     partsList->refresh();
     if (const auto row = table.getSelectedRow(); row >= 0 && row < (int) results.size()
-        && processor.getGroovePosition() >= 0.0 && processor.getGrooveFile() == results[(size_t) row].file)
+        && processor.getGroovePosition() >= 0.0 && processor.getGrooveFile() == results[(size_t) row].entry->file)
         playRow (row, true);
 }
 
@@ -1931,7 +1981,7 @@ void GroovesPage::layerOnto (int pattern)
         message = "Choose a groove first (click it in the list)";
     else
     {
-        processor.layerParts (*g, results[(size_t) row].folder, chosenParts, pattern);
+        processor.layerParts (*g, results[(size_t) row].entry->folder, chosenParts, pattern);
         juce::StringArray names;
         for (int k = 0; k < grooves::numDrumParts; ++k)
             if ((chosenParts & (1u << k)) != 0)
@@ -1951,7 +2001,7 @@ int GroovesPage::getNumRows()
 
 void GroovesPage::paintRowBackground (juce::Graphics& g, int row, int width, int height, bool selected)
 {
-    const auto isPlaying = row < (int) results.size() && results[(size_t) row].file == shownPlaying;
+    const auto isPlaying = row < (int) results.size() && results[(size_t) row].entry->file == shownPlaying;
     g.setColour (selected || isPlaying ? ParagonColours::accentDim.withAlpha (0.45f)
                  : row == hoveredRow ? juce::Colour (0x14ffffff)
                  : (row % 2 == 0 ? juce::Colour (0x00000000) : juce::Colour (0x0affffff)));
@@ -1964,7 +2014,7 @@ void GroovesPage::paintCell (juce::Graphics& g, int row, int column, int width, 
 {
     if (row < 0 || row >= (int) results.size())
         return;
-    const auto& e = results[(size_t) row];
+    const auto& e = *results[(size_t) row].entry;
     const auto isPlaying = e.file == shownPlaying;
     g.setColour (isPlaying ? ParagonColours::accent : ParagonColours::text);
     g.setFont (juce::FontOptions (13.0f));
@@ -2034,7 +2084,7 @@ void GroovesPage::paintCell (juce::Graphics& g, int row, int column, int width, 
             text (cellText (e, column));
             break;
         case matchScore:
-            text (e.match >= 0.0f ? juce::String (juce::roundToInt (e.match * 100.0f)) + "%" : juce::String ("-"), juce::Justification::centred);
+            text (results[(size_t) row].match >= 0.0f ? juce::String (juce::roundToInt (results[(size_t) row].match * 100.0f)) + "%" : juce::String ("-"), juce::Justification::centred);
             break;
         case intensity:
         {
@@ -2053,7 +2103,7 @@ juce::String GroovesPage::getCellTooltip (int row, int column)
 {
     if (row < 0 || row >= (int) results.size())
         return {};
-    const auto& e = results[(size_t) row];
+    const auto& e = *results[(size_t) row].entry;
     switch (column)
     {
         case favourite: return "Click: a favourite. Click the column's star: favourites only.";
@@ -2071,7 +2121,7 @@ void GroovesPage::cellClicked (int row, int column, const juce::MouseEvent& e)
 {
     if (row < 0 || row >= (int) results.size())
         return;
-    const auto file = results[(size_t) row].file;
+    const auto file = results[(size_t) row].entry->file;
     if (e.mods.isPopupMenu())
     {
         table.selectRow (row);
@@ -2181,7 +2231,7 @@ bool GroovesPage::shouldDropFilesWhenDraggedExternally (const juce::DragAndDropT
     const auto g = readRow (row);
     if (! g.has_value())
         return false;
-    const auto file = processor.grooveDragFile (*g, results[(size_t) row].folder, parts);
+    const auto file = processor.grooveDragFile (*g, results[(size_t) row].entry->folder, parts);
     if (! file.existsAsFile())
         return false;
     files.add (file.getFullPathName());

@@ -4294,7 +4294,7 @@ song::Columns ParagonX1AudioProcessor::songCreatorColumns (const juce::File& sou
             root = f.folder;
     if (root == juce::File())
         return {};   // not in a linked folder: no index to look round in
-    return song::variationsOf (source, grooveFolders->getEntries(), root);
+    return song::variationsOf (source, grooveFolders->getCatalogue()->entries, root);   // (0.62.0: no copy)
 }
 
 std::optional<song::Block> ParagonX1AudioProcessor::songBlockFor (const grooves::Entry& e) const
@@ -4778,7 +4778,7 @@ const song::playstyle::AmountModel& ParagonX1AudioProcessor::getAmountModel()
     if (amountModel == nullptr || generation != amountModelGeneration)
     {
         auto model = std::make_unique<song::playstyle::AmountModel>();
-        model->learn (grooveFolders->getEntries());
+        model->learn (grooveFolders->getCatalogue()->entries);   // (0.62.0: no copy)
         amountModel = std::move (model);
         amountModelGeneration = generation;
     }
