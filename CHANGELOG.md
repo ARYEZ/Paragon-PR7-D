@@ -2,6 +2,15 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.61.0
+
+**SHOW MIDI TRACK / HIDE MIDI TRACK** (you asked to borrow PR7-G's SHOW RACK / HIDE RACK so the kit view stands on its own).
+
+- **The window opens with the MIDI track (the song strip) hidden.** It gets shorter instead of leaving an empty band, and keeps the width you chose. It's set per window and not saved, like PR7-G's rack, so each time the plugin opens it starts clean.
+- **The button** is at the foot of the OUTPUT strip: SHOW MIDI TRACK brings the track back and the window grows to its full height. If the taller window wouldn't fit below where it sits on your screen, it gets a little narrower so it fits.
+- **The song's tools bring it back by themselves:** ADD TO SONG, EDIT PLAY STYLE, the GRID EDITOR and the SONG CREATOR show the track when they open.
+- **THE DRUM MACHINE** keeps its full height (it covers everything under the header), so the window grows while it's shown and goes back when you return to the kit view.
+
 ## 0.60.0
 
 **The KIT VIEW's holograms: smaller bases, a glitched look** (you asked for the rings 2/3 the size, and scanlines "more dramatic so it really sells the idea of a glitched hologram").
