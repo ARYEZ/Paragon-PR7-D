@@ -131,6 +131,7 @@ namespace grooves
         // path; a database's own top folders are listed under the folder the database file is in too (the browser
         // shows them there). Worked out from the grooves' paths, so the browser never opens a database to list them.
         std::map<juce::String, std::vector<juce::File>> databaseFolders;
+        std::vector<juce::File> packs;   // the folder right inside each groove database (getPacks), by name
 
         template <typename Fn> void forEachValueId (size_t entry, int column, Fn&& fn) const
         {
@@ -142,6 +143,9 @@ namespace grooves
     };
     // Makes one (the entries cached first: cacheEntries).
     std::shared_ptr<const Catalogue> makeCatalogue (std::vector<Entry>&&);
+    // Lets go of one: when it's the last hold, it's freed on a thread of its own (100,000 grooves took a third of a
+    // second to free: on the window's thread, a freeze each time the list was replaced, twice a second while reading).
+    void letGo (std::shared_ptr<const Catalogue>&&);
     // Whether a full path is `folder` itself or inside it (by the text: no disk, no copies), and whether it's directly
     // in it.
     bool pathIsIn (const juce::String& path, const juce::String& folder);
@@ -296,8 +300,6 @@ namespace grooves
         mutable std::mutex lock;        // guards catalogue
         std::shared_ptr<const Catalogue> catalogue = std::make_shared<const Catalogue>();
         void publish (std::vector<Entry>&&);   // the new list as the catalogue (made outside the lock)
-        mutable std::vector<juce::File> knownPacks;   // getPacks's, while packsKnown (both under the lock)
-        mutable bool packsKnown = false;
         std::atomic<int> generation { 0 };
         // 0.31.0: each groove's match for the last tap search (filters and folders clicked during one ask again).
         mutable juce::String matchKey;

@@ -739,6 +739,8 @@ GroovesPage::~GroovesPage()
     *alive = false;
     library.removeChangeListener (this);
     table.removeMouseListener (this);
+    results.clear();
+    grooves::letGo (std::move (shown));   // (0.62.0: not freed on the window's thread)
 }
 
 void GroovesPage::visibilityChanged()
@@ -1238,7 +1240,13 @@ void GroovesPage::requery()
     const auto scope = library.find (within, search.getText(), favouritesOnly, p.sortOrder, processor.getHostBpm(),
                                      processor.getHostNumerator(), processor.getHostDenominator(), {},
                                      tapSearch.has_value() ? &*tapSearch : nullptr);
-    shown = scope.catalogue;
+    if (shown != scope.catalogue)
+    {
+        auto old = std::move (shown);
+        shown = scope.catalogue;
+        results.clear();   // (its rows point into the old one)
+        grooves::letGo (std::move (old));
+    }
     const auto& all = *shown;
     results.clear();
     results.reserve (scope.rows.size());

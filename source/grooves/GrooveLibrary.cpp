@@ -334,27 +334,8 @@ namespace grooves
     std::vector<juce::File> Library::getPacks() const
     {
         // A groove's path inside a database is <database file>/<pack>/...: the pack is the folder right inside the
-        // database, found by walking up to the first path that exists on disk (the database).
-        std::set<juce::String> seen;
-        std::vector<juce::File> packs;
-        std::lock_guard<std::mutex> guard (lock);
-        if (packsKnown)
-            return knownPacks;   // 0.30.0: worked out once each time the grooves are listed
-        for (const auto& e : catalogue->entries)
-        {
-            if (! e.fromDatabase && ! e.file.getFullPathName().containsIgnoreCase ("mididb"))
-                continue;
-            auto f = e.file.getParentDirectory();
-            while (f.getParentDirectory() != f && ! f.getParentDirectory().getFileName().equalsIgnoreCase ("mididb")
-                   && ! f.getParentDirectory().getFileName().endsWithIgnoreCase (".mididb"))
-                f = f.getParentDirectory();
-            if (f.getParentDirectory() != f && seen.insert (f.getFullPathName()).second)
-                packs.push_back (f);
-        }
-        std::sort (packs.begin(), packs.end(), [] (const juce::File& a, const juce::File& b) { return a.getFileName().compareNatural (b.getFileName()) < 0; });
-        knownPacks = packs;
-        packsKnown = true;
-        return packs;
+        // database (0.62.0: worked out with the catalogue, in the background).
+        return getCatalogue()->packs;
     }
 
     void Library::removeFolder (int index)
@@ -691,11 +672,25 @@ namespace grooves
     void Library::publish (std::vector<Entry>&& list)
     {
         auto made = makeCatalogue (std::move (list));
-        std::lock_guard<std::mutex> guard (lock);
-        catalogue = std::move (made);
-        packsKnown = false;
-        ++generation;
-        matchScores.clear();
+        {
+            std::lock_guard<std::mutex> guard (lock);
+            std::swap (catalogue, made);
+            ++generation;
+            matchScores.clear();
+        }
+        letGo (std::move (made));   // (the old one)
+    }
+
+    void letGo (std::shared_ptr<const Catalogue>&& old)
+    {
+        if (old == nullptr)
+            return;
+        if (old.use_count() > 1 || old->entries.size() < 2000)
+        {
+            old.reset();   // (someone else still has it, or it's small)
+            return;
+        }
+        juce::Thread::launch ([last = std::move (old)]() mutable { last.reset(); });
     }
 
     int Library::getNumEntries() const
@@ -767,7 +762,7 @@ namespace grooves
         // The folders inside groove databases, from the grooves' paths: each folder up to the database under its
         // parent; the database's own top folders under the folder the database is in too.
         std::map<juce::String, std::set<juce::String>> kids;
-        std::set<juce::String> done;
+        std::set<juce::String> done, packs;
         const auto isDatabaseName = [] (const juce::String& name)
         {
             const auto lower = name.toLowerCase();
@@ -785,6 +780,7 @@ namespace grooves
                 if (isDatabaseName (parent.getFileName()))
                 {
                     kids[parent.getParentDirectory().getFullPathName()].insert (folder.getFullPathName());
+                    packs.insert (folder.getFullPathName());
                     break;
                 }
                 folder = parent;
@@ -796,6 +792,9 @@ namespace grooves
             for (const auto& k : children)
                 list.push_back (juce::File (k));
         }
+        for (const auto& p : packs)
+            made->packs.push_back (juce::File (p));
+        std::sort (made->packs.begin(), made->packs.end(), [] (const juce::File& a, const juce::File& b) { return a.getFileName().compareNatural (b.getFileName()) < 0; });
         return made;
     }
 
