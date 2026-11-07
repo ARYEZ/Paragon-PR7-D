@@ -150,13 +150,15 @@ TEST_CASE ("GROOVE CATALOGUE: a library's listing, its index written whole (300 
         CHECK (library.getNumEntries() == 300);
         CHECK (library.getEntries().size() == 300);
         // find: rows of the catalogue, the same as query's copies.
-        const auto found = library.find (pack.getChildFile ("Song 03"), "groove 1", false, {}, 120.0, 4, 4);
-        const auto copies = library.query (pack.getChildFile ("Song 03"), "groove 1", false, {}, 120.0, 4, 4);
-        REQUIRE (found.rows.size() == 10);   // Groove 10-19
-        REQUIRE (copies.size() == 10);
-        for (size_t k = 0; k < 10; ++k)
+        const auto found = library.find (pack.getChildFile ("Song 03"), "groove", false, {}, 120.0, 4, 4);
+        const auto copies = library.query (pack.getChildFile ("Song 03"), "groove", false, {}, 120.0, 4, 4);
+        REQUIRE (found.rows.size() == 30);   // that song's, by name
+        REQUIRE (copies.size() == 30);
+        for (size_t k = 0; k < 30; ++k)
             CHECK (found.catalogue->entries[(size_t) found.rows[k]].file == copies[k].file);
-        CHECK (copies.front().name == "Groove 10");
+        CHECK (copies.front().name == "Groove 00");
+        CHECK (copies.back().name == "Groove 29");
+        CHECK (library.find (pack.getChildFile ("Song 03"), "groove 2", false, {}, 120.0, 4, 4).rows.size() == 12);   // (02, 12, 20-29)
         CHECK (found.match.empty());
     }
     // The index: every groove once.
