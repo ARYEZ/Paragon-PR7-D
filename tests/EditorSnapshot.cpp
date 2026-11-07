@@ -1273,6 +1273,21 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
     if (env ("PARAGON_SNAPSHOT_TRACK") == "1")
         view->setTrackShown (true);
     editor->setSize (width, width * view->getHeight() / MainView::width);
+    // PARAGON_SNAPSHOT_CUT=1 (0.63.0, with SONG=1): THE CUT TOOL on, the mouse over the third block's bar 2 (the line
+    // where a click would cut).
+    if (env ("PARAGON_SNAPSHOT_CUT") == "1")
+    {
+        editor->resized();
+        auto& strip = view->getSongTrack();
+        strip.setCutting (true);
+        const auto& s = processor.getSong();
+        if (s.blocks.size() > 2)
+        {
+            const juce::Point<float> at (strip.xOf (s.blocks[2].start + 4.6), (float) strip.getLane().getCentreY());
+            strip.mouseMove (juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys(), 1.0f, 0.0f,
+                                               0.0f, 0.0f, 0.0f, &strip, &strip, juce::Time::getCurrentTime(), at, juce::Time::getCurrentTime(), 0, false));
+        }
+    }
     editor->resized();
 
     const auto image = editor->createComponentSnapshot (editor->getLocalBounds());

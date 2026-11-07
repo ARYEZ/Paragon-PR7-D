@@ -33,6 +33,7 @@ public:
     void mouseUp (const juce::MouseEvent&) override;
     void mouseDoubleClick (const juce::MouseEvent&) override;
     void mouseMove (const juce::MouseEvent&) override;
+    void mouseExit (const juce::MouseEvent&) override;
     bool keyPressed (const juce::KeyPress&) override;
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
@@ -100,6 +101,12 @@ public:
     // else four bars from PLAY's start); drag along the bar numbers to set it; right-click them, or a block (LOOP THIS
     // BLOCK), for more. CLICK...: the metronome while the song plays: off, while REC is armed, or always.
     juce::TextButton& getLoopButton() noexcept { return loop; }
+    // THE CUT TOOL (0.63.0): on, a click on a block cuts it in two there: on the nearest bar line, or with ALT held on
+    // the nearest beat. CUT (or the C key) switches it; ESCAPE leaves it.
+    juce::TextButton& getCutButton() noexcept { return cutTool; }
+    bool isCutting() const noexcept { return cutting; }
+    void setCutting (bool);
+    double cutPointAt (float x, bool onBeats) const;   // where a click there would cut (-1: not on a block, or its edge)
     juce::TextButton& getClickButton() noexcept { return click; }
     void toggleLoop();
     void setLoop (double fromBeat, double toBeat);   // on bar lines, on (one undo step)
@@ -143,6 +150,9 @@ private:
     std::optional<song::Song> tempoDraft;     // ... the song as it would be (drawn while dragging)
     std::unique_ptr<juce::FileChooser> chooser;
     juce::TextButton record { "REC" }, follow { "FOLLOW DAW" }, loop { "LOOP" }, click { "CLICK..." };
+    juce::TextButton cutTool { "CUT" };   // 0.63.0
+    bool cutting = false;
+    double cutHover = -1.0;   // the cut a click would make where the mouse is (-1: none)
     double rulerFrom = -1.0;                      // a drag along the bar numbers: where it began (-1: none)
     std::optional<std::pair<double, double>> loopDraft;   // ... and the loop it would set
     juce::String note;          // a few seconds' note in the status line

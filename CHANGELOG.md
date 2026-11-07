@@ -2,6 +2,15 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.63.0
+
+**A CUT tool on the MIDI track, a fix for the pause at the loop's restart, and ORIGINAL TEMPO** (you asked to cut the MIDI on the track as a DAW's cutting tool does; ORIGINAL TEMPO didn't seem to work; and there was a pause of about half a second each time a loop started over, which wasn't there with the same MIDI on a DAW track).
+
+- **THE CUT TOOL.** CUT on the MIDI track's bar (or the C key) turns it on. A dashed line shows where a click will cut. Click a block and it's cut in two on the nearest bar line; hold ALT to cut on the nearest beat instead. Each half keeps its own notes where they played. Each cut is one undo step, and the second half is chosen afterwards. Click CUT again or press ESCAPE to go back to moving blocks. Right-click still opens a block's menu.
+- **The pause at the loop's restart.** When a MIDI file ends part-way into a bar (a 7-beat groove, common in djent), your DAW loops it at the file's own end. PR7-D rounded it up to a whole bar, which played silence before every restart: one beat, half a second at 120 BPM. Now a file whose end lies past its last note, on a beat or a 16th, loops at that end. This applies in the GROOVES preview, in the song track, and when grooves go into the sequencer. A file that simply stops at its last note still rounds up to whole bars, as before. This is my best match for what you heard: I couldn't reproduce a pause with a whole-bar groove. If you still hear one, tell me which groove.
+- **ORIGINAL TEMPO.** It already worked when a file holds its real tempo (tested: a 96 BPM groove plays at 96 with your DAW at 140). But many programs save MIDI at 120, the MIDI default, whatever the groove's tempo. A "160 BPM" groove saved like that was played at 120, so in a DAW at 120 the button seemed to do nothing. Now when a file's tempo is exactly 120 and its name or folder gives another tempo (for example "160 BPM"), the name wins. This is a guess about your files, so tell me if a groove still plays at the wrong speed and which one.
+- Your grooves are read again once, in the background, so their tempos and lengths are listed correctly.
+
 ## 0.62.0
 
 **GROOVES at 100,000 grooves** (you said the GROOVES tab still hangs where Superior Drummer doesn't, with a library of 100,000 grooves). I built a test library that size (70,000 MIDI files and 30,000 grooves in 43 groove databases, all invented) and timed every click on the window's own thread, where a hang comes from.

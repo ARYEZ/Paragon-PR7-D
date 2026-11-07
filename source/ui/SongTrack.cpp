@@ -119,6 +119,13 @@ SongTrack::SongTrack (ParagonX1AudioProcessor& p) : processor (p)
                       "armed, or always.");
     click.onClick = [this] { clickMenu().showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&click)); };
     addAndMakeVisible (click);
+    // THE CUT TOOL (0.63.0).
+    cutTool.setClickingTogglesState (true);
+    cutTool.setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
+    cutTool.setTooltip ("CUT (key C): click a block to cut it in two, on the nearest bar line (hold ALT: on the nearest beat). "
+                        "Click CUT again, or press ESCAPE, to go back to moving blocks.");
+    cutTool.onClick = [this] { setCutting (cutTool.getToggleState()); };
+    addAndMakeVisible (cutTool);
     blocksView.setTooltip ("The blocks: arrange the song.");
     tempoView.setTooltip ("The song's tempo changes (used by PLAY and EXPORT MIDI; while your DAW plays, its tempo leads): "
                           "double-click to add one, drag one to move it, right-click it to glide to the next or remove it.");
@@ -255,6 +262,8 @@ void SongTrack::resized()
     follow.setBounds (top.removeFromLeft (98).reduced (2, 2));
     loop.setBounds (top.removeFromLeft (58).reduced (2, 2));    // 0.44.0
     click.setBounds (top.removeFromLeft (92).reduced (2, 2));
+    top.removeFromLeft (8);
+    cutTool.setBounds (top.removeFromLeft (52).reduced (2, 2));   // 0.63.0
     status.setBounds (top.reduced (8, 0));
     area.removeFromTop (2);
     ruler = area.removeFromTop (rulerHeight);
@@ -523,6 +532,19 @@ void SongTrack::paint (juce::Graphics& g)
         }
     }
 
+    // THE CUT TOOL (0.63.0): where a click would cut, a line through the block with a mark on the bar numbers.
+    if (cutting && cutHover >= 0.0)
+    {
+        // (Dashed and pearl white: not to be taken for the red playhead.)
+        const auto x = xOf (cutHover);
+        const float dashes[] = { 5.0f, 3.0f };
+        g.setColour (ParagonColours::text);
+        g.drawDashedLine (juce::Line<float> (x, (float) lane.getY() + 2.0f, x, (float) lane.getBottom() - 2.0f), dashes, 2, 2.0f);
+        juce::Path tick;
+        tick.addTriangle (x, (float) ruler.getBottom() - 1.0f, x - 4.0f, (float) ruler.getBottom() - 8.0f, x + 4.0f, (float) ruler.getBottom() - 8.0f);
+        g.fillPath (tick);
+    }
+
     // PLAY's start (a mark on the bar numbers) and where the song is playing.
     g.setColour (ParagonColours::accent);
     const auto sx = xOf (startBeat);
@@ -638,8 +660,55 @@ void SongTrack::edit (const std::function<void (song::Song&)>& f)
     processor.setSong (std::move (s));
 }
 
+void SongTrack::setCutting (bool on)
+{
+    cutting = on;
+    cutTool.setToggleState (on, juce::dontSendNotification);
+    cutHover = -1.0;
+    drag = Drag::none;
+    setMouseCursor (juce::MouseCursor::NormalCursor);
+    if (on)
+        showNote ("CUT: click a block where it should be cut (on bar lines; hold ALT for beats). ESCAPE or CUT to stop.", 6.0);
+    repaint();
+}
+
+double SongTrack::cutPointAt (float x, bool onBeats) const
+{
+    if (view != View::blocks)
+        return -1.0;
+    const auto& s = processor.getSong();
+    const auto beat = beatAt (x);
+    const auto block = s.blockAt (beat);
+    if (block < 0)
+        return -1.0;
+    const auto& b = s.blocks[(size_t) block];
+    const auto cut = onBeats ? std::round (beat) : s.snap (beat);
+    return cut > b.start + 1.0e-9 && cut < b.end() - 1.0e-9 ? cut : -1.0;
+}
+
+void SongTrack::mouseExit (const juce::MouseEvent&)
+{
+    if (cutHover >= 0.0)
+    {
+        cutHover = -1.0;
+        repaint();
+    }
+}
+
 void SongTrack::mouseMove (const juce::MouseEvent& e)
 {
+    if (cutting)
+    {
+        // THE CUT TOOL: the line where a click would cut.
+        const auto at = lane.contains (e.getPosition()) ? cutPointAt (e.position.x, e.mods.isAltDown()) : -1.0;
+        setMouseCursor (at >= 0.0 ? juce::MouseCursor::IBeamCursor : juce::MouseCursor::NormalCursor);
+        if (! juce::exactlyEqual (at, cutHover))
+        {
+            cutHover = at;
+            repaint();
+        }
+        return;
+    }
     const auto& s = processor.getSong();
     auto block = s.blockAt (beatAt (e.position.x));
     // Just past a block's end counts too (its edge is grabbed from either side).
@@ -686,6 +755,24 @@ void SongTrack::mouseDown (const juce::MouseEvent& e)
     {
         if (e.mods.isPopupMenu())
             meterMenu (beatAt (e.position.x)).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
+        return;
+    }
+    if (cutting && ! e.mods.isPopupMenu())
+    {
+        // THE CUT TOOL (0.63.0): the block under the click cut there (one undo step); the second half chosen.
+        const auto block = s.blockAt (beatAt (e.position.x));
+        const auto at = cutPointAt (e.position.x, e.mods.isAltDown());
+        if (block >= 0 && at >= 0.0)
+        {
+            auto made = -1;
+            edit ([&] (song::Song& song) { made = song.splitAt (block, at); });
+            chosen = made;
+            also.clear();
+            cutHover = -1.0;
+            if (onSelectionChanged != nullptr)
+                onSelectionChanged();
+        }
+        repaint();
         return;
     }
     auto block = s.blockAt (beatAt (e.position.x));
@@ -811,6 +898,18 @@ void SongTrack::mouseUp (const juce::MouseEvent& e)
 
 bool SongTrack::keyPressed (const juce::KeyPress& key)
 {
+    // 0.63.0: C: the CUT tool on / off; ESCAPE: off.
+    if (key == juce::KeyPress::escapeKey && cutting)
+    {
+        setCutting (false);
+        return true;
+    }
+    if (! key.getModifiers().isAnyModifierKeyDown()
+        && juce::CharacterFunctions::toLowerCase (key.getTextCharacter() != 0 ? key.getTextCharacter() : (juce::juce_wchar) key.getKeyCode()) == 'c')
+    {
+        setCutting (! cutting);
+        return true;
+    }
     if ((key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey) && chosen >= 0 && chosen < (int) processor.getSong().blocks.size())
     {
         const auto index = chosen;

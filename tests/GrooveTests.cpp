@@ -546,3 +546,29 @@ TEST_CASE ("GROOVES 0.30.0: the values worked out once when listed are the ones 
         byRank[(size_t) e.nameRank] = e.family + "/" + e.name;
     CHECK (byRank == std::vector<juce::String> { "Song 0/Chorus", "Song 0/Ending", "Song 0/Verse 2", "Song 1/Fill 1", "Song 1/Intro", "Song 1/verse 10" });
 }
+
+TEST_CASE ("GROOVES 0.63.0: a file ending part-way into its last bar loops there; a default 120 in a file gives way to a tempo in its name", "[grooves]")
+{
+    std::vector<Note> seven;
+    for (int e = 0; e < 13; ++e)
+        seven.push_back ({ e * 0.5, e % 4 == 0 ? 36 : 42 });   // eighths up to 6.0, each a 16th long
+    // Ends on beat 7 on purpose (past its last note's end at 6.25): a 7-beat groove, looped at 7 as a DAW loops it.
+    auto g = readBlock (midiFile (seven, 96.0, 4, 4, 7.0));
+    REQUIRE (g.has_value());
+    CHECK (g->bars == 2);
+    CHECK (g->lengthBeats == 7.0);
+    // Its end right at the last note's end (where the program stopped writing): whole bars, as before.
+    g = readBlock (midiFile (seven, 96.0, 4, 4, 6.25));
+    CHECK (g->lengthBeats == 8.0);
+    // No end, or one past the bar: whole bars.
+    CHECK (readBlock (midiFile (seven, 96.0, 4, 4))->lengthBeats == 8.0);
+    CHECK (readBlock (midiFile (seven, 96.0, 4, 4, 8.0))->lengthBeats == 8.0);
+    // Off the 16th grid (a note's tail): whole bars.
+    CHECK (readBlock (midiFile (seven, 96.0, 4, 4, 6.9))->lengthBeats == 8.0);
+
+    // The preview loops at 7: the downbeat comes round after 7 beats, no gap.
+    // (Tempo: a file at 120, the MIDI default, named 160 BPM: 160. One at 96 named 160: its own 96.)
+    CHECK (readBlock (midiFile (seven, 120.0, 4, 4), "/grooves/Djent 160 BPM/Verse 01.mid")->bpm == 160.0);
+    CHECK (readBlock (midiFile (seven, 96.0, 4, 4), "/grooves/Djent 160 BPM/Verse 01.mid")->bpm == 96.0);
+    CHECK (readBlock (midiFile (seven, 120.0, 4, 4), "/grooves/Djent/Verse 01.mid")->bpm == 120.0);
+}

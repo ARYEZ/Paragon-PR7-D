@@ -2018,3 +2018,88 @@ TEST_CASE ("GROOVES 0.45.0: OWN WINDOW puts the page in a window of its own; BAC
     view->setGroovesInOwnWindow (true);
     editor.reset();
 }
+
+TEST_CASE ("SONG 0.63.0: THE CUT TOOL: a click cuts a block on the nearest bar line (ALT: the nearest beat); one undo step each; C and ESCAPE", "[song][cut][ui]")
+{
+    // The model: cut exactly where asked (a beat inside a bar is fine), each half its own notes as played there.
+    {
+        song::Song s;
+        s.place (block ("A", 2, { { 0.0, BD }, { 1.0, SD }, { 2.0, BD }, { 3.0, SD }, { 5.0, SD } }), 0.0);
+        REQUIRE (s.splitAt (0, 3.0) == 1);
+        REQUIRE (s.blocks.size() == 2);
+        CHECK (s.blocks[0].length == 3.0);
+        CHECK (s.blocks[1].start == 3.0);
+        CHECK (s.blocks[1].length == 5.0);
+        CHECK (s.blocks[0].hits.size() == 3);   // 0, 1, 2
+        REQUIRE (s.blocks[1].hits.size() == 2);
+        CHECK (s.blocks[1].hits[0].beat == 0.0);   // the snare on 3, now its start
+        CHECK (s.blocks[1].hits[1].beat == 2.0);
+        // Every hit still plays where it did.
+        std::vector<double> at;
+        for (const auto& e : s.events())
+            at.push_back (e.beat);
+        CHECK (at == std::vector<double> { 0.0, 1.0, 2.0, 3.0, 5.0 });
+        CHECK (s.splitAt (0, 0.0) == -1);   // not on its edges
+        CHECK (s.splitAt (1, 8.0) == -1);
+    }
+
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 4, { { 0.0, BD }, { 6.0, SD }, { 13.0, BD } }), 0.0);
+    t.p.setSong (s);
+    t.p.flushUndoStep();
+    SongTrack track (t.p);
+    track.setBounds (0, 0, 1400, 126);
+    const auto mouse = [&track] (juce::Point<float> at, juce::ModifierKeys mods)
+    {
+        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, mods, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                 &track, &track, juce::Time::getCurrentTime(), at, juce::Time::getCurrentTime(), 1, false);
+    };
+    const auto y = (float) track.getLane().getCentreY();
+    const auto left = juce::ModifierKeys::leftButtonModifier;
+
+    // Off: a click chooses (and nothing's cut).
+    track.mouseDown (mouse ({ track.xOf (5.3), y }, left));
+    track.mouseUp (mouse ({ track.xOf (5.3), y }, left));
+    CHECK (t.p.getSong().blocks.size() == 1);
+
+    // C: on. Where a click would cut: the nearest bar line; ALT: the nearest beat; off a block or on its edge: nowhere.
+    CHECK (track.keyPressed (juce::KeyPress ('c')));
+    CHECK (track.isCutting());
+    CHECK (track.getCutButton().getToggleState());
+    CHECK (track.cutPointAt (track.xOf (5.3), false) == 4.0);
+    CHECK (track.cutPointAt (track.xOf (5.3), true) == 5.0);
+    CHECK (track.cutPointAt (track.xOf (0.4), false) < 0.0);   // bar 1's start: the block's edge
+    CHECK (track.cutPointAt (track.xOf (20.0), false) < 0.0);  // past the song
+
+    // A click on bar 2 cuts there, the second half chosen; an undo step.
+    track.mouseDown (mouse ({ track.xOf (5.3), y }, left));
+    REQUIRE (t.p.getSong().blocks.size() == 2);
+    CHECK (t.p.getSong().blocks[1].start == 4.0);
+    CHECK (track.getChosen() == 1);
+    t.p.flushUndoStep();
+    // ALT: on a beat, inside bar 3 (the second block, 4-16, cut at 10).
+    track.mouseDown (mouse ({ track.xOf (9.8), y }, juce::ModifierKeys (juce::ModifierKeys::leftButtonModifier | juce::ModifierKeys::altModifier)));
+    REQUIRE (t.p.getSong().blocks.size() == 3);
+    CHECK (t.p.getSong().blocks[2].start == 10.0);
+    CHECK (t.p.getSong().blocks[2].length == 6.0);
+    // The hits all where they were.
+    std::vector<double> at;
+    for (const auto& e : t.p.getSong().events())
+        at.push_back (e.beat);
+    CHECK (at == std::vector<double> { 0.0, 6.0, 13.0 });
+    t.p.flushUndoStep();
+    t.p.undo();
+    CHECK (t.p.getSong().blocks.size() == 2);
+    t.p.undo();
+    CHECK (t.p.getSong().blocks.size() == 1);
+
+    // ESCAPE: off (a click chooses again); CUT's button switches it too.
+    CHECK (track.keyPressed (juce::KeyPress (juce::KeyPress::escapeKey)));
+    CHECK_FALSE (track.isCutting());
+    track.getCutButton().setToggleState (true, juce::dontSendNotification);
+    track.getCutButton().onClick();
+    CHECK (track.isCutting());
+    track.setCutting (false);
+    CHECK_FALSE (track.getCutButton().getToggleState());
+}

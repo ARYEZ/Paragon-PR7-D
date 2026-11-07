@@ -144,6 +144,8 @@ namespace song
         // SPLIT (0.9.0): the block cut in two at the bar line nearest `atBeat` (inside it), each half its own notes as
         // played there (no longer repeating); returns the second half's index (-1: no bar line inside it).
         int split (int index, double atBeat);
+        // 0.63.0, THE CUT TOOL: the same at exactly `atBeat` (a beat inside a bar is fine: the second half starts there).
+        int splitAt (int index, double atBeat);
         // MERGE WITH NEXT (0.9.0): the block and the one after it as one (named and coloured as the first; a gap between
         // them kept as rests); returns its index (-1: no block after it).
         int mergeWithNext (int index);

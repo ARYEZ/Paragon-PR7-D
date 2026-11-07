@@ -17,7 +17,8 @@ namespace grooves
         juce::String stamp (const juce::File& f, Layout layout)
         {
             // (0.58.0: GROOVE LIBRARY's notes became the owner's full map: its folders read again once, ":2".)
-            return "4:" + juce::String (f.getSize()) + ":" + juce::String (f.getLastModificationTime().toMilliseconds()) + ":"
+            // (0.63.0: "5:", read again once: tempos from names over a file's default 120, lengths to a file's own end.)
+            return "5:" + juce::String (f.getSize()) + ":" + juce::String (f.getLastModificationTime().toMilliseconds()) + ":"
                    + juce::String ((int) layout) + (layout == Layout::grooveLibrary ? ":2" : "");
         }
 
