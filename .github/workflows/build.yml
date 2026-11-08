@@ -61,9 +61,19 @@ jobs:
       - name: Validate with pluginval
         shell: bash
         run: |
-          curl -sSL -o pluginval.zip \
-            "https://github.com/Tracktion/pluginval/releases/download/${PLUGINVAL_VERSION}/${{ matrix.pluginval_zip }}"
-          unzip -q pluginval.zip
+          # The download now and then comes back as something that isn't the zip (0.65.0's first build: both jobs
+          # failed in unzip before pluginval ran): up to 5 tries, each checked as a whole zip, a pause between.
+          for try in 1 2 3 4 5; do
+            rm -f pluginval.zip
+            if curl -sSL --fail --retry 3 --retry-delay 5 -o pluginval.zip \
+                 "https://github.com/Tracktion/pluginval/releases/download/${PLUGINVAL_VERSION}/${{ matrix.pluginval_zip }}" \
+               && unzip -tq pluginval.zip > /dev/null; then
+              break
+            fi
+            echo "pluginval's download wasn't a whole zip (try $try of 5)"
+            [ $try -lt 5 ] && sleep 15
+          done
+          unzip -q -o pluginval.zip
           PLUGIN="build/ParagonX1_artefacts/Release/VST3/Paragon PR7-D.vst3"
           RUN="${{ matrix.pluginval_bin }} --strictness-level 10 --validate-in-process --validate"
           if [ "$RUNNER_OS" = "Linux" ]; then
