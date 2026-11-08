@@ -937,6 +937,13 @@ private:
     std::atomic<double> hostBpm { 120.0 };
     std::atomic<int> hostNumerator { 4 }, hostDenominator { 4 };
     double hostPpq = -1.0;   // the song position at this block's start (-1: stopped); audio thread
+    // 0.65.0: the DAW's loop (cycle), and the sample of this block where it goes back to the loop's start (-1: it doesn't).
+    // Some DAWs (PR7-S) give a block that runs past the loop's end one position for the whole block: the pieces stop at
+    // that sample and those after it are placed from the loop's start, so the hits on the loop's first beat aren't lost.
+    bool hostLooping = false;
+    double hostLoopStart = 0.0, hostLoopEnd = 0.0;
+    int dawWrapSample = -1;   // audio thread
+    double dawBeatAt (int sampleInBlock, double bpm) const noexcept;
     MidiLinks midiLinks;
     std::array<std::atomic<juce::RangedAudioParameter*>, 128> controllerTargets {};   // the audio thread's copy, by CC
     std::atomic<int> lastController { -1 }, controllerCount { 0 };

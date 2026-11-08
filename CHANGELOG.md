@@ -2,6 +2,14 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.65.0
+
+**The MIDI track loops cleanly with your DAW's cycle** (you heard a very quick pause on the first hit each time the loop came round, only when the MIDI track played it; the same MIDI on a DAW instrument track looped fine).
+
+- **What it was.** Your DAW stops its own tracks exactly at the cycle's end and starts them again from the cycle's start, in the middle of an audio block if it has to. That's why its MIDI track loops cleanly. But it gives a plugin one position per audio block, so when a block runs past the cycle's end, PR7-D read on past the end. The next block then began part-way into the loop's first beat. The kick (and anything else) right on the loop's first beat fell in the part that was skipped, so it was lost, or came late on some passes.
+- **What changed.** PR7-D now reads your DAW's cycle along with its position, and goes back to the cycle's start on the exact sample your DAW does. This works whatever size the DAW's audio blocks are. It covers the MIDI song track, the drum sequencer while it follows the DAW, the click, and recording into the song. A DAW that already splits its blocks at the cycle's end, as Cubase does, sees no change.
+- Checked with a test that plays PR7-S's way: one position per block, blocks that don't line up with the loop, and the clock wrapped as PR7-S wraps it. Before the fix, the loop's first kick was missing on every pass after the first. Now every hit lands on its exact sample, pass after pass.
+
 ## 0.64.0
 
 **The MIDI track works more like your DAW's** (you asked for: 1 for the pointer and 3 for the cutting tool; dragging MIDI from the track onto FIND SIMILAR's drop zone and onto an instrument track in your DAW; and a select box to choose several blocks, to mute, merge or delete them).

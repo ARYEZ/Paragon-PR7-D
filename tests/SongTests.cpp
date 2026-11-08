@@ -52,12 +52,16 @@ namespace
     {
         double bpm = 120.0, ppq = 0.0;
         bool playing = true;
+        bool looping = false;               // 0.65.0: the DAW's cycle
+        double loopStart = 0.0, loopEnd = 0.0;
         juce::Optional<PositionInfo> getPosition() const override
         {
             PositionInfo info;
             info.setBpm (bpm);
             info.setPpqPosition (ppq);
             info.setIsPlaying (playing);
+            info.setIsLooping (looping);
+            info.setLoopPoints (LoopPoints { loopStart, loopEnd });
             return info;
         }
     };
@@ -2210,4 +2214,45 @@ TEST_CASE ("SONG 0.64.0: 1 / 3 for the pointer / CUT; THE SELECT BOX; CTRL-click
     track.mouseDown (mouse (from, from, left));
     track.mouseUp (mouse (from, from, left));
     CHECK (track.getSelection().empty());
+}
+
+TEST_CASE ("SONG 0.65.0: the DAW's cycle: a block running past its end (as PR7-S gives them) keeps the loop's first beat on its sample", "[song][loop][daw-loop]")
+{
+    Plugin t;
+    // One bar: the kick on 1, the snare on 3; the DAW cycles bars 1-2 (8 beats) at 120: a beat 24,000 samples.
+    song::Song s;
+    s.place (block ("A", 2, { { 0.0, BD }, { 2.0, SD }, { 4.0, BD }, { 6.0, SD } }), 0.0);
+    t.p.setSong (s);
+    t.host.looping = true;
+    t.host.loopStart = 0.0;
+    t.host.loopEnd = 8.0;
+    // Blocks of 237 samples (not a divisor of the loop's 192,000), one position each, wrapped as PR7-S wraps its clock.
+    std::vector<float> out;
+    juce::AudioBuffer<float> buffer (2, 237);
+    juce::MidiBuffer none;
+    for (int done = 0; done < 48000 * 13; done += 237)
+    {
+        buffer.clear();
+        t.p.processBlock (buffer, none);
+        out.insert (out.end(), buffer.getReadPointer (0), buffer.getReadPointer (0) + 237);
+        t.host.ppq += 237 / sampleRate * t.host.bpm / 60.0;
+        if (t.host.ppq >= t.host.loopEnd)
+            t.host.ppq = t.host.loopStart + (t.host.ppq - t.host.loopEnd);
+    }
+    // Every hit on its sample, the loop's first kick included each time round (a beat late, or missing, before).
+    CHECK (onsets (out) == std::vector<int> { 0, 48000, 96000, 144000, 192000, 240000, 288000, 336000, 384000, 432000, 480000,
+                                              528000, 576000, 624000 });
+
+    // Not looping: the same blocks run on past bar 2 (nothing there: silence after the last snare).
+    Plugin u;
+    u.p.setSong (s);
+    out.clear();
+    for (int done = 0; done < 48000 * 6; done += 237)
+    {
+        buffer.clear();
+        u.p.processBlock (buffer, none);
+        out.insert (out.end(), buffer.getReadPointer (0), buffer.getReadPointer (0) + 237);
+        u.host.ppq += 237 / sampleRate * u.host.bpm / 60.0;
+    }
+    CHECK (onsets (out) == std::vector<int> { 0, 48000, 96000, 144000 });
 }
