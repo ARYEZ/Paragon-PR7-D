@@ -125,7 +125,7 @@ void DrivePreview::paint (juce::Graphics& g)
     g.strokePath (path (cycleOut), juce::PathStrokeType (2.4f));
     ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    ParagonColours::setFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), "120 Hz SINE, IN AND OUT", (area.reduced (6.0f, 2.0f)).toFloat(), juce::Justification::topLeft));
+    ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), "120 Hz SINE, IN AND OUT", (area.reduced (6.0f, 2.0f)).toFloat(), juce::Justification::topLeft));
     g.drawText ("120 Hz SINE, IN AND OUT", area.reduced (6.0f, 2.0f), juce::Justification::topLeft, false);
     ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
 
@@ -263,7 +263,7 @@ void GlitchPreview::paint (juce::Graphics& g)
     g.setOpacity (1.0f);
     ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    ParagonColours::setFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), "EIGHTH NOTES AT " + juce::String (bpm, 0) + " BPM, IN AND OUT", (area.reduced (6.0f, 2.0f)).toFloat(), juce::Justification::topLeft));
+    ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), "EIGHTH NOTES AT " + juce::String (bpm, 0) + " BPM, IN AND OUT", (area.reduced (6.0f, 2.0f)).toFloat(), juce::Justification::topLeft));
     g.drawText ("EIGHTH NOTES AT " + juce::String (bpm, 0) + " BPM, IN AND OUT", area.reduced (6.0f, 2.0f), juce::Justification::topLeft, false);
     ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
 }

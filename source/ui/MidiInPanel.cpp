@@ -544,7 +544,7 @@ void MidiInPanel::paint (juce::Graphics& g)
         {
             ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
             g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
-            ParagonColours::setFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), "PRESS THE PEDAL RIGHT DOWN AND LET IT RIGHT UP, A FEW TIMES. THEN PRESS DONE.", (top.withTrimmedTop (166).withHeight (30)).toFloat(), juce::Justification::topLeft));
+            ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), "PRESS THE PEDAL RIGHT DOWN AND LET IT RIGHT UP, A FEW TIMES. THEN PRESS DONE.", (top.withTrimmedTop (166).withHeight (30)).toFloat(), juce::Justification::topLeft));
             g.drawFittedText ("PRESS THE PEDAL RIGHT DOWN AND LET IT RIGHT UP, A FEW TIMES. THEN PRESS DONE.",
                               top.withTrimmedTop (166).withHeight (30), juce::Justification::topLeft, 2);
             ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());

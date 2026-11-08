@@ -135,7 +135,7 @@ private:
             x += 22.0f;
             g.setFont (juce::FontOptions (12.5f));
         }
-        ParagonColours::setFill (g, labelColour, ParagonColours::textSpan (g.getCurrentFont(), r.label, juce::Rectangle<float> (x, 0.0f, (float) width - x - 26.0f, (float) height),
+        ParagonColours::setTextFill (g, labelColour, ParagonColours::textSpan (g.getCurrentFont(), r.label, juce::Rectangle<float> (x, 0.0f, (float) width - x - 26.0f, (float) height),
                                                                          juce::Justification::centredLeft));
         g.drawText (r.label, (int) x, 0, width - (int) x - 26, height, juce::Justification::centredLeft, true);
         // The USER MIDI folder out of step with its files on disk: an orange dot (SYNC FILE CHANGES in its menu).
@@ -213,7 +213,7 @@ public:
         const auto available = std::count_if (counts.begin(), counts.end(), [] (int n) { return n > 0; });
         ParagonColours::setFill (g, chosenHere > 0 ? ParagonColours::accent : ParagonColours::text.withAlpha (0.8f), getLocalBounds());
         g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
-        ParagonColours::setFill (g, chosenHere > 0 ? ParagonColours::accent : ParagonColours::text.withAlpha (0.8f), ParagonColours::textSpan (g.getCurrentFont(), grooves::columnNames[(int) column], juce::Rectangle<float> ((float) (4), (float) (0), (float) (getWidth() - 50), (float) (16)), juce::Justification::centredLeft));
+        ParagonColours::setTextFill (g, chosenHere > 0 ? ParagonColours::accent : ParagonColours::text.withAlpha (0.8f), ParagonColours::textSpan (g.getCurrentFont(), grooves::columnNames[(int) column], juce::Rectangle<float> ((float) (4), (float) (0), (float) (getWidth() - 50), (float) (16)), juce::Justification::centredLeft));
         g.drawText (grooves::columnNames[(int) column], 4, 0, getWidth() - 50, 16, juce::Justification::centredLeft, false);
         ParagonColours::setFill (g, chosenHere > 0 ? ParagonColours::accent : ParagonColours::text.withAlpha (0.8f), getLocalBounds());
         g.setColour (ParagonColours::textDim);
@@ -248,7 +248,7 @@ private:
                           : none ? ParagonColours::textDim.withAlpha (0.45f) : ParagonColours::text;
         ParagonColours::setFill (g, colour, juce::Rectangle<int> (0, 0, width, height));
         g.setFont (juce::FontOptions (12.0f));
-        ParagonColours::setFill (g, colour, ParagonColours::textSpan (g.getCurrentFont(), values[row], juce::Rectangle<float> ((float) (6), (float) (0), (float) (width - 40), (float) (height)), juce::Justification::centredLeft));
+        ParagonColours::setTextFill (g, colour, ParagonColours::textSpan (g.getCurrentFont(), values[row], juce::Rectangle<float> ((float) (6), (float) (0), (float) (width - 40), (float) (height)), juce::Justification::centredLeft));
         g.drawText (values[row], 6, 0, width - 40, height, juce::Justification::centredLeft, true);
         ParagonColours::setFill (g, colour, juce::Rectangle<int> (0, 0, width, height));
         if (excluded)
@@ -256,7 +256,7 @@ private:
         if (! none)
         {
             ParagonColours::setFill (g, colour.withAlpha (0.55f), juce::Rectangle<int> (0, 0, width, height));
-            ParagonColours::setFill (g, colour.withAlpha (0.55f), ParagonColours::textSpan (g.getCurrentFont(), juce::String (counts[row]), juce::Rectangle<float> ((float) (width - 36), (float) (0), (float) (32), (float) (height)), juce::Justification::centredRight));
+            ParagonColours::setTextFill (g, colour.withAlpha (0.55f), ParagonColours::textSpan (g.getCurrentFont(), juce::String (counts[row]), juce::Rectangle<float> ((float) (width - 36), (float) (0), (float) (32), (float) (height)), juce::Justification::centredRight));
             g.drawText (juce::String (counts[row]), width - 36, 0, 32, height, juce::Justification::centredRight, false);
             ParagonColours::setFill (g, colour.withAlpha (0.55f), juce::Rectangle<int> (0, 0, width, height));
         }
@@ -350,7 +350,7 @@ public:
         ParagonColours::setFill (g, colour, r);
         g.drawRoundedRectangle (r, 4.0f, 1.0f);
         g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
-        ParagonColours::setFill (g, colour, ParagonColours::textSpan (g.getCurrentFont(), text, (r.toNearestInt().withTrimmedLeft (8).withTrimmedRight (20)).toFloat(), juce::Justification::centredLeft));
+        ParagonColours::setTextFill (g, colour, ParagonColours::textSpan (g.getCurrentFont(), text, (r.toNearestInt().withTrimmedLeft (8).withTrimmedRight (20)).toFloat(), juce::Justification::centredLeft));
         g.drawText (text, r.toNearestInt().withTrimmedLeft (8).withTrimmedRight (20), juce::Justification::centredLeft, true);
         ParagonColours::setFill (g, colour, r);
         const auto x = r.getRight() - 13.0f, y = r.getCentreY();
@@ -397,7 +397,7 @@ public:
         if (! page.tapSearch.has_value())
         {
             g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
-            ParagonColours::setFill (g, hovering ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.6f), ParagonColours::textSpan (g.getCurrentFont(), "MIDI DROP ZONE", (r).toFloat(), juce::Justification::centred));
+            ParagonColours::setTextFill (g, hovering ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.6f), ParagonColours::textSpan (g.getCurrentFont(), "MIDI DROP ZONE", (r).toFloat(), juce::Justification::centred));
             g.drawText ("MIDI DROP ZONE", r, juce::Justification::centred, false);
             ParagonColours::setFill (g, hovering ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.6f), getLocalBounds());
             return;
@@ -483,7 +483,7 @@ public:
         if (! page.riffPanel->hasRiff())
         {
             g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
-            ParagonColours::setFill (g, hovering ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.6f), ParagonColours::textSpan (g.getCurrentFont(), "DROP A RIFF\n(AUDIO OR MIDI)", (r.toNearestInt()).toFloat(), juce::Justification::centred));
+            ParagonColours::setTextFill (g, hovering ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.6f), ParagonColours::textSpan (g.getCurrentFont(), "DROP A RIFF\n(AUDIO OR MIDI)", (r.toNearestInt()).toFloat(), juce::Justification::centred));
             g.drawFittedText ("DROP A RIFF\n(AUDIO OR MIDI)", r.toNearestInt(), juce::Justification::centred, 2);
             ParagonColours::setFill (g, hovering ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.6f), getLocalBounds());
             return;
@@ -492,7 +492,7 @@ public:
         const auto area = r.reduced (8.0f, 6.0f).withTrimmedRight (14.0f);
         ParagonColours::setFill (g, page.isRiffSearching() ? ParagonColours::accent : ParagonColours::text, getLocalBounds());
         g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
-        ParagonColours::setFill (g, page.isRiffSearching() ? ParagonColours::accent : ParagonColours::text, ParagonColours::textSpan (g.getCurrentFont(), riff.name, (area.withHeight (14.0f)).toFloat(), juce::Justification::centredLeft));
+        ParagonColours::setTextFill (g, page.isRiffSearching() ? ParagonColours::accent : ParagonColours::text, ParagonColours::textSpan (g.getCurrentFont(), riff.name, (area.withHeight (14.0f)).toFloat(), juce::Justification::centredLeft));
         g.drawText (riff.name, area.withHeight (14.0f), juce::Justification::centredLeft, true);
         ParagonColours::setFill (g, page.isRiffSearching() ? ParagonColours::accent : ParagonColours::text, getLocalBounds());
         const auto lane = area.withTrimmedTop (18.0f);
@@ -582,7 +582,7 @@ private:
         }
         ParagonColours::setFill (g, isFilter ? ParagonColours::accent : ParagonColours::text, juce::Rectangle<int> (0, 0, width, height));
         g.setFont (juce::FontOptions (12.0f, isFilter ? juce::Font::bold : juce::Font::plain));
-        ParagonColours::setFill (g, isFilter ? ParagonColours::accent : ParagonColours::text, ParagonColours::textSpan (g.getCurrentFont(), texts[row], juce::Rectangle<float> ((float) (8), (float) (0), (float) (width - 12), (float) (height)), juce::Justification::centredLeft));
+        ParagonColours::setTextFill (g, isFilter ? ParagonColours::accent : ParagonColours::text, ParagonColours::textSpan (g.getCurrentFont(), texts[row], juce::Rectangle<float> ((float) (8), (float) (0), (float) (width - 12), (float) (height)), juce::Justification::centredLeft));
         g.drawText (texts[row], 8, 0, width - 12, height, juce::Justification::centredLeft, true);
         ParagonColours::setFill (g, isFilter ? ParagonColours::accent : ParagonColours::text, juce::Rectangle<int> (0, 0, width, height));
     }
@@ -2053,7 +2053,7 @@ void GroovesPage::paintCell (juce::Graphics& g, int row, int column, int width, 
     const auto rowColour = isPlaying ? ParagonColours::accent : ParagonColours::text;
     const auto textIn = [&] (const juce::String& s, juce::Colour c, juce::Justification j = juce::Justification::centredLeft)
     {
-        ParagonColours::setFill (g, c, ParagonColours::textSpan (g.getCurrentFont(), s, juce::Rectangle<float> (6.0f, 0.0f, (float) (width - 10), (float) height), j));
+        ParagonColours::setTextFill (g, c, ParagonColours::textSpan (g.getCurrentFont(), s, juce::Rectangle<float> (6.0f, 0.0f, (float) (width - 10), (float) height), j));
         g.drawText (s, 6, 0, width - 10, height, j, true);
         ParagonColours::setFill (g, rowColour, juce::Rectangle<int> (0, 0, width, height));
     };

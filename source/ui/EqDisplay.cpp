@@ -308,7 +308,7 @@ void EqDisplay::paintGrid (juce::Graphics& g)
         g.setColour (juce::Colours::white.withAlpha (std::abs (db) < 0.001 ? 0.16f : 0.06f));
         g.drawHorizontalLine (juce::roundToInt (y), plot.getX(), plot.getRight());
         ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.8f), getLocalBounds());
-        ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.8f), ParagonColours::textSpan (g.getCurrentFont(), (db > 0.0 ? "+" : "") + juce::String ((int) db), (juce::Rectangle<float> (plot.getX() - 32.0f, y - 6.0f, 28.0f, 12.0f)).toFloat(), juce::Justification::centredRight));
+        ParagonColours::setTextFill (g, ParagonColours::accent.withAlpha (0.8f), ParagonColours::textSpan (g.getCurrentFont(), (db > 0.0 ? "+" : "") + juce::String ((int) db), (juce::Rectangle<float> (plot.getX() - 32.0f, y - 6.0f, 28.0f, 12.0f)).toFloat(), juce::Justification::centredRight));
         g.drawText ((db > 0.0 ? "+" : "") + juce::String ((int) db), juce::Rectangle<float> (plot.getX() - 32.0f, y - 6.0f, 28.0f, 12.0f),
                     juce::Justification::centredRight, false);
         ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.8f), getLocalBounds());

@@ -43,6 +43,16 @@ namespace ParagonColours
         g.setFillType (fill);
     }
 
+    void setTextFill (juce::Graphics& g, juce::Colour colour, juce::Rectangle<float>)
+    {
+        if (isAccent (colour))
+            g.setColour (juce::Colours::white.withAlpha (colour.getFloatAlpha()));
+        else if (isAccentDim (colour))
+            g.setColour (juce::Colours::white.withAlpha (colour.getFloatAlpha() * 0.45f));
+        else
+            g.setColour (colour);
+    }
+
     juce::Colour velocityColour (float velocity)
     {
         const auto c = velocity < 0.5f ? familyOrange : velocity < 0.79f ? familyPink : familyRed;   // (below 64, below 100, the rest)
@@ -64,7 +74,7 @@ namespace ParagonColours
     void drawText (juce::Graphics& g, const juce::String& text, juce::Rectangle<float> box, juce::Justification j, juce::Colour colour,
                    int maxLines, float minScale)
     {
-        setFill (g, colour, textSpan (g.getCurrentFont(), text, box, j));
+        setTextFill (g, colour, textSpan (g.getCurrentFont(), text, box, j));
         g.drawFittedText (text, box.toNearestInt(), j, maxLines, minScale);
     }
 }
@@ -304,7 +314,7 @@ void ParagonLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& bu
             if (line.length() > longest.length())
                 longest = line;
         const auto box = button.getLocalBounds().reduced (4, 2).toFloat();
-        ParagonColours::setFill (g, button.findColour (button.getToggleState() ? juce::TextButton::textColourOnId : juce::TextButton::textColourOffId)
+        ParagonColours::setTextFill (g, button.findColour (button.getToggleState() ? juce::TextButton::textColourOnId : juce::TextButton::textColourOffId)
                                         .withMultipliedAlpha (button.isEnabled() ? 1.0f : 0.5f),
                                  ParagonColours::textSpan (g.getCurrentFont(), longest, box, juce::Justification::centred));
         g.drawFittedText (button.getButtonText(), box.toNearestInt(), juce::Justification::centred, lines, 0.8f);
@@ -327,8 +337,15 @@ void ParagonLookAndFeel::drawButtonText (juce::Graphics& g, juce::TextButton& bu
         if (textWidth > 0)
         {
             const auto box = juce::Rectangle<int> (leftIndent, yIndent, textWidth, button.getHeight() - yIndent * 2).toFloat();
-            ParagonColours::setFill (g, colour, ParagonColours::textSpan (font, button.getButtonText(), box, juce::Justification::centred));
+            ParagonColours::setTextFill (g, colour, ParagonColours::textSpan (font, button.getButtonText(), box, juce::Justification::centred));
             g.drawFittedText (button.getButtonText(), box.toNearestInt(), juce::Justification::centred, 2);
+        }
+        // 0.68.0: a button that's on, its lettering white now, shows it by a bar of the family gradient along its foot.
+        if (button.getToggleState() && ParagonColours::isAccent (button.findColour (juce::TextButton::textColourOnId)))
+        {
+            const auto bar = button.getLocalBounds().toFloat().reduced (6.0f, 0.0f).removeFromBottom (4.0f).withSizeKeepingCentre (button.getWidth() - 12.0f, 2.0f);
+            ParagonColours::setFill (g, ParagonColours::accent.withMultipliedAlpha (button.isEnabled() ? 1.0f : 0.5f), bar);
+            g.fillRoundedRectangle (bar, 1.0f);
         }
         juce::ignoreUnused (highlighted, down);
         return;
@@ -922,7 +939,7 @@ void ParagonLookAndFeel::drawLabel (juce::Graphics& g, juce::Label& label)
     const auto font = getLabelFont (label);
     g.setFont (font);
     const auto area = getLabelBorderSize (label).subtractedFrom (label.getLocalBounds()).toFloat();
-    ParagonColours::setFill (g, colour.withMultipliedAlpha (label.isEnabled() ? 1.0f : 0.5f),
+    ParagonColours::setTextFill (g, colour.withMultipliedAlpha (label.isEnabled() ? 1.0f : 0.5f),
                              ParagonColours::textSpan (font, label.getText(), area, label.getJustificationType()));
     g.drawFittedText (label.getText(), area.toNearestInt(), label.getJustificationType(),
                       juce::jmax (1, (int) (area.getHeight() / font.getHeight())), label.getMinimumHorizontalScale());

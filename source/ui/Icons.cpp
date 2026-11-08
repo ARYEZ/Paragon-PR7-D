@@ -491,6 +491,6 @@ void IconButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
     Icons::draw (g, icon, row.removeFromLeft (iconSize).withSizeKeepingCentre (iconSize, iconSize), colour, 1.6f, on);
     row.removeFromLeft (gap);
     g.setFont (font);
-    ParagonColours::setFill (g, colour, row.withWidth (juce::jmin (row.getWidth(), textWidth)));
+    ParagonColours::setTextFill (g, colour, row.withWidth (juce::jmin (row.getWidth(), textWidth)));
     g.drawText (text, row, juce::Justification::centredLeft, true);
 }

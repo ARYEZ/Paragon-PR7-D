@@ -370,7 +370,7 @@ public:
     {
         g.setFont (juce::FontOptions (10.5f, isDirect ? juce::Font::bold : juce::Font::plain));
         ParagonColours::setFill (g, isDirect ? ParagonColours::accent : ParagonColours::text, getLocalBounds());
-        ParagonColours::setFill (g, isDirect ? ParagonColours::accent : ParagonColours::text, ParagonColours::textSpan (g.getCurrentFont(), synth::drums::pieces[(size_t) piece].name, (getLocalBounds().withTrimmedLeft (44).withWidth (106)).toFloat(), juce::Justification::centredLeft));
+        ParagonColours::setTextFill (g, isDirect ? ParagonColours::accent : ParagonColours::text, ParagonColours::textSpan (g.getCurrentFont(), synth::drums::pieces[(size_t) piece].name, (getLocalBounds().withTrimmedLeft (44).withWidth (106)).toFloat(), juce::Justification::centredLeft));
         g.drawText (synth::drums::pieces[(size_t) piece].name, getLocalBounds().withTrimmedLeft (44).withWidth (106), juce::Justification::centredLeft, true);
         ParagonColours::setFill (g, isDirect ? ParagonColours::accent : ParagonColours::text, getLocalBounds());
     }
@@ -692,7 +692,7 @@ public:
             }
             g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
             ParagonColours::setFill (g, k == chosen ? ParagonColours::accent : ParagonColours::textDim, getLocalBounds());
-            ParagonColours::setFill (g, k == chosen ? ParagonColours::accent : ParagonColours::textDim, ParagonColours::textSpan (g.getCurrentFont(), juce::String (k + 1), (r.withWidth (20)).toFloat(), juce::Justification::centred));
+            ParagonColours::setTextFill (g, k == chosen ? ParagonColours::accent : ParagonColours::textDim, ParagonColours::textSpan (g.getCurrentFont(), juce::String (k + 1), (r.withWidth (20)).toFloat(), juce::Justification::centred));
             g.drawText (juce::String (k + 1), r.withWidth (20), juce::Justification::centred, false);
             ParagonColours::setFill (g, k == chosen ? ParagonColours::accent : ParagonColours::textDim, getLocalBounds());
             const auto type = matrix.effect (strip, k).type;
@@ -700,7 +700,7 @@ public:
             {
                 g.setFont (juce::FontOptions (10.0f));
                 ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
-                ParagonColours::setFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), "-" + juce::String (db, 1) + " dB", (r.withTrimmedLeft (214)).toFloat(), juce::Justification::centredLeft));
+                ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), "-" + juce::String (db, 1) + " dB", (r.withTrimmedLeft (214)).toFloat(), juce::Justification::centredLeft));
                 g.drawText ("-" + juce::String (db, 1) + " dB", r.withTrimmedLeft (214), juce::Justification::centredLeft, false);
                 ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
             }
@@ -740,7 +740,7 @@ public:
                     juce::Graphics::ScopedSaveState keep (g);
                     g.setFont (juce::FontOptions (10.0f));
                     ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
-                    ParagonColours::setFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), text, (cell.translated (0, 58).withHeight (26).reduced (2, 0)).toFloat(), juce::Justification::centredTop));
+                    ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), text, (cell.translated (0, 58).withHeight (26).reduced (2, 0)).toFloat(), juce::Justification::centredTop));
                     g.drawFittedText (text, cell.translated (0, 58).withHeight (26).reduced (2, 0), juce::Justification::centredTop, 2);
                     ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
                 }
@@ -992,7 +992,7 @@ public:
             previousClose = r->close;
             g.setFont (juce::FontOptions (11.0f, r->close ? juce::Font::bold : juce::Font::plain));
             ParagonColours::setFill (g, r->close ? ParagonColours::accent : ParagonColours::text, getLocalBounds());
-            ParagonColours::setFill (g, r->close ? ParagonColours::accent : ParagonColours::text, ParagonColours::textSpan (g.getCurrentFont(), mixer::channelNames[r->mic], (juce::Rectangle<int> (a.getX(), y, 200, 24)).toFloat(), juce::Justification::centredLeft));
+            ParagonColours::setTextFill (g, r->close ? ParagonColours::accent : ParagonColours::text, ParagonColours::textSpan (g.getCurrentFont(), mixer::channelNames[r->mic], (juce::Rectangle<int> (a.getX(), y, 200, 24)).toFloat(), juce::Justification::centredLeft));
             g.drawText (mixer::channelNames[r->mic], juce::Rectangle<int> (a.getX(), y, 200, 24), juce::Justification::centredLeft, false);
             ParagonColours::setFill (g, r->close ? ParagonColours::accent : ParagonColours::text, getLocalBounds());
             y += 30;

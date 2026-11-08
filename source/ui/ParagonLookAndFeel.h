@@ -64,6 +64,11 @@ namespace ParagonColours
     // A note's colour by how hard it's hit, as PR7-S colours notes (only the gradient's three): soft orange, medium
     // pink, hard red (velocity 0-1; lit for the dark panels).
     juce::Colour velocityColour (float velocity);
+    // Lettering (0.68.0, the owner: "the full gradient sweep on the text is too much ... show me the text in all
+    // white"): accent -> white, accentDim -> dim white, at the colour's alpha; anything else the colour itself.
+    // `area` is where the letters are (kept for a gradient's sake should lettering want one again).
+    void setTextFill (juce::Graphics&, juce::Colour colour, juce::Rectangle<float> area);
+    inline void setTextFill (juce::Graphics& g, juce::Colour colour, juce::Rectangle<int> area) { setTextFill (g, colour, area.toFloat()); }
     // Where text of `font` sits in `box` with that justification (the gradient spans the letters, not the box).
     juce::Rectangle<float> textSpan (const juce::Font&, const juce::String&, juce::Rectangle<float> box, juce::Justification);
     // Text in `colour` (the gradient across its letters when it's accent / accentDim).

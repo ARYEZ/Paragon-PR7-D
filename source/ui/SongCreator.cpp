@@ -318,7 +318,7 @@ void SongCreator::paint (juce::Graphics& g)
         }
         ParagonColours::setFill (g, i == chosenStructure ? ParagonColours::accent : ParagonColours::text, getLocalBounds());
         g.setFont (juce::FontOptions (12.0f, i == chosenStructure ? juce::Font::bold : juce::Font::plain));
-        ParagonColours::setFill (g, i == chosenStructure ? ParagonColours::accent : ParagonColours::text, ParagonColours::textSpan (g.getCurrentFont(), s.name + (s.user ? "  (yours)" : ""), juce::Rectangle<float> ((float) (r.getX() + 8), (float) (r.getY() + 3), (float) (r.getWidth() - 70), (float) (18)), juce::Justification::centredLeft));
+        ParagonColours::setTextFill (g, i == chosenStructure ? ParagonColours::accent : ParagonColours::text, ParagonColours::textSpan (g.getCurrentFont(), s.name + (s.user ? "  (yours)" : ""), juce::Rectangle<float> ((float) (r.getX() + 8), (float) (r.getY() + 3), (float) (r.getWidth() - 70), (float) (18)), juce::Justification::centredLeft));
         g.drawText (s.name + (s.user ? "  (yours)" : ""), r.getX() + 8, r.getY() + 3, r.getWidth() - 70, 18, juce::Justification::centredLeft, true);
         ParagonColours::setFill (g, i == chosenStructure ? ParagonColours::accent : ParagonColours::text, getLocalBounds());
         g.setColour (ParagonColours::textDim);
@@ -388,7 +388,7 @@ void SongCreator::paint (juce::Graphics& g)
             }
             ParagonColours::setFill (g, e.file == playing ? ParagonColours::accent : e.file == source ? ParagonColours::glow : ParagonColours::text, getLocalBounds());
             g.setFont (juce::FontOptions (11.5f, e.file == source ? juce::Font::bold : juce::Font::plain));
-            ParagonColours::setFill (g, e.file == playing ? ParagonColours::accent : e.file == source ? ParagonColours::glow : ParagonColours::text, ParagonColours::textSpan (g.getCurrentFont(), (e.file == playing ? "> " : "") + e.name, (cell.reduced (6, 0)).toFloat(), juce::Justification::centredLeft));
+            ParagonColours::setTextFill (g, e.file == playing ? ParagonColours::accent : e.file == source ? ParagonColours::glow : ParagonColours::text, ParagonColours::textSpan (g.getCurrentFont(), (e.file == playing ? "> " : "") + e.name, (cell.reduced (6, 0)).toFloat(), juce::Justification::centredLeft));
             g.drawText ((e.file == playing ? "> " : "") + e.name, cell.reduced (6, 0), juce::Justification::centredLeft, true);
             ParagonColours::setFill (g, e.file == playing ? ParagonColours::accent : e.file == source ? ParagonColours::glow : ParagonColours::text, getLocalBounds());
         }

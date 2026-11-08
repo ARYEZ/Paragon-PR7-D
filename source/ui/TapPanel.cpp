@@ -140,7 +140,7 @@ void TapPanel::paint (juce::Graphics& g)
     DockStyle::drawPanel (g, getLocalBounds().toFloat());
     ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    ParagonColours::setFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), "TAP TO FIND", juce::Rectangle<float> ((float) (16), (float) (10), (float) (200), (float) (18)), juce::Justification::centredLeft));
+    ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), "TAP TO FIND", juce::Rectangle<float> ((float) (16), (float) (10), (float) (200), (float) (18)), juce::Justification::centredLeft));
     g.drawText ("TAP TO FIND", 16, 10, 200, 18, juce::Justification::centredLeft, false);
     ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
 

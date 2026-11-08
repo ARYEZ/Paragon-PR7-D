@@ -119,11 +119,11 @@ void SweepDisplay::paint (juce::Graphics& g)
 
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
     ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
-    ParagonColours::setFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), settings.on ? movingName (settings.type) : movingName (settings.type) + " (OFF)", (area.reduced (10.0f, 4.0f)).toFloat(), juce::Justification::topLeft));
+    ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), settings.on ? movingName (settings.type) : movingName (settings.type) + " (OFF)", (area.reduced (10.0f, 4.0f)).toFloat(), juce::Justification::topLeft));
     g.drawText (settings.on ? movingName (settings.type) : movingName (settings.type) + " (OFF)", area.reduced (10.0f, 4.0f),
                 juce::Justification::topLeft, false);
     ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
-    ParagonColours::setFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), juce::String (settings.rateHz, settings.rateHz < 1.0f ? 2 : 1) + " Hz", (area.reduced (10.0f, 4.0f)).toFloat(), juce::Justification::topRight));
+    ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), juce::String (settings.rateHz, settings.rateHz < 1.0f ? 2 : 1) + " Hz", (area.reduced (10.0f, 4.0f)).toFloat(), juce::Justification::topRight));
     g.drawText (juce::String (settings.rateHz, settings.rateHz < 1.0f ? 2 : 1) + " Hz", area.reduced (10.0f, 4.0f), juce::Justification::topRight, false);
     ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
 }
@@ -196,7 +196,7 @@ void LoFiDisplay::paint (juce::Graphics& g)
         g.setGradientFill (ParagonLookAndFeel::menuHighlight (area));
         g.strokePath (crushed, juce::PathStrokeType (2.2f));
         ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
-        ParagonColours::setFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), juce::String (bits, 1) + " BITS, EACH SAMPLE HELD x" + juce::String (hold) + " ("
+        ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), juce::String (bits, 1) + " BITS, EACH SAMPLE HELD x" + juce::String (hold) + " ("
                         + hzText ((float) sampleRate / (float) hold) + ")", (area.reduced (10.0f, 4.0f)).toFloat(), juce::Justification::topRight));
         g.drawText (juce::String (bits, 1) + " BITS, EACH SAMPLE HELD x" + juce::String (hold) + " ("
                         + hzText ((float) sampleRate / (float) hold) + ")",
@@ -264,7 +264,7 @@ void LoFiDisplay::paint (juce::Graphics& g)
     g.strokePath (curve, juce::PathStrokeType (2.2f));
     ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    ParagonColours::setFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), settings.type == LoFiType::cassette ? "TAPE: TOP END FROM " + hzText (band.highHz)
+    ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), settings.type == LoFiType::cassette ? "TAPE: TOP END FROM " + hzText (band.highHz)
                                                     : hzText (band.lowHz) + " TO " + hzText (band.highHz) + ", BUMP AT " + hzText (band.bumpHz), (area.reduced (10.0f, 4.0f)).toFloat(), juce::Justification::topRight));
     g.drawText (settings.type == LoFiType::cassette ? "TAPE: TOP END FROM " + hzText (band.highHz)
                                                     : hzText (band.lowHz) + " TO " + hzText (band.highHz) + ", BUMP AT " + hzText (band.bumpHz),
