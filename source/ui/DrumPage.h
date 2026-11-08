@@ -172,7 +172,8 @@ private:
     void showLoadMenu();
     void importSfzKit();
     void importDrumGizmoKit();
-    void importSamplePack();   // 0.33.0   // 0.27.0
+    void importSamplePack();   // 0.33.0
+    void importMixPack();      // 0.69.0   // 0.27.0
     void importRender();   // 0.51.0: IMPORT A RENDER
     void chooseLayer (int layer = -1);   // 0.29.0 (0.50.0: which of the three; -1: the first free)
     DrumHitDisplay display;

@@ -1,4 +1,6 @@
 #include "DrumPage.h"
+
+#include "dsp/synth/MixPack.h"
 #include "NoteNames.h"
 
 #include "dsp/synth/DrumGizmo.h"
@@ -1106,6 +1108,8 @@ void DrumPage::showLoadMenu()
     menu.addItem ("A DrumGizmo kit (onto every drum)...", [this] { importDrumGizmoKit(); });
     // 0.33.0: a multi-mic sample library's folder of named WAVs (e.g. "..._KICK_DYN_KICK_V01_RR1.wav").
     menu.addItem ("A sample pack: a multi-mic library's folder (onto every drum)...", [this] { importSamplePack(); });
+    // 0.69.0: a library whose hits come already mixed, several finished mixes of each drum in folders of their own.
+    menu.addItem ("A mixed sample pack: finished stereo mixes of each drum (onto every drum)...", [this] { importMixPack(); });
     menu.addItem ("Get free kits (drumgizmo.org)...", []
     {
         juce::URL ("https://drumgizmo.org/wiki/doku.php?id=kits").launchInDefaultBrowser();
@@ -1310,6 +1314,56 @@ void DrumPage::importSamplePack()
             text << "\nNot used (no drum for them): " << result.unused.joinIntoString (", ").substring (0, 400) << "\n";
         text << "\nStreamed from disk as it plays. Save it as a preset to keep it (the preset remembers where the pack is).";
         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::NoIcon, "Sample pack: " + result.name, text);
+    });
+}
+
+void DrumPage::importMixPack()
+{
+    chooser = std::make_unique<juce::FileChooser> ("A mixed sample pack's folder (the one holding KICK, SNARE, TOMS, HATS...)", juce::File());
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories, [this] (const juce::FileChooser& fc)
+    {
+        const auto folder = fc.getResult();
+        if (! folder.isDirectory())
+            return;
+        // Which version and which mix (ORIGINAL and MIX 1 first: the owner's choice).
+        auto window = std::make_shared<juce::AlertWindow> ("Mixed sample pack: " + folder.getFileName(),
+                                                           "Each drum takes this mix (or the nearest it has), and its PARALLEL mix as a layer "
+                                                           "to blend in. A drum with one mix (cymbals, hats, ride) takes that.",
+                                                           juce::MessageBoxIconType::NoIcon, this);
+        window->addComboBox ("version", { "Original", "Gain Boosted" }, "Version");
+        window->addComboBox ("mix", synth::drums::mixpack::mixNames, "Mix");
+        window->addComboBox ("parallel", { "As each drum's layer, ready to blend in", "Leave them out (half the memory)" }, "Parallel mixes");
+        window->addButton ("Import", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        window->enterModalState (true, juce::ModalCallbackFunction::create ([this, window, folder] (int answer)
+        {
+            if (answer != 1)
+                return;
+            const auto boosted = window->getComboBoxComponent ("version")->getSelectedItemIndex() == 1;
+            const auto mix = juce::jmax (0, window->getComboBoxComponent ("mix")->getSelectedItemIndex());
+            const auto parallel = window->getComboBoxComponent ("parallel")->getSelectedItemIndex() != 1;
+            const auto result = processor.importMixPack (folder, boosted, mix, parallel);
+            if (result.slots.empty())
+            {
+                juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "No drums found",
+                                                       "No folder of hits could be read as a drum. A mixed pack's folders are named by piece "
+                                                       "(KICK, SNARE, TOMS, HATS, CYMBALS, RIDE), version (ORIGINAL / GAIN BOOSTED), "
+                                                       "articulation and mix (e.g. 01 - MIX PRESET 1).");
+                return;
+            }
+            juce::String text;
+            for (const auto& [slot, mixName] : result.slots)
+                text << synth::drums::slotDefaults[(size_t) slot].key << " " << synth::drums::articulationName (slot) << ": " << mixName << "\n";
+            if (parallel)
+                text << "\nEach drum's PARALLEL mix is its LAYER 1, " << juce::String ((int) ParagonX1AudioProcessor::parallelDb)
+                     << " dB: raise it on the drum's LAYERS tab to blend it in.";
+            if (result.secondKick)
+                text << "\nThe second kick is the kick's LAYER 2, off (-60 dB): raise it to hear it.";
+            if (! result.unused.isEmpty())
+                text << "\n\nNot used (no drum for them): " << result.unused.joinIntoString (", ").substring (0, 500);
+            text << "\n\nSave it as a preset to keep it (the preset remembers where the pack's folders are).";
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::NoIcon, "Mixed sample pack: " + result.name, text);
+        }));
     });
 }
 

@@ -2,6 +2,16 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.69.0
+
+**A MIXED SAMPLE PACK in one go** (DRUMS > LOAD... > A mixed sample pack): a drum library whose hits come already mixed to stereo, in several finished mixes of each drum (folders like `KICK\ORIGINAL\KICK 1\00 - STEREO PRESET - MIX 1`).
+
+- Choose the pack's folder, then the **version** (Original or Gain Boosted), the **mix** (Mix 1, Mix 1 Punchy, Mix 2, Mix 2 Canon, Canon + Verb, Gunfire, Gunfire + Verb) and whether to load the **parallel mixes**. A drum without that mix takes the nearest it has (a drum with one mix, like the cymbals, takes that).
+- What goes where: kick 1 the kick (kick 2 its layer 2, off: raise it to hear it); snare center, rimshot, sidestick; toms 1-4; hats closed, 25%, 50%, 100% open and pedal; crashes by size (smallest CRASH, then CRASH 2, CRASH 3), their edges, the first two's chokes; ride center, bell, edge. Each drum's PARALLEL mix is its layer 1 at -10 dB, ready to blend in on its LAYERS tab.
+- Left out (no drum for them yet), and listed in the summary: the snare's edge and extra hits, the crashes' centers, the third crash's choke, the tighter pedal.
+- The hits are mixes, so each drum is one stereo sound: the mixer's close / overhead / room balance and bleed don't apply to them.
+- Loading a folder of hits now skips a Mac's "._" files (one beside every file in a zip made on a Mac) and reads round robins named "RR (10)" in order.
+
 ## 0.68.0
 
 - **Lettering is white again** instead of the full gradient sweep (too much on text). The gradient stays on the meters, knob arcs, sliders, scroll bars, chosen rows and strips, filter chips, menus and notes.

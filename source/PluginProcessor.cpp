@@ -3,6 +3,7 @@
 #include "dsp/synth/RenderImport.h"
 #include "dsp/synth/DrumGizmo.h"
 #include "dsp/synth/SamplePack.h"
+#include "dsp/synth/MixPack.h"
 #include "dsp/synth/Instrument.h"
 
 #include <map>
@@ -1557,6 +1558,63 @@ ParagonX1AudioProcessor::SamplePackImport ParagonX1AudioProcessor::importSampleP
     }
     setModMatrix (m);
     rememberKit (info.name, folder);
+    startLoading (refs);
+    markModified();
+    requestCheckpoint();
+    return result;
+}
+
+ParagonX1AudioProcessor::MixPackImport ParagonX1AudioProcessor::importMixPack (const juce::File& folder, bool gainBoosted, int mix, bool parallelLayers)
+{
+    using namespace synth::drums;
+    MixPackImport result;
+    const auto plan = mixpack::plan (folder, gainBoosted ? mixpack::Version::boosted : mixpack::Version::original, mix);
+    result.name = plan.name;
+    result.unused = plan.unused;
+    if (! plan.valid())
+        return result;
+    std::vector<std::pair<int, juce::String>> refs;
+    auto m = matrix;
+    for (const auto& [slot, drum] : plan.slots)
+    {
+        result.slots.emplace_back (slot, drum.mixName);
+        setDrumSample (slot, nullptr);
+        makeSlotPlaySample (slot);
+        setParameterNow (ParamIDs::drum (slot, "On"), 1.0f);
+        refs.emplace_back (slot, "folder||" + drum.mix.getFullPathName());
+        // Its layers: the PARALLEL mix as the first (blend to taste), the second kick as the kick's second; the rest
+        // emptied (a layer from the kit before would play over the pack's).
+        for (int n = 0; n < ParamIDs::numLayers; ++n)
+        {
+            juce::File layer;
+            auto level = parallelDb;
+            if (n == 0 && parallelLayers)
+                layer = drum.parallel;
+            else if (n == 1 && slot == notemap::BD && plan.secondKick != juce::File())
+            {
+                layer = plan.secondKick;
+                level = -60.0f;
+                result.secondKick = true;
+            }
+            m.layer (slot, n) = {};
+            setParameterNow (ParamIDs::drum (slot, ParamIDs::layerOut (n)), 0.0f);
+            if (layer != juce::File())
+            {
+                refs.emplace_back ((int) layerOf (slot, n), "folder||" + layer.getFullPathName());
+                setParameterNow (ParamIDs::drum (slot, ParamIDs::layerLevel (n)), level);
+            }
+            else
+            {
+                setDrumInstrument (layerOf (slot, n), nullptr);
+                forgetLoad ((int) layerOf (slot, n));
+            }
+        }
+    }
+    setModMatrix (m);
+    using namespace notemap;
+    for (const auto slot : { HO1, HO3, HH, SD2, RE, RB, HSH, C1C, C2C, CHC, SPC, T4, T5, C3, C4, C5, C6, CFX, CH2 })
+        if (plan.slots.count (slot) == 0)
+            setParameterNow (ParamIDs::drum (slot, "On"), 0.0f);
     startLoading (refs);
     markModified();
     requestCheckpoint();

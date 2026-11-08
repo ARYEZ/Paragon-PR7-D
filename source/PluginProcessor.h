@@ -221,6 +221,20 @@ public:
         juce::StringArray userChannels, unused;
     };
     SamplePackImport importSamplePack (const juce::File& folder);
+    // 0.69.0: A MIXED SAMPLE PACK (mixpack: each drum's hits already mixed to stereo, several finished mixes in folders
+    // of their own). Each drum it has takes the chosen version's chosen mix (else the nearest) as a folder of hits, its
+    // PARALLEL mix as layer 1 at `parallelDb` (unless `parallelLayers` is false: they double the memory), a second kick as the kick's layer 2 (off: -60 dB); the hat's steps,
+    // the rimshot, the ride's edge, the chokes and the extra crashes / toms it has none of: off (they play the
+    // nearest it has). One undo step. What went where, for a summary.
+    struct MixPackImport
+    {
+        juce::String name;
+        std::vector<std::pair<int, juce::String>> slots;   // slot, the mix folder taken
+        juce::StringArray unused;
+        bool secondKick = false;
+    };
+    static constexpr float parallelDb = -10.0f;
+    MixPackImport importMixPack (const juce::File& folder, bool gainBoosted, int mix, bool parallelLayers = true);
     int getStreamUnderruns() const noexcept { return diskStreamer != nullptr ? diskStreamer->getUnderruns() : 0; }
     int getActiveStreams() const noexcept { return diskStreamer != nullptr ? diskStreamer->getActiveStreams() : 0; }
     bool waitForStreams (int timeoutMs = 5000) noexcept { return diskStreamer == nullptr || diskStreamer->waitUntilFilled (timeoutMs); }   // tests
