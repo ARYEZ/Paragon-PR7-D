@@ -732,6 +732,17 @@ void MainView::openSongCreator (const juce::File& source)
 
 //==============================================================================
 // A GROOVE DRAGGED OVER THE DRUMS TAB (0.13.0)
+bool MainView::shouldDropFilesWhenDraggedExternally (const juce::DragAndDropTarget::SourceDetails& details, juce::StringArray& files,
+                                                     bool& canMoveFiles)
+{
+    const auto blocks = SongTrack::blocksIn (details.description.toString());
+    if (blocks.empty())
+        return false;
+    files.add (audioProcessor.songBlocksDragFile (blocks).getFullPathName());
+    canMoveFiles = false;
+    return true;
+}
+
 bool MainView::isInterestedInDragSource (const SourceDetails& details)
 {
     const auto d = details.description.toString();

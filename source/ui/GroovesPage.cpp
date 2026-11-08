@@ -1,4 +1,5 @@
 #include "GroovesPage.h"
+#include "SongTrack.h"
 #include "grooves/GrooveDatabase.h"
 
 #include <map>
@@ -364,13 +365,14 @@ private:
 //==============================================================================
 // FIND SIMILAR's drop zone: drop a MIDI file to find grooves like it; after a rhythm search, the rhythm searched with
 // (each drum group's hits across its bars) and a cross to clear it.
-class GroovesPage::DropZone final : public juce::Component, public juce::FileDragAndDropTarget, public juce::SettableTooltipClient
+class GroovesPage::DropZone final : public juce::Component, public juce::FileDragAndDropTarget, public juce::DragAndDropTarget,
+                                     public juce::SettableTooltipClient
 {
 public:
     explicit DropZone (GroovesPage& p) : page (p)
     {
-        setTooltip ("Drop a MIDI file here to list the grooves whose rhythm is closest to it. After TAP TO FIND or a search by "
-                    "rhythm, the rhythm searched with; the cross clears it.");
+        setTooltip ("Drop a MIDI file here (or blocks dragged off the MIDI track) to list the grooves whose rhythm is closest "
+                    "to it. After TAP TO FIND or a search by rhythm, the rhythm searched with; the cross clears it.");
     }
     void paint (juce::Graphics& g) override
     {
@@ -426,6 +428,17 @@ public:
         hovering = false;
         if (! files.isEmpty())
             page.findLikeFile (juce::File (files[0]));
+        repaint();
+    }
+
+    // 0.64.0: blocks dragged off the MIDI track: their MIDI searched with.
+    bool isInterestedInDragSource (const SourceDetails& d) override { return ! SongTrack::blocksIn (d.description.toString()).empty(); }
+    void itemDragEnter (const SourceDetails&) override { hovering = true; repaint(); }
+    void itemDragExit (const SourceDetails&) override { hovering = false; repaint(); }
+    void itemDropped (const SourceDetails& d) override
+    {
+        hovering = false;
+        page.findLikeFile (page.processor.songBlocksDragFile (SongTrack::blocksIn (d.description.toString())));
         repaint();
     }
 

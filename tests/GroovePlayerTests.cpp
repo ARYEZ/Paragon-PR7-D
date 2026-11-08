@@ -8,6 +8,8 @@
 
 #include <set>
 #include "ui/GroovesPage.h"
+#include "ui/MainView.h"
+#include "ui/SongTrack.h"
 
 using Catch::Matchers::WithinAbs;
 
@@ -1223,4 +1225,73 @@ TEST_CASE ("RIFF MATCH page: a riff dropped finds the groove whose kick follows 
     CHECK (t.p.hasRiff());
     CHECK_THAT (page.getRiffPanel().getRiff().bpm, WithinAbs (110.0, 1e-6));
     CHECK_FALSE (page.isTapSearching());   // not searched as a drum groove
+}
+
+TEST_CASE ("GROOVES 0.64.0: blocks dragged off the MIDI track onto FIND SIMILAR's drop zone search with their MIDI; out of the plugin, a file", "[grooves][groove-player][ui][select]")
+{
+    Plugin t;
+    // Two grooves: a kick on every beat, and the snare's backbeat; a song block with the kick's rhythm.
+    const auto pack = t.folder.getChildFile ("Pack");
+    const auto write = [&] (const juce::String& name, int note, std::initializer_list<double> beats)
+    {
+        juce::MidiMessageSequence track;
+        for (const auto b : beats)
+        {
+            track.addEvent (juce::MidiMessage::noteOn (10, note, (juce::uint8) 100).withTimeStamp (b * 480));
+            track.addEvent (juce::MidiMessage::noteOff (10, note).withTimeStamp (b * 480 + 60));
+        }
+        juce::MidiFile f;
+        f.setTicksPerQuarterNote (480);
+        f.addTrack (track);
+        pack.createDirectory();
+        juce::FileOutputStream out (pack.getChildFile (name + ".mid"));
+        f.writeTo (out);
+    };
+    write ("Four On The Floor", t.p.homeNote (BD), { 0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0 });
+    write ("Backbeat", t.p.homeNote (SD), { 1.0, 3.0, 5.0, 7.0 });
+    REQUIRE (t.p.getGrooveLibrary().addFolder (pack));
+    t.p.getGrooveLibrary().scanNow();
+    song::Song s;
+    song::Block b;
+    b.name = "Kick";
+    b.length = b.loopLength = 8.0;
+    for (int k = 0; k < 8; ++k)
+        b.hits.push_back ({ (double) k, BD, 1.0f });
+    s.place (b, 0.0);
+    t.p.setSong (s);
+
+    MainView view (t.p);
+    view.setSize (MainView::width, MainView::height);
+    view.showPage (MainView::Page::grooves);
+    auto& page = view.getGroovesPage();
+    page.refresh();
+    // The drop zone takes them (and nothing else of the strip's).
+    juce::DragAndDropTarget* zone = nullptr;
+    std::function<void (juce::Component&)> find = [&] (juce::Component& c)
+    {
+        for (auto* child : c.getChildren())
+        {
+            if (auto* target = dynamic_cast<juce::DragAndDropTarget*> (child); target != nullptr && zone == nullptr
+                && target->isInterestedInDragSource ({ "songblocks:0", nullptr, {} }) && dynamic_cast<SongTrack*> (child) == nullptr)
+                zone = target;
+            find (*child);
+        }
+    };
+    find (page);
+    REQUIRE (zone != nullptr);
+    CHECK_FALSE (zone->isInterestedInDragSource ({ "groove:0", nullptr, {} }));
+    zone->itemDropped ({ "songblocks:0", nullptr, {} });
+    REQUIRE (page.isTapSearching());
+    CHECK (page.getResults()[0].name == "Four On The Floor");
+
+    // Out of the plugin (onto a DAW track): the blocks' MIDI as a file.
+    juce::StringArray files;
+    auto canMove = true;
+    REQUIRE (view.shouldDropFilesWhenDraggedExternally ({ "songblocks:0", nullptr, {} }, files, canMove));
+    REQUIRE (files.size() == 1);
+    CHECK (juce::File (files[0]).existsAsFile());
+    CHECK (juce::File (files[0]).getFileName() == "Kick.mid");
+    CHECK_FALSE (canMove);
+    files.clear();
+    CHECK_FALSE (view.shouldDropFilesWhenDraggedExternally ({ "groove:0", nullptr, {} }, files, canMove));
 }

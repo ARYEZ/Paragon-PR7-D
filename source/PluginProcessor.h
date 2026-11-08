@@ -490,6 +490,9 @@ public:
     // EXPORT MIDI: the whole song on the kit's notes (each drum's home note in the map), at the DAW's tempo.
     juce::MidiFile songToMidi() const;
     juce::File songDragFile() const;
+    // 0.64.0: some of the song's blocks as a MIDI file (dragged out of the strip: onto FIND SIMILAR or a DAW track), from
+    // the first one's start, the gaps between them kept, on this kit's home notes.
+    juce::File songBlocksDragFile (const std::vector<int>& blocks) const;
     // IMPORT MIDI FILE (0.11.0): a whole song's MIDI through the kit's note map, as blocks (one per marker in it, else one)
     // after the song there (from the next bar line; an empty song: the song); with its tempo changes and time
     // signatures if `withTempo`. Returns how many blocks it added (0: nothing the kit plays, or not a MIDI file).

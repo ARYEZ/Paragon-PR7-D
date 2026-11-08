@@ -4277,6 +4277,40 @@ juce::File ParagonX1AudioProcessor::songDragFile() const
     return file;
 }
 
+juce::File ParagonX1AudioProcessor::songBlocksDragFile (const std::vector<int>& blocks) const
+{
+    auto chosen = blocks;
+    std::sort (chosen.begin(), chosen.end());
+    chosen.erase (std::unique (chosen.begin(), chosen.end()), chosen.end());
+    song::Song part;
+    part.numerator = songData->numerator;
+    part.denominator = songData->denominator;
+    part.followDaw = songData->followDaw;
+    juce::String name;
+    auto from = -1.0;
+    for (const auto i : chosen)
+        if (i >= 0 && i < (int) songData->blocks.size())
+        {
+            auto b = songData->blocks[(size_t) i];
+            if (from < 0.0)
+            {
+                from = b.start;
+                name = b.name;
+            }
+            b.start -= from;
+            part.blocks.push_back (std::move (b));
+        }
+    const auto folderOut = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("PR7-D Grooves");
+    folderOut.createDirectory();
+    auto fileName = juce::File::createLegalFileName (part.blocks.size() > 1 ? name + " +" + juce::String ((int) part.blocks.size() - 1)
+                                                                             : name.isNotEmpty() ? name : juce::String ("PR7-D Blocks"));
+    const auto file = folderOut.getChildFile (fileName + ".mid");
+    file.deleteFile();
+    if (juce::FileOutputStream out (file); out.openedOk())
+        part.toMidi (hostBpm.load(), [this] (int slot) { return homeNote (slot); }).writeTo (out);
+    return file;
+}
+
 void ParagonX1AudioProcessor::copyGrooveForSong (const grooves::Groove& groove, int folder, unsigned parts)
 {
     auto block = songBlockFrom (groove, folder);

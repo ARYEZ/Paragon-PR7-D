@@ -1273,6 +1273,25 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
     if (env ("PARAGON_SNAPSHOT_TRACK") == "1")
         view->setTrackShown (true);
     editor->setSize (width, width * view->getHeight() / MainView::width);
+    // PARAGON_SNAPSHOT_SELECT=1 (0.64.0, with SONG=1): THE SELECT BOX being dragged across the third to fifth blocks.
+    if (env ("PARAGON_SNAPSHOT_SELECT") == "1")
+    {
+        editor->resized();
+        auto& strip = view->getSongTrack();
+        const auto& s = processor.getSong();
+        if (s.blocks.size() > 4)
+        {
+            const auto y0 = (float) strip.getLane().getY() + 6.0f, y1 = (float) strip.getLane().getBottom() - 8.0f;
+            const juce::Point<float> from (strip.xOf (s.blocks.back().end() + 2.0), y0), to (strip.xOf (s.blocks[2].start + 2.0), y1);
+            const auto ev = [&] (juce::Point<float> at)
+            {
+                return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, juce::ModifierKeys (juce::ModifierKeys::leftButtonModifier),
+                                         1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &strip, &strip, juce::Time::getCurrentTime(), from, juce::Time::getCurrentTime(), 1, false);
+            };
+            strip.mouseDown (ev (from));
+            strip.mouseDrag (ev (to));
+        }
+    }
     // PARAGON_SNAPSHOT_CUT=1 (0.63.0, with SONG=1): THE CUT TOOL on, the mouse over the third block's bar 2 (the line
     // where a click would cut).
     if (env ("PARAGON_SNAPSHOT_CUT") == "1")

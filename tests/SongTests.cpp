@@ -2103,3 +2103,111 @@ TEST_CASE ("SONG 0.63.0: THE CUT TOOL: a click cuts a block on the nearest bar l
     track.setCutting (false);
     CHECK_FALSE (track.getCutButton().getToggleState());
 }
+
+TEST_CASE ("SONG 0.64.0: 1 / 3 for the pointer / CUT; THE SELECT BOX; CTRL-click; several blocks muted, merged, removed; dragged out as MIDI", "[song][select][ui]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 1, { { 0.0, BD } }), 0.0);
+    s.place (block ("B", 1, { { 0.0, SD } }), 4.0);
+    s.place (block ("C", 1, { { 1.0, BD } }), 8.0);
+    s.place (block ("D", 1, { { 2.0, SD } }), 12.0);
+    t.p.setSong (s);
+    t.p.flushUndoStep();
+    SongTrack track (t.p);
+    track.setBounds (0, 0, 1400, 126);
+    const auto mouse = [&track] (juce::Point<float> at, juce::Point<float> from, juce::ModifierKeys mods)
+    {
+        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, mods, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                 &track, &track, juce::Time::getCurrentTime(), from, juce::Time::getCurrentTime(), 1, false);
+    };
+    const auto y = (float) track.getLane().getCentreY();
+    const auto left = juce::ModifierKeys (juce::ModifierKeys::leftButtonModifier);
+    const auto selected = [&track]
+    {
+        auto v = track.getSelection();
+        std::sort (v.begin(), v.end());
+        return v;
+    };
+
+    // 3: CUT; 1: the pointer again (as the DAW's tools).
+    CHECK (track.keyPressed (juce::KeyPress ('3')));
+    CHECK (track.isCutting());
+    CHECK (track.keyPressed (juce::KeyPress ('1')));
+    CHECK_FALSE (track.isCutting());
+
+    // THE SELECT BOX: from the empty lane past the song's end back across C and D.
+    const juce::Point<float> from (track.xOf (18.0), y), to (track.xOf (9.0), y);
+    track.mouseDown (mouse (from, from, left));
+    track.mouseDrag (mouse (to, from, left));
+    track.mouseUp (mouse (to, from, left));
+    CHECK (selected() == std::vector<int> { 2, 3 });
+    // CTRL-click adds A; again takes it away; again adds it.
+    const juce::Point<float> onA (track.xOf (1.0), y);
+    const auto ctrl = juce::ModifierKeys (juce::ModifierKeys::leftButtonModifier | juce::ModifierKeys::commandModifier);
+    track.mouseDown (mouse (onA, onA, ctrl));
+    CHECK (selected() == std::vector<int> { 0, 2, 3 });
+    track.mouseDown (mouse (onA, onA, ctrl));
+    CHECK (selected() == std::vector<int> { 2, 3 });
+    // A plain click on one of them keeps them all chosen (to drag them, or their menu); on another block, just it.
+    const juce::Point<float> onC (track.xOf (9.0), y);
+    track.mouseDown (mouse (onC, onC, left));
+    track.mouseUp (mouse (onC, onC, left));
+    CHECK (selected() == std::vector<int> { 2, 3 });
+
+    // Their menu: MUTE THEM, then MERGE THEM (C and D one block, the gap kept), one undo step each.
+    const auto run = [] (juce::PopupMenu menu, const juce::String& text)
+    {
+        for (juce::PopupMenu::MenuItemIterator it (menu, true); it.next();)
+            if (it.getItem().text == text && it.getItem().isEnabled && it.getItem().action != nullptr)
+            {
+                it.getItem().action();
+                return true;
+            }
+        return false;
+    };
+    REQUIRE (run (track.menuForChosen(), "Mute Them"));
+    CHECK (t.p.getSong().blocks[2].muted);
+    CHECK (t.p.getSong().blocks[3].muted);
+    t.p.flushUndoStep();
+    REQUIRE (run (track.menuForChosen(), "Unmute Them"));
+    CHECK_FALSE (t.p.getSong().blocks[2].muted);
+    t.p.flushUndoStep();
+
+    // Dragged out: their MIDI from C's start (C's kick on beat 1, D's snare on beat 4 + 2 = 6), on the home notes.
+    const auto file = t.p.songBlocksDragFile (selected());
+    REQUIRE (file.existsAsFile());
+    juce::MidiFile midi;
+    {
+        juce::FileInputStream in (file);
+        REQUIRE (midi.readFrom (in));
+    }
+    std::vector<std::pair<double, int>> notes;
+    for (int k = 0; k < midi.getNumTracks(); ++k)
+        for (const auto* e : *midi.getTrack (k))
+            if (e->message.isNoteOn())
+                notes.push_back ({ e->message.getTimeStamp() / midi.getTimeFormat(), e->message.getNoteNumber() });
+    CHECK (notes == std::vector<std::pair<double, int>> { { 1.0, t.p.homeNote (BD) }, { 6.0, t.p.homeNote (SD) } });
+    CHECK (SongTrack::blocksIn ("songblocks:2,3") == std::vector<int> { 2, 3 });
+    CHECK (SongTrack::blocksIn ("groove:2").empty());
+
+    REQUIRE (run (track.menuForChosen(), "Merge Them"));
+    REQUIRE (t.p.getSong().blocks.size() == 3);
+    CHECK (t.p.getSong().blocks[2].start == 8.0);
+    CHECK (t.p.getSong().blocks[2].length == 8.0);
+    t.p.flushUndoStep();
+
+    // DELETE: every block chosen goes (B and the merged one), one undo step.
+    track.setSelection ({ 1, 2 });
+    CHECK (track.keyPressed (juce::KeyPress (juce::KeyPress::deleteKey)));
+    REQUIRE (t.p.getSong().blocks.size() == 1);
+    CHECK (t.p.getSong().blocks[0].name == "A");
+    t.p.flushUndoStep();
+    t.p.undo();
+    CHECK (t.p.getSong().blocks.size() == 3);
+
+    // A click on the empty lane clears the choice.
+    track.mouseDown (mouse (from, from, left));
+    track.mouseUp (mouse (from, from, left));
+    CHECK (track.getSelection().empty());
+}

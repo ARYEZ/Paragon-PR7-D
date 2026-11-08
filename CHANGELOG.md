@@ -2,6 +2,27 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.64.0
+
+**The MIDI track works more like your DAW's** (you asked for: 1 for the pointer and 3 for the cutting tool; dragging MIDI from the track onto FIND SIMILAR's drop zone and onto an instrument track in your DAW; and a select box to choose several blocks, to mute, merge or delete them).
+
+- **1 and 3.** On the MIDI track, 1 gives the pointer and 3 the cutting tool, as in your DAW. C still switches the cutting tool and ESCAPE still leaves it. The track needs the keyboard: click on it first.
+- **THE SELECT BOX.** Drag on an empty part of the track and a box chooses every block it reaches across. Hold CTRL or SHIFT while you drag to add to the blocks already chosen. CTRL- or SHIFT-click adds a block, or takes it away. A plain click on one of the chosen blocks keeps them all chosen, and a click on an empty part of the track clears them.
+- **Several blocks at once.** Right-click one of the chosen blocks for their menu:
+  - MUTE THEM / UNMUTE THEM;
+  - MERGE THEM (into one block, gaps kept as rests; any blocks in between are merged too, and the menu says so);
+  - REMOVE THEM;
+  - LOOP THEM;
+  - SONG PART, QUANTIZE and VELOCITY for all of them.
+  
+  DELETE removes every chosen block. Each of these is one undo step.
+- **Drag MIDI off the track.** Drag a block (or the chosen blocks) up and off the MIDI track and it becomes MIDI:
+  - Drop it on FIND SIMILAR's MIDI DROP ZONE to list the grooves with the closest rhythm.
+  - Drag it out of the plugin onto an instrument track in your DAW. It goes as a MIDI file named after the block, starting from the first block's start, with the gaps between blocks kept and the notes on this kit's notes.
+  
+  Moving a block along the track works as before; it only turns into a drag once the mouse leaves the strip.
+- Not checked here: dropping onto a track in your DAW. PR7-D hands Windows an ordinary MIDI file, the same way grooves are dragged out of the GROOVES list; whether a track takes it is up to the DAW.
+
 ## 0.63.0
 
 **A CUT tool on the MIDI track, a fix for the pause at the loop's restart, and ORIGINAL TEMPO** (you asked to cut the MIDI on the track as a DAW's cutting tool does; ORIGINAL TEMPO didn't seem to work; and there was a pause of about half a second each time a loop started over, which wasn't there with the same MIDI on a DAW track).

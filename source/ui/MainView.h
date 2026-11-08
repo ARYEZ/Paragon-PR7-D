@@ -112,6 +112,9 @@ public:
     void itemDragMove (const SourceDetails&) override;
     void itemDragExit (const SourceDetails&) override;
     void itemDropped (const SourceDetails&) override;
+    // 0.64.0: blocks dragged off the MIDI track and out of the plugin (onto a DAW track): their MIDI as a file.
+    bool shouldDropFilesWhenDraggedExternally (const juce::DragAndDropTarget::SourceDetails&, juce::StringArray& files,
+                                               bool& canMoveFiles) override;
     void updateDragHover (double nowMs, bool dragStillOn);
     bool isPeekingAtSequencer() const noexcept { return dragPeek; }
     juce::Rectangle<int> getDrumsTabBounds() const { return drumsTab.getBounds(); }

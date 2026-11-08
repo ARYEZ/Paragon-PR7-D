@@ -54,6 +54,12 @@ public:
     juce::Rectangle<int> getLane() const noexcept { return lane; }
     void showMenuFor (int block, double atBeat = -1.0);   // as right-clicking it (at that beat: SPLIT HERE's place)
     juce::PopupMenu menuFor (int block, double atBeat = -1.0);
+    // 0.64.0: the menu for several blocks chosen together (MUTE / UNMUTE, MERGE, REMOVE, SONG PART, QUANTIZE, VELOCITY,
+    // LOOP THEM).
+    juce::PopupMenu menuForChosen();
+    // Its MIDI as dragged out (tests: the description; MainView gives a drag outside the plugin this file).
+    static constexpr const char* blocksPrefix = "songblocks:";
+    static std::vector<int> blocksIn (const juce::String& description);
     // EDIT BLOCK... (0.9.0): MainView opens the block editor (since 0.46.0 the GRID EDITOR) on it.
     std::function<void (int block)> onEditBlock;
     // EDIT MIDI (0.46.0, the manual's 7.3): EDIT PLAY STYLE on a block (right-click > EDIT MIDI, the P key); a
@@ -171,7 +177,13 @@ private:
     song::SlotMask highlight = 0;    // ... and the drums whose notes are lit
     double startBeat = 0.0;   // where PLAY starts (the bar numbers clicked)
     // A block being moved or made longer, and where it would go.
-    enum class Drag { none, move, resize } drag = Drag::none;
+    enum class Drag { none, move, resize, lasso } drag = Drag::none;
+    // 0.64.0: THE SELECT BOX (a drag on an empty part of the lane), and the blocks chosen when it began (CTRL / SHIFT
+    // add to them); a block dragged off the strip becomes a MIDI file's drag (FIND SIMILAR, a DAW track).
+    juce::Point<float> lassoFrom, lassoTo;
+    std::vector<int> lassoKept;
+    void dragBlocksOut (std::vector<int> blocks);
+    void removeChosen();
     double grabOffset = 0.0, dragBeat = 0.0;
     double dropBeat = -1.0;   // a groove or file over the lane: where it would go (-1: none)
     double shownPosition = -2.0;
