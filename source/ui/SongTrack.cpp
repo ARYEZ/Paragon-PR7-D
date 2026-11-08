@@ -47,17 +47,7 @@ SongTrack::SongTrack (ParagonX1AudioProcessor& p) : processor (p)
     play.setClickingTogglesState (false);
     play.setTooltip ("Play the song with your DAW stopped, from the place marked on the bar numbers (click them to move it). "
                      "While your DAW plays, the song plays with it.");
-    play.onClick = [this]
-    {
-        if (processor.isSongPlaying())
-            processor.stopSong();
-        else
-        {
-            processor.playSong (startBeat);
-            if (processor.isSongRecording() && processor.getSong().countIn)
-                showNote ("COUNT-IN: one bar of clicks, then the song plays and records.", 3.0);
-        }
-    };
+    play.onClick = [this] { togglePlay(); };
     addAndMakeVisible (play);
     exportButton.setTooltip ("The whole song as one MIDI file on the kit's notes: click to save it, drag it onto a DAW track.");
     exportButton.fileName = "PR7-D Song";
@@ -119,6 +109,13 @@ SongTrack::SongTrack (ParagonX1AudioProcessor& p) : processor (p)
                       "armed, or always.");
     click.onClick = [this] { clickMenu().showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&click)); };
     addAndMakeVisible (click);
+    // THE CUT TOOL (0.63.0).
+    cutTool.setClickingTogglesState (true);
+    cutTool.setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
+    cutTool.setTooltip ("CUT (key 3 or C; 1 back to the pointer): click a block to cut it in two, on the nearest bar line (hold ALT: on the nearest beat). "
+                        "Click CUT again, or press ESCAPE, to go back to moving blocks.");
+    cutTool.onClick = [this] { setCutting (cutTool.getToggleState()); };
+    addAndMakeVisible (cutTool);
     blocksView.setTooltip ("The blocks: arrange the song.");
     tempoView.setTooltip ("The song's tempo changes (used by PLAY and EXPORT MIDI; while your DAW plays, its tempo leads): "
                           "double-click to add one, drag one to move it, right-click it to glide to the next or remove it.");
@@ -255,6 +252,8 @@ void SongTrack::resized()
     follow.setBounds (top.removeFromLeft (98).reduced (2, 2));
     loop.setBounds (top.removeFromLeft (58).reduced (2, 2));    // 0.44.0
     click.setBounds (top.removeFromLeft (92).reduced (2, 2));
+    top.removeFromLeft (8);
+    cutTool.setBounds (top.removeFromLeft (52).reduced (2, 2));   // 0.63.0
     status.setBounds (top.reduced (8, 0));
     area.removeFromTop (2);
     ruler = area.removeFromTop (rulerHeight);
@@ -317,7 +316,7 @@ void SongTrack::updateStatus()
     }
     text << (view == View::tempo ? ". Double-click: a tempo change; drag one; right-click it for more."
              : view == View::time ? ". Double-click or right-click a bar: its time signature."
-                                  : ". Drag a block to move it, its right edge to lengthen it; right-click for more.");
+                                  : ". Drag a block to move it (off the strip: its MIDI), its right edge to lengthen it; drag the empty lane to choose several; 3 cuts, 1 points; right-click for more.");
     status.setText (text, juce::dontSendNotification);
 }
 
@@ -360,9 +359,11 @@ void SongTrack::paint (juce::Graphics& g)
             if (change)
             {
                 const auto m = s.meterAt (at);
-                g.setColour (ParagonColours::accent);
+                ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
+                ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), juce::String (m.numerator) + "/" + juce::String (m.denominator), juce::Rectangle<float> ((float) (juce::roundToInt (x) + 18), (float) (ruler.getY()), (float) (34), (float) (ruler.getHeight())), juce::Justification::centredLeft));
                 g.drawText (juce::String (m.numerator) + "/" + juce::String (m.denominator), juce::roundToInt (x) + 18, ruler.getY(), 34,
                             ruler.getHeight(), juce::Justification::centredLeft, false);
+                ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
             }
         }
     }
@@ -435,7 +436,7 @@ void SongTrack::paint (juce::Graphics& g)
         auto trial = s;
         trial.resize (chosen, dragBeat - b.start);
         const auto to = drag == Drag::move ? from + b.length : b.start + trial.blocks[(size_t) chosen].length;
-        g.setColour (ParagonColours::accent);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         g.drawRoundedRectangle ({ xOf (from), (float) lane.getY() + 1.0f, xOf (to) - xOf (from), (float) lane.getHeight() - 2.0f }, 4.0f, 2.0f);
     }
     // A groove or a file over the lane: where it would go.
@@ -445,7 +446,7 @@ void SongTrack::paint (juce::Graphics& g)
         song::Block probe;
         probe.length = s.beatsPerBarAt (dropBeat);
         const auto at = trial.blocks[(size_t) trial.place (probe, dropBeat)].start;
-        g.setColour (ParagonColours::accent);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         g.fillRect (xOf (at) - 1.0f, (float) lane.getY(), 3.0f, (float) lane.getHeight());
     }
 
@@ -482,12 +483,12 @@ void SongTrack::paint (juce::Graphics& g)
                     line.lineTo (pointOf (t.tempos[i + 1]));
             }
             line.lineTo ((float) lane.getRight(), line.getCurrentPosition().y);
-            g.setColour (ParagonColours::accent);
+            ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
             g.strokePath (line, juce::PathStrokeType (2.0f));
             for (size_t i = 0; i < t.tempos.size(); ++i)
             {
                 const auto p = pointOf (t.tempos[i]);
-                g.setColour ((int) i == dragTempo ? ParagonColours::glow : ParagonColours::accent);
+                ParagonColours::setFill (g, (int) i == dragTempo ? ParagonColours::glow : ParagonColours::accent, getLocalBounds());
                 g.fillEllipse (p.x - 5.0f, p.y - 5.0f, 10.0f, 10.0f);
                 g.setColour (ParagonColours::text);
                 g.drawText (juce::String (juce::roundToInt (t.tempos[i].bpm)) + (t.tempos[i].ramp ? " >" : ""), juce::roundToInt (p.x) + 7,
@@ -510,21 +511,44 @@ void SongTrack::paint (juce::Graphics& g)
         {
             const auto on = loopDraft.has_value() || s.loopOn;
             const auto x0 = xOf (range.first), x1 = xOf (range.second);
-            g.setColour (ParagonColours::accent.withAlpha (on ? 0.45f : 0.15f));
+            ParagonColours::setFill (g, ParagonColours::accent.withAlpha (on ? 0.45f : 0.15f), getLocalBounds());
             g.fillRect (juce::Rectangle<float> (x0, (float) ruler.getY() + 1.0f, x1 - x0, (float) ruler.getHeight() - 2.0f));
             if (on)
             {
-                g.setColour (ParagonColours::accent.withAlpha (0.07f));
+                ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.07f), getLocalBounds());
                 g.fillRect (juce::Rectangle<float> (x0, (float) lane.getY(), x1 - x0, (float) lane.getHeight()));
-                g.setColour (ParagonColours::accent.withAlpha (0.7f));
+                ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.7f), getLocalBounds());
                 g.drawVerticalLine (juce::roundToInt (x0), (float) ruler.getY(), (float) lane.getBottom());
                 g.drawVerticalLine (juce::roundToInt (x1), (float) ruler.getY(), (float) lane.getBottom());
             }
         }
     }
 
+    // THE SELECT BOX (0.64.0).
+    if (drag == Drag::lasso && lassoFrom.getDistanceFrom (lassoTo) >= 3.0f)
+    {
+        const auto box = juce::Rectangle<float> (lassoFrom, lassoTo).getIntersection (lane.toFloat());
+        ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.12f), getLocalBounds());
+        g.fillRect (box);
+        ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.8f), getLocalBounds());
+        g.drawRect (box, 1.0f);
+    }
+
+    // THE CUT TOOL (0.63.0): where a click would cut, a line through the block with a mark on the bar numbers.
+    if (cutting && cutHover >= 0.0)
+    {
+        // (Dashed and pearl white: not to be taken for the red playhead.)
+        const auto x = xOf (cutHover);
+        const float dashes[] = { 5.0f, 3.0f };
+        g.setColour (ParagonColours::text);
+        g.drawDashedLine (juce::Line<float> (x, (float) lane.getY() + 2.0f, x, (float) lane.getBottom() - 2.0f), dashes, 2, 2.0f);
+        juce::Path tick;
+        tick.addTriangle (x, (float) ruler.getBottom() - 1.0f, x - 4.0f, (float) ruler.getBottom() - 8.0f, x + 4.0f, (float) ruler.getBottom() - 8.0f);
+        g.fillPath (tick);
+    }
+
     // PLAY's start (a mark on the bar numbers) and where the song is playing.
-    g.setColour (ParagonColours::accent);
+    ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     const auto sx = xOf (startBeat);
     juce::Path mark;
     mark.addTriangle (sx, (float) ruler.getBottom(), sx - 5.0f, (float) ruler.getY() + 3.0f, sx + 5.0f, (float) ruler.getY() + 3.0f);
@@ -638,8 +662,55 @@ void SongTrack::edit (const std::function<void (song::Song&)>& f)
     processor.setSong (std::move (s));
 }
 
+void SongTrack::setCutting (bool on)
+{
+    cutting = on;
+    cutTool.setToggleState (on, juce::dontSendNotification);
+    cutHover = -1.0;
+    drag = Drag::none;
+    setMouseCursor (juce::MouseCursor::NormalCursor);
+    if (on)
+        showNote ("CUT: click a block where it should be cut (on bar lines; hold ALT for beats). 1, ESCAPE or CUT to stop.", 6.0);
+    repaint();
+}
+
+double SongTrack::cutPointAt (float x, bool onBeats) const
+{
+    if (view != View::blocks)
+        return -1.0;
+    const auto& s = processor.getSong();
+    const auto beat = beatAt (x);
+    const auto block = s.blockAt (beat);
+    if (block < 0)
+        return -1.0;
+    const auto& b = s.blocks[(size_t) block];
+    const auto cut = onBeats ? std::round (beat) : s.snap (beat);
+    return cut > b.start + 1.0e-9 && cut < b.end() - 1.0e-9 ? cut : -1.0;
+}
+
+void SongTrack::mouseExit (const juce::MouseEvent&)
+{
+    if (cutHover >= 0.0)
+    {
+        cutHover = -1.0;
+        repaint();
+    }
+}
+
 void SongTrack::mouseMove (const juce::MouseEvent& e)
 {
+    if (cutting)
+    {
+        // THE CUT TOOL: the line where a click would cut.
+        const auto at = lane.contains (e.getPosition()) ? cutPointAt (e.position.x, e.mods.isAltDown()) : -1.0;
+        setMouseCursor (at >= 0.0 ? juce::MouseCursor::IBeamCursor : juce::MouseCursor::NormalCursor);
+        if (! juce::exactlyEqual (at, cutHover))
+        {
+            cutHover = at;
+            repaint();
+        }
+        return;
+    }
     const auto& s = processor.getSong();
     auto block = s.blockAt (beatAt (e.position.x));
     // Just past a block's end counts too (its edge is grabbed from either side).
@@ -688,6 +759,24 @@ void SongTrack::mouseDown (const juce::MouseEvent& e)
             meterMenu (beatAt (e.position.x)).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
         return;
     }
+    if (cutting && ! e.mods.isPopupMenu())
+    {
+        // THE CUT TOOL (0.63.0): the block under the click cut there (one undo step); the second half chosen.
+        const auto block = s.blockAt (beatAt (e.position.x));
+        const auto at = cutPointAt (e.position.x, e.mods.isAltDown());
+        if (block >= 0 && at >= 0.0)
+        {
+            auto made = -1;
+            edit ([&] (song::Song& song) { made = song.splitAt (block, at); });
+            chosen = made;
+            also.clear();
+            cutHover = -1.0;
+            if (onSelectionChanged != nullptr)
+                onSelectionChanged();
+        }
+        repaint();
+        return;
+    }
     auto block = s.blockAt (beatAt (e.position.x));
     if (block < 0 && nearRightEdge (s.blockAt (beatAt (e.position.x - 6.0f)), e.position))
         block = s.blockAt (beatAt (e.position.x - 6.0f));
@@ -702,9 +791,10 @@ void SongTrack::mouseDown (const juce::MouseEvent& e)
         onArrow (block);
         return;
     }
-    if (block >= 0 && multiChoose && e.mods.isShiftDown() && chosen >= 0 && block != chosen)
+    const auto adding = e.mods.isShiftDown() || e.mods.isCommandDown();
+    if (block >= 0 && adding && ! e.mods.isPopupMenu() && chosen >= 0 && block != chosen)
     {
-        // 0.46.0: SHIFT-click while EDIT PLAY STYLE is open: this block added (or taken away again).
+        // SHIFT- or CTRL-click (0.46.0 while EDIT PLAY STYLE was open; 0.64.0 always): this block added (or taken away).
         if (const auto it = std::find (also.begin(), also.end(), block); it != also.end())
             also.erase (it);
         else
@@ -714,17 +804,50 @@ void SongTrack::mouseDown (const juce::MouseEvent& e)
             onSelectionChanged();
         return;
     }
-    const auto selectionChanged = block != chosen || ! also.empty();
-    chosen = block;
-    also.clear();
+    if (block < 0 && ! e.mods.isPopupMenu() && view == View::blocks)
+    {
+        // 0.64.0: THE SELECT BOX from here (CTRL / SHIFT: added to what's chosen).
+        lassoKept = adding ? getSelection() : std::vector<int> {};
+        lassoFrom = lassoTo = e.position;
+        drag = Drag::lasso;
+        if (! adding && (chosen >= 0 || ! also.empty()))
+        {
+            chosen = -1;
+            also.clear();
+            if (onSelectionChanged != nullptr)
+                onSelectionChanged();
+        }
+        repaint();
+        return;
+    }
+    // On one of several chosen: they stay chosen (to drag out together, or their menu).
+    const auto selection = getSelection();
+    const auto inSelection = block >= 0 && selection.size() > 1 && std::find (selection.begin(), selection.end(), block) != selection.end();
+    if (inSelection)
+    {
+        chosen = block;
+        also.clear();
+        for (const auto b : selection)
+            if (b != block)
+                also.push_back (b);
+    }
+    else
+    {
+        const auto selectionChanged = block != chosen || ! also.empty();
+        chosen = block;
+        also.clear();
+        if (selectionChanged && onSelectionChanged != nullptr)
+            onSelectionChanged();
+    }
     repaint();
-    if (selectionChanged && onSelectionChanged != nullptr)
-        onSelectionChanged();
     if (block < 0)
         return;
     if (e.mods.isPopupMenu())
     {
-        showMenuFor (block, beatAt (e.position.x));
+        if (inSelection)
+            menuForChosen().showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
+        else
+            showMenuFor (block, beatAt (e.position.x));
         return;
     }
     const auto& b = s.blocks[(size_t) block];
@@ -757,10 +880,146 @@ void SongTrack::mouseDrag (const juce::MouseEvent& e)
         repaint();
         return;
     }
+    if (drag == Drag::lasso)
+    {
+        // THE SELECT BOX: every block it reaches across (the blocks fill the lane's height).
+        lassoTo = e.position;
+        const auto a = beatAt (juce::jmin (lassoFrom.x, lassoTo.x)), b = beatAt (juce::jmax (lassoFrom.x, lassoTo.x));
+        std::vector<int> picked = lassoKept;
+        const auto& s = processor.getSong();
+        if (e.getDistanceFromDragStart() >= 3)
+            for (int i = 0; i < (int) s.blocks.size(); ++i)
+                if (s.blocks[(size_t) i].start < b && s.blocks[(size_t) i].end() > a
+                    && std::find (picked.begin(), picked.end(), i) == picked.end())
+                    picked.push_back (i);
+        std::sort (picked.begin(), picked.end());
+        chosen = picked.empty() ? -1 : picked.front();
+        also.assign (picked.size() > 1 ? picked.begin() + 1 : picked.end(), picked.end());
+        repaint();
+        return;
+    }
     if (drag == Drag::none || e.getDistanceFromDragStart() < 3)
         return;
+    if (drag == Drag::move && (e.position.y < (float) ruler.getY() - 6.0f || e.position.y > (float) getHeight() + 6.0f
+                               || e.position.x < -6.0f || e.position.x > (float) getWidth() + 6.0f))
+    {
+        // 0.64.0: off the strip: the block (and the others chosen with it) as MIDI, to drop on FIND SIMILAR or a DAW track.
+        drag = Drag::none;
+        dragBlocksOut (getSelection());
+        repaint();
+        return;
+    }
     dragBeat = drag == Drag::move ? beatAt (e.position.x) - grabOffset : beatAt (e.position.x);
     repaint();
+}
+
+std::vector<int> SongTrack::blocksIn (const juce::String& description)
+{
+    std::vector<int> out;
+    if (! description.startsWith (blocksPrefix))
+        return out;
+    juce::StringArray parts;
+    parts.addTokens (description.fromFirstOccurrenceOf (blocksPrefix, false, false), ",", "");
+    for (const auto& p : parts)
+        if (p.trim().containsOnly ("0123456789") && p.trim().isNotEmpty())
+            out.push_back (p.trim().getIntValue());
+    return out;
+}
+
+void SongTrack::dragBlocksOut (std::vector<int> blocks)
+{
+    std::sort (blocks.begin(), blocks.end());
+    if (blocks.empty())
+        return;
+    juce::StringArray ids;
+    for (const auto b : blocks)
+        ids.add (juce::String (b));
+    auto* container = juce::DragAndDropContainer::findParentDragContainerFor (this);
+    if (container == nullptr)
+        return;
+    // The picture under the mouse: the blocks' names on a small tag.
+    const auto& s = processor.getSong();
+    const auto label = blocks.size() == 1 && blocks[0] < (int) s.blocks.size() ? s.blocks[(size_t) blocks[0]].name
+                                                                            : juce::String ((int) blocks.size()) + " BLOCKS";
+    juce::Image tag (juce::Image::ARGB, 160, 26, true);
+    {
+        juce::Graphics g (tag);
+        ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.85f), getLocalBounds());
+        g.fillRoundedRectangle (tag.getBounds().toFloat().reduced (1.0f), 4.0f);
+        g.setColour (ParagonColours::text);
+        g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        g.drawText ("MIDI: " + label, tag.getBounds().reduced (6, 0), juce::Justification::centredLeft, true);
+    }
+    container->startDragging (juce::String (blocksPrefix) + ids.joinIntoString (","), this, juce::ScaledImage (tag), true);
+}
+
+void SongTrack::removeChosen()
+{
+    auto blocks = getSelection();
+    std::sort (blocks.begin(), blocks.end(), std::greater<int>());
+    chosen = -1;
+    also.clear();
+    edit ([&] (song::Song& s) { for (const auto b : blocks) s.remove (b); });
+    if (onSelectionChanged != nullptr)
+        onSelectionChanged();
+}
+
+juce::PopupMenu SongTrack::menuForChosen()
+{
+    juce::PopupMenu menu;
+    auto blocks = getSelection();
+    std::sort (blocks.begin(), blocks.end());
+    const auto& s = processor.getSong();
+    blocks.erase (std::remove_if (blocks.begin(), blocks.end(), [&s] (int b) { return b < 0 || b >= (int) s.blocks.size(); }), blocks.end());
+    if (blocks.empty())
+        return menu;
+    menu.addSectionHeader (juce::String ((int) blocks.size()) + " BLOCKS CHOSEN");
+    const auto anyPlaying = std::any_of (blocks.begin(), blocks.end(), [&s] (int b) { return ! s.blocks[(size_t) b].muted; });
+    menu.addItem (anyPlaying ? "Mute Them" : "Unmute Them", [this, blocks, anyPlaying]
+    {
+        edit ([&] (song::Song& song) { for (const auto b : blocks) song.blocks[(size_t) b].muted = anyPlaying; });
+    });
+    const auto first = blocks.front(), last = blocks.back();
+    menu.addItem ("Merge Them" + juce::String (last - first + 1 > (int) blocks.size() ? " (and the blocks between)" : ""),
+                  last > first, false, [this, first, last]
+    {
+        edit ([&] (song::Song& song) { for (int k = first; k < last; ++k) song.mergeWithNext (first); });
+        chosen = first;
+        also.clear();
+        if (onSelectionChanged != nullptr)
+            onSelectionChanged();
+    });
+    menu.addItem ("Remove Them", [this] { removeChosen(); });
+    menu.addItem ("Loop Them", [this, first, last]
+    {
+        const auto& song = processor.getSong();
+        if (last < (int) song.blocks.size())
+            setLoop (song.blocks[(size_t) first].start, song.blocks[(size_t) last].end());
+    });
+    juce::PopupMenu parts;
+    for (int k = 0; k < grooves::partNames.size(); ++k)
+    {
+        juce::PopupMenu::Item item (grooves::partNames[k]);
+        item.colour = song::colourOf ((grooves::Part) k);
+        item.action = [this, blocks, k] { edit ([&] (song::Song& song) { for (const auto b : blocks) song.blocks[(size_t) b].part = (grooves::Part) k; }); };
+        parts.addItem (item);
+    }
+    menu.addSubMenu ("Song Part", parts);
+    juce::PopupMenu grid;
+    for (int q = 0; q < grooves::quantizeNames.size(); ++q)
+        grid.addItem (grooves::quantizeNames[q], [this, blocks, q]
+        {
+            edit ([&] (song::Song& song) { for (const auto b : blocks) song::quantize (song.blocks[(size_t) b], grooves::gridOf (q)); });
+        });
+    menu.addSubMenu ("Quantize", grid);
+    juce::PopupMenu velocity;
+    for (const auto percent : { 50, 75, 90, 110, 125, 150 })
+        velocity.addItem (juce::String (percent) + "%", [this, blocks, percent]
+        {
+            edit ([&] (song::Song& song) { for (const auto b : blocks) song::scaleVelocity (song.blocks[(size_t) b], (float) percent / 100.0f); });
+        });
+    menu.addSubMenu ("Velocity", velocity);
+    return menu;
 }
 
 void SongTrack::mouseUp (const juce::MouseEvent& e)
@@ -795,6 +1054,14 @@ void SongTrack::mouseUp (const juce::MouseEvent& e)
     }
     const auto was = drag;
     drag = Drag::none;
+    if (was == Drag::lasso)
+    {
+        lassoKept.clear();
+        if (onSelectionChanged != nullptr)
+            onSelectionChanged();
+        repaint();
+        return;
+    }
     if (was == Drag::none || e.getDistanceFromDragStart() < 3 || chosen < 0)
     {
         repaint();
@@ -809,13 +1076,53 @@ void SongTrack::mouseUp (const juce::MouseEvent& e)
     repaint();
 }
 
+// PLAY's click, and (0.66.0) the space bar over the GRID EDITOR: stop the song, or play it from PLAY's start.
+void SongTrack::togglePlay()
+{
+    if (processor.isSongPlaying())
+        processor.stopSong();
+    else
+    {
+        processor.playSong (startBeat);
+        if (processor.isSongRecording() && processor.getSong().countIn)
+            showNote ("COUNT-IN: one bar of clicks, then the song plays and records.", 3.0);
+    }
+}
+
 bool SongTrack::keyPressed (const juce::KeyPress& key)
 {
-    if ((key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey) && chosen >= 0 && chosen < (int) processor.getSong().blocks.size())
+    // 0.63.0: C: the CUT tool on / off; ESCAPE: off.
+    if (key == juce::KeyPress::escapeKey && cutting)
     {
-        const auto index = chosen;
-        chosen = -1;
-        edit ([index] (song::Song& s) { s.remove (index); });
+        setCutting (false);
+        return true;
+    }
+    if (! key.getModifiers().isAnyModifierKeyDown()
+        && juce::CharacterFunctions::toLowerCase (key.getTextCharacter() != 0 ? key.getTextCharacter() : (juce::juce_wchar) key.getKeyCode()) == 'c')
+    {
+        setCutting (! cutting);
+        return true;
+    }
+    if ((key == juce::KeyPress::deleteKey || key == juce::KeyPress::backspaceKey) && ! getSelection().empty())
+    {
+        removeChosen();   // (0.64.0: every block chosen)
+        return true;
+    }
+    // 0.68.0: G zooms out, H in (as the GRID EDITOR and DAWs' editors), about the middle of what's shown.
+    if (! key.getModifiers().isAnyModifierKeyDown())
+    {
+        const auto c = juce::CharacterFunctions::toLowerCase (key.getTextCharacter() != 0 ? key.getTextCharacter() : (juce::juce_wchar) key.getKeyCode());
+        if (c == 'g' || c == 'h')
+        {
+            setBarsShown (barsShown * (c == 'h' ? 1.0 / 1.5 : 1.5));
+            return true;
+        }
+    }
+    // 0.64.0: 1 the pointer, 3 the CUT tool, as in the DAW.
+    if (! key.getModifiers().isAnyModifierKeyDown() && (key.getTextCharacter() == '1' || key.getTextCharacter() == '3'
+                                                       || key.getKeyCode() == '1' || key.getKeyCode() == '3'))
+    {
+        setCutting (key.getTextCharacter() == '3' || key.getKeyCode() == '3');
         return true;
     }
     // 0.46.0: P: EDIT PLAY STYLE on the chosen block; E: the GRID EDITOR.

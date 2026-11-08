@@ -83,9 +83,9 @@ public:
 
         const auto capY = travel.getBottom() - travel.getHeight() * proportion();
         const auto lit = juce::Rectangle<float> (well.getCentreX() - 1.2f * s, capY, 2.4f * s, juce::jmax (0.0f, well.getBottom() - capY - 3.0f * s));
-        g.setColour (ParagonColours::accent.withAlpha (0.25f));
+        ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.25f), getLocalBounds());
         g.fillRect (lit.expanded (2.5f * s, 0.0f));
-        g.setColour (ParagonColours::accent);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         g.fillRect (lit);
 
         const auto cap = juce::Rectangle<float> (slot.getWidth() + 16.0f * s, 26.0f * s).withCentre ({ slot.getCentreX(), capY });

@@ -2,6 +2,70 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.68.0
+
+- **Lettering is white again** instead of the full gradient sweep (too much on text). The gradient stays on the meters, knob arcs, sliders, scroll bars, chosen rows and strips, filter chips, menus and notes.
+- **A button that's on shows a thin gradient bar along its foot** (AUTO SCROLL, SNAP, POINTER, FOLLOW DAW, BLOCKS, LOOP...), so on and off still read apart with white lettering.
+- **G and H zoom the song track** while it has the keyboard (click it first): G out, H in, about the middle of what's shown, between 4 and 256 bars. Before, the keys went through to the DAW.
+
+## 0.67.0
+
+THE FAMILY GRADIENT in place of the flat orange (the red / pink / orange of the whole PR7 family, as PR7-S uses it):
+
+- **Lit lettering** (AUTO SCROLL, SNAP, FOLLOW DAW, the chosen tab, chosen rows, the playing groove, labels and values) sweeps pink, red, orange across each word.
+- **Knob arcs, sliders, scroll bars, the chosen mixer strip, filter chips, outlines and the menus' highlight** sweep the same way across themselves, as PR7-S draws its parts and its cycle bar.
+- **Notes** in the grid editor and the drum sequencer are coloured by how hard they're hit, as PR7-S's notes: soft orange, medium pink, hard red (the velocity lines too).
+- **The three layers** each take one of the family's three colours; **the mixer's bus strips** PR7-S's orange (they were a golden orange).
+- Typed text and the text cursor, which can only be one colour, are the gradient's red.
+- Kept as they were: the LED screens' orange digits (PR7-S's too), the progress box (PR7-S's own), the kit picture's glow and holograms, the meters' amber over 0 dB, the EQ's band colours and the song parts' colours.
+
+## 0.66.0
+
+THE GRID EDITOR, four fixes:
+
+- **AUTO SCROLL stays lit while it's on.** POINTER, PENCIL and SNAP too. The editor's toggle buttons never got the orange "on" lettering the song strip's buttons have, so on and off looked the same.
+- **SPACE plays and stops the song** while the grid editor shows, in the plugin or in its own window, exactly like the song strip's PLAY (from PLAY's start). The editor's buttons no longer take the keyboard when clicked: a JUCE button with the keyboard treats SPACE as a click on itself, so after clicking AUTO SCROLL, SPACE would have switched it instead.
+- **OWN WINDOW opens maximized.** It's centred at its normal size first, so un-maximizing it puts it in the middle of the screen.
+- **The time scroll bar is always there**, at the bottom of the notes, right above the VELOCITY / DYNAMICS / RANDOM VEL / SLOPE lane. Before, it hid itself unless you'd zoomed in.
+
+## 0.65.0
+
+**The MIDI track loops cleanly with your DAW's cycle** (you heard a very quick pause on the first hit each time the loop came round, only when the MIDI track played it; the same MIDI on a DAW instrument track looped fine).
+
+- **What it was.** Your DAW stops its own tracks exactly at the cycle's end and starts them again from the cycle's start, in the middle of an audio block if it has to. That's why its MIDI track loops cleanly. But it gives a plugin one position per audio block, so when a block runs past the cycle's end, PR7-D read on past the end. The next block then began part-way into the loop's first beat. The kick (and anything else) right on the loop's first beat fell in the part that was skipped, so it was lost, or came late on some passes.
+- **What changed.** PR7-D now reads your DAW's cycle along with its position, and goes back to the cycle's start on the exact sample your DAW does. This works whatever size the DAW's audio blocks are. It covers the MIDI song track, the drum sequencer while it follows the DAW, the click, and recording into the song. A DAW that already splits its blocks at the cycle's end, as Cubase does, sees no change.
+- Checked with a test that plays PR7-S's way: one position per block, blocks that don't line up with the loop, and the clock wrapped as PR7-S wraps it. Before the fix, the loop's first kick was missing on every pass after the first. Now every hit lands on its exact sample, pass after pass.
+
+## 0.64.0
+
+**The MIDI track works more like your DAW's** (you asked for: 1 for the pointer and 3 for the cutting tool; dragging MIDI from the track onto FIND SIMILAR's drop zone and onto an instrument track in your DAW; and a select box to choose several blocks, to mute, merge or delete them).
+
+- **1 and 3.** On the MIDI track, 1 gives the pointer and 3 the cutting tool, as in your DAW. C still switches the cutting tool and ESCAPE still leaves it. The track needs the keyboard: click on it first.
+- **THE SELECT BOX.** Drag on an empty part of the track and a box chooses every block it reaches across. Hold CTRL or SHIFT while you drag to add to the blocks already chosen. CTRL- or SHIFT-click adds a block, or takes it away. A plain click on one of the chosen blocks keeps them all chosen, and a click on an empty part of the track clears them.
+- **Several blocks at once.** Right-click one of the chosen blocks for their menu:
+  - MUTE THEM / UNMUTE THEM;
+  - MERGE THEM (into one block, gaps kept as rests; any blocks in between are merged too, and the menu says so);
+  - REMOVE THEM;
+  - LOOP THEM;
+  - SONG PART, QUANTIZE and VELOCITY for all of them.
+  
+  DELETE removes every chosen block. Each of these is one undo step.
+- **Drag MIDI off the track.** Drag a block (or the chosen blocks) up and off the MIDI track and it becomes MIDI:
+  - Drop it on FIND SIMILAR's MIDI DROP ZONE to list the grooves with the closest rhythm.
+  - Drag it out of the plugin onto an instrument track in your DAW. It goes as a MIDI file named after the block, starting from the first block's start, with the gaps between blocks kept and the notes on this kit's notes.
+  
+  Moving a block along the track works as before; it only turns into a drag once the mouse leaves the strip.
+- Not checked here: dropping onto a track in your DAW. PR7-D hands Windows an ordinary MIDI file, the same way grooves are dragged out of the GROOVES list; whether a track takes it is up to the DAW.
+
+## 0.63.0
+
+**A CUT tool on the MIDI track, a fix for the pause at the loop's restart, and ORIGINAL TEMPO** (you asked to cut the MIDI on the track as a DAW's cutting tool does; ORIGINAL TEMPO didn't seem to work; and there was a pause of about half a second each time a loop started over, which wasn't there with the same MIDI on a DAW track).
+
+- **THE CUT TOOL.** CUT on the MIDI track's bar (or the C key) turns it on. A dashed line shows where a click will cut. Click a block and it's cut in two on the nearest bar line; hold ALT to cut on the nearest beat instead. Each half keeps its own notes where they played. Each cut is one undo step, and the second half is chosen afterwards. Click CUT again or press ESCAPE to go back to moving blocks. Right-click still opens a block's menu.
+- **The pause at the loop's restart.** When a MIDI file ends part-way into a bar (a 7-beat groove, common in djent), your DAW loops it at the file's own end. PR7-D rounded it up to a whole bar, which played silence before every restart: one beat, half a second at 120 BPM. Now a file whose end lies past its last note, on a beat or a 16th, loops at that end. This applies in the GROOVES preview, in the song track, and when grooves go into the sequencer. A file that simply stops at its last note still rounds up to whole bars, as before. This is my best match for what you heard: I couldn't reproduce a pause with a whole-bar groove. If you still hear one, tell me which groove.
+- **ORIGINAL TEMPO.** It already worked when a file holds its real tempo (tested: a 96 BPM groove plays at 96 with your DAW at 140). But many programs save MIDI at 120, the MIDI default, whatever the groove's tempo. A "160 BPM" groove saved like that was played at 120, so in a DAW at 120 the button seemed to do nothing. Now when a file's tempo is exactly 120 and its name or folder gives another tempo (for example "160 BPM"), the name wins. This is a guess about your files, so tell me if a groove still plays at the wrong speed and which one.
+- Your grooves are read again once, in the background, so their tempos and lengths are listed correctly.
+
 ## 0.62.0
 
 **GROOVES at 100,000 grooves** (you said the GROOVES tab still hangs where Superior Drummer doesn't, with a library of 100,000 grooves). I built a test library that size (70,000 MIDI files and 30,000 grooves in 43 groove databases, all invented) and timed every click on the window's own thread, where a hang comes from.

@@ -127,7 +127,7 @@ namespace grooves
         g.file = file;
         g.name = file.getFileNameWithoutExtension();
         auto tempoFound = false, signatureFound = false;
-        auto lastHit = 0.0, endOfTrack = 0.0;
+        auto lastHit = 0.0, endOfTrack = 0.0, lastNoteEnd = 0.0;
         for (int t = 0; t < midi.getNumTracks(); ++t)
             for (const auto* e : *midi.getTrack (t))
             {
@@ -156,14 +156,19 @@ namespace grooves
                 {
                     g.hits.push_back ({ beat, m.getNoteNumber(), m.getFloatVelocity() });
                     lastHit = juce::jmax (lastHit, beat);
+                    lastNoteEnd = juce::jmax (lastNoteEnd, beat);
                 }
+                else if (m.isNoteOff())
+                    lastNoteEnd = juce::jmax (lastNoteEnd, beat);
             }
         if (g.hits.empty())
             return std::nullopt;
         std::stable_sort (g.hits.begin(), g.hits.end(), [] (const Hit& a, const Hit& b) { return a.beat < b.beat; });
 
         // No tempo in the file: the one in its name, or its folders' (groove packs often name them "... 102 BPM").
-        if (! tempoFound)
+        // 0.63.0: nor when the file's is 120, the MIDI default many programs write whatever the groove's tempo (a
+        // "160 BPM" groove saved at 120 played at 120 with ORIGINAL TEMPO): a different tempo in a name wins then.
+        if (! tempoFound || std::abs (g.bpm - 120.0) < 1.0e-3)
             for (auto f = file; f.getFullPathName().isNotEmpty() && f != f.getParentDirectory(); f = f.getParentDirectory())
                 if (const auto bpm = tempoInName (f.getFileNameWithoutExtension()); bpm > 0.0)
                 {
@@ -181,6 +186,13 @@ namespace grooves
         if (endOfTrack >= g.bars * bpb + 0.5 * bpb)
             g.bars = (int) std::ceil (endOfTrack / bpb - 1.0e-6);
         g.lengthBeats = g.bars * g.beatsPerBar();
+        // 0.63.0: a file that ends part-way into its last bar on purpose (its end past its last note, on a beat or a
+        // 16th: a 7-beat djent groove) loops there, as a DAW plays the clip; whole bars added a gap before each restart
+        // (a beat: half a second at 120). An end right at the last note's end is just where the program stopped writing.
+        if (endOfTrack > lastNoteEnd + 1.0e-3 && endOfTrack > lastHit + 1.0e-6
+            && endOfTrack < g.lengthBeats - 1.0e-6 && endOfTrack > g.lengthBeats - bpb + 1.0e-6
+            && std::abs (endOfTrack * 4.0 - std::round (endOfTrack * 4.0)) < 0.02)
+            g.lengthBeats = std::round (endOfTrack * 4.0) / 4.0;
 
         // THE POWER HAND: the cymbal, hat or percussion played most.
         std::array<int, 6> counts {};

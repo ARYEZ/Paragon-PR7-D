@@ -490,6 +490,9 @@ public:
     // EXPORT MIDI: the whole song on the kit's notes (each drum's home note in the map), at the DAW's tempo.
     juce::MidiFile songToMidi() const;
     juce::File songDragFile() const;
+    // 0.64.0: some of the song's blocks as a MIDI file (dragged out of the strip: onto FIND SIMILAR or a DAW track), from
+    // the first one's start, the gaps between them kept, on this kit's home notes.
+    juce::File songBlocksDragFile (const std::vector<int>& blocks) const;
     // IMPORT MIDI FILE (0.11.0): a whole song's MIDI through the kit's note map, as blocks (one per marker in it, else one)
     // after the song there (from the next bar line; an empty song: the song); with its tempo changes and time
     // signatures if `withTempo`. Returns how many blocks it added (0: nothing the kit plays, or not a MIDI file).
@@ -934,6 +937,13 @@ private:
     std::atomic<double> hostBpm { 120.0 };
     std::atomic<int> hostNumerator { 4 }, hostDenominator { 4 };
     double hostPpq = -1.0;   // the song position at this block's start (-1: stopped); audio thread
+    // 0.65.0: the DAW's loop (cycle), and the sample of this block where it goes back to the loop's start (-1: it doesn't).
+    // Some DAWs (PR7-S) give a block that runs past the loop's end one position for the whole block: the pieces stop at
+    // that sample and those after it are placed from the loop's start, so the hits on the loop's first beat aren't lost.
+    bool hostLooping = false;
+    double hostLoopStart = 0.0, hostLoopEnd = 0.0;
+    int dawWrapSample = -1;   // audio thread
+    double dawBeatAt (int sampleInBlock, double bpm) const noexcept;
     MidiLinks midiLinks;
     std::array<std::atomic<juce::RangedAudioParameter*>, 128> controllerTargets {};   // the audio thread's copy, by CC
     std::atomic<int> lastController { -1 }, controllerCount { 0 };

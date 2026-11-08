@@ -354,10 +354,12 @@ void EqPage::paint (juce::Graphics& g)
     if (autoGain.getToggleState())
     {
         const auto db = processor.getEqAutoGainDb();
-        g.setColour (ParagonColours::accent);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), (db > 0.05 ? "+" : "") + juce::String (db, 1) + " dB", (autoGain.getBounds().translated (autoGain.getWidth(), 0).withWidth (68)).toFloat(), juce::Justification::centredLeft));
         g.drawText ((db > 0.05 ? "+" : "") + juce::String (db, 1) + " dB",
                     autoGain.getBounds().translated (autoGain.getWidth(), 0).withWidth (68), juce::Justification::centredLeft, false);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     }
 
     if (matching)
@@ -409,9 +411,11 @@ void EqPage::paintDynamics (juce::Graphics& g)
         g.setColour (ParagonColours::textDim);
         g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
         g.drawText (name, row.removeFromLeft (78), juce::Justification::centredLeft, false);
-        g.setColour (ParagonColours::accent);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
+        ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), text, (row.removeFromRight (200)).toFloat(), juce::Justification::centredLeft));
         g.drawText (text, row.removeFromRight (200), juce::Justification::centredLeft, false);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         row.removeFromRight (10);
         const auto track = row.toFloat().withSizeKeepingCentre ((float) row.getWidth(), 10.0f);
         g.setColour (juce::Colour (0xff09070a));

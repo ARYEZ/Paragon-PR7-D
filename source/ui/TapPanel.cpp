@@ -138,9 +138,11 @@ juce::Rectangle<int> TapPanel::laneArea (int lane) const
 void TapPanel::paint (juce::Graphics& g)
 {
     DockStyle::drawPanel (g, getLocalBounds().toFloat());
-    g.setColour (ParagonColours::accent);
+    ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), "TAP TO FIND", juce::Rectangle<float> ((float) (16), (float) (10), (float) (200), (float) (18)), juce::Justification::centredLeft));
     g.drawText ("TAP TO FIND", 16, 10, 200, 18, juce::Justification::centredLeft, false);
+    ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
 
     // The loop: a row a drum, bars and beats marked, QUANTIZE's grid faint, each tap where it lands on the grid (a
     // small mark where it was played), the playhead.
@@ -166,7 +168,7 @@ void TapPanel::paint (juce::Graphics& g)
                 const auto cells = juce::jmax (1, juce::roundToInt (loopBeats / grid));
                 const auto snapped = (double) (((juce::roundToInt (t.beat / grid) % cells) + cells) % cells) * grid;
                 const auto w = juce::jmax (6.0f, (float) loopArea.getWidth() * (float) (grid / loopBeats) - 3.0f);
-                g.setColour (ParagonColours::accent);
+                ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
                 g.fillRoundedRectangle (x (snapped) + 1.5f, (float) row.getY() + 4.0f, w, (float) row.getHeight() - 9.0f, 3.0f);
                 g.setColour (ParagonColours::text.withAlpha (0.5f));
                 g.fillRect (x (t.beat) - 0.5f, (float) row.getBottom() - 4.0f, 1.5f, 3.0f);

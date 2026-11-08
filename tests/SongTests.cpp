@@ -52,12 +52,16 @@ namespace
     {
         double bpm = 120.0, ppq = 0.0;
         bool playing = true;
+        bool looping = false;               // 0.65.0: the DAW's cycle
+        double loopStart = 0.0, loopEnd = 0.0;
         juce::Optional<PositionInfo> getPosition() const override
         {
             PositionInfo info;
             info.setBpm (bpm);
             info.setPpqPosition (ppq);
             info.setIsPlaying (playing);
+            info.setIsLooping (looping);
+            info.setLoopPoints (LoopPoints { loopStart, loopEnd });
             return info;
         }
     };
@@ -2017,4 +2021,265 @@ TEST_CASE ("GROOVES 0.45.0: OWN WINDOW puts the page in a window of its own; BAC
     // Out again, then the plugin's window closed with it out: no crash, the page let go of first.
     view->setGroovesInOwnWindow (true);
     editor.reset();
+}
+
+TEST_CASE ("SONG 0.63.0: THE CUT TOOL: a click cuts a block on the nearest bar line (ALT: the nearest beat); one undo step each; C and ESCAPE", "[song][cut][ui]")
+{
+    // The model: cut exactly where asked (a beat inside a bar is fine), each half its own notes as played there.
+    {
+        song::Song s;
+        s.place (block ("A", 2, { { 0.0, BD }, { 1.0, SD }, { 2.0, BD }, { 3.0, SD }, { 5.0, SD } }), 0.0);
+        REQUIRE (s.splitAt (0, 3.0) == 1);
+        REQUIRE (s.blocks.size() == 2);
+        CHECK (s.blocks[0].length == 3.0);
+        CHECK (s.blocks[1].start == 3.0);
+        CHECK (s.blocks[1].length == 5.0);
+        CHECK (s.blocks[0].hits.size() == 3);   // 0, 1, 2
+        REQUIRE (s.blocks[1].hits.size() == 2);
+        CHECK (s.blocks[1].hits[0].beat == 0.0);   // the snare on 3, now its start
+        CHECK (s.blocks[1].hits[1].beat == 2.0);
+        // Every hit still plays where it did.
+        std::vector<double> at;
+        for (const auto& e : s.events())
+            at.push_back (e.beat);
+        CHECK (at == std::vector<double> { 0.0, 1.0, 2.0, 3.0, 5.0 });
+        CHECK (s.splitAt (0, 0.0) == -1);   // not on its edges
+        CHECK (s.splitAt (1, 8.0) == -1);
+    }
+
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 4, { { 0.0, BD }, { 6.0, SD }, { 13.0, BD } }), 0.0);
+    t.p.setSong (s);
+    t.p.flushUndoStep();
+    SongTrack track (t.p);
+    track.setBounds (0, 0, 1400, 126);
+    const auto mouse = [&track] (juce::Point<float> at, juce::ModifierKeys mods)
+    {
+        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, mods, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                 &track, &track, juce::Time::getCurrentTime(), at, juce::Time::getCurrentTime(), 1, false);
+    };
+    const auto y = (float) track.getLane().getCentreY();
+    const auto left = juce::ModifierKeys::leftButtonModifier;
+
+    // Off: a click chooses (and nothing's cut).
+    track.mouseDown (mouse ({ track.xOf (5.3), y }, left));
+    track.mouseUp (mouse ({ track.xOf (5.3), y }, left));
+    CHECK (t.p.getSong().blocks.size() == 1);
+
+    // C: on. Where a click would cut: the nearest bar line; ALT: the nearest beat; off a block or on its edge: nowhere.
+    CHECK (track.keyPressed (juce::KeyPress ('c')));
+    CHECK (track.isCutting());
+    CHECK (track.getCutButton().getToggleState());
+    CHECK (track.cutPointAt (track.xOf (5.3), false) == 4.0);
+    CHECK (track.cutPointAt (track.xOf (5.3), true) == 5.0);
+    CHECK (track.cutPointAt (track.xOf (0.4), false) < 0.0);   // bar 1's start: the block's edge
+    CHECK (track.cutPointAt (track.xOf (20.0), false) < 0.0);  // past the song
+
+    // A click on bar 2 cuts there, the second half chosen; an undo step.
+    track.mouseDown (mouse ({ track.xOf (5.3), y }, left));
+    REQUIRE (t.p.getSong().blocks.size() == 2);
+    CHECK (t.p.getSong().blocks[1].start == 4.0);
+    CHECK (track.getChosen() == 1);
+    t.p.flushUndoStep();
+    // ALT: on a beat, inside bar 3 (the second block, 4-16, cut at 10).
+    track.mouseDown (mouse ({ track.xOf (9.8), y }, juce::ModifierKeys (juce::ModifierKeys::leftButtonModifier | juce::ModifierKeys::altModifier)));
+    REQUIRE (t.p.getSong().blocks.size() == 3);
+    CHECK (t.p.getSong().blocks[2].start == 10.0);
+    CHECK (t.p.getSong().blocks[2].length == 6.0);
+    // The hits all where they were.
+    std::vector<double> at;
+    for (const auto& e : t.p.getSong().events())
+        at.push_back (e.beat);
+    CHECK (at == std::vector<double> { 0.0, 6.0, 13.0 });
+    t.p.flushUndoStep();
+    t.p.undo();
+    CHECK (t.p.getSong().blocks.size() == 2);
+    t.p.undo();
+    CHECK (t.p.getSong().blocks.size() == 1);
+
+    // ESCAPE: off (a click chooses again); CUT's button switches it too.
+    CHECK (track.keyPressed (juce::KeyPress (juce::KeyPress::escapeKey)));
+    CHECK_FALSE (track.isCutting());
+    track.getCutButton().setToggleState (true, juce::dontSendNotification);
+    track.getCutButton().onClick();
+    CHECK (track.isCutting());
+    track.setCutting (false);
+    CHECK_FALSE (track.getCutButton().getToggleState());
+}
+
+TEST_CASE ("SONG 0.64.0: 1 / 3 for the pointer / CUT; THE SELECT BOX; CTRL-click; several blocks muted, merged, removed; dragged out as MIDI", "[song][select][ui]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 1, { { 0.0, BD } }), 0.0);
+    s.place (block ("B", 1, { { 0.0, SD } }), 4.0);
+    s.place (block ("C", 1, { { 1.0, BD } }), 8.0);
+    s.place (block ("D", 1, { { 2.0, SD } }), 12.0);
+    t.p.setSong (s);
+    t.p.flushUndoStep();
+    SongTrack track (t.p);
+    track.setBounds (0, 0, 1400, 126);
+    const auto mouse = [&track] (juce::Point<float> at, juce::Point<float> from, juce::ModifierKeys mods)
+    {
+        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), at, mods, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                 &track, &track, juce::Time::getCurrentTime(), from, juce::Time::getCurrentTime(), 1, false);
+    };
+    const auto y = (float) track.getLane().getCentreY();
+    const auto left = juce::ModifierKeys (juce::ModifierKeys::leftButtonModifier);
+    const auto selected = [&track]
+    {
+        auto v = track.getSelection();
+        std::sort (v.begin(), v.end());
+        return v;
+    };
+
+    // 3: CUT; 1: the pointer again (as the DAW's tools).
+    CHECK (track.keyPressed (juce::KeyPress ('3')));
+    CHECK (track.isCutting());
+    CHECK (track.keyPressed (juce::KeyPress ('1')));
+    CHECK_FALSE (track.isCutting());
+
+    // THE SELECT BOX: from the empty lane past the song's end back across C and D.
+    const juce::Point<float> from (track.xOf (18.0), y), to (track.xOf (9.0), y);
+    track.mouseDown (mouse (from, from, left));
+    track.mouseDrag (mouse (to, from, left));
+    track.mouseUp (mouse (to, from, left));
+    CHECK (selected() == std::vector<int> { 2, 3 });
+    // CTRL-click adds A; again takes it away; again adds it.
+    const juce::Point<float> onA (track.xOf (1.0), y);
+    const auto ctrl = juce::ModifierKeys (juce::ModifierKeys::leftButtonModifier | juce::ModifierKeys::commandModifier);
+    track.mouseDown (mouse (onA, onA, ctrl));
+    CHECK (selected() == std::vector<int> { 0, 2, 3 });
+    track.mouseDown (mouse (onA, onA, ctrl));
+    CHECK (selected() == std::vector<int> { 2, 3 });
+    // A plain click on one of them keeps them all chosen (to drag them, or their menu); on another block, just it.
+    const juce::Point<float> onC (track.xOf (9.0), y);
+    track.mouseDown (mouse (onC, onC, left));
+    track.mouseUp (mouse (onC, onC, left));
+    CHECK (selected() == std::vector<int> { 2, 3 });
+
+    // Their menu: MUTE THEM, then MERGE THEM (C and D one block, the gap kept), one undo step each.
+    const auto run = [] (juce::PopupMenu menu, const juce::String& text)
+    {
+        for (juce::PopupMenu::MenuItemIterator it (menu, true); it.next();)
+            if (it.getItem().text == text && it.getItem().isEnabled && it.getItem().action != nullptr)
+            {
+                it.getItem().action();
+                return true;
+            }
+        return false;
+    };
+    REQUIRE (run (track.menuForChosen(), "Mute Them"));
+    CHECK (t.p.getSong().blocks[2].muted);
+    CHECK (t.p.getSong().blocks[3].muted);
+    t.p.flushUndoStep();
+    REQUIRE (run (track.menuForChosen(), "Unmute Them"));
+    CHECK_FALSE (t.p.getSong().blocks[2].muted);
+    t.p.flushUndoStep();
+
+    // Dragged out: their MIDI from C's start (C's kick on beat 1, D's snare on beat 4 + 2 = 6), on the home notes.
+    const auto file = t.p.songBlocksDragFile (selected());
+    REQUIRE (file.existsAsFile());
+    juce::MidiFile midi;
+    {
+        juce::FileInputStream in (file);
+        REQUIRE (midi.readFrom (in));
+    }
+    std::vector<std::pair<double, int>> notes;
+    for (int k = 0; k < midi.getNumTracks(); ++k)
+        for (const auto* e : *midi.getTrack (k))
+            if (e->message.isNoteOn())
+                notes.push_back ({ e->message.getTimeStamp() / midi.getTimeFormat(), e->message.getNoteNumber() });
+    CHECK (notes == std::vector<std::pair<double, int>> { { 1.0, t.p.homeNote (BD) }, { 6.0, t.p.homeNote (SD) } });
+    CHECK (SongTrack::blocksIn ("songblocks:2,3") == std::vector<int> { 2, 3 });
+    CHECK (SongTrack::blocksIn ("groove:2").empty());
+
+    REQUIRE (run (track.menuForChosen(), "Merge Them"));
+    REQUIRE (t.p.getSong().blocks.size() == 3);
+    CHECK (t.p.getSong().blocks[2].start == 8.0);
+    CHECK (t.p.getSong().blocks[2].length == 8.0);
+    t.p.flushUndoStep();
+
+    // DELETE: every block chosen goes (B and the merged one), one undo step.
+    track.setSelection ({ 1, 2 });
+    CHECK (track.keyPressed (juce::KeyPress (juce::KeyPress::deleteKey)));
+    REQUIRE (t.p.getSong().blocks.size() == 1);
+    CHECK (t.p.getSong().blocks[0].name == "A");
+    t.p.flushUndoStep();
+    t.p.undo();
+    CHECK (t.p.getSong().blocks.size() == 3);
+
+    // A click on the empty lane clears the choice.
+    track.mouseDown (mouse (from, from, left));
+    track.mouseUp (mouse (from, from, left));
+    CHECK (track.getSelection().empty());
+}
+
+TEST_CASE ("SONG 0.65.0: the DAW's cycle: a block running past its end (as PR7-S gives them) keeps the loop's first beat on its sample", "[song][loop][daw-loop]")
+{
+    Plugin t;
+    // One bar: the kick on 1, the snare on 3; the DAW cycles bars 1-2 (8 beats) at 120: a beat 24,000 samples.
+    song::Song s;
+    s.place (block ("A", 2, { { 0.0, BD }, { 2.0, SD }, { 4.0, BD }, { 6.0, SD } }), 0.0);
+    t.p.setSong (s);
+    t.host.looping = true;
+    t.host.loopStart = 0.0;
+    t.host.loopEnd = 8.0;
+    // Blocks of 237 samples (not a divisor of the loop's 192,000), one position each, wrapped as PR7-S wraps its clock.
+    std::vector<float> out;
+    juce::AudioBuffer<float> buffer (2, 237);
+    juce::MidiBuffer none;
+    for (int done = 0; done < 48000 * 13; done += 237)
+    {
+        buffer.clear();
+        t.p.processBlock (buffer, none);
+        out.insert (out.end(), buffer.getReadPointer (0), buffer.getReadPointer (0) + 237);
+        t.host.ppq += 237 / sampleRate * t.host.bpm / 60.0;
+        if (t.host.ppq >= t.host.loopEnd)
+            t.host.ppq = t.host.loopStart + (t.host.ppq - t.host.loopEnd);
+    }
+    // Every hit on its sample, the loop's first kick included each time round (a beat late, or missing, before).
+    CHECK (onsets (out) == std::vector<int> { 0, 48000, 96000, 144000, 192000, 240000, 288000, 336000, 384000, 432000, 480000,
+                                              528000, 576000, 624000 });
+
+    // Not looping: the same blocks run on past bar 2 (nothing there: silence after the last snare).
+    Plugin u;
+    u.p.setSong (s);
+    out.clear();
+    for (int done = 0; done < 48000 * 6; done += 237)
+    {
+        buffer.clear();
+        u.p.processBlock (buffer, none);
+        out.insert (out.end(), buffer.getReadPointer (0), buffer.getReadPointer (0) + 237);
+        u.host.ppq += 237 / sampleRate * u.host.bpm / 60.0;
+    }
+    CHECK (onsets (out) == std::vector<int> { 0, 48000, 96000, 144000 });
+}
+
+TEST_CASE ("SONG STRIP 0.68.0: G zooms out, H zooms in, about the middle; CTRL + G is not a zoom", "[song][ui]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 40, { { 0.0, BD } }), 0.0);
+    s.place (block ("B", 40, { { 0.0, BD } }), 160.0);
+    t.p.setSong (s);
+    SongTrack track (t.p);
+    track.setBounds (0, 0, 1400, 136);
+    track.resized();
+    track.setViewStart (100.0);
+    const auto middle = [&track] { return track.beatAt ((float) track.getLane().getCentreX()); };
+    const auto bars = track.getBarsShown(), centre = middle();
+    CHECK (track.keyPressed (juce::KeyPress ('h', juce::ModifierKeys(), 'h')));
+    CHECK (std::abs (track.getBarsShown() - (bars / 1.5)) < 1.0e-9);
+    CHECK (std::abs (middle() - (centre)) < 0.05);
+    CHECK (track.keyPressed (juce::KeyPress ('g', juce::ModifierKeys(), 'g')));
+    CHECK (std::abs (track.getBarsShown() - (bars)) < 1.0e-9);
+    CHECK (std::abs (middle() - (centre)) < 0.05);
+    // Capitals (caps lock) too; within 4 to 256 bars.
+    for (int i = 0; i < 20; ++i)
+        track.keyPressed (juce::KeyPress ('H', juce::ModifierKeys(), 'H'));
+    CHECK (std::abs (track.getBarsShown() - (4.0)) < 1.0e-9);
+    CHECK (! track.keyPressed (juce::KeyPress ('g', juce::ModifierKeys::commandModifier, 'g')));
+    CHECK (std::abs (track.getBarsShown() - (4.0)) < 1.0e-9);
 }

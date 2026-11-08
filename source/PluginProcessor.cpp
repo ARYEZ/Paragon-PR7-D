@@ -688,12 +688,29 @@ void ParagonX1AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
                 hostBpm = *bpm;
             const auto ppq = position->getPpqPosition();
             hostPpq = position->getIsPlaying() && ppq.hasValue() ? *ppq : -1.0;
+            hostLooping = position->getIsLooping();
+            if (const auto points = position->getLoopPoints(); points.hasValue())
+            {
+                hostLoopStart = points->ppqStart;
+                hostLoopEnd = points->ppqEnd;
+            }
+            else
+                hostLooping = false;
             if (const auto signature = position->getTimeSignature(); signature.hasValue() && signature->numerator > 0 && signature->denominator > 0)
             {
                 hostNumerator = signature->numerator;
                 hostDenominator = signature->denominator;
             }
         }
+
+    // 0.65.0: where in this block the DAW's loop goes back to its start (the pieces are cut there).
+    dawWrapSample = -1;
+    if (hostPpq >= 0.0 && hostLooping && hostLoopEnd - hostLoopStart > 1.0 / 64.0 && hostPpq < hostLoopEnd - 1.0e-9)
+    {
+        const auto samples = (hostLoopEnd - hostPpq) * 60.0 / juce::jmax (1.0, hostBpm.load()) * getSampleRate();
+        if (samples < (double) numSamples)
+            dawWrapSample = juce::jmax (0, (int) std::ceil (samples - 1.0e-6));
+    }
 
     // THE DRUM MACHINE (0.38.0): the sequencer follows the DAW while it plays; else PLAY's own clock, from its start.
     dawPlaying = hostPpq >= 0.0;
@@ -771,6 +788,15 @@ void ParagonX1AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     midi.clear();   // an instrument: nothing goes on down the MIDI chain
 }
 
+double ParagonX1AudioProcessor::dawBeatAt (int sampleInBlock, double bpm) const noexcept
+{
+    // The DAW's beat at a sample of this block; past its loop's end (when the block runs over it), from the loop's start.
+    const auto raw = hostPpq + sampleInBlock / getSampleRate() * bpm / 60.0;
+    if (dawWrapSample >= 0 && sampleInBlock >= dawWrapSample)
+        return hostLoopStart + (raw - hostLoopEnd);
+    return raw;
+}
+
 void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, const juce::MidiBuffer& drums,
                                             const synth::drums::KitSettings& kit, int start, int numSamples, const AuxOutputs& aux)
 {
@@ -821,9 +847,13 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
     }
     const auto bpm = juce::jmax (1.0, hostBpm.load());
     auto* left = buffer.getWritePointer (0, start);
-    for (int done = 0; done < numSamples; done += (int) std::size (scratchRight))
+    for (int done = 0, n = 0; done < numSamples; done += n)
     {
-        const auto n = juce::jmin ((int) std::size (scratchRight), numSamples - done);
+        n = juce::jmin ((int) std::size (scratchRight), numSamples - done);
+        // 0.65.0: a piece never runs across the DAW's loop end (the song, the sequencer, the click and recording go back
+        // to the loop's start on the sample the DAW does).
+        if (dawWrapSample >= 0 && start + done < dawWrapSample && start + done + n > dawWrapSample)
+            n = dawWrapSample - (start + done);
         auto* right = numChannels > 1 ? buffer.getWritePointer (1, start + done) : scratchRight;
         if (numChannels == 1)
             std::fill (scratchRight, scratchRight + n, 0.0f);
@@ -847,9 +877,10 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
                     out.busRight[b] = rack->buses[b].buffer.getWritePointer (1, done);
                 }
         }
-        const auto ppq = hostPpq >= 0.0 ? hostPpq + (start + done) / getSampleRate() * bpm / 60.0 : -1.0;
+        const auto ppq = hostPpq >= 0.0 ? dawBeatAt (start + done, bpm) : -1.0;
         // The sequencer's own position: the DAW's, or THE DRUM MACHINE's PLAY (0.38.0).
-        const auto seqHere = seqPpq >= 0.0 ? seqPpq + (start + done) / getSampleRate() * seqBpm / 60.0 : -1.0;
+        const auto seqHere = hostPpq >= 0.0 ? dawBeatAt (start + done, seqBpm)
+                           : seqPpq >= 0.0 ? seqPpq + (start + done) / getSampleRate() * seqBpm / 60.0 : -1.0;
         if (machineRecording.load() && seqHere >= 0.0)
             for (const auto metadata : drums)
                 if (const auto pos = metadata.samplePosition - (start + done); pos >= 0 && pos < n)
@@ -4274,6 +4305,40 @@ juce::File ParagonX1AudioProcessor::songDragFile() const
     file.deleteFile();
     if (juce::FileOutputStream out (file); out.openedOk())
         songToMidi().writeTo (out);
+    return file;
+}
+
+juce::File ParagonX1AudioProcessor::songBlocksDragFile (const std::vector<int>& blocks) const
+{
+    auto chosen = blocks;
+    std::sort (chosen.begin(), chosen.end());
+    chosen.erase (std::unique (chosen.begin(), chosen.end()), chosen.end());
+    song::Song part;
+    part.numerator = songData->numerator;
+    part.denominator = songData->denominator;
+    part.followDaw = songData->followDaw;
+    juce::String name;
+    auto from = -1.0;
+    for (const auto i : chosen)
+        if (i >= 0 && i < (int) songData->blocks.size())
+        {
+            auto b = songData->blocks[(size_t) i];
+            if (from < 0.0)
+            {
+                from = b.start;
+                name = b.name;
+            }
+            b.start -= from;
+            part.blocks.push_back (std::move (b));
+        }
+    const auto folderOut = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("PR7-D Grooves");
+    folderOut.createDirectory();
+    auto fileName = juce::File::createLegalFileName (part.blocks.size() > 1 ? name + " +" + juce::String ((int) part.blocks.size() - 1)
+                                                                             : name.isNotEmpty() ? name : juce::String ("PR7-D Blocks"));
+    const auto file = folderOut.getChildFile (fileName + ".mid");
+    file.deleteFile();
+    if (juce::FileOutputStream out (file); out.openedOk())
+        part.toMidi (hostBpm.load(), [this] (int slot) { return homeNote (slot); }).writeTo (out);
     return file;
 }
 

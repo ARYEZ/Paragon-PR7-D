@@ -250,7 +250,8 @@ void DrumSeqGrid::paint (juce::Graphics& g)
         if (n.start >= length)
             continue;
         const auto rect = cell (n.row, n.start);
-        const auto colour = n.reverse != synth::drumseq::Reverse::off ? amber : ParagonColours::accent;
+        // 0.67.0: by how hard it's hit, in the family's three colours (as PR7-S's notes); REVERSE's amber kept.
+        const auto colour = n.reverse != synth::drumseq::Reverse::off ? amber : ParagonColours::velocityColour (n.velocity);
         g.setColour (colour.withAlpha (0.25f + 0.7f * n.velocity));
         g.fillRoundedRectangle (rect, 2.5f);
         g.setColour (selected[i] ? ParagonColours::text : colour);
@@ -305,16 +306,18 @@ void DrumSeqGrid::paint (juce::Graphics& g)
     if (dropText.isNotEmpty())
     {
         const auto area = getLocalBounds().toFloat().reduced (1.0f);
-        g.setColour (ParagonColours::accent.withAlpha (0.08f));
+        ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.08f), getLocalBounds());
         g.fillRoundedRectangle (area, 4.0f);
-        g.setColour (ParagonColours::accent);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         g.drawRoundedRectangle (area, 4.0f, 2.0f);
         const auto label = area.withSizeKeepingCentre (juce::jmin (area.getWidth() - 20.0f, 560.0f), 34.0f);
         g.setColour (juce::Colour (0xe0141016));
         g.fillRoundedRectangle (label, 5.0f);
-        g.setColour (ParagonColours::accent);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+        ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), dropText, (label).toFloat(), juce::Justification::centred));
         g.drawText (dropText, label, juce::Justification::centred, true);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     }
 }
 
@@ -541,10 +544,12 @@ void NoteField::paint (juce::Graphics& g)
     g.fillRoundedRectangle (area, 3.0f);
     g.setColour (ParagonColours::panelEdge);
     g.drawRoundedRectangle (area, 3.0f, 1.0f);
-    g.setColour (none ? ParagonColours::textDim.withAlpha (0.5f) : ParagonColours::accent);
+    ParagonColours::setFill (g, none ? ParagonColours::textDim.withAlpha (0.5f) : ParagonColours::accent, getLocalBounds());
     g.setFont (juce::FontOptions (12.0f));
+    ParagonColours::setTextFill (g, none ? ParagonColours::textDim.withAlpha (0.5f) : ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), none ? juce::String ("-") : choices.isEmpty() ? format (v) : choices[juce::roundToInt (v)], (area.toNearestInt()).toFloat(), juce::Justification::centred));
     g.drawFittedText (none ? juce::String ("-") : choices.isEmpty() ? format (v) : choices[juce::roundToInt (v)], area.toNearestInt(),
                       juce::Justification::centred, 1, 0.8f);
+    ParagonColours::setFill (g, none ? ParagonColours::textDim.withAlpha (0.5f) : ParagonColours::accent, getLocalBounds());
 }
 
 void NoteField::mouseDown (const juce::MouseEvent&)

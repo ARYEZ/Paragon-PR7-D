@@ -56,7 +56,7 @@ namespace grooves
         double bpm = 120.0;               // the file's own tempo (or the one in its name or folder's; else 120)
         bool bpmKnown = false;
         int numerator = 4, denominator = 4;
-        double lengthBeats = 4.0;         // whole bars, in quarter notes
+        double lengthBeats = 4.0;         // whole bars, in quarter notes (0.63.0: or the file's own end inside the last bar)
         int bars = 1;
         PowerHand hand = PowerHand::none;
         float intensity = 0.0f;           // 0 to 1: how hard (velocity) and how busy (hits a beat)

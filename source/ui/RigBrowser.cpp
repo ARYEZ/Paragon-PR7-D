@@ -234,9 +234,11 @@ void RigBrowser::paintListBoxItem (int row, juce::Graphics& g, int width, int he
     g.setColour (ParagonColours::textDim);
     g.drawText (entry.rig.getSlotName(), area.removeFromLeft (40), juce::Justification::centredLeft, false);
 
-    g.setColour (entry.rig.favourite ? ParagonColours::accent : ParagonColours::panelEdge);
+    ParagonColours::setFill (g, entry.rig.favourite ? ParagonColours::accent : ParagonColours::panelEdge, juce::Rectangle<int> (0, 0, width, height));
+    ParagonColours::setTextFill (g, entry.rig.favourite ? ParagonColours::accent : ParagonColours::panelEdge, ParagonColours::textSpan (g.getCurrentFont(), entry.rig.favourite ? juce::String (juce::CharPointer_UTF8 ("\xe2\x98\x85")) : juce::String (juce::CharPointer_UTF8 ("\xe2\x98\x86")), (area.removeFromRight (20)).toFloat(), juce::Justification::centred));
     g.drawText (entry.rig.favourite ? juce::String (juce::CharPointer_UTF8 ("\xe2\x98\x85")) : juce::String (juce::CharPointer_UTF8 ("\xe2\x98\x86")),
                 area.removeFromRight (20), juce::Justification::centred, false);
+    ParagonColours::setFill (g, entry.rig.favourite ? ParagonColours::accent : ParagonColours::panelEdge, juce::Rectangle<int> (0, 0, width, height));
 
     if (entry.isFactory)
     {
@@ -250,8 +252,10 @@ void RigBrowser::paintListBoxItem (int row, juce::Graphics& g, int width, int he
     g.drawText (entry.rig.tags.joinIntoString ("  "), area.removeFromRight (area.getWidth() / 3), juce::Justification::centredRight, true);
 
     g.setFont (juce::FontOptions (14.0f, isCurrent ? juce::Font::bold : juce::Font::plain));
-    g.setColour (isCurrent ? ParagonColours::accent : ParagonColours::text);
+    ParagonColours::setFill (g, isCurrent ? ParagonColours::accent : ParagonColours::text, juce::Rectangle<int> (0, 0, width, height));
+    ParagonColours::setTextFill (g, isCurrent ? ParagonColours::accent : ParagonColours::text, ParagonColours::textSpan (g.getCurrentFont(), entry.rig.name, (area).toFloat(), juce::Justification::centredLeft));
     g.drawText (entry.rig.name, area, juce::Justification::centredLeft, true);
+    ParagonColours::setFill (g, isCurrent ? ParagonColours::accent : ParagonColours::text, juce::Rectangle<int> (0, 0, width, height));
 }
 
 void RigBrowser::selectedRowsChanged (int lastRowSelected)

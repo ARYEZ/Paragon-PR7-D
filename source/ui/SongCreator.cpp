@@ -309,16 +309,18 @@ void SongCreator::paint (juce::Graphics& g)
         const auto r = juce::Rectangle<int> (structureArea.getX(), structureArea.getY() + i * structureRow, structureArea.getWidth(), structureRow - 4);
         if (r.getBottom() > structureArea.getBottom())
             break;
-        g.setColour (i == chosenStructure ? ParagonColours::accent.withAlpha (0.14f) : juce::Colour (0xff0d0a0e));
+        ParagonColours::setFill (g, i == chosenStructure ? ParagonColours::accent.withAlpha (0.14f) : juce::Colour (0xff0d0a0e), getLocalBounds());
         g.fillRoundedRectangle (r.toFloat(), 4.0f);
         if (i == chosenStructure)
         {
-            g.setColour (ParagonColours::accent);
+            ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
             g.drawRoundedRectangle (r.toFloat().reduced (0.5f), 4.0f, 1.0f);
         }
-        g.setColour (i == chosenStructure ? ParagonColours::accent : ParagonColours::text);
+        ParagonColours::setFill (g, i == chosenStructure ? ParagonColours::accent : ParagonColours::text, getLocalBounds());
         g.setFont (juce::FontOptions (12.0f, i == chosenStructure ? juce::Font::bold : juce::Font::plain));
+        ParagonColours::setTextFill (g, i == chosenStructure ? ParagonColours::accent : ParagonColours::text, ParagonColours::textSpan (g.getCurrentFont(), s.name + (s.user ? "  (yours)" : ""), juce::Rectangle<float> ((float) (r.getX() + 8), (float) (r.getY() + 3), (float) (r.getWidth() - 70), (float) (18)), juce::Justification::centredLeft));
         g.drawText (s.name + (s.user ? "  (yours)" : ""), r.getX() + 8, r.getY() + 3, r.getWidth() - 70, 18, juce::Justification::centredLeft, true);
+        ParagonColours::setFill (g, i == chosenStructure ? ParagonColours::accent : ParagonColours::text, getLocalBounds());
         g.setColour (ParagonColours::textDim);
         g.setFont (juce::FontOptions (11.0f));
         g.drawText (juce::String (s.totalBars()) + " bars", r.getRight() - 64, r.getY() + 3, 56, 18, juce::Justification::centredRight, false);
@@ -384,9 +386,11 @@ void SongCreator::paint (juce::Graphics& g)
                 g.setColour (song::colourOf (part).withAlpha (0.35f));
                 g.fillRoundedRectangle (cell.toFloat(), 3.0f);
             }
-            g.setColour (e.file == playing ? ParagonColours::accent : e.file == source ? ParagonColours::glow : ParagonColours::text);
+            ParagonColours::setFill (g, e.file == playing ? ParagonColours::accent : e.file == source ? ParagonColours::glow : ParagonColours::text, getLocalBounds());
             g.setFont (juce::FontOptions (11.5f, e.file == source ? juce::Font::bold : juce::Font::plain));
+            ParagonColours::setTextFill (g, e.file == playing ? ParagonColours::accent : e.file == source ? ParagonColours::glow : ParagonColours::text, ParagonColours::textSpan (g.getCurrentFont(), (e.file == playing ? "> " : "") + e.name, (cell.reduced (6, 0)).toFloat(), juce::Justification::centredLeft));
             g.drawText ((e.file == playing ? "> " : "") + e.name, cell.reduced (6, 0), juce::Justification::centredLeft, true);
+            ParagonColours::setFill (g, e.file == playing ? ParagonColours::accent : e.file == source ? ParagonColours::glow : ParagonColours::text, getLocalBounds());
         }
     }
 }

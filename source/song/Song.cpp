@@ -635,8 +635,14 @@ namespace song
     {
         if (index < 0 || index >= (int) blocks.size())
             return -1;
+        return splitAt (index, snap (atBeat));   // the song's bar line nearest (with its time signature changes)
+    }
+
+    int Song::splitAt (int index, double cut)
+    {
+        if (index < 0 || index >= (int) blocks.size())
+            return -1;
         auto& first = blocks[(size_t) index];
-        const auto cut = snap (atBeat);   // the song's bar line nearest (with its time signature changes)
         if (cut <= first.start + 1.0e-9 || cut >= first.end() - 1.0e-9)
             return -1;
         flatten (first);
