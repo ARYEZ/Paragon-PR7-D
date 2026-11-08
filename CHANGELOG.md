@@ -2,6 +2,12 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.68.0
+
+- **Lettering is white again** instead of the full gradient sweep (too much on text). The gradient stays on the meters, knob arcs, sliders, scroll bars, chosen rows and strips, filter chips, menus and notes.
+- **A button that's on shows a thin gradient bar along its foot** (AUTO SCROLL, SNAP, POINTER, FOLLOW DAW, BLOCKS, LOOP...), so on and off still read apart with white lettering.
+- **G and H zoom the song track** while it has the keyboard (click it first): G out, H in, about the middle of what's shown, between 4 and 256 bars. Before, the keys went through to the DAW.
+
 ## 0.67.0
 
 THE FAMILY GRADIENT in place of the flat orange (the red / pink / orange of the whole PR7 family, as PR7-S uses it):

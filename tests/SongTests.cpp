@@ -2256,3 +2256,30 @@ TEST_CASE ("SONG 0.65.0: the DAW's cycle: a block running past its end (as PR7-S
     }
     CHECK (onsets (out) == std::vector<int> { 0, 48000, 96000, 144000 });
 }
+
+TEST_CASE ("SONG STRIP 0.68.0: G zooms out, H zooms in, about the middle; CTRL + G is not a zoom", "[song][ui]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 40, { { 0.0, BD } }), 0.0);
+    s.place (block ("B", 40, { { 0.0, BD } }), 160.0);
+    t.p.setSong (s);
+    SongTrack track (t.p);
+    track.setBounds (0, 0, 1400, 136);
+    track.resized();
+    track.setViewStart (100.0);
+    const auto middle = [&track] { return track.beatAt ((float) track.getLane().getCentreX()); };
+    const auto bars = track.getBarsShown(), centre = middle();
+    CHECK (track.keyPressed (juce::KeyPress ('h', juce::ModifierKeys(), 'h')));
+    CHECK (std::abs (track.getBarsShown() - (bars / 1.5)) < 1.0e-9);
+    CHECK (std::abs (middle() - (centre)) < 0.05);
+    CHECK (track.keyPressed (juce::KeyPress ('g', juce::ModifierKeys(), 'g')));
+    CHECK (std::abs (track.getBarsShown() - (bars)) < 1.0e-9);
+    CHECK (std::abs (middle() - (centre)) < 0.05);
+    // Capitals (caps lock) too; within 4 to 256 bars.
+    for (int i = 0; i < 20; ++i)
+        track.keyPressed (juce::KeyPress ('H', juce::ModifierKeys(), 'H'));
+    CHECK (std::abs (track.getBarsShown() - (4.0)) < 1.0e-9);
+    CHECK (! track.keyPressed (juce::KeyPress ('g', juce::ModifierKeys::commandModifier, 'g')));
+    CHECK (std::abs (track.getBarsShown() - (4.0)) < 1.0e-9);
+}

@@ -1108,6 +1108,16 @@ bool SongTrack::keyPressed (const juce::KeyPress& key)
         removeChosen();   // (0.64.0: every block chosen)
         return true;
     }
+    // 0.68.0: G zooms out, H in (as the GRID EDITOR and DAWs' editors), about the middle of what's shown.
+    if (! key.getModifiers().isAnyModifierKeyDown())
+    {
+        const auto c = juce::CharacterFunctions::toLowerCase (key.getTextCharacter() != 0 ? key.getTextCharacter() : (juce::juce_wchar) key.getKeyCode());
+        if (c == 'g' || c == 'h')
+        {
+            setBarsShown (barsShown * (c == 'h' ? 1.0 / 1.5 : 1.5));
+            return true;
+        }
+    }
     // 0.64.0: 1 the pointer, 3 the CUT tool, as in the DAW.
     if (! key.getModifiers().isAnyModifierKeyDown() && (key.getTextCharacter() == '1' || key.getTextCharacter() == '3'
                                                        || key.getKeyCode() == '1' || key.getKeyCode() == '3'))
