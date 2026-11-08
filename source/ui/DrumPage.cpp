@@ -152,7 +152,7 @@ void DrumRow::paint (juce::Graphics& g)
     const auto bounds = getLocalBounds().toFloat();
     g.setColour (selected ? juce::Colour (0xff1b1418) : chosen ? juce::Colour (0xff17111a) : juce::Colour (0xff0f0c10));
     g.fillRoundedRectangle (bounds, 4.0f);
-    g.setColour (selected ? ParagonColours::accent : chosen ? ParagonColours::accent.withAlpha (0.55f) : ParagonColours::panelEdge);
+    ParagonColours::setFill (g, selected ? ParagonColours::accent : chosen ? ParagonColours::accent.withAlpha (0.55f) : ParagonColours::panelEdge, getLocalBounds());
     g.drawRoundedRectangle (bounds.reduced (0.5f), 4.0f, selected || chosen ? 1.4f : 1.0f);
 
     // The hit light.
@@ -177,7 +177,7 @@ void DrumRow::paint (juce::Graphics& g)
     g.setColour (selected ? ParagonColours::text : ParagonColours::text.withAlpha (0.85f));
     g.drawText (synth::drums::slotDefaults[(size_t) slot].key, juce::Rectangle<int> (66, 0, 44, getHeight()), juce::Justification::centredLeft, false);
     g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
-    g.setColour (s.model == Model::sample && s.sample == nullptr ? ParagonColours::textDim : ParagonColours::accent);
+    ParagonColours::setFill (g, s.model == Model::sample && s.sample == nullptr ? ParagonColours::textDim : ParagonColours::accent, getLocalBounds());
     g.drawFittedText (drumName (s, processor, slot), juce::Rectangle<int> (112, 0, 112, getHeight()), juce::Justification::centredLeft, 1, 0.8f);
 
     // The hit's picture: its first second (longer hits run off the end).
@@ -427,7 +427,7 @@ void DrumHitDisplay::paint (juce::Graphics& g)
     {
         const auto instrument = processor.getDrumInstrument (slot);
         g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-        g.setColour (ParagonColours::accent);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         if (instrument == nullptr)
         {
             const auto problems = processor.getInstrumentProblems();
@@ -470,7 +470,7 @@ void DrumHitDisplay::paint (juce::Graphics& g)
             {
                 const auto cell = column.withHeight (column.getHeight() / (float) rows).translated (0.0f, column.getHeight() * (float) hIndex / (float) rows).reduced (0.0f, 1.0f);
                 const auto isLast = last.first == i && last.second == hIndex;
-                g.setColour (isLast ? ParagonColours::text : ParagonColours::accent.withAlpha (hIndex < used ? 0.75f : 0.18f));
+                ParagonColours::setFill (g, isLast ? ParagonColours::text : ParagonColours::accent.withAlpha (hIndex < used ? 0.75f : 0.18f), getLocalBounds());
                 g.fillRect (cell);
             }
             if (column.getWidth() > 26.0f)
@@ -497,7 +497,7 @@ void DrumHitDisplay::paint (juce::Graphics& g)
                 chosen = i;
 
         g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-        g.setColour (ParagonColours::accent);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         auto title = file->name + "   " + juce::String ((endShare - startShare) * seconds, 2) + " s of " + juce::String (seconds, 1) + " s";
         if (chosen >= 0)
             title << "   (hit " << (chosen + 1) << " of " << (int) hits.size() << ")";
@@ -520,7 +520,7 @@ void DrumHitDisplay::paint (juce::Graphics& g)
         for (int i = 0; i < (int) hits.size(); ++i)
         {
             const auto x = wave.getX() + wave.getWidth() * (float) hits[(size_t) i] / (float) file->length();
-            g.setColour (i == chosen ? ParagonColours::accent : ParagonColours::textDim);
+            ParagonColours::setFill (g, i == chosen ? ParagonColours::accent : ParagonColours::textDim, getLocalBounds());
             g.drawVerticalLine (juce::roundToInt (x), wave.getY() - 14.0f, wave.getY() - 2.0f);
             g.drawText (juce::String (i + 1), juce::Rectangle<float> (x + 2.0f, wave.getY() - 16.0f, 24.0f, 14.0f),
                         juce::Justification::centredLeft, false);
@@ -566,7 +566,7 @@ void DrumHitDisplay::paint (juce::Graphics& g)
     }
 
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    g.setColour (ParagonColours::accent);
+    ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     auto title = drumName (s, processor, slot);
     if (! picture.peaks.empty())
         title << "   " << juce::String (picture.seconds, picture.seconds < 1.0 ? 2 : 1) << " s";

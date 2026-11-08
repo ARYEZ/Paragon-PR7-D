@@ -589,7 +589,7 @@ void KitView::paint (juce::Graphics& g)
                     h.drawImageAt (shownAt.lit[(size_t) k], shownAt.litAt[(size_t) k].x, shownAt.litAt[(size_t) k].y);
                     h.setOpacity (1.0f);
                 }
-                h.setColour (chosen ? ParagonColours::accent.brighter (0.3f) : ParagonColours::accent.withAlpha (0.45f));
+                ParagonColours::setFill (h, chosen ? ParagonColours::accent : ParagonColours::accent.withAlpha (0.45f), boxOf (k), false, chosen ? 1.3f : 1.0f);
                 h.drawImage (c.outline, boxOf (k), juce::RectanglePlacement::stretchToFit, true);
             }
         }

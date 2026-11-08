@@ -8,7 +8,10 @@ namespace
     constexpr int numKnobs = 5;
     const char* const knobNames[numKnobs] = { "PITCH", "OFFSET", "VEL LOW", "VEL HIGH", "LENGTH" };
     // Each layer's colour in the picture (the drum's is pearl white).
-    const juce::Colour layerColours[3] = { juce::Colour (0xffff7a1a), juce::Colour (0xffff3d8b), juce::Colour (0xffffb22e) };
+    // 0.67.0: the family's three (PR7-S's orange, pink, red), lit for the dark panel.
+    const juce::Colour layerColours[3] = { ParagonColours::familyOrange.withMultipliedBrightness (ParagonColours::litBrightness),
+                                           ParagonColours::familyPink.withMultipliedBrightness (ParagonColours::litBrightness),
+                                           ParagonColours::familyRed.withMultipliedBrightness (ParagonColours::litBrightness) };
 }
 
 LayerPanel::LayerPanel (ParagonX1AudioProcessor& p) : processor (p)
@@ -304,7 +307,7 @@ void LayerPanel::paint (juce::Graphics& g)
         g.drawRoundedRectangle (c.area.toFloat().reduced (0.5f), 5.0f, 1.0f);
         if (status[(size_t) n].isNotEmpty())
         {
-            g.setColour (status[(size_t) n].startsWith ("CAN'T") ? ParagonColours::meterRed : ParagonColours::accent);
+            ParagonColours::setFill (g, status[(size_t) n].startsWith ("CAN'T") ? ParagonColours::meterRed : ParagonColours::accent, getLocalBounds());
             g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
             auto left = c.area.reduced (10, 5);
             left = left.removeFromLeft (juce::jmin (330, left.getWidth() / 3));

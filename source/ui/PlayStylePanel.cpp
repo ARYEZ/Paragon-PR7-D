@@ -50,7 +50,7 @@ public:
         const auto colour = isPower ? ParagonColours::accent : juce::Colour (0xffff3d7a);
         g.setColour (juce::Colours::black.withAlpha (0.8f));
         g.fillRoundedRectangle (r, 4.0f);
-        g.setColour (lit ? colour : colour.withAlpha (0.45f));
+        ParagonColours::setFill (g, lit ? colour : colour.withAlpha (0.45f), r);
         g.drawRoundedRectangle (r, 4.0f, 1.6f);
         auto arrow = r.removeFromRight (18.0f);
         g.drawVerticalLine ((int) arrow.getX(), r.getY() + 3.0f, r.getBottom() - 3.0f);
@@ -916,7 +916,7 @@ void PlayStylePanel::resized()
 void PlayStylePanel::paint (juce::Graphics& g)
 {
     DockStyle::drawPanel (g, getLocalBounds().toFloat());
-    g.setColour (ParagonColours::accent);
+    ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     g.fillRect (playStyleTab.getX(), playStyleTab.getBottom() + 2, playStyleTab.getWidth(), 2);
     g.setColour (juce::Colour (0xff0d0a0e));
     g.fillRoundedRectangle (side.toFloat(), 6.0f);
@@ -931,7 +931,7 @@ void PlayStylePanel::paint (juce::Graphics& g)
         const auto isChosen = std::find (chosen.begin(), chosen.end(), p) != chosen.end();
         g.setColour (plays ? juce::Colour (0xff2a1418) : juce::Colour (0xff141113));
         g.fillRoundedRectangle (r, 4.0f);
-        g.setColour (isChosen ? ParagonColours::accent.brighter (0.3f) : (plays ? ParagonColours::accent.withAlpha (0.45f) : ParagonColours::textDim.withAlpha (0.3f)));
+        ParagonColours::setFill (g, isChosen ? ParagonColours::accent : (plays ? ParagonColours::accent.withAlpha (0.45f) : ParagonColours::textDim.withAlpha (0.3f)), r, false, isChosen ? 1.3f : 1.0f);
         g.drawRoundedRectangle (r, 4.0f, isChosen ? 2.0f : 1.0f);
         g.setColour (plays || isChosen ? ParagonColours::text : ParagonColours::textDim.withAlpha (0.6f));
         g.drawText (pieceTitle (p), r, juce::Justification::centred, true);

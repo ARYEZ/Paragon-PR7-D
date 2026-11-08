@@ -354,7 +354,7 @@ void EqPage::paint (juce::Graphics& g)
     if (autoGain.getToggleState())
     {
         const auto db = processor.getEqAutoGainDb();
-        g.setColour (ParagonColours::accent);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
         g.drawText ((db > 0.05 ? "+" : "") + juce::String (db, 1) + " dB",
                     autoGain.getBounds().translated (autoGain.getWidth(), 0).withWidth (68), juce::Justification::centredLeft, false);
@@ -409,7 +409,7 @@ void EqPage::paintDynamics (juce::Graphics& g)
         g.setColour (ParagonColours::textDim);
         g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
         g.drawText (name, row.removeFromLeft (78), juce::Justification::centredLeft, false);
-        g.setColour (ParagonColours::accent);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
         g.drawText (text, row.removeFromRight (200), juce::Justification::centredLeft, false);
         row.removeFromRight (10);

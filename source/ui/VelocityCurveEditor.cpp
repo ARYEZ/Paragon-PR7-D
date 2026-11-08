@@ -98,7 +98,7 @@ void VelocityCurveEditor::paint (juce::Graphics& g)
             path.lineTo (p);
         started = true;
     }
-    g.setColour (ParagonColours::accent);
+    ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     g.strokePath (path, juce::PathStrokeType (2.0f));
 
     // The points: the limits as bars of three dots, the rest round.
@@ -106,7 +106,7 @@ void VelocityCurveEditor::paint (juce::Graphics& g)
     {
         const auto p = toScreen (c.points[(size_t) i]);
         const auto limit = i == 0 || i == c.count - 1;
-        g.setColour (i == dragging ? ParagonColours::text : ParagonColours::accent);
+        ParagonColours::setFill (g, i == dragging ? ParagonColours::text : ParagonColours::accent, getLocalBounds());
         if (limit)
             for (int d = -1; d <= 1; ++d)
                 g.fillEllipse (juce::Rectangle<float> (4.0f, 4.0f).withCentre (p.translated (0.0f, (float) d * 5.0f)));

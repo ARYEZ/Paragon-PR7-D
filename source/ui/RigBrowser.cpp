@@ -234,7 +234,7 @@ void RigBrowser::paintListBoxItem (int row, juce::Graphics& g, int width, int he
     g.setColour (ParagonColours::textDim);
     g.drawText (entry.rig.getSlotName(), area.removeFromLeft (40), juce::Justification::centredLeft, false);
 
-    g.setColour (entry.rig.favourite ? ParagonColours::accent : ParagonColours::panelEdge);
+    ParagonColours::setFill (g, entry.rig.favourite ? ParagonColours::accent : ParagonColours::panelEdge, juce::Rectangle<int> (0, 0, width, height));
     g.drawText (entry.rig.favourite ? juce::String (juce::CharPointer_UTF8 ("\xe2\x98\x85")) : juce::String (juce::CharPointer_UTF8 ("\xe2\x98\x86")),
                 area.removeFromRight (20), juce::Justification::centred, false);
 
@@ -250,7 +250,7 @@ void RigBrowser::paintListBoxItem (int row, juce::Graphics& g, int width, int he
     g.drawText (entry.rig.tags.joinIntoString ("  "), area.removeFromRight (area.getWidth() / 3), juce::Justification::centredRight, true);
 
     g.setFont (juce::FontOptions (14.0f, isCurrent ? juce::Font::bold : juce::Font::plain));
-    g.setColour (isCurrent ? ParagonColours::accent : ParagonColours::text);
+    ParagonColours::setFill (g, isCurrent ? ParagonColours::accent : ParagonColours::text, juce::Rectangle<int> (0, 0, width, height));
     g.drawText (entry.rig.name, area, juce::Justification::centredLeft, true);
 }
 

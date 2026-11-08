@@ -564,9 +564,8 @@ void LimiterPage::paint (juce::Graphics& g)
             g.setColour (ParagonColours::textDim);
             g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
             g.drawText (name, row.removeFromTop (12), juce::Justification::centredLeft, false);
-            g.setColour (big ? ParagonColours::accent : ParagonColours::text);
             g.setFont (juce::FontOptions (big ? 22.0f : 13.0f, juce::Font::bold));
-            g.drawText (value, row, juce::Justification::centredLeft, false);
+            ParagonColours::drawText (g, value, row.toFloat(), juce::Justification::centredLeft, big ? ParagonColours::accent : ParagonColours::text);
         };
         const auto lufsText = [] (float lufs) { return lufs <= effects::LoudnessMeter::silent + 1.0f ? juce::String ("-") : juce::String (lufs, 1); };
         line (timeScaleNames[timeScale()].toUpperCase(), lufsText (shown), true);

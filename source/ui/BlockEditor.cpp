@@ -1764,7 +1764,7 @@ void BlockEditor::paint (juce::Graphics& g)
     const auto* b = block();
     if (b == nullptr)
         return;
-    g.setColour (ParagonColours::accent);
+    ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     g.fillRect (gridTab.getX(), gridTab.getBottom() + 1, gridTab.getWidth(), 2);
     g.setColour (ParagonColours::text);
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
@@ -1844,7 +1844,7 @@ void BlockEditor::paint (juce::Graphics& g)
                 const auto sBox = mBox.translated (19.0f, 0.0f);
                 for (const auto& [box, on, label] : { std::tuple { mBox, muted[(size_t) row.piece], "M" }, std::tuple { sBox, soloed[(size_t) row.piece], "S" } })
                 {
-                    g.setColour (on ? ParagonColours::accent : juce::Colour (0xff1c171c));
+                    ParagonColours::setFill (g, on ? ParagonColours::accent : juce::Colour (0xff1c171c), getLocalBounds());
                     g.fillRoundedRectangle (box, 2.0f);
                     g.setColour (on ? juce::Colours::black : ParagonColours::textDim);
                     g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
@@ -1914,7 +1914,8 @@ void BlockEditor::paint (juce::Graphics& g)
             g.strokePath (d, juce::PathStrokeType (1.5f));
         }
     };
-    const auto noteColour = [] (float v) { return ParagonColours::accent.withMultipliedBrightness (0.35f + 0.65f * v).withAlpha (0.4f + 0.6f * v); };
+    // 0.67.0: by how hard each is hit, in the family's three colours (soft orange, medium pink, hard red), as PR7-S's notes.
+    const auto noteColour = [] (float v) { return ParagonColours::velocityColour (v).withMultipliedBrightness (0.55f + 0.45f * v).withAlpha (0.45f + 0.55f * v); };
     {
         juce::Graphics::ScopedSaveState clip (g);
         g.reduceClipRegion (grid);
@@ -1957,9 +1958,9 @@ void BlockEditor::paint (juce::Graphics& g)
         if (drag == Drag::lasso)
         {
             const auto box = juce::Rectangle<float> (dragStart, dragNow);
-            g.setColour (ParagonColours::accent.withAlpha (0.12f));
+            ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.12f), getLocalBounds());
             g.fillRect (box);
-            g.setColour (ParagonColours::accent);
+            ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
             g.drawRect (box, 1.0f);
         }
     }
@@ -1980,7 +1981,8 @@ void BlockEditor::paint (juce::Graphics& g)
             const auto x = xOf (h.beat);
             const auto y = (float) lane.getBottom() - 3.0f - (float) (lane.getHeight() - 8) * v;
             const auto chosen = isSelected (h);
-            g.setColour (chosen ? ParagonColours::accent : ParagonColours::accent.withAlpha (0.35f));
+            // (0.67.0: the note's own colour, by its velocity)
+            g.setColour (ParagonColours::velocityColour (v).withAlpha (chosen ? 1.0f : 0.35f));
             g.fillRect (x - 1.0f, y, 2.0f, (float) lane.getBottom() - 3.0f - y);
             g.fillEllipse (x - 3.5f, y - 3.5f, 7.0f, 7.0f);
         }

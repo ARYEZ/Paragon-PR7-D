@@ -436,11 +436,11 @@ namespace Icons
 
         if (glow)
         {
-            g.setColour (colour.withAlpha (0.25f));
+            ParagonColours::setFill (g, colour.withAlpha (0.25f), area);
             g.strokePath (path, juce::PathStrokeType (strokeWidth * 3.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         }
 
-        g.setColour (colour);
+        ParagonColours::setFill (g, colour, area);
         g.strokePath (path, juce::PathStrokeType (strokeWidth, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
     }
 }
@@ -461,9 +461,9 @@ void IconButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
 
     if (on || outlined || down)
     {
-        g.setColour (on ? ParagonColours::accentDim.withAlpha (0.55f) : juce::Colour (0xff110e12));
+        ParagonColours::setFill (g, on ? ParagonColours::accentDim.withAlpha (0.55f) : juce::Colour (0xff110e12), getLocalBounds());
         g.fillRoundedRectangle (bounds, 4.0f);
-        g.setColour (on ? ParagonColours::accent.withAlpha (0.8f) : ParagonColours::panelEdge);
+        ParagonColours::setFill (g, on ? ParagonColours::accent.withAlpha (0.8f) : ParagonColours::panelEdge, getLocalBounds());
         g.drawRoundedRectangle (bounds, 4.0f, 1.0f);
     }
 
@@ -490,7 +490,7 @@ void IconButton::paintButton (juce::Graphics& g, bool highlighted, bool down)
                  : content;
     Icons::draw (g, icon, row.removeFromLeft (iconSize).withSizeKeepingCentre (iconSize, iconSize), colour, 1.6f, on);
     row.removeFromLeft (gap);
-    g.setColour (colour);
     g.setFont (font);
+    ParagonColours::setFill (g, colour, row.withWidth (juce::jmin (row.getWidth(), textWidth)));
     g.drawText (text, row, juce::Justification::centredLeft, true);
 }

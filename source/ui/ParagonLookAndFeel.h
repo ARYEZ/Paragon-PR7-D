@@ -9,8 +9,8 @@ namespace ParagonColours
     inline const juce::Colour background { 0xff060407 };   // measured off the mockup: near black, faintly purple
     inline const juce::Colour panel      { 0xff0c0a0d };
     inline const juce::Colour panelEdge  { 0xff27222a };
-    inline const juce::Colour accent     { 0xffff7a1a };
-    inline const juce::Colour accentDim  { 0xff5a2a0a };
+    inline const juce::Colour accent     { 0xfff4353a };   // 0.67.0: the family gradient's red, lit (was a flat orange ff7a1a)
+    inline const juce::Colour accentDim  { 0xff4e1016 };   // (was a dark orange 5a2a0a)
     inline const juce::Colour meterRed   { 0xffff3b2f };
     inline const juce::Colour text       { 0xffe8e8ea };
     inline const juce::Colour textDim    { 0xff8a8a92 };
@@ -38,6 +38,37 @@ namespace ParagonColours
     inline const juce::Colour glitch     { 0xffff3d8b };   // hot pink
     inline const juce::Colour pitch      { 0xfff4eef1 };   // pearl white
     inline const juce::Colour loFi       { 0xffffc29a };   // peach   // the plugin's neon orange-red
+
+    // 0.67.0: THE FAMILY GRADIENT in place of the flat orange (the owner: "the red / pink / orange that we've used all
+    // through the family ... specifically the PR7-S"). PR7-S's three colours (its FamilyColours: pink, red, orange, with
+    // the in-between stops Finish::neonGradient runs through), pink at the start, orange at the end. `accent` and
+    // `accentDim` stay the names code asks for: setFill (and the look-and-feel, for colours given to buttons, labels,
+    // sliders and scroll bars) turns them into the gradient across what is drawn; where one colour has to do (typed
+    // text, the caret), `accent` itself is now the gradient's red, lit.
+    inline const juce::Colour familyPink   { 0xffde0639 };
+    inline const juce::Colour familyRed    { 0xffd42e2a };
+    inline const juce::Colour familyOrange { 0xffcd6619 };
+    // `brightness` scales the colours (1 = PR7-S's; lit lettering and marks on the near-black panels use litBrightness);
+    // left to right, or top to bottom when `vertical`.
+    inline constexpr float litBrightness = 1.18f, dimBrightness = 0.42f;
+    juce::ColourGradient familyGradient (juce::Rectangle<float> area, float brightness = litBrightness, bool vertical = false);
+    bool isAccent (juce::Colour) noexcept;      // accent's colour, any alpha
+    bool isAccentDim (juce::Colour) noexcept;   // accentDim's colour, any alpha
+    // The fill for `colour` over `area`: accent -> the gradient (lit), accentDim -> the gradient dark, each at the
+    // colour's alpha (times `brightness`'s change); anything else the colour itself.
+    void setFill (juce::Graphics&, juce::Colour colour, juce::Rectangle<float> area, bool vertical = false, float brightness = 1.0f);
+    inline void setFill (juce::Graphics& g, juce::Colour colour, juce::Rectangle<int> area, bool vertical = false, float brightness = 1.0f)
+    {
+        setFill (g, colour, area.toFloat(), vertical, brightness);
+    }
+    // A note's colour by how hard it's hit, as PR7-S colours notes (only the gradient's three): soft orange, medium
+    // pink, hard red (velocity 0-1; lit for the dark panels).
+    juce::Colour velocityColour (float velocity);
+    // Where text of `font` sits in `box` with that justification (the gradient spans the letters, not the box).
+    juce::Rectangle<float> textSpan (const juce::Font&, const juce::String&, juce::Rectangle<float> box, juce::Justification);
+    // Text in `colour` (the gradient across its letters when it's accent / accentDim).
+    void drawText (juce::Graphics&, const juce::String&, juce::Rectangle<float> box, juce::Justification, juce::Colour colour,
+                   int maxLines = 1, float minScale = 0.7f);
 }
 
 class ParagonLookAndFeel final : public juce::LookAndFeel_V4
@@ -112,6 +143,10 @@ public:
                                bool highlighted, bool down) override;
 
     void drawButtonText (juce::Graphics&, juce::TextButton&, bool highlighted, bool down) override;
+    // 0.67.0: labels (slider boxes, combo boxes too) and scroll bars given the accent draw the family gradient.
+    void drawLabel (juce::Graphics&, juce::Label&) override;
+    void drawScrollbar (juce::Graphics&, juce::ScrollBar&, int x, int y, int width, int height, bool vertical,
+                        int thumbStart, int thumbSize, bool isMouseOver, bool isMouseDown) override;
 
 private:
     juce::Typeface::Ptr regular, semiBold, blackItalic;

@@ -359,7 +359,7 @@ void SongTrack::paint (juce::Graphics& g)
             if (change)
             {
                 const auto m = s.meterAt (at);
-                g.setColour (ParagonColours::accent);
+                ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
                 g.drawText (juce::String (m.numerator) + "/" + juce::String (m.denominator), juce::roundToInt (x) + 18, ruler.getY(), 34,
                             ruler.getHeight(), juce::Justification::centredLeft, false);
             }
@@ -434,7 +434,7 @@ void SongTrack::paint (juce::Graphics& g)
         auto trial = s;
         trial.resize (chosen, dragBeat - b.start);
         const auto to = drag == Drag::move ? from + b.length : b.start + trial.blocks[(size_t) chosen].length;
-        g.setColour (ParagonColours::accent);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         g.drawRoundedRectangle ({ xOf (from), (float) lane.getY() + 1.0f, xOf (to) - xOf (from), (float) lane.getHeight() - 2.0f }, 4.0f, 2.0f);
     }
     // A groove or a file over the lane: where it would go.
@@ -444,7 +444,7 @@ void SongTrack::paint (juce::Graphics& g)
         song::Block probe;
         probe.length = s.beatsPerBarAt (dropBeat);
         const auto at = trial.blocks[(size_t) trial.place (probe, dropBeat)].start;
-        g.setColour (ParagonColours::accent);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         g.fillRect (xOf (at) - 1.0f, (float) lane.getY(), 3.0f, (float) lane.getHeight());
     }
 
@@ -481,12 +481,12 @@ void SongTrack::paint (juce::Graphics& g)
                     line.lineTo (pointOf (t.tempos[i + 1]));
             }
             line.lineTo ((float) lane.getRight(), line.getCurrentPosition().y);
-            g.setColour (ParagonColours::accent);
+            ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
             g.strokePath (line, juce::PathStrokeType (2.0f));
             for (size_t i = 0; i < t.tempos.size(); ++i)
             {
                 const auto p = pointOf (t.tempos[i]);
-                g.setColour ((int) i == dragTempo ? ParagonColours::glow : ParagonColours::accent);
+                ParagonColours::setFill (g, (int) i == dragTempo ? ParagonColours::glow : ParagonColours::accent, getLocalBounds());
                 g.fillEllipse (p.x - 5.0f, p.y - 5.0f, 10.0f, 10.0f);
                 g.setColour (ParagonColours::text);
                 g.drawText (juce::String (juce::roundToInt (t.tempos[i].bpm)) + (t.tempos[i].ramp ? " >" : ""), juce::roundToInt (p.x) + 7,
@@ -509,13 +509,13 @@ void SongTrack::paint (juce::Graphics& g)
         {
             const auto on = loopDraft.has_value() || s.loopOn;
             const auto x0 = xOf (range.first), x1 = xOf (range.second);
-            g.setColour (ParagonColours::accent.withAlpha (on ? 0.45f : 0.15f));
+            ParagonColours::setFill (g, ParagonColours::accent.withAlpha (on ? 0.45f : 0.15f), getLocalBounds());
             g.fillRect (juce::Rectangle<float> (x0, (float) ruler.getY() + 1.0f, x1 - x0, (float) ruler.getHeight() - 2.0f));
             if (on)
             {
-                g.setColour (ParagonColours::accent.withAlpha (0.07f));
+                ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.07f), getLocalBounds());
                 g.fillRect (juce::Rectangle<float> (x0, (float) lane.getY(), x1 - x0, (float) lane.getHeight()));
-                g.setColour (ParagonColours::accent.withAlpha (0.7f));
+                ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.7f), getLocalBounds());
                 g.drawVerticalLine (juce::roundToInt (x0), (float) ruler.getY(), (float) lane.getBottom());
                 g.drawVerticalLine (juce::roundToInt (x1), (float) ruler.getY(), (float) lane.getBottom());
             }
@@ -526,9 +526,9 @@ void SongTrack::paint (juce::Graphics& g)
     if (drag == Drag::lasso && lassoFrom.getDistanceFrom (lassoTo) >= 3.0f)
     {
         const auto box = juce::Rectangle<float> (lassoFrom, lassoTo).getIntersection (lane.toFloat());
-        g.setColour (ParagonColours::accent.withAlpha (0.12f));
+        ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.12f), getLocalBounds());
         g.fillRect (box);
-        g.setColour (ParagonColours::accent.withAlpha (0.8f));
+        ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.8f), getLocalBounds());
         g.drawRect (box, 1.0f);
     }
 
@@ -546,7 +546,7 @@ void SongTrack::paint (juce::Graphics& g)
     }
 
     // PLAY's start (a mark on the bar numbers) and where the song is playing.
-    g.setColour (ParagonColours::accent);
+    ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     const auto sx = xOf (startBeat);
     juce::Path mark;
     mark.addTriangle (sx, (float) ruler.getBottom(), sx - 5.0f, (float) ruler.getY() + 3.0f, sx + 5.0f, (float) ruler.getY() + 3.0f);
@@ -942,7 +942,7 @@ void SongTrack::dragBlocksOut (std::vector<int> blocks)
     juce::Image tag (juce::Image::ARGB, 160, 26, true);
     {
         juce::Graphics g (tag);
-        g.setColour (ParagonColours::accent.withAlpha (0.85f));
+        ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.85f), getLocalBounds());
         g.fillRoundedRectangle (tag.getBounds().toFloat().reduced (1.0f), 4.0f);
         g.setColour (ParagonColours::text);
         g.setFont (juce::FontOptions (12.0f, juce::Font::bold));

@@ -106,11 +106,11 @@ private:
         const auto isChosen = r.folder != juce::File() && r.folder == chosen;
         if (isChosen)
         {
-            g.setColour (ParagonColours::accentDim.withAlpha (0.7f));
+            ParagonColours::setFill (g, ParagonColours::accentDim.withAlpha (0.7f), juce::Rectangle<int> (0, 0, width, height));
             g.fillRoundedRectangle (1.0f, 1.0f, (float) width - 2.0f, (float) height - 2.0f, 3.0f);
             // The folder's menu.
             const auto box = juce::Rectangle<float> ((float) width - 22.0f, 3.0f, 18.0f, (float) height - 6.0f);
-            g.setColour (ParagonColours::accent.withAlpha (0.35f));
+            ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.35f), juce::Rectangle<int> (0, 0, width, height));
             g.fillRoundedRectangle (box, 2.0f);
             juce::Path arrow;
             arrow.addTriangle (box.getCentreX() - 4.0f, box.getCentreY() - 2.0f, box.getCentreX() + 4.0f, box.getCentreY() - 2.0f,
@@ -121,18 +121,18 @@ private:
         auto x = 6.0f;
         if (r.heading)
         {
-            g.setColour (isChosen ? ParagonColours::accent : r.folder == juce::File() ? ParagonColours::textDim : ParagonColours::text);
+            ParagonColours::setFill (g, isChosen ? ParagonColours::accent : r.folder == juce::File() ? ParagonColours::textDim : ParagonColours::text, juce::Rectangle<int> (0, 0, width, height));
             g.setFont (juce::FontOptions (r.folder == juce::File() ? 10.5f : 12.5f, juce::Font::bold));
         }
         else
         {
             // A small folder.
             const auto icon = juce::Rectangle<float> (x + 2.0f, (float) height * 0.5f - 5.0f, 13.0f, 10.0f);
-            g.setColour (isChosen ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.8f));
+            ParagonColours::setFill (g, isChosen ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.8f), juce::Rectangle<int> (0, 0, width, height));
             g.fillRoundedRectangle (icon.withWidth (6.0f).translated (0.0f, -2.0f).withHeight (4.0f), 1.0f);
             g.fillRoundedRectangle (icon, 1.5f);
             x += 22.0f;
-            g.setColour (isChosen ? ParagonColours::accent : ParagonColours::text.withAlpha (0.9f));
+            ParagonColours::setFill (g, isChosen ? ParagonColours::accent : ParagonColours::text.withAlpha (0.9f), juce::Rectangle<int> (0, 0, width, height));
             g.setFont (juce::FontOptions (12.5f));
         }
         g.drawText (r.label, (int) x, 0, width - (int) x - 26, height, juce::Justification::centredLeft, true);
@@ -140,7 +140,7 @@ private:
         if (page.userNeedsSync && ! r.heading && page.library.getUserFolder() >= 0
             && r.folder == page.library.getFolders()[(size_t) page.library.getUserFolder()].folder)
         {
-            g.setColour (ParagonColours::accent);
+            ParagonColours::setFill (g, ParagonColours::accent, juce::Rectangle<int> (0, 0, width, height));
             g.fillEllipse ((float) width - (isChosen ? 34.0f : 14.0f), (float) height * 0.5f - 4.0f, 8.0f, 8.0f);
         }
     }
@@ -209,7 +209,7 @@ public:
         const auto& f = page.filters;
         const auto chosenHere = f.include[(size_t) column].size() + f.exclude[(size_t) column].size();
         const auto available = std::count_if (counts.begin(), counts.end(), [] (int n) { return n > 0; });
-        g.setColour (chosenHere > 0 ? ParagonColours::accent : ParagonColours::text.withAlpha (0.8f));
+        ParagonColours::setFill (g, chosenHere > 0 ? ParagonColours::accent : ParagonColours::text.withAlpha (0.8f), getLocalBounds());
         g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
         g.drawText (grooves::columnNames[(int) column], 4, 0, getWidth() - 50, 16, juce::Justification::centredLeft, false);
         g.setColour (ParagonColours::textDim);
@@ -237,19 +237,19 @@ private:
         const auto none = counts[row] == 0;
         if (included || excluded)
         {
-            g.setColour ((excluded ? ParagonColours::meterRed : ParagonColours::accentDim).withAlpha (excluded ? 0.25f : 0.7f));
+            ParagonColours::setFill (g, (excluded ? ParagonColours::meterRed : ParagonColours::accentDim).withAlpha (excluded ? 0.25f : 0.7f), juce::Rectangle<int> (0, 0, width, height));
             g.fillRoundedRectangle (1.0f, 1.0f, (float) width - 2.0f, (float) height - 2.0f, 3.0f);
         }
         const auto colour = excluded ? ParagonColours::meterRed : included ? ParagonColours::accent
                           : none ? ParagonColours::textDim.withAlpha (0.45f) : ParagonColours::text;
-        g.setColour (colour);
+        ParagonColours::setFill (g, colour, juce::Rectangle<int> (0, 0, width, height));
         g.setFont (juce::FontOptions (12.0f));
         g.drawText (values[row], 6, 0, width - 40, height, juce::Justification::centredLeft, true);
         if (excluded)
             g.drawHorizontalLine (height / 2, 6.0f, 6.0f + (float) juce::jmin (width - 46, juce::GlyphArrangement::getStringWidthInt (juce::FontOptions (12.0f), values[row])));
         if (! none)
         {
-            g.setColour (colour.withAlpha (0.55f));
+            ParagonColours::setFill (g, colour.withAlpha (0.55f), juce::Rectangle<int> (0, 0, width, height));
             g.drawText (juce::String (counts[row]), width - 36, 0, 32, height, juce::Justification::centredRight, false);
         }
     }
@@ -302,7 +302,7 @@ private:
         const auto count = part < 0 ? 0 : page.partCounts[(size_t) part];
         const auto used = part < 0 || count > 0;
         const auto box = juce::Rectangle<float> (6.0f, (float) height * 0.5f - 6.0f, 12.0f, 12.0f);
-        g.setColour (ticked ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.6f));
+        ParagonColours::setFill (g, ticked ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.6f), juce::Rectangle<int> (0, 0, width, height));
         if (ticked)
             g.fillRoundedRectangle (box, 2.0f);
         else
@@ -337,9 +337,9 @@ public:
     void paint (juce::Graphics& g) override
     {
         const auto r = getLocalBounds().toFloat().reduced (1.0f, 3.0f);
-        g.setColour (colour.withAlpha (isMouseOver() ? 0.35f : 0.2f));
+        ParagonColours::setFill (g, colour.withAlpha (isMouseOver() ? 0.35f : 0.2f), r);
         g.fillRoundedRectangle (r, 4.0f);
-        g.setColour (colour);
+        ParagonColours::setFill (g, colour, r);
         g.drawRoundedRectangle (r, 4.0f, 1.0f);
         g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
         g.drawText (text, r.toNearestInt().withTrimmedLeft (8).withTrimmedRight (20), juce::Justification::centredLeft, true);
@@ -382,7 +382,7 @@ public:
         juce::Path dashed;
         const float dashes[] { 4.0f, 3.0f };
         juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
-        g.setColour (hovering ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.6f));
+        ParagonColours::setFill (g, hovering ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.6f), getLocalBounds());
         g.fillPath (dashed);
         if (! page.tapSearch.has_value())
         {
@@ -399,7 +399,7 @@ public:
             const auto y = area.getY() + rowH * ((float) lane + 0.5f);
             g.setColour (ParagonColours::panelEdge);
             g.drawHorizontalLine ((int) y, area.getX(), area.getRight());
-            g.setColour (ParagonColours::accent);
+            ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
             for (const auto beat : rhythm.beats[(size_t) lane])
             {
                 const auto x = area.getX() + area.getWidth() * (float) (beat / juce::jmax (1.0, rhythm.lengthBeats));
@@ -466,7 +466,7 @@ public:
         juce::Path dashed;
         const float dashes[] { 4.0f, 3.0f };
         juce::PathStrokeType (1.0f).createDashedStroke (dashed, outline, dashes, 2);
-        g.setColour (hovering ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.6f));
+        ParagonColours::setFill (g, hovering ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.6f), getLocalBounds());
         g.fillPath (dashed);
         if (! page.riffPanel->hasRiff())
         {
@@ -476,7 +476,7 @@ public:
         }
         const auto& riff = page.riffPanel->getRiff();
         const auto area = r.reduced (8.0f, 6.0f).withTrimmedRight (14.0f);
-        g.setColour (page.isRiffSearching() ? ParagonColours::accent : ParagonColours::text);
+        ParagonColours::setFill (g, page.isRiffSearching() ? ParagonColours::accent : ParagonColours::text, getLocalBounds());
         g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
         g.drawText (riff.name, area.withHeight (14.0f), juce::Justification::centredLeft, true);
         const auto lane = area.withTrimmedTop (18.0f);
@@ -485,7 +485,7 @@ public:
         const auto q = grooves::queryOf (riff);
         for (auto b = 0.0; b < q.lengthBeats - 1.0e-9; b += q.beatsPerBar)
             g.drawVerticalLine ((int) (lane.getX() + lane.getWidth() * (float) (b / q.lengthBeats)), lane.getY(), lane.getBottom());
-        g.setColour (ParagonColours::accent);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         for (const auto& h : q.hits)
         {
             const auto x = lane.getX() + lane.getWidth() * (float) (h.first / q.lengthBeats);
@@ -547,7 +547,7 @@ public:
     {
         g.setColour (juce::Colour (0xff141015));
         g.fillRoundedRectangle (getLocalBounds().toFloat(), 4.0f);
-        g.setColour (ParagonColours::accent.withAlpha (0.6f));
+        ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.6f), getLocalBounds());
         g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 4.0f, 1.0f);
     }
     void resized() override { list.setBounds (getLocalBounds().reduced (3)); }
@@ -561,10 +561,10 @@ private:
         const auto isFilter = page.suggested[(size_t) row].first >= 0;
         if (selected)
         {
-            g.setColour (ParagonColours::accentDim.withAlpha (0.6f));
+            ParagonColours::setFill (g, ParagonColours::accentDim.withAlpha (0.6f), juce::Rectangle<int> (0, 0, width, height));
             g.fillRect (0, 0, width, height);
         }
-        g.setColour (isFilter ? ParagonColours::accent : ParagonColours::text);
+        ParagonColours::setFill (g, isFilter ? ParagonColours::accent : ParagonColours::text, juce::Rectangle<int> (0, 0, width, height));
         g.setFont (juce::FontOptions (12.0f, isFilter ? juce::Font::bold : juce::Font::plain));
         g.drawText (texts[row], 8, 0, width - 12, height, juce::Justification::centredLeft, true);
     }
@@ -2015,9 +2015,9 @@ int GroovesPage::getNumRows()
 void GroovesPage::paintRowBackground (juce::Graphics& g, int row, int width, int height, bool selected)
 {
     const auto isPlaying = row < (int) results.size() && results[(size_t) row].entry->file == shownPlaying;
-    g.setColour (selected || isPlaying ? ParagonColours::accentDim.withAlpha (0.45f)
+    ParagonColours::setFill (g, selected || isPlaying ? ParagonColours::accentDim.withAlpha (0.45f)
                  : row == hoveredRow ? juce::Colour (0x14ffffff)
-                 : (row % 2 == 0 ? juce::Colour (0x00000000) : juce::Colour (0x0affffff)));
+                 : (row % 2 == 0 ? juce::Colour (0x00000000) : juce::Colour (0x0affffff)), juce::Rectangle<int> (0, 0, width, height));
     g.fillRect (0, 0, width, height);
     g.setColour (ParagonColours::panelEdge.withAlpha (0.5f));
     g.drawHorizontalLine (height - 1, 0.0f, (float) width);
@@ -2029,7 +2029,7 @@ void GroovesPage::paintCell (juce::Graphics& g, int row, int column, int width, 
         return;
     const auto& e = *results[(size_t) row].entry;
     const auto isPlaying = e.file == shownPlaying;
-    g.setColour (isPlaying ? ParagonColours::accent : ParagonColours::text);
+    ParagonColours::setFill (g, isPlaying ? ParagonColours::accent : ParagonColours::text, juce::Rectangle<int> (0, 0, width, height));
     g.setFont (juce::FontOptions (13.0f));
     const auto text = [&] (const juce::String& s, juce::Justification j = juce::Justification::centredLeft)
     {
@@ -2044,7 +2044,7 @@ void GroovesPage::paintCell (juce::Graphics& g, int row, int column, int width, 
             star.applyTransform (star.getTransformToScaleToFit (box, true));
             if (library.isFavourite (e.file))
             {
-                g.setColour (ParagonColours::accent);
+                ParagonColours::setFill (g, ParagonColours::accent, juce::Rectangle<int> (0, 0, width, height));
                 g.fillPath (star);
             }
             else
@@ -2060,7 +2060,7 @@ void GroovesPage::paintCell (juce::Graphics& g, int row, int column, int width, 
             if (row != hoveredRow && ! isPlaying)
                 break;
             const auto box = juce::Rectangle<float> (0.0f, 0.0f, (float) width, (float) height).withSizeKeepingCentre (12.0f, 12.0f);
-            g.setColour (isPlaying ? ParagonColours::accent : ParagonColours::text);
+            ParagonColours::setFill (g, isPlaying ? ParagonColours::accent : ParagonColours::text, juce::Rectangle<int> (0, 0, width, height));
             if (isPlaying)
                 g.fillRect (box.reduced (1.5f));
             else
@@ -2078,7 +2078,7 @@ void GroovesPage::paintCell (juce::Graphics& g, int row, int column, int width, 
             {
                 const auto length = e.bars * e.numerator * 4.0 / e.denominator;
                 const auto share = juce::jlimit (0.0, 1.0, std::fmod (shownPosition, length) / length);
-                g.setColour (ParagonColours::accent);
+                ParagonColours::setFill (g, ParagonColours::accent, juce::Rectangle<int> (0, 0, width, height));
                 g.fillRect (6.0f, (float) height - 4.0f, (float) (width - 12) * (float) share, 2.0f);
             }
             break;
@@ -2104,7 +2104,7 @@ void GroovesPage::paintCell (juce::Graphics& g, int row, int column, int width, 
             const auto bar = juce::Rectangle<float> (8.0f, (float) height * 0.5f - 3.0f, (float) width - 16.0f, 6.0f);
             g.setColour (ParagonColours::panelEdge);
             g.fillRoundedRectangle (bar, 3.0f);
-            g.setColour (isPlaying ? ParagonColours::accent : ParagonColours::text.withAlpha (0.75f));
+            ParagonColours::setFill (g, isPlaying ? ParagonColours::accent : ParagonColours::text.withAlpha (0.75f), juce::Rectangle<int> (0, 0, width, height));
             g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * juce::jlimit (0.0f, 1.0f, e.intensity)), 3.0f);
             break;
         }

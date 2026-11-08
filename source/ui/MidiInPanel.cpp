@@ -467,9 +467,8 @@ void MidiInPanel::paint (juce::Graphics& g)
 {
     const auto small = [&g] (const juce::String& text, juce::Rectangle<int> r, juce::Colour c = ParagonColours::textDim, bool bold = false)
     {
-        g.setColour (c);
         g.setFont (juce::FontOptions (10.5f, bold ? juce::Font::bold : juce::Font::plain));
-        g.drawText (text, r, juce::Justification::centredLeft, true);
+        ParagonColours::drawText (g, text, r.toFloat(), juce::Justification::centredLeft, c);
     };
     const auto top = getLocalBounds().withTrimmedTop (tabHeight + 8);
     if (tab == Tab::mapping)
@@ -493,7 +492,7 @@ void MidiInPanel::paint (juce::Graphics& g)
             g.setColour (ParagonColours::panelEdge);
             g.fillRoundedRectangle (bar, 2.0f);
             const auto value = controllerValues[(size_t) juce::jlimit (0, 127, (int) zones->cc)];
-            g.setColour (ParagonColours::accent.withAlpha (0.5f));
+            ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.5f), getLocalBounds());
             g.fillRoundedRectangle (bar.withRight (xOf ((float) value)), 2.0f);
             auto left = bar.getX();
             for (int i = 0; i < zones->count; ++i)
@@ -520,7 +519,7 @@ void MidiInPanel::paint (juce::Graphics& g)
         const auto pedal = processor.getDrumKit().getPedal();
         g.setColour (ParagonColours::panelEdge);
         g.fillRoundedRectangle (bar, 2.0f);
-        g.setColour (ParagonColours::accent.withAlpha (0.55f));
+        ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.55f), getLocalBounds());
         g.fillRoundedRectangle (bar.withRight (xOf ((float) pedal)), 2.0f);
         if (calibrating && calibrationHigh >= calibrationLow)
         {
@@ -543,7 +542,7 @@ void MidiInPanel::paint (juce::Graphics& g)
                top.withTrimmedTop (80).withHeight (14), ParagonColours::text);
         if (calibrating)
         {
-            g.setColour (ParagonColours::accent);
+            ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
             g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
             g.drawFittedText ("PRESS THE PEDAL RIGHT DOWN AND LET IT RIGHT UP, A FEW TIMES. THEN PRESS DONE.",
                               top.withTrimmedTop (166).withHeight (30), juce::Justification::topLeft, 2);

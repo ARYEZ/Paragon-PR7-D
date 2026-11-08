@@ -131,12 +131,12 @@ void NoteMapList::Row::paint (juce::Graphics& g)
 {
     if (mapped || chosen)
     {
-        g.setColour (ParagonColours::accent.withAlpha (chosen ? 0.22f : 0.08f));
+        ParagonColours::setFill (g, ParagonColours::accent.withAlpha (chosen ? 0.22f : 0.08f), getLocalBounds());
         g.fillRoundedRectangle (getLocalBounds().toFloat(), 3.0f);
     }
     if (chosen)
     {
-        g.setColour (ParagonColours::accent);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         g.drawRoundedRectangle (getLocalBounds().toFloat().reduced (0.5f), 3.0f, 1.0f);
     }
 }

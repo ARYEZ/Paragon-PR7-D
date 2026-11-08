@@ -218,7 +218,7 @@ void ArticulationPanel::paint (juce::Graphics& g)
     const auto& pc = synth::drums::pieces[(size_t) piece];
     const auto kit = processor.getKitSettings();
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    g.setColour (ParagonColours::accent);
+    ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     g.drawText (pc.name, juce::Rectangle<int> (pad + 4, 0, getWidth() - 2 * pad, titleHeight), juce::Justification::centredLeft, false);
     g.setFont (juce::FontOptions (10.0f));
     g.setColour (ParagonColours::textDim);
@@ -243,11 +243,11 @@ void ArticulationPanel::paint (juce::Graphics& g)
         const auto area = allArea();
         if (allChosen)
         {
-            g.setColour (ParagonColours::accent.withAlpha (0.16f));
+            ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.16f), getLocalBounds());
             g.fillRoundedRectangle (area.toFloat(), 3.0f);
         }
         g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
-        g.setColour (allChosen ? ParagonColours::accent : ParagonColours::text);
+        ParagonColours::setFill (g, allChosen ? ParagonColours::accent : ParagonColours::text, getLocalBounds());
         g.drawText ("ALL", area.withTrimmedLeft (4 + powerWidth), juce::Justification::centredLeft, false);
     }
 
@@ -260,7 +260,7 @@ void ArticulationPanel::paint (juce::Graphics& g)
         // Chosen: tinted; playing: a pearl light that fades.
         if (! allChosen && isChosen (r.slot))
         {
-            g.setColour (ParagonColours::accent.withAlpha (0.16f));
+            ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.16f), getLocalBounds());
             g.fillRoundedRectangle (r.area.toFloat(), 3.0f);
         }
         if (lights[i] > 0.0f)
@@ -276,7 +276,7 @@ void ArticulationPanel::paint (juce::Graphics& g)
         g.drawEllipse (dot, 1.0f);
         // The name, and its stand-in while it's off.
         g.setFont (juce::FontOptions (11.0f, isChosen (r.slot) ? juce::Font::bold : juce::Font::plain));
-        g.setColour (on ? (isChosen (r.slot) ? ParagonColours::accent : ParagonColours::text) : ParagonColours::textDim);
+        ParagonColours::setFill (g, on ? (isChosen (r.slot) ? ParagonColours::accent : ParagonColours::text) : ParagonColours::textDim, getLocalBounds());
         auto name = upper (pc.articulations[i].name);
         if (! on)
         {
@@ -294,7 +294,7 @@ void ArticulationPanel::paint (juce::Graphics& g)
         g.setColour (ParagonColours::panelEdge);
         g.fillRoundedRectangle (bar, 2.0f);
         const auto share = juce::jlimit (0.0f, 1.0f, (db - minDb) / (maxDb - minDb));
-        g.setColour ((on ? ParagonColours::accent : ParagonColours::textDim).withAlpha (0.85f));
+        ParagonColours::setFill (g, (on ? ParagonColours::accent : ParagonColours::textDim).withAlpha (0.85f), getLocalBounds());
         g.fillRoundedRectangle (bar.withWidth (bar.getWidth() * share), 2.0f);
         const auto unity = bar.getX() + bar.getWidth() * (0.0f - minDb) / (maxDb - minDb);
         g.setColour (ParagonColours::text.withAlpha (0.5f));
@@ -315,7 +315,7 @@ void ArticulationPanel::paint (juce::Graphics& g)
         const auto xOf = [&bar] (float cc) { return bar.getX() + bar.getWidth() * cc / 127.0f; };
         g.setColour (ParagonColours::panelEdge);
         g.fillRoundedRectangle (bar, 2.0f);
-        g.setColour (ParagonColours::accent.withAlpha (0.55f));
+        ParagonColours::setFill (g, ParagonColours::accent.withAlpha (0.55f), getLocalBounds());
         g.fillRoundedRectangle (bar.withRight (xOf ((float) pedal)), 2.0f);
         const char* labels[] = { "C", "1", "2", "3", "4" };
         auto right = bar.getRight();
@@ -340,9 +340,9 @@ void ArticulationPanel::paint (juce::Graphics& g)
         for (int i = 0; i < 3; ++i)
         {
             const auto lit = current == i;
-            g.setColour (lit ? ParagonColours::accent.withAlpha (0.25f) : ParagonColours::panelEdge.withAlpha (0.6f));
+            ParagonColours::setFill (g, lit ? ParagonColours::accent.withAlpha (0.25f) : ParagonColours::panelEdge.withAlpha (0.6f), getLocalBounds());
             g.fillRoundedRectangle (choices[(size_t) i].toFloat(), 3.0f);
-            g.setColour (lit ? ParagonColours::accent : ParagonColours::textDim);
+            ParagonColours::setFill (g, lit ? ParagonColours::accent : ParagonColours::textDim, getLocalBounds());
             g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
             g.drawText (synth::drums::muteTailNames[i].toUpperCase(), choices[(size_t) i], juce::Justification::centred, false);
         }

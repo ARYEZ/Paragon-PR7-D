@@ -114,11 +114,11 @@ void SweepDisplay::paint (juce::Graphics& g)
     g.setGradientFill (ParagonLookAndFeel::menuHighlight (area));
     g.strokePath (path (1.0f), juce::PathStrokeType (2.4f));
     const auto nowY = area.getCentreY() - area.getHeight() * 0.46f * valueAt (phase, 1.0f);
-    g.setColour (settings.on ? ParagonColours::accent : ParagonColours::textDim);
+    ParagonColours::setFill (g, settings.on ? ParagonColours::accent : ParagonColours::textDim, getLocalBounds());
     g.fillEllipse (juce::Rectangle<float> (9.0f, 9.0f).withCentre ({ area.getX(), nowY }));
 
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    g.setColour (ParagonColours::accent);
+    ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     g.drawText (settings.on ? movingName (settings.type) : movingName (settings.type) + " (OFF)", area.reduced (10.0f, 4.0f),
                 juce::Justification::topLeft, false);
     g.drawText (juce::String (settings.rateHz, settings.rateHz < 1.0f ? 2 : 1) + " Hz", area.reduced (10.0f, 4.0f), juce::Justification::topRight, false);
@@ -154,7 +154,7 @@ void LoFiDisplay::paint (juce::Graphics& g)
     const auto sampleRate = processor.getSampleRate() > 0.0 ? processor.getSampleRate() : 48000.0;
     const auto area = getLocalBounds().toFloat().reduced (28.0f, 22.0f).withTrimmedBottom (14.0f).withTrimmedLeft (18.0f);
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
-    g.setColour (ParagonColours::accent);
+    ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
 
     if (settings.type == LoFiType::bitcrusher)
     {
@@ -191,7 +191,7 @@ void LoFiDisplay::paint (juce::Graphics& g)
         g.strokePath (smooth, juce::PathStrokeType (1.2f));
         g.setGradientFill (ParagonLookAndFeel::menuHighlight (area));
         g.strokePath (crushed, juce::PathStrokeType (2.2f));
-        g.setColour (ParagonColours::accent);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         g.drawText (juce::String (bits, 1) + " BITS, EACH SAMPLE HELD x" + juce::String (hold) + " ("
                         + hzText ((float) sampleRate / (float) hold) + ")",
                     area.reduced (10.0f, 4.0f), juce::Justification::topRight, false);
@@ -255,7 +255,7 @@ void LoFiDisplay::paint (juce::Graphics& g)
     g.fillPath (fill);
     g.setOpacity (1.0f);
     g.strokePath (curve, juce::PathStrokeType (2.2f));
-    g.setColour (ParagonColours::accent);
+    ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
     g.drawText (settings.type == LoFiType::cassette ? "TAPE: TOP END FROM " + hzText (band.highHz)
                                                     : hzText (band.lowHz) + " TO " + hzText (band.highHz) + ", BUMP AT " + hzText (band.bumpHz),

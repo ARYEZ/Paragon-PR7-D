@@ -192,7 +192,7 @@ void RiffPanel::paint (juce::Graphics& g)
         const auto xOf = [&] (double s) { return (float) waveArea.getX() + (float) (s / total) * (float) waveArea.getWidth(); };
         // The part used, lit.
         const auto partFrom = xOf (riff->startSeconds), partTo = xOf (juce::jmin (total, riff->startSeconds + riff->loopSeconds()));
-        g.setColour (ParagonColours::accentDim.withAlpha (0.35f));
+        ParagonColours::setFill (g, ParagonColours::accentDim.withAlpha (0.35f), getLocalBounds());
         g.fillRect (juce::Rectangle<float> (partFrom, (float) waveArea.getY(), partTo - partFrom, (float) waveArea.getHeight()));
         // Bars and beats at its tempo, from its start (both ways).
         const auto beat = 60.0 / riff->bpm;
@@ -231,11 +231,11 @@ void RiffPanel::paint (juce::Graphics& g)
                     if (std::abs (h.first - juce::jmax (0.0, b)) < 1.0e-6)
                         strong = h.second >= 0.5f;
             const auto h = strong ? 14.0f : 7.0f;
-            g.setColour (inPart ? ParagonColours::accent : ParagonColours::textDim);
+            ParagonColours::setFill (g, inPart ? ParagonColours::accent : ParagonColours::textDim, getLocalBounds());
             g.fillRect (xOf (o.seconds) - 1.0f, (float) waveArea.getBottom() - h - 2.0f, 2.0f, h);
         }
         // Its start.
-        g.setColour (ParagonColours::accent);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         g.fillRect (partFrom - 1.0f, (float) waveArea.getY(), 2.0f, (float) waveArea.getHeight());
         juce::Path flag;
         flag.addTriangle (partFrom, (float) waveArea.getY(), partFrom + 9.0f, (float) waveArea.getY(), partFrom, (float) waveArea.getY() + 9.0f);

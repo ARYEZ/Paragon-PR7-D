@@ -123,7 +123,7 @@ void MultiPointEditor::paint (juce::Graphics& g)
         const auto at = pointPosition (i);
         g.setColour (juce::Colour (0xff0d0a0e));
         g.fillEllipse (juce::Rectangle<float> (pointRadius * 2.0f + 2.0f, pointRadius * 2.0f + 2.0f).withCentre (at));
-        g.setColour (i == dragging ? ParagonColours::text : ParagonColours::accent);
+        ParagonColours::setFill (g, i == dragging ? ParagonColours::text : ParagonColours::accent, getLocalBounds());
         g.drawEllipse (juce::Rectangle<float> (pointRadius * 2.0f, pointRadius * 2.0f).withCentre (at), 2.0f);
     }
 }
