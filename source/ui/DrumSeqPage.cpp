@@ -315,7 +315,9 @@ void DrumSeqGrid::paint (juce::Graphics& g)
         g.fillRoundedRectangle (label, 5.0f);
         ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+        ParagonColours::setFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), dropText, (label).toFloat(), juce::Justification::centred));
         g.drawText (dropText, label, juce::Justification::centred, true);
+        ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     }
 }
 
@@ -544,8 +546,10 @@ void NoteField::paint (juce::Graphics& g)
     g.drawRoundedRectangle (area, 3.0f, 1.0f);
     ParagonColours::setFill (g, none ? ParagonColours::textDim.withAlpha (0.5f) : ParagonColours::accent, getLocalBounds());
     g.setFont (juce::FontOptions (12.0f));
+    ParagonColours::setFill (g, none ? ParagonColours::textDim.withAlpha (0.5f) : ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), none ? juce::String ("-") : choices.isEmpty() ? format (v) : choices[juce::roundToInt (v)], (area.toNearestInt()).toFloat(), juce::Justification::centred));
     g.drawFittedText (none ? juce::String ("-") : choices.isEmpty() ? format (v) : choices[juce::roundToInt (v)], area.toNearestInt(),
                       juce::Justification::centred, 1, 0.8f);
+    ParagonColours::setFill (g, none ? ParagonColours::textDim.withAlpha (0.5f) : ParagonColours::accent, getLocalBounds());
 }
 
 void NoteField::mouseDown (const juce::MouseEvent&)

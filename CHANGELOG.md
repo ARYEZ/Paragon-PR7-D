@@ -2,6 +2,17 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.67.0
+
+THE FAMILY GRADIENT in place of the flat orange (the red / pink / orange of the whole PR7 family, as PR7-S uses it):
+
+- **Lit lettering** (AUTO SCROLL, SNAP, FOLLOW DAW, the chosen tab, chosen rows, the playing groove, labels and values) sweeps pink, red, orange across each word.
+- **Knob arcs, sliders, scroll bars, the chosen mixer strip, filter chips, outlines and the menus' highlight** sweep the same way across themselves, as PR7-S draws its parts and its cycle bar.
+- **Notes** in the grid editor and the drum sequencer are coloured by how hard they're hit, as PR7-S's notes: soft orange, medium pink, hard red (the velocity lines too).
+- **The three layers** each take one of the family's three colours; **the mixer's bus strips** PR7-S's orange (they were a golden orange).
+- Typed text and the text cursor, which can only be one colour, are the gradient's red.
+- Kept as they were: the LED screens' orange digits (PR7-S's too), the progress box (PR7-S's own), the kit picture's glow and holograms, the meters' amber over 0 dB, the EQ's band colours and the song parts' colours.
+
 ## 0.66.0
 
 THE GRID EDITOR, four fixes:

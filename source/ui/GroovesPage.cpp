@@ -119,9 +119,10 @@ private:
             g.fillPath (arrow);
         }
         auto x = 6.0f;
+        auto labelColour = isChosen ? ParagonColours::accent : ParagonColours::text.withAlpha (0.9f);
         if (r.heading)
         {
-            ParagonColours::setFill (g, isChosen ? ParagonColours::accent : r.folder == juce::File() ? ParagonColours::textDim : ParagonColours::text, juce::Rectangle<int> (0, 0, width, height));
+            labelColour = isChosen ? ParagonColours::accent : r.folder == juce::File() ? ParagonColours::textDim : ParagonColours::text;
             g.setFont (juce::FontOptions (r.folder == juce::File() ? 10.5f : 12.5f, juce::Font::bold));
         }
         else
@@ -132,9 +133,10 @@ private:
             g.fillRoundedRectangle (icon.withWidth (6.0f).translated (0.0f, -2.0f).withHeight (4.0f), 1.0f);
             g.fillRoundedRectangle (icon, 1.5f);
             x += 22.0f;
-            ParagonColours::setFill (g, isChosen ? ParagonColours::accent : ParagonColours::text.withAlpha (0.9f), juce::Rectangle<int> (0, 0, width, height));
             g.setFont (juce::FontOptions (12.5f));
         }
+        ParagonColours::setFill (g, labelColour, ParagonColours::textSpan (g.getCurrentFont(), r.label, juce::Rectangle<float> (x, 0.0f, (float) width - x - 26.0f, (float) height),
+                                                                         juce::Justification::centredLeft));
         g.drawText (r.label, (int) x, 0, width - (int) x - 26, height, juce::Justification::centredLeft, true);
         // The USER MIDI folder out of step with its files on disk: an orange dot (SYNC FILE CHANGES in its menu).
         if (page.userNeedsSync && ! r.heading && page.library.getUserFolder() >= 0
@@ -211,7 +213,9 @@ public:
         const auto available = std::count_if (counts.begin(), counts.end(), [] (int n) { return n > 0; });
         ParagonColours::setFill (g, chosenHere > 0 ? ParagonColours::accent : ParagonColours::text.withAlpha (0.8f), getLocalBounds());
         g.setFont (juce::FontOptions (10.5f, juce::Font::bold));
+        ParagonColours::setFill (g, chosenHere > 0 ? ParagonColours::accent : ParagonColours::text.withAlpha (0.8f), ParagonColours::textSpan (g.getCurrentFont(), grooves::columnNames[(int) column], juce::Rectangle<float> ((float) (4), (float) (0), (float) (getWidth() - 50), (float) (16)), juce::Justification::centredLeft));
         g.drawText (grooves::columnNames[(int) column], 4, 0, getWidth() - 50, 16, juce::Justification::centredLeft, false);
+        ParagonColours::setFill (g, chosenHere > 0 ? ParagonColours::accent : ParagonColours::text.withAlpha (0.8f), getLocalBounds());
         g.setColour (ParagonColours::textDim);
         g.drawText (juce::String (chosenHere) + "/" + juce::String ((int) available), getWidth() - 48, 0, 44, 16,
                     juce::Justification::centredRight, false);
@@ -244,13 +248,17 @@ private:
                           : none ? ParagonColours::textDim.withAlpha (0.45f) : ParagonColours::text;
         ParagonColours::setFill (g, colour, juce::Rectangle<int> (0, 0, width, height));
         g.setFont (juce::FontOptions (12.0f));
+        ParagonColours::setFill (g, colour, ParagonColours::textSpan (g.getCurrentFont(), values[row], juce::Rectangle<float> ((float) (6), (float) (0), (float) (width - 40), (float) (height)), juce::Justification::centredLeft));
         g.drawText (values[row], 6, 0, width - 40, height, juce::Justification::centredLeft, true);
+        ParagonColours::setFill (g, colour, juce::Rectangle<int> (0, 0, width, height));
         if (excluded)
             g.drawHorizontalLine (height / 2, 6.0f, 6.0f + (float) juce::jmin (width - 46, juce::GlyphArrangement::getStringWidthInt (juce::FontOptions (12.0f), values[row])));
         if (! none)
         {
             ParagonColours::setFill (g, colour.withAlpha (0.55f), juce::Rectangle<int> (0, 0, width, height));
+            ParagonColours::setFill (g, colour.withAlpha (0.55f), ParagonColours::textSpan (g.getCurrentFont(), juce::String (counts[row]), juce::Rectangle<float> ((float) (width - 36), (float) (0), (float) (32), (float) (height)), juce::Justification::centredRight));
             g.drawText (juce::String (counts[row]), width - 36, 0, 32, height, juce::Justification::centredRight, false);
+            ParagonColours::setFill (g, colour.withAlpha (0.55f), juce::Rectangle<int> (0, 0, width, height));
         }
     }
     void listBoxItemClicked (int row, const juce::MouseEvent& e) override
@@ -342,7 +350,9 @@ public:
         ParagonColours::setFill (g, colour, r);
         g.drawRoundedRectangle (r, 4.0f, 1.0f);
         g.setFont (juce::FontOptions (11.5f, juce::Font::bold));
+        ParagonColours::setFill (g, colour, ParagonColours::textSpan (g.getCurrentFont(), text, (r.toNearestInt().withTrimmedLeft (8).withTrimmedRight (20)).toFloat(), juce::Justification::centredLeft));
         g.drawText (text, r.toNearestInt().withTrimmedLeft (8).withTrimmedRight (20), juce::Justification::centredLeft, true);
+        ParagonColours::setFill (g, colour, r);
         const auto x = r.getRight() - 13.0f, y = r.getCentreY();
         g.drawLine (x - 3.5f, y - 3.5f, x + 3.5f, y + 3.5f, 1.4f);
         g.drawLine (x - 3.5f, y + 3.5f, x + 3.5f, y - 3.5f, 1.4f);
@@ -387,7 +397,9 @@ public:
         if (! page.tapSearch.has_value())
         {
             g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+            ParagonColours::setFill (g, hovering ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.6f), ParagonColours::textSpan (g.getCurrentFont(), "MIDI DROP ZONE", (r).toFloat(), juce::Justification::centred));
             g.drawText ("MIDI DROP ZONE", r, juce::Justification::centred, false);
+            ParagonColours::setFill (g, hovering ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.6f), getLocalBounds());
             return;
         }
         // The rhythm: a row of dots per drum group.
@@ -471,14 +483,18 @@ public:
         if (! page.riffPanel->hasRiff())
         {
             g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+            ParagonColours::setFill (g, hovering ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.6f), ParagonColours::textSpan (g.getCurrentFont(), "DROP A RIFF\n(AUDIO OR MIDI)", (r.toNearestInt()).toFloat(), juce::Justification::centred));
             g.drawFittedText ("DROP A RIFF\n(AUDIO OR MIDI)", r.toNearestInt(), juce::Justification::centred, 2);
+            ParagonColours::setFill (g, hovering ? ParagonColours::accent : ParagonColours::textDim.withAlpha (0.6f), getLocalBounds());
             return;
         }
         const auto& riff = page.riffPanel->getRiff();
         const auto area = r.reduced (8.0f, 6.0f).withTrimmedRight (14.0f);
         ParagonColours::setFill (g, page.isRiffSearching() ? ParagonColours::accent : ParagonColours::text, getLocalBounds());
         g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
+        ParagonColours::setFill (g, page.isRiffSearching() ? ParagonColours::accent : ParagonColours::text, ParagonColours::textSpan (g.getCurrentFont(), riff.name, (area.withHeight (14.0f)).toFloat(), juce::Justification::centredLeft));
         g.drawText (riff.name, area.withHeight (14.0f), juce::Justification::centredLeft, true);
+        ParagonColours::setFill (g, page.isRiffSearching() ? ParagonColours::accent : ParagonColours::text, getLocalBounds());
         const auto lane = area.withTrimmedTop (18.0f);
         g.setColour (ParagonColours::panelEdge);
         g.drawHorizontalLine ((int) lane.getBottom() - 1, lane.getX(), lane.getRight());
@@ -566,7 +582,9 @@ private:
         }
         ParagonColours::setFill (g, isFilter ? ParagonColours::accent : ParagonColours::text, juce::Rectangle<int> (0, 0, width, height));
         g.setFont (juce::FontOptions (12.0f, isFilter ? juce::Font::bold : juce::Font::plain));
+        ParagonColours::setFill (g, isFilter ? ParagonColours::accent : ParagonColours::text, ParagonColours::textSpan (g.getCurrentFont(), texts[row], juce::Rectangle<float> ((float) (8), (float) (0), (float) (width - 12), (float) (height)), juce::Justification::centredLeft));
         g.drawText (texts[row], 8, 0, width - 12, height, juce::Justification::centredLeft, true);
+        ParagonColours::setFill (g, isFilter ? ParagonColours::accent : ParagonColours::text, juce::Rectangle<int> (0, 0, width, height));
     }
     void listBoxItemClicked (int row, const juce::MouseEvent&) override { page.acceptSuggestion (row); }
 
@@ -2031,10 +2049,15 @@ void GroovesPage::paintCell (juce::Graphics& g, int row, int column, int width, 
     const auto isPlaying = e.file == shownPlaying;
     ParagonColours::setFill (g, isPlaying ? ParagonColours::accent : ParagonColours::text, juce::Rectangle<int> (0, 0, width, height));
     g.setFont (juce::FontOptions (13.0f));
-    const auto text = [&] (const juce::String& s, juce::Justification j = juce::Justification::centredLeft)
+    // (0.67.0: the colour given, the gradient across the letters for the accent)
+    const auto rowColour = isPlaying ? ParagonColours::accent : ParagonColours::text;
+    const auto textIn = [&] (const juce::String& s, juce::Colour c, juce::Justification j = juce::Justification::centredLeft)
     {
+        ParagonColours::setFill (g, c, ParagonColours::textSpan (g.getCurrentFont(), s, juce::Rectangle<float> (6.0f, 0.0f, (float) (width - 10), (float) height), j));
         g.drawText (s, 6, 0, width - 10, height, j, true);
+        ParagonColours::setFill (g, rowColour, juce::Rectangle<int> (0, 0, width, height));
     };
+    const auto text = [&] (const juce::String& s, juce::Justification j = juce::Justification::centredLeft) { textIn (s, rowColour, j); };
     switch (column)
     {
         case favourite:
@@ -2083,7 +2106,7 @@ void GroovesPage::paintCell (juce::Graphics& g, int row, int column, int width, 
             }
             break;
         }
-        case family: g.setColour (ParagonColours::textDim); text (e.family); break;
+        case family: textIn (e.family, ParagonColours::textDim); break;
         case signature: text (e.signature(), juce::Justification::centred); break;
         case bars: text (juce::String (e.bars), juce::Justification::centred); break;
         case tempo: text (tempoText (e), juce::Justification::centred); break;

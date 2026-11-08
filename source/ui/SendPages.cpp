@@ -170,8 +170,10 @@ void DecayDisplay::paint (juce::Graphics& g)
     g.drawLine (xAt (preDelay), area.getY(), xAt (preDelay + decay), area.getBottom(), 2.0f);
     ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     g.setFont (juce::FontOptions (13.0f, juce::Font::bold));
+    ParagonColours::setFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), "TAIL " + juce::String (decay, decay < 10.0f ? 1 : 0) + " s  (PRE-DELAY " + juce::String (juce::roundToInt (preDelay * 1000.0f)) + " ms)", (area.reduced (10.0f, 6.0f)).toFloat(), juce::Justification::topRight));
     g.drawText ("TAIL " + juce::String (decay, decay < 10.0f ? 1 : 0) + " s  (PRE-DELAY " + juce::String (juce::roundToInt (preDelay * 1000.0f)) + " ms)",
                 area.reduced (10.0f, 6.0f), juce::Justification::topRight, false);
+    ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
 }
 
 //==============================================================================

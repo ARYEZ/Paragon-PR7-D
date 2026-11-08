@@ -360,8 +360,10 @@ void SongTrack::paint (juce::Graphics& g)
             {
                 const auto m = s.meterAt (at);
                 ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
+                ParagonColours::setFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), juce::String (m.numerator) + "/" + juce::String (m.denominator), juce::Rectangle<float> ((float) (juce::roundToInt (x) + 18), (float) (ruler.getY()), (float) (34), (float) (ruler.getHeight())), juce::Justification::centredLeft));
                 g.drawText (juce::String (m.numerator) + "/" + juce::String (m.denominator), juce::roundToInt (x) + 18, ruler.getY(), 34,
                             ruler.getHeight(), juce::Justification::centredLeft, false);
+                ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
             }
         }
     }
