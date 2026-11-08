@@ -47,17 +47,7 @@ SongTrack::SongTrack (ParagonX1AudioProcessor& p) : processor (p)
     play.setClickingTogglesState (false);
     play.setTooltip ("Play the song with your DAW stopped, from the place marked on the bar numbers (click them to move it). "
                      "While your DAW plays, the song plays with it.");
-    play.onClick = [this]
-    {
-        if (processor.isSongPlaying())
-            processor.stopSong();
-        else
-        {
-            processor.playSong (startBeat);
-            if (processor.isSongRecording() && processor.getSong().countIn)
-                showNote ("COUNT-IN: one bar of clicks, then the song plays and records.", 3.0);
-        }
-    };
+    play.onClick = [this] { togglePlay(); };
     addAndMakeVisible (play);
     exportButton.setTooltip ("The whole song as one MIDI file on the kit's notes: click to save it, drag it onto a DAW track.");
     exportButton.fileName = "PR7-D Song";
@@ -1082,6 +1072,19 @@ void SongTrack::mouseUp (const juce::MouseEvent& e)
     else
         edit ([&] (song::Song& s) { s.resize (index, to - s.blocks[(size_t) index].start); });
     repaint();
+}
+
+// PLAY's click, and (0.66.0) the space bar over the GRID EDITOR: stop the song, or play it from PLAY's start.
+void SongTrack::togglePlay()
+{
+    if (processor.isSongPlaying())
+        processor.stopSong();
+    else
+    {
+        processor.playSong (startBeat);
+        if (processor.isSongRecording() && processor.getSong().countIn)
+            showNote ("COUNT-IN: one bar of clicks, then the song plays and records.", 3.0);
+    }
 }
 
 bool SongTrack::keyPressed (const juce::KeyPress& key)

@@ -2,6 +2,15 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.66.0
+
+THE GRID EDITOR, four fixes:
+
+- **AUTO SCROLL stays lit while it's on.** POINTER, PENCIL and SNAP too. The editor's toggle buttons never got the orange "on" lettering the song strip's buttons have, so on and off looked the same.
+- **SPACE plays and stops the song** while the grid editor shows, in the plugin or in its own window, exactly like the song strip's PLAY (from PLAY's start). The editor's buttons no longer take the keyboard when clicked: a JUCE button with the keyboard treats SPACE as a click on itself, so after clicking AUTO SCROLL, SPACE would have switched it instead.
+- **OWN WINDOW opens maximized.** It's centred at its normal size first, so un-maximizing it puts it in the middle of the screen.
+- **The time scroll bar is always there**, at the bottom of the notes, right above the VELOCITY / DYNAMICS / RANDOM VEL / SLOPE lane. Before, it hid itself unless you'd zoomed in.
+
 ## 0.65.0
 
 **The MIDI track loops cleanly with your DAW's cycle** (you heard a very quick pause on the first hit each time the loop came round, only when the MIDI track played it; the same MIDI on a DAW instrument track looped fine).

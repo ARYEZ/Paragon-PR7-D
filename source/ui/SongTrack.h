@@ -35,6 +35,7 @@ public:
     void mouseMove (const juce::MouseEvent&) override;
     void mouseExit (const juce::MouseEvent&) override;
     bool keyPressed (const juce::KeyPress&) override;
+    void togglePlay();   // PLAY's click: stop the song, else play it from PLAY's start (0.66.0: also the GRID EDITOR's space bar)
     void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
 
     bool isInterestedInDragSource (const SourceDetails&) override;

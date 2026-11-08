@@ -601,3 +601,71 @@ TEST_CASE ("GRID EDITOR 0.52.0: G zooms out, H zooms in, the middle of the view 
     CHECK (! ed.keyPressed (juce::KeyPress ('g', juce::ModifierKeys::commandModifier, 'g')));
     CHECK (ed.getZoom() == Catch::Approx (fit));
 }
+
+TEST_CASE ("GRID EDITOR 0.66.0: AUTO SCROLL lit while on, SPACE plays / stops the song in the plugin and in its window, the time scroll bar always shown",
+           "[grideditor][ui]")
+{
+    Plugin t;
+    t.p.setSong (oneBar());
+    MainView::groovesWindowOnDesktop = false;   // (this test machine's display has no window manager)
+    std::unique_ptr<juce::AudioProcessorEditor> editor (t.p.createEditor());
+    editor->setSize (1600, 900);
+    auto* view = dynamic_cast<MainView*> (editor->getChildComponent (0));
+    REQUIRE (view != nullptr);
+    auto& ed = view->getBlockEditor();
+    view->openGridEditor (0);
+
+    // AUTO SCROLL: on, drawn in the lit (orange) lettering; off, the plain one.
+    auto& autoScroll = ed.getAutoScrollButton();
+    CHECK (autoScroll.getToggleState());
+    CHECK (ed.isAutoScroll());
+    CHECK (autoScroll.findColour (juce::TextButton::textColourOnId) == ParagonColours::accent);
+    CHECK (autoScroll.findColour (juce::TextButton::textColourOnId) != autoScroll.findColour (juce::TextButton::textColourOffId));
+    autoScroll.triggerClick();
+    juce::MessageManager::getInstance()->runDispatchLoopUntil (20);
+    CHECK_FALSE (autoScroll.getToggleState());
+    CHECK_FALSE (ed.isAutoScroll());
+    autoScroll.triggerClick();
+    juce::MessageManager::getInstance()->runDispatchLoopUntil (20);
+    CHECK (ed.isAutoScroll());
+    // No button keeps the keyboard (a focused button would take SPACE as a click on itself).
+    for (auto* c : ed.getChildren())
+        CHECK_FALSE (c->getWantsKeyboardFocus());
+
+    const juce::KeyPress space (juce::KeyPress::spaceKey);
+    // In the plugin: SPACE on the editor, and on the window around it (the keyboard elsewhere).
+    CHECK_FALSE (t.p.isSongPlaying());
+    CHECK (ed.keyPressed (space));
+    CHECK (t.p.isSongPlaying());
+    CHECK (ed.keyPressed (space));
+    CHECK_FALSE (t.p.isSongPlaying());
+    CHECK (view->keyPressed (space));
+    CHECK (t.p.isSongPlaying());
+    CHECK (view->keyPressed (space));
+    CHECK_FALSE (t.p.isSongPlaying());
+    // SHIFT + SPACE isn't it.
+    CHECK_FALSE (ed.keyPressed (juce::KeyPress (juce::KeyPress::spaceKey, juce::ModifierKeys::shiftModifier, 0)));
+    CHECK_FALSE (t.p.isSongPlaying());
+
+    // The time scroll bar: always shown, right above the velocity lane, as wide as the grid, even with the whole block in view.
+    auto& bar = ed.getTimeScrollBar();
+    CHECK_FALSE (bar.autoHides());
+    CHECK (bar.isVisible());
+    CHECK (bar.getX() == ed.getGrid().getX());
+    CHECK (bar.getRight() == ed.getGrid().getRight());
+    CHECK (bar.getY() >= ed.getGrid().getBottom());
+    CHECK (bar.getBottom() <= ed.getLane().getY());
+    CHECK (ed.getLane().getY() - bar.getBottom() < 12);
+
+    // In its own window: SPACE still plays and stops it.
+    view->setGridEditorInOwnWindow (true);
+    REQUIRE (view->isGridEditorInOwnWindow());
+    CHECK (ed.keyPressed (space));
+    CHECK (t.p.isSongPlaying());
+    CHECK (ed.keyPressed (space));
+    CHECK_FALSE (t.p.isSongPlaying());
+    CHECK (bar.isVisible());
+    // The window around the plugin leaves SPACE alone while the editor is out (the host has it).
+    CHECK_FALSE (view->keyPressed (space));
+    view->setGridEditorInOwnWindow (false);
+}

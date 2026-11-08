@@ -169,6 +169,7 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     playStyle.onGridEditor = [this] (int block) { openGridEditor (block); };
     blockEditor.onPlayStyle = [this] (int block) { if (gridWindow != nullptr) setGridEditorInOwnWindow (false); openPlayStyle (block); };
     blockEditor.onToggleWindow = [this] { setGridEditorInOwnWindow (gridWindow == nullptr); };
+    blockEditor.onPlayStop = [this] { songTrack.togglePlay(); };
     blockEditor.onClose = [this]
     {
         // Closed (X, or its block gone) while in its own window: the window goes too.
@@ -367,6 +368,11 @@ void MainView::setGridEditorInOwnWindow (bool own)
         blockEditor.setVisible (true);
         gridWindow = std::make_unique<GridWindow> (*this);
         gridWindow->setVisible (true);
+        // 0.66.0: opened maximized (centred at its own size first, where it goes back to when un-maximized),
+        // the editor with the keyboard so the space bar plays / stops the song at once.
+        if (juce::Desktop::getInstance().getDisplays().getPrimaryDisplay() != nullptr)
+            gridWindow->setFullScreen (true);
+        blockEditor.grabKeyboardFocus();
     }
     else
     {
@@ -374,6 +380,8 @@ void MainView::setGridEditorInOwnWindow (bool own)
         addChildComponent (blockEditor);
         blockEditor.setBounds (pageArea);
         blockEditor.toFront (false);
+        if (blockEditor.isShowing())
+            blockEditor.grabKeyboardFocus();
     }
     blockEditor.setInOwnWindow (own);
 }
@@ -567,6 +575,13 @@ void MainView::saveRig()
 bool MainView::keyPressed (const juce::KeyPress& key)
 {
     const auto modifiers = key.getModifiers();
+    // 0.66.0: SPACE plays / stops the song while the GRID EDITOR shows in the plugin (focus elsewhere in the window).
+    if (key.getKeyCode() == juce::KeyPress::spaceKey && ! modifiers.isAnyModifierKeyDown()
+        && blockEditor.isVisible() && gridWindow == nullptr)
+    {
+        songTrack.togglePlay();
+        return true;
+    }
     if (! modifiers.isCommandDown())
         return false;
 

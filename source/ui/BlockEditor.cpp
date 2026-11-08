@@ -164,7 +164,8 @@ BlockEditor::BlockEditor (ParagonX1AudioProcessor& p) : processor (p)
                   juce::dontSendNotification);
     for (auto* bar : { &hScroll, &vScroll })
     {
-        bar->setAutoHide (true);
+        // 0.66.0: the time scroll bar always shows (above the velocity lane), even with the whole block in view.
+        bar->setAutoHide (bar == &vScroll);
         bar->setColour (juce::ScrollBar::thumbColourId, ParagonColours::accent.withAlpha (0.35f));
         bar->setColour (juce::ScrollBar::trackColourId, juce::Colours::transparentBlack);
     }
@@ -177,6 +178,15 @@ BlockEditor::BlockEditor (ParagonX1AudioProcessor& p) : processor (p)
                                                              &nudgeLabel, &hint, &hScroll, &vScroll })
         addAndMakeVisible (c);
     addChildComponent (soloMuteButton);
+    // 0.66.0: the toggles lit (orange lettering) while on, as the song strip's; and no button takes the keyboard,
+    // so the space bar reaches keyPressed (a focused JUCE button takes space as a click on itself).
+    for (auto* b : { &pointerButton, &pencilButton, &snapButton, &autoScrollButton })
+        b->setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
+    for (auto* c : getChildren())
+    {
+        c->setWantsKeyboardFocus (false);
+        c->setMouseClickGrabsKeyboardFocus (false);
+    }
     processor.songBroadcaster.addChangeListener (this);
 }
 
@@ -1218,6 +1228,13 @@ bool BlockEditor::keyPressed (const juce::KeyPress& key)
 {
     const auto mods = key.getModifiers();
     const auto code = key.getKeyCode();
+    // 0.66.0: SPACE plays / stops the song (as the song strip's PLAY).
+    if (code == juce::KeyPress::spaceKey && ! mods.isAnyModifierKeyDown())
+    {
+        if (onPlayStop != nullptr)
+            onPlayStop();
+        return true;
+    }
     if (code == juce::KeyPress::deleteKey || code == juce::KeyPress::backspaceKey)
     {
         deleteSelected();

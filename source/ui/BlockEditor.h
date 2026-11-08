@@ -123,6 +123,11 @@ public:
     juce::PopupMenu rowMenu (int row);
     // 0.48.0: OWN WINDOW / BACK IN PLUGIN (MainView puts it in a window of its own).
     std::function<void()> onToggleWindow;
+    // 0.66.0: the space bar (in the plugin or its own window): MainView plays / stops the song as the strip's PLAY does.
+    std::function<void()> onPlayStop;
+    bool isAutoScroll() const noexcept { return autoScroll; }
+    juce::Button& getAutoScrollButton() noexcept { return autoScrollButton; }
+    juce::ScrollBar& getTimeScrollBar() noexcept { return hScroll; }
     void setInOwnWindow (bool);
     juce::TextButton& getWindowButton() noexcept { return windowButton; }
     juce::PopupMenu selectMenu();
