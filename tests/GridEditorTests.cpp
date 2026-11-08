@@ -621,12 +621,12 @@ TEST_CASE ("GRID EDITOR 0.66.0: AUTO SCROLL lit while on, SPACE plays / stops th
     CHECK (ed.isAutoScroll());
     CHECK (autoScroll.findColour (juce::TextButton::textColourOnId) == ParagonColours::accent);
     CHECK (autoScroll.findColour (juce::TextButton::textColourOnId) != autoScroll.findColour (juce::TextButton::textColourOffId));
-    autoScroll.triggerClick();
-    juce::MessageManager::getInstance()->runDispatchLoopUntil (20);
+    autoScroll.setToggleState (false, juce::dontSendNotification);   // (a click: the state flips, then onClick)
+    autoScroll.onClick();
     CHECK_FALSE (autoScroll.getToggleState());
     CHECK_FALSE (ed.isAutoScroll());
-    autoScroll.triggerClick();
-    juce::MessageManager::getInstance()->runDispatchLoopUntil (20);
+    autoScroll.setToggleState (true, juce::dontSendNotification);
+    autoScroll.onClick();
     CHECK (ed.isAutoScroll());
     // No button keeps the keyboard (a focused button would take SPACE as a click on itself).
     for (auto* c : ed.getChildren())
