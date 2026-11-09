@@ -369,3 +369,39 @@ TEST_CASE ("DRUM SEQUENCER in the plugin: preset A03 plays its beat with the son
     p.play (3.0);   // the last hits ring out
     CHECK (peakOf (p.play (1.0)) < 1.0e-5);
 }
+
+TEST_CASE ("DRUM SEQUENCER in the plugin 0.72.0: a ratchet's PITCH RAMP and FADE are heard on its repeats", "[drumseqplugin][ratchet]")
+{
+    // The snare plays a 50 ms 500 Hz tone; a 2x roll on step 1 puts its repeats 1/32 note apart (62.5 ms at 120 BPM).
+    const auto play = [] (float rollPitch, float rollFade)
+    {
+        Plugin p;
+        testkit::useSample (p.processor, 2, testkit::sine (500.0, 0.05));
+        auto m = p.processor.getModMatrix();
+        synth::drumseq::Note n;
+        n.row = 2;
+        n.roll = 1;   // 2x
+        n.rollPitch = rollPitch;
+        n.rollFade = rollFade;
+        m.drumPatterns[0].notes.push_back (n);
+        p.processor.setModMatrix (m);
+        return p.play (0.3);
+    };
+
+    const auto plain = play (0.0f, 0.0f);
+    CHECK (firstSound (plain) <= 1);   // (a sine starts at 0)
+    CHECK_THAT (frequencyOf (plain, 500, 2000), WithinAbs (500.0, 2.0));
+    CHECK_THAT (frequencyOf (plain, 3500, 5000), WithinAbs (500.0, 2.0));   // the repeat from 3000 on
+    CHECK_THAT (peakOf (plain, 0.07, 0.1) / peakOf (plain, 0.0, 0.05), WithinAbs (1.0, 0.02));
+
+    // An octave up by the last repeat: the second hit sounds at 1000 Hz, the first as it was.
+    const auto rising = play (12.0f, 0.0f);
+    CHECK_THAT (frequencyOf (rising, 500, 2000), WithinAbs (500.0, 2.0));
+    CHECK_THAT (frequencyOf (rising, 3500, 4200), WithinAbs (1000.0, 4.0));
+
+    // FADE -0.5: the second hit at half the velocity: quieter; +0.5: the first is the quieter one.
+    const auto dying = play (0.0f, -0.5f);
+    CHECK (peakOf (dying, 0.07, 0.1) < 0.8 * peakOf (dying, 0.0, 0.05));
+    const auto swelling = play (0.0f, 0.5f);
+    CHECK (peakOf (swelling, 0.0, 0.05) < 0.8 * peakOf (swelling, 0.07, 0.1));
+}

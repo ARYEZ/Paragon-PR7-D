@@ -5,6 +5,7 @@
 #include "dsp/synth/StepSequencer.h"
 
 #include <array>
+#include <cstdint>
 #include <cmath>
 #include <vector>
 
@@ -27,8 +28,28 @@ namespace synth::drumseq
     enum class Reverse { off, reverse, endSync };
     inline const juce::StringArray reverseNames { "Off", "Reverse", "Reverse, end sync" };
     // ROLL: the hit played this many times within its step (3: a triplet).
-    inline constexpr std::array<int, 6> rollCounts { 1, 2, 3, 4, 6, 8 };
-    inline const juce::StringArray rollNames { "Off", "2x", "3x", "4x", "6x", "8x" };
+    inline constexpr std::array<int, 8> rollCounts { 1, 2, 3, 4, 6, 8, 12, 16 };   // (12x, 16x: 0.72.0's ratchets)
+    inline const juce::StringArray rollNames { "Off", "2x", "3x", "4x", "6x", "8x", "12x", "16x" };
+    // 0.72.0: CONDITION: which passes of the loop a note plays on (counted from the pattern's first pass, loop 0). Our
+    // reading of drum machines' trig conditions. Saved by index: only ever append.
+    inline const juce::StringArray conditionNames { "Always", "1st of 2", "2nd of 2", "1st of 3", "2nd of 3", "3rd of 3",
+                                                    "1st of 4", "2nd of 4", "3rd of 4", "4th of 4", "First pass only", "Not the first pass" };
+    inline bool passes (int condition, int loop) noexcept
+    {
+        switch (condition)
+        {
+            case 1: case 2: return loop % 2 == condition - 1;
+            case 3: case 4: case 5: return loop % 3 == condition - 3;
+            case 6: case 7: case 8: case 9: return loop % 4 == condition - 6;
+            case 10: return loop == 0;
+            case 11: return loop != 0;
+            default: return true;
+        }
+    }
+    // 0.72.0: CHANCE: the same pass of the same note always decides alike (bounces, exports and tests repeat), each
+    // pass afresh: a hash of the pass and the note's place, 0 to 1.
+    struct Note;
+    inline float chanceRoll (int loop, int index, const Note& n) noexcept;
 
     struct Note
     {
@@ -40,15 +61,43 @@ namespace synth::drumseq
         float gate = 1.0f;            // 1: the hit rings out; below, it's cut after this share of a beat
         int roll = 0;                 // index into rollCounts
         Reverse reverse = Reverse::off;
+        // 0.72.0: THE RATCHET's ramps, over a roll's repeats (the first as the note, the last with all of it):
+        float rollPitch = 0.0f;       // PITCH RAMP: semitones added by the last repeat (-24 to 24: rising or falling rolls)
+        float rollFade = 0.0f;        // FADE: -1 the repeats die away to nothing, +1 they swell up from nothing
+        // 0.72.0: CHANCE and CONDITION: whether the note plays on a pass of the loop.
+        float chance = 1.0f;          // 0 to 1 (1: always)
+        int condition = 0;            // conditionNames
 
         int rollCount() const noexcept { return rollCounts[(size_t) juce::jlimit (0, (int) rollCounts.size() - 1, roll)]; }
         bool operator== (const Note& o) const noexcept
         {
             return row == o.row && juce::exactlyEqual (start, o.start) && juce::exactlyEqual (velocity, o.velocity)
                 && juce::exactlyEqual (pan, o.pan) && juce::exactlyEqual (pitch, o.pitch) && juce::exactlyEqual (gate, o.gate)
-                && roll == o.roll && reverse == o.reverse;
+                && roll == o.roll && reverse == o.reverse && juce::exactlyEqual (rollPitch, o.rollPitch)
+                && juce::exactlyEqual (rollFade, o.rollFade) && juce::exactlyEqual (chance, o.chance) && condition == o.condition;
+        }
+        // A roll's repeat r of its count: the note as that repeat plays (its pitch and velocity on the ramps).
+        Note repeat (int r) const noexcept
+        {
+            const auto count = rollCount();
+            if (count < 2 || (juce::exactlyEqual (rollPitch, 0.0f) && juce::exactlyEqual (rollFade, 0.0f)))
+                return *this;
+            const auto x = (float) r / (float) (count - 1);
+            auto m = *this;
+            m.pitch = juce::jlimit (-48.0f, 48.0f, pitch + rollPitch * x);
+            const auto fade = juce::jlimit (-1.0f, 1.0f, rollFade);
+            m.velocity = velocity * (fade < 0.0f ? 1.0f + fade * x : 1.0f - fade + fade * x);
+            return m;
         }
     };
+
+    inline float chanceRoll (int loop, int index, const Note& n) noexcept
+    {
+        auto h = (std::uint32_t) loop * 0x9E3779B1u ^ (std::uint32_t) index * 0x85EBCA77u ^ (std::uint32_t) n.row * 0xC2B2AE3Du
+               ^ (std::uint32_t) std::llround (n.start * 1024.0) * 0x27D4EB2Fu;
+        h ^= h >> 15; h *= 0x2C1B3C6Du; h ^= h >> 12; h *= 0x297A2D39u; h ^= h >> 15;
+        return (float) (h >> 8) / 16777216.0f;
+    }
 
     struct Pattern
     {
@@ -57,14 +106,19 @@ namespace synth::drumseq
         bool operator== (const Pattern& o) const noexcept { return notes == o.notes; }
         bool isEmpty() const noexcept { return notes.empty(); }
 
-        // As text: notes "row:start:velocity:pan:pitch:gate:roll:reverse", separated by spaces.
+        // As text: notes "row:start:velocity:pan:pitch:gate:roll:reverse", separated by spaces (0.72.0: then
+        // ":pitchRamp:fade:chance:condition", only when any isn't its default, so older versions still read the rest).
         juce::String encode() const
         {
             juce::StringArray parts;
             for (const auto& n : notes)
                 parts.add (juce::String (n.row) + ":" + juce::String (n.start, 4) + ":" + juce::String (n.velocity, 3) + ":"
                            + juce::String (n.pan, 3) + ":" + juce::String (n.pitch, 2) + ":" + juce::String (n.gate, 3) + ":"
-                           + juce::String (n.roll) + ":" + juce::String ((int) n.reverse));
+                           + juce::String (n.roll) + ":" + juce::String ((int) n.reverse)
+                           + (n.rollPitch != 0.0f || n.rollFade != 0.0f || n.chance < 1.0f || n.condition != 0
+                                  ? ":" + juce::String (n.rollPitch, 2) + ":" + juce::String (n.rollFade, 3) + ":" + juce::String (n.chance, 3)
+                                        + ":" + juce::String (n.condition)
+                                  : juce::String()));
             return parts.joinIntoString (" ");
         }
 
@@ -87,6 +141,13 @@ namespace synth::drumseq
                     n.gate = juce::jlimit (0.01f, 1.0f, f[5].getFloatValue());
                     n.roll = juce::jlimit (0, (int) rollCounts.size() - 1, f[6].getIntValue());
                     n.reverse = (Reverse) juce::jlimit (0, 2, f[7].getIntValue());
+                }
+                if (f.size() >= 12)
+                {
+                    n.rollPitch = juce::jlimit (-24.0f, 24.0f, f[8].getFloatValue());
+                    n.rollFade = juce::jlimit (-1.0f, 1.0f, f[9].getFloatValue());
+                    n.chance = juce::jlimit (0.0f, 1.0f, f[10].getFloatValue());
+                    n.condition = juce::jlimit (0, conditionNames.size() - 1, f[11].getIntValue());
                 }
                 p.notes.push_back (n);
             }
@@ -152,15 +213,19 @@ namespace synth::drumseq
         const auto firstLoop = juce::jmax (0, (int) std::floor ((from - 1.0) / length) - 1);
         const auto lastLoop = (int) std::floor ((to + earliest + 1.0) / length) + 1;
         for (int loop = firstLoop; loop <= lastLoop; ++loop)
-            for (const auto& n : pattern.notes)
+            for (int index = 0; index < (int) pattern.notes.size(); ++index)
             {
+                const auto& n = pattern.notes[(size_t) index];
                 if (n.start >= length)
                     continue;   // beyond LENGTH: kept, but not played
+                // 0.72.0: this pass's CONDITION and CHANCE (the whole note, all its repeats).
+                if (! passes (n.condition, loop) || (n.chance < 1.0f && chanceRoll (loop, index, n) >= n.chance))
+                    continue;
                 for (int r = 0; r < n.rollCount(); ++r)
                 {
                     const auto t = loop * length + hitTime (n, s, r, n.reverse == Reverse::endSync ? reverseSteps (n) : 0.0, leadSteps (n));
                     if (t >= from && t < to && t >= 0.0)
-                        onHit (t, n, r);
+                        onHit (t, n.repeat (r), r);   // (0.72.0: on the ratchet's ramps)
                 }
             }
     }

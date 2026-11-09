@@ -127,7 +127,7 @@ public:
     explicit DrumSeqPanel (ParagonX1AudioProcessor&);
     DrumSeqGrid& getGrid() noexcept { return grid; }
     juce::TextButton& getPatternButton (int pattern) { return *patternButtons[(size_t) pattern]; }
-    NoteField& getField (int index) { return *fields[(size_t) index]; }   // VELOCITY, PAN, PITCH, GATE, ROLL, REVERSE
+    NoteField& getField (int index) { return *fields[(size_t) index]; }   // VELOCITY, PAN, PITCH, GATE, ROLL, REVERSE, RAMP, FADE, CHANCE, CONDITION (0.72.0)
     // Where the grid goes (this panel's space), lined up with the kit's rows; the rest is laid out above it.
     void setGridArea (juce::Rectangle<int>);
     void selectPattern (int pattern);

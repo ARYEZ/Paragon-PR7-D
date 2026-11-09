@@ -2,6 +2,18 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.72.0
+
+**THE SEQUENCER's electronic tricks, part 1: ratchets that ramp, and notes that don't play every time.** Four new settings on each note (choose notes on the SEQUENCER and set them in the note fields, as with VELOCITY or ROLL). Our own design, after what electronic drum machines do; part 2 (0.73.0) is a lane of step effects (beat repeat, chop, tape stop...).
+
+- **ROLL** goes up to **12x and 16x** (was 8x at most): the step split into that many fast repeats, for snare builds and hat buzzes.
+- **RAMP** (-24 to +24 semitones): a roll's repeats climb or fall in pitch, the first at the note's pitch, the last this far from it. +12 on a 4x snare roll is the classic rising build; -12 on toms drops like a fill.
+- **FADE** (-1 to +1): a roll's repeats die away (below 0: at -1 the last is silent) or swell up from nothing (above 0).
+- **CHANCE** (0-100%): how often the note plays. Below 100% it's left out on some passes of the pattern, so a beat breathes. It's not truly random: the same pass always decides the same way, so a bounce or an export sounds like what you heard.
+- **CONDITION:** which passes of the loop the note plays on: Always, 1st / 2nd of 2, 1st-3rd of 3, 1st-4th of 4, First pass only, Not the first pass. "4th of 4" on a crash or a fill note plays it once every four loops. Passes count from the song's start (SONG) or from when a pattern key starts it (KEY).
+- MIDI EXPORT writes the pattern's first pass: notes set to other passes, and notes CHANCE leaves out of that pass, aren't in the file.
+- Older patterns, kits and presets load as they were; notes that don't use the new settings are saved exactly as before.
+
 ## 0.71.0
 
 **THE PADS: an electronic pad unit on the kit.** Six pads (3 across, 2 deep) on their own stand by your right hand, past the floor tom and partly under the china, where a drummer would set up a sample pad. Our own design, in the kit's look.

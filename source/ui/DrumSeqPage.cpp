@@ -743,12 +743,36 @@ DrumSeqPanel::DrumSeqPanel (ParagonX1AudioProcessor& p) : processor (p), grid (p
            [] (const Note& n) { return n.gate; }, [] (Note& n, float v) { n.gate = v; },
            "RING: the hit rings out. Lower: it's cut after this much of a beat (an open hat closed early, a short kick).");
     field ("ROLL", 0.0f, (float) synth::drumseq::rollNames.size() - 1.0f, 1.0f, 0.0f, {}, [] (const Note& n) { return (float) n.roll; },
-           [] (Note& n, float v) { n.roll = juce::roundToInt (v); }, "The note played several times within its step: 2x, 3x (a triplet), 4x, 6x, 8x.");
+           [] (Note& n, float v) { n.roll = juce::roundToInt (v); }, "The note played several times within its step: 2x, 3x (a triplet), 4x ... 16x (a ratchet).");
     fields.back()->choices = synth::drumseq::rollNames;
     field ("REVERSE", 0.0f, 2.0f, 1.0f, 0.0f, {}, [] (const Note& n) { return (float) (int) n.reverse; },
            [] (Note& n, float v) { n.reverse = (synth::drumseq::Reverse) juce::roundToInt (v); },
            "The hit played backwards. END SYNC: it starts early so that it ends where its step does (a swell into the beat).");
     fields.back()->choices = { "Off", "Reverse", "End sync" };
+    // 0.72.0: THE RATCHET's ramps (over a ROLL's repeats), CHANCE and CONDITION.
+    field ("RAMP", -24.0f, 24.0f, 1.0f, 0.0f, [] (float v)
+           {
+               const auto r = juce::roundToInt (v);
+               return r == 0 ? juce::String ("FLAT") : (r > 0 ? "+" : "") + juce::String (r) + " st";
+           },
+           [] (const Note& n) { return n.rollPitch; }, [] (Note& n, float v) { n.rollPitch = v; },
+           "PITCH RAMP: a ROLL's repeats rising (+) or falling (-) in pitch, the last this many semitones away (a snare roll "
+           "that sweeps up, a tom fill falling).");
+    field ("FADE", -1.0f, 1.0f, 0.05f, 0.0f, [] (float v)
+           {
+               const auto p = juce::roundToInt (v * 100.0f);
+               return p == 0 ? juce::String ("FLAT") : p < 0 ? "OUT " + juce::String (-p) + "%" : "IN " + juce::String (p) + "%";
+           },
+           [] (const Note& n) { return n.rollFade; }, [] (Note& n, float v) { n.rollFade = v; },
+           "A ROLL's repeats fading OUT (dying away) or IN (swelling up from soft) across the step.");
+    field ("CHANCE", 0.0f, 1.0f, 0.01f, 1.0f, [] (float v) { return juce::String (juce::roundToInt (v * 100.0f)) + "%"; },
+           [] (const Note& n) { return n.chance; }, [] (Note& n, float v) { n.chance = v; },
+           "How likely the chosen notes are to play on each pass of the loop (100%: always), so a short pattern keeps changing.");
+    field ("CONDITION", 0.0f, (float) synth::drumseq::conditionNames.size() - 1.0f, 1.0f, 0.0f, {}, [] (const Note& n) { return (float) n.condition; },
+           [] (Note& n, float v) { n.condition = juce::roundToInt (v); },
+           "Which passes of the loop the chosen notes play on: every time, the 2nd of every 2, the 4th of every 4 (a fill at "
+           "the end of a phrase), only the first pass, or every pass but the first.");
+    fields.back()->choices = synth::drumseq::conditionNames;
 
     grid.onSelectionChanged = [this]
     {
@@ -801,18 +825,19 @@ void DrumSeqPanel::resized()
     auto d = getLocalBounds().reduced (14, 10);
     // The title line: PATTERN A-D, the tools and EXPORT (the page's view switch is at its right end).
     auto title = d.removeFromTop (30);
-    title.removeFromLeft (112);
+    // (0.72.0: packed tighter: EXPORT MIDI ran under the view switch's MACHINE tab, added in 0.38.0.)
+    title.removeFromLeft (100);
     for (auto& b : patternButtons)
-        b->setBounds (title.removeFromLeft (36).withSizeKeepingCentre (32, 24));
-    title.removeFromLeft (14);
-    pen.setBounds (title.removeFromLeft (62).withSizeKeepingCentre (58, 24));
-    frameTool.setBounds (title.removeFromLeft (70).withSizeKeepingCentre (66, 24));
-    title.removeFromLeft (10);
-    exportButton.setBounds (title.removeFromLeft (112).withSizeKeepingCentre (108, 24));
+        b->setBounds (title.removeFromLeft (34).withSizeKeepingCentre (30, 24));
+    title.removeFromLeft (8);
+    pen.setBounds (title.removeFromLeft (56).withSizeKeepingCentre (52, 24));
+    frameTool.setBounds (title.removeFromLeft (64).withSizeKeepingCentre (60, 24));
+    title.removeFromLeft (6);
+    exportButton.setBounds (title.removeFromLeft (100).withSizeKeepingCentre (96, 24));
 
     // The sequencer's settings, then the chosen notes' (two rows of three).
     auto row = d.removeFromTop (ParamControl::knobHeight);
-    notesArea = row.removeFromRight (270);
+    notesArea = row.removeFromRight (360);   // (0.72.0: 5 fields a line, 72 wide)
     row.removeFromRight (14);
     // ON, TRIGGER, SPEED, TIMING, LENGTH, SHUFFLE, VEL AMOUNT: each as wide as it needs, shared out if there's less room.
     constexpr int widths[] = { 46, 96, 82, 102, 70, 70, 78 };
@@ -824,8 +849,8 @@ void DrumSeqPanel::resized()
     for (int line = 0; line < 2; ++line)
     {
         auto strip = notes.removeFromTop (37);
-        for (int i = 0; i < 3; ++i)
-            fields[(size_t) (line * 3 + i)]->setBounds (strip.removeFromLeft (90));
+        for (int i = 0; i < 5; ++i)
+            fields[(size_t) (line * 5 + i)]->setBounds (strip.removeFromLeft (72));
     }
     grid.setBounds (gridArea);
 }

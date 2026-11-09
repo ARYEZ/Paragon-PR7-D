@@ -2,6 +2,7 @@
 // kit's sound.
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
+#include <map>
 
 #include "dsp/synth/Drums.h"
 
@@ -422,4 +423,120 @@ TEST_CASE ("DRUM SEQUENCER: a drum's anchor (DELAY set early) starts it that muc
         if (e->message.isNoteOn())
             ticks.push_back (e->message.getTimeStamp());
     CHECK (ticks == std::vector<double> { 840.0, 3720.0 });
+}
+
+// ---- 0.72.0: ratchets with ramps, chance and conditions ----
+
+TEST_CASE ("SEQUENCER 0.72.0: a roll's repeats ramp in pitch and fade; 12x and 16x", "[drumseq][ratchet]")
+{
+    drumseq::Settings s;
+    drumseq::Pattern p;
+    drumseq::Note n;
+    n.row = 2;
+    n.start = 0.0;
+    n.roll = 3;            // 4x
+    n.rollPitch = 12.0f;   // the last repeat an octave up
+    n.rollFade = -1.0f;    // dying away
+    p.notes.push_back (n);
+    std::vector<drumseq::Note> heard;
+    std::vector<double> times;
+    drumseq::forEachHit (p, s, 0.0, 1.0, [] (const drumseq::Note&) { return 0.0; }, [&] (double t, const drumseq::Note& m, int)
+    {
+        times.push_back (t);
+        heard.push_back (m);
+    });
+    REQUIRE (heard.size() == 4);
+    for (int r = 0; r < 4; ++r)
+    {
+        CHECK_THAT (times[(size_t) r], WithinAbs (r * 0.25, 1e-9));
+        CHECK_THAT (heard[(size_t) r].pitch, WithinAbs (4.0 * r, 1e-5));
+        CHECK_THAT (heard[(size_t) r].velocity, WithinAbs (1.0 - r / 3.0, 1e-5));
+    }
+    // Fading in: from nothing up to the note's own velocity.
+    p.notes[0].rollFade = 1.0f;
+    p.notes[0].velocity = 0.8f;
+    heard.clear();
+    drumseq::forEachHit (p, s, 0.0, 1.0, [] (const drumseq::Note&) { return 0.0; }, [&] (double, const drumseq::Note& m, int) { heard.push_back (m); });
+    REQUIRE (heard.size() == 4);
+    CHECK_THAT (heard[0].velocity, WithinAbs (0.0, 1e-6));
+    CHECK_THAT (heard[3].velocity, WithinAbs (0.8, 1e-6));
+    // The new counts.
+    CHECK (drumseq::rollNames.size() == (int) drumseq::rollCounts.size());
+    p.notes[0].roll = 7;
+    CHECK (p.notes[0].rollCount() == 16);
+    auto count = 0;
+    drumseq::forEachHit (p, s, 0.0, 1.0, [] (const drumseq::Note&) { return 0.0; }, [&] (double, const drumseq::Note&, int) { ++count; });
+    CHECK (count == 16);
+}
+
+TEST_CASE ("SEQUENCER 0.72.0: CONDITION plays a note on chosen passes; CHANCE some of the time, the same each time it's asked", "[drumseq][chance]")
+{
+    drumseq::Settings s;
+    s.lengthBeats = 1;   // 4 steps a pass
+    const auto passesOf = [&] (const drumseq::Note& n, int loops)
+    {
+        drumseq::Pattern p;
+        p.notes.push_back (n);
+        std::vector<int> played;
+        drumseq::forEachHit (p, s, 0.0, 4.0 * loops, [] (const drumseq::Note&) { return 0.0; },
+                             [&] (double t, const drumseq::Note&, int) { played.push_back ((int) (t / 4.0)); });
+        return played;
+    };
+    drumseq::Note n;
+    n.start = 1.0;
+    CHECK (passesOf (n, 4) == std::vector<int> { 0, 1, 2, 3 });
+    n.condition = 2;   // 2nd of 2
+    CHECK (passesOf (n, 6) == std::vector<int> { 1, 3, 5 });
+    n.condition = 9;   // 4th of 4
+    CHECK (passesOf (n, 8) == std::vector<int> { 3, 7 });
+    n.condition = 10;  // first pass only
+    CHECK (passesOf (n, 4) == std::vector<int> { 0 });
+    n.condition = 11;  // not the first
+    CHECK (passesOf (n, 4) == std::vector<int> { 1, 2, 3 });
+    n.condition = 4;   // 2nd of 3
+    CHECK (passesOf (n, 7) == std::vector<int> { 1, 4 });
+
+    n.condition = 0;
+    n.chance = 0.5f;
+    const auto first = passesOf (n, 400);
+    CHECK (first.size() > 160);
+    CHECK (first.size() < 240);
+    CHECK (passesOf (n, 400) == first);   // the same passes again (a bounce sounds as it played)
+    n.chance = 0.0f;
+    CHECK (passesOf (n, 50).empty());
+    // A roll's repeats go together: all or none.
+    n.chance = 0.5f;
+    n.roll = 2;   // 3x
+    drumseq::Pattern p;
+    p.notes.push_back (n);
+    std::map<int, int> perPass;
+    drumseq::forEachHit (p, s, 0.0, 400.0, [] (const drumseq::Note&) { return 0.0; },
+                         [&] (double t, const drumseq::Note&, int) { ++perPass[(int) (t / 4.0)]; });
+    for (const auto& [pass, hits] : perPass)
+        CHECK (hits == 3);
+}
+
+TEST_CASE ("SEQUENCER 0.72.0: the new settings save and load; older text loads as before; plain notes save as before", "[drumseq]")
+{
+    drumseq::Pattern p;
+    drumseq::Note plain;
+    plain.row = 3;
+    plain.start = 2.0;
+    p.notes.push_back (plain);
+    CHECK (juce::StringArray::fromTokens (p.encode(), ":", {}).size() == 8);   // older versions read it as it is
+    drumseq::Note more = plain;
+    more.rollPitch = -7.0f;
+    more.rollFade = 0.5f;
+    more.chance = 0.25f;
+    more.condition = 9;
+    p.notes.push_back (more);
+    const auto back = drumseq::Pattern::decode (p.encode());
+    REQUIRE (back.notes.size() == 2);
+    CHECK (back.notes[0] == plain);
+    CHECK (back.notes[1] == more);
+    const auto old = drumseq::Pattern::decode ("3:2.0000:1.000:0.000:0.00:1.000:1:0");
+    REQUIRE (old.notes.size() == 1);
+    CHECK (old.notes[0].chance == 1.0f);
+    CHECK (old.notes[0].condition == 0);
+    CHECK (old.notes[0].rollPitch == 0.0f);
 }
