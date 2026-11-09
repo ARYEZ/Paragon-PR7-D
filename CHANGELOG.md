@@ -2,6 +2,13 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.70.1
+
+**GROOVES no longer starts a new scan every time you open a folder.**
+
+- Why it happened: opening a folder checks it for MIDI files that aren't in the list yet (added in 0.33.2, so a freshly copied pack shows up at once). Files that can never be listed (the hidden "._" companions a Mac leaves beside every file in its zips, empty or broken .mid files, MIDI files without notes) looked "new" every time, so every click started another scan. Libraries over 100,000 grooves did the same: the scan stopped at 100,000, and the rest always looked new.
+- Now: files that aren't grooves are remembered in the groove index by their size and date, so they're neither read again nor taken for new files (a mended one is read again). Mac "._" files are skipped entirely. The limit is now 500,000 grooves. And each folder is looked through once while the GROOVES page is open; files copied in after that come in with REFRESH (or CHECK ALL FOLDERS FOR CHANGES).
+
 ## 0.70.0
 
 **Drums from a mixed sample pack onto the drums you choose**, a **MIXER CHANNEL** for drums without mics of their own, and **a default preset**.

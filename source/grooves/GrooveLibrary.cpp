@@ -424,9 +424,14 @@ namespace grooves
     {
         // What was read before, by path: a file whose size, date and folder map haven't changed isn't read again.
         std::map<juce::String, std::pair<juce::String, Entry>> before;
+        std::map<juce::String, juce::String> beforeNot;   // 0.70.1: files that weren't grooves, by their stamp
         if (const auto xml = juce::XmlDocument::parse (indexFile))
+        {
             for (const auto* x : xml->getChildWithTagNameIterator ("G"))
                 before[x->getStringAttribute ("path")] = { x->getStringAttribute ("stamp"), fromXml (*x) };
+            for (const auto* x : xml->getChildWithTagNameIterator ("N"))
+                beforeNot[x->getStringAttribute ("path")] = x->getStringAttribute ("stamp");
+        }
 
         // 0.15.2: listed at once from what was read before (off the window's thread), then checked.
         if (! indexLoaded)
@@ -449,6 +454,7 @@ namespace grooves
             }
             cacheEntries (known);
             publish (std::move (known));
+            rememberNotGrooves (beforeNot);   // 0.70.1
             indexLoaded = true;
             sendChangeMessage();
         }
@@ -457,6 +463,7 @@ namespace grooves
 
         std::vector<Entry> found;
         std::set<juce::String> seen;
+        std::map<juce::String, juce::String> notSeen;   // 0.70.1: files met that aren't grooves (path, stamp)
         auto changed = false;   // anything read anew (else the index stays as it is)
         // 0.33.1: grooves read anew go into the list as the scan goes (every half second), not only when it ends: a
         // newly linked folder of thousands fills in as it's read instead of staying empty until the last file.
@@ -493,6 +500,13 @@ namespace grooves
         std::vector<std::unique_ptr<juce::XmlElement>> indexItems;
         const auto finishIndex = [&]
         {
+            for (const auto& [path, key] : notSeen)
+            {
+                auto n = std::make_unique<juce::XmlElement> ("N");
+                n->setAttribute ("path", path);
+                n->setAttribute ("stamp", key);
+                indexItems.push_back (std::move (n));
+            }
             for (auto it = indexItems.rbegin(); it != indexItems.rend(); ++it)
                 index.prependChildElement (it->release());   // (in front: no walk; reversed, so in the order read)
             indexItems.clear();
@@ -506,11 +520,18 @@ namespace grooves
             const auto map = layoutFor (f, synth::drums::notemap::grooveLibrary(), 36);
             const auto add = [&] (const juce::File& file, const juce::String& key, auto readIt, const db::Contents::Item* item = nullptr)
             {
-                if (seen.count (file.getFullPathName()) > 0)
+                const auto path = file.getFullPathName();
+                if (seen.count (path) > 0 || notSeen.count (path) > 0)
                     return;   // (walked already: the folder shown first)
+                // 0.70.1: a file found before not to be a groove, unchanged: not read again.
+                if (const auto bad = beforeNot.find (path); bad != beforeNot.end() && bad->second == key)
+                {
+                    notSeen[path] = key;
+                    return;
+                }
                 Entry e;
                 auto isNew = false;
-                if (const auto known = before.find (file.getFullPathName()); known != before.end() && known->second.first == key)
+                if (const auto known = before.find (path); known != before.end() && known->second.first == key)
                     e = known->second.second;
                 else if (const auto g = readIt())
                 {
@@ -525,7 +546,13 @@ namespace grooves
                     isNew = true;
                 }
                 else
-                    return;   // not a groove: no notes, or not a MIDI file
+                {
+                    // Not a groove (no notes, or not a MIDI file): remembered, so it's neither read again nor taken
+                    // for a new file (0.70.1).
+                    notSeen[path] = key;
+                    changed = true;
+                    return;
+                }
                 seen.insert (file.getFullPathName());
                 e.fromDatabase = key.startsWith ("db");
                 e.folder = f;
@@ -547,6 +574,8 @@ namespace grooves
                     break;
                 ++looked;
                 const auto file = item.getFile();
+                if (isMacCompanion (file))
+                    continue;   // 0.70.1
                 if (! file.hasFileExtension ("mid;midi"))
                 {
                     // A groove database (0.15.0): each groove in it, as if a file inside it; known ones by the database's
@@ -604,16 +633,20 @@ namespace grooves
                 for (const auto& [path, item] : before)
                     if (seen.count (path) == 0)
                         indexItems.push_back (toXml (item.second, item.first));
+                for (const auto& [path, key] : beforeNot)
+                    notSeen.emplace (path, key);   // (not come to yet: kept)
                 finishIndex();
                 index.writeTo (indexFile);
             }
+            rememberNotGrooves (notSeen);
             return;
         }
+        rememberNotGrooves (notSeen);
         cacheEntries (found);
         publish (std::move (found));
         indexLoaded = true;   // what's listed is newer than the index
         // Written only when something changed (a file read anew, or one gone): 10,000 grooves are megabytes.
-        if (changed || seen.size() != before.size() || ! indexFile.existsAsFile())
+        if (changed || seen.size() != before.size() || notSeen.size() != beforeNot.size() || ! indexFile.existsAsFile())
         {
             finishIndex();
             index.writeTo (indexFile);
@@ -621,6 +654,13 @@ namespace grooves
         lastChecked = juce::Time::getCurrentTime();
         std::lock_guard<std::mutex> guard (sessionLock);
         checkedThisSession[indexFile.getFullPathName()] = foldersChecked() + "#" + indexStamp (indexFile);
+    }
+
+    void Library::rememberNotGrooves (const std::map<juce::String, juce::String>& paths)
+    {
+        std::lock_guard<std::mutex> guard (focusLock);
+        for (const auto& [path, key] : paths)
+            notGrooves.insert (path);
     }
 
     void Library::setFocus (const juce::File& folder)
@@ -640,9 +680,16 @@ namespace grooves
         // MIDI files in `folder` (and its subfolders, the first `upTo`) the list doesn't have: new since the last check.
         if (! folder.isDirectory())
             return false;
+        std::set<juce::String> notGroovesNow;
+        {
+            std::lock_guard<std::mutex> guard (focusLock);
+            notGroovesNow = notGrooves;
+        }
         std::set<juce::String> listed;
         {
             const auto now = getCatalogue();
+            if ((int) now->entries.size() >= maxFiles)
+                return false;   // (the library is full: nothing more would be listed)
             const auto folderPath = folder.getFullPathName();
             for (const auto& path : now->paths)
                 if (pathIsIn (path, folderPath))
@@ -651,7 +698,8 @@ namespace grooves
         auto count = 0;
         for (const auto& item : juce::RangedDirectoryIterator (folder, true, "*.mid;*.midi", juce::File::findFiles))
         {
-            if (listed.count (item.getFile().getFullPathName()) == 0)
+            const auto path = item.getFile().getFullPathName();
+            if (! isMacCompanion (item.getFile()) && listed.count (path) == 0 && notGroovesNow.count (path) == 0)
                 return true;
             if (++count >= upTo)
                 break;

@@ -876,6 +876,84 @@ TEST_CASE ("GROOVES 0.33.2: a folder opened with new files is read first; alread
     CHECK_FALSE (library.hasUnlisted (root));
 }
 
+TEST_CASE ("GROOVES 0.70.1: files that aren't grooves are remembered, so opening folders doesn't scan again and again", "[grooves][groove-player]")
+{
+    Plugin t;
+    const auto pack = t.folder.getChildFile ("Pack");
+    const auto write = [] (const juce::File& f)
+    {
+        juce::MidiMessageSequence track;
+        for (int beat = 0; beat < 4; ++beat)
+        {
+            track.addEvent (juce::MidiMessage::noteOn (10, 36, (juce::uint8) 100).withTimeStamp (beat * 480));
+            track.addEvent (juce::MidiMessage::noteOff (10, 36).withTimeStamp (beat * 480 + 60));
+        }
+        track.updateMatchedPairs();
+        juce::MidiFile file;
+        file.setTicksPerQuarterNote (480);
+        file.addTrack (track);
+        f.getParentDirectory().createDirectory();
+        juce::FileOutputStream out (f);
+        file.writeTo (out);
+    };
+    write (pack.getChildFile ("Verse/Groove 1.mid"));
+    write (pack.getChildFile ("Chorus/Groove 2.mid"));
+    // What a pack can hold that isn't a groove: a Mac's companion beside each file, a broken file, a MIDI file with
+    // no notes.
+    pack.getChildFile ("Verse/._Groove 1.mid").replaceWithText (juce::String::repeatedString ("x", 4000));
+    pack.getChildFile ("Chorus/Broken.mid").replaceWithText ("not a MIDI file");
+    {
+        juce::MidiFile empty;
+        empty.setTicksPerQuarterNote (480);
+        empty.addTrack (juce::MidiMessageSequence());
+        juce::FileOutputStream out (pack.getChildFile ("Chorus/Empty.mid"));
+        empty.writeTo (out);
+    }
+    auto& library = t.p.getGrooveLibrary();
+    REQUIRE (library.addFolder (pack));
+    library.scanNow();
+    REQUIRE (library.getNumEntries() == 2);
+    CHECK (library.getNumScanned() == 2 + 0);   // (the companion never read)
+    // Before 0.70.1 these folders always had "new" files (the two that never list), so every click scanned again.
+    CHECK_FALSE (library.hasUnlisted (pack));
+    CHECK_FALSE (library.hasUnlisted (pack.getChildFile ("Chorus")));
+    // A second check reads nothing: the bad files are known by their size and date.
+    library.scanNow();
+    CHECK (library.getNumScanned() == 0);
+    CHECK (library.getNumEntries() == 2);
+    // A new PR7-D (the index only listed) knows them too.
+    {
+        grooves::Library other (t.folder.getChildFile ("Grooves.xml"), t.folder.getChildFile ("Groove Index.xml"));
+        other.scan (true);
+        while (other.isScanning())
+            juce::Thread::sleep (2);
+        if (other.getNumEntries() == 2)
+            CHECK_FALSE (other.hasUnlisted (pack));
+    }
+    // A broken file mended: read again by the next check (its size and date changed; REFRESH does one).
+    pack.getChildFile ("Chorus/Broken.mid").deleteFile();
+    write (pack.getChildFile ("Chorus/Broken.mid"));
+    library.scanNow();
+    CHECK (library.getNumEntries() == 3);
+    CHECK_FALSE (library.hasUnlisted (pack));
+
+    // The page: each folder looked through once while it's open; a new file then waits for REFRESH.
+    GroovesPage page (t.p);
+    page.setSize (1476, 672);
+    page.refresh();
+    write (pack.getChildFile ("Verse/Groove 3.mid"));
+    page.browseTo (pack.getChildFile ("Verse"), true);
+    CHECK (page.getFolderScansStarted() == 1);
+    while (library.isScanning())
+        juce::Thread::sleep (2);
+    page.browseTo (pack.getChildFile ("Chorus"), true);
+    page.browseTo (pack.getChildFile ("Verse"), true);
+    page.browseTo (pack.getChildFile ("Chorus"), true);
+    CHECK (page.getFolderScansStarted() == 1);
+    while (library.isScanning())
+        juce::Thread::sleep (2);
+}
+
 TEST_CASE ("TAP TO FIND page: open taps with a loop; FIND sorts by MATCH; FIND SIMILAR; a MIDI file dropped; CLEAR TAP", "[tap][groove-player][ui]")
 {
     Plugin t;

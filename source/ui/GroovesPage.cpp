@@ -989,8 +989,15 @@ void GroovesPage::checkShownFolder()
     // 0.33.2: a folder opened with MIDI files the list hasn't (copied in since the last check, or not come to yet by a
     // long scan): scanned (again), that folder first, so its grooves come in at once. (A scan stopped keeps what it read.)
     library.setFocus (within);
-    if (within.isDirectory() && library.hasUnlisted (within))
+    // 0.70.1: each folder looked through once while the page is open (not on every click: a file that never lists, or
+    // a scan still on its way through a big library, started a new scan each time); REFRESH looks again.
+    if (! within.isDirectory() || ! foldersChecked.insert (within.getFullPathName()).second)
+        return;
+    if (library.hasUnlisted (within))
+    {
+        ++folderScansStarted;
         library.scan();
+    }
 }
 
 bool GroovesPage::goBack()
@@ -1083,7 +1090,7 @@ void GroovesPage::showFolderMenu (const juce::File& folder)
     }
     if (f >= 0)
         menu.addItem (inUser && userNeedsSync ? juce::String ("SYNC FILE CHANGES  (changed on disk)") : juce::String ("SYNC FILE CHANGES"),
-                      [this] { library.scan(); });
+                      [this] { foldersChecked.clear(); library.scan(); });
     if (isRoot && ! folders[(size_t) f].user)
     {
         menu.addSeparator();
@@ -1120,7 +1127,7 @@ void GroovesPage::showMenu()
                     refresh();
             });
         });
-        folders.addItem ("CHECK ALL FOLDERS FOR CHANGES", [this] { library.scan(); });
+        folders.addItem ("CHECK ALL FOLDERS FOR CHANGES", [this] { foldersChecked.clear(); library.scan(); });
         menu.addSubMenu ("FOLDERS", folders);
     }
     {

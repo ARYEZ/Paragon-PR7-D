@@ -17,6 +17,8 @@
 // - GROOVE PARTS beside them (it folds away), with TO SEQUENCER and LAYER ONTO.
 #pragma once
 
+#include <set>
+
 #include "ui/PaintCache.h"
 
 #include "PluginProcessor.h"
@@ -141,8 +143,16 @@ private:
     PaintCache panelCache;
     void requery();
     void rebuildBrowser();
+public:
     void browseTo (const juce::File& folder, bool remember);   // the folder chosen (history kept unless going back)
+private:
     void checkShownFolder();   // 0.33.2: new files in it: scanned, it first
+    // 0.70.1: folders already checked this time the page is open (each looked through once; REFRESH starts again).
+    std::set<juce::String> foldersChecked;
+public:
+    int getFolderScansStarted() const noexcept { return folderScansStarted; }   // tests
+private:
+    int folderScansStarted = 0;
     void savePreview();
     void showMenu();
     void showFolderMenu (const juce::File& folder);
