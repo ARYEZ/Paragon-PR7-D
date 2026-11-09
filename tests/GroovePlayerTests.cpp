@@ -952,6 +952,17 @@ TEST_CASE ("GROOVES 0.70.1: files that aren't grooves are remembered, so opening
     CHECK (page.getFolderScansStarted() == 1);
     while (library.isScanning())
         juce::Thread::sleep (2);
+    // 0.70.2: RERACK checks every folder again: a groove copied in now comes in, and the folders are looked through
+    // again when next opened.
+    CHECK (library.getNumEntries() == 4);
+    write (pack.getChildFile ("Chorus/Groove 4.mid"));
+    page.browseTo (pack.getChildFile ("Chorus"), true);
+    CHECK (page.getFolderScansStarted() == 1);   // (already looked through)
+    REQUIRE (page.getRerackButton().isVisible());
+    page.getRerackButton().onClick();
+    while (library.isScanning())
+        juce::Thread::sleep (2);
+    CHECK (library.getNumEntries() == 5);
 }
 
 TEST_CASE ("TAP TO FIND page: open taps with a loop; FIND sorts by MATCH; FIND SIMILAR; a MIDI file dropped; CLEAR TAP", "[tap][groove-player][ui]")
