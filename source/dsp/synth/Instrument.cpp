@@ -195,7 +195,8 @@ namespace synth::drums
                         if (at > 0 && juce::CharacterFunctions::isLetter (lower[at - 1]))
                             continue;
                         auto i = at + w.length();
-                        while (i < lower.length() && (lower[i] == '_' || lower[i] == '-' || lower[i] == ' '))
+                        // (0.69.0: "RR (3)" too, as a Mac's copies of a file are named)
+                        while (i < lower.length() && (lower[i] == '_' || lower[i] == '-' || lower[i] == ' ' || lower[i] == '('))
                             ++i;
                         if (i < lower.length() && juce::CharacterFunctions::isDigit (lower[i]))
                             return lower.substring (i).getIntValue();
@@ -238,6 +239,8 @@ namespace synth::drums
         {
             const juce::String audio ("*.wav;*.aif;*.aiff;*.flac;*.ogg");
             auto files = folder.findChildFiles (juce::File::findFiles, false, audio);
+            // 0.69.0: not macOS's "._" companions (a Mac's zip keeps one, named as the file, beside every file).
+            files.removeIf ([] (const juce::File& f) { return f.getFileName().startsWith ("._"); });
             files.sort();
             struct Loaded { std::shared_ptr<const Sample> sample; juce::String path; float level; int layer, rr; std::vector<Instrument::Hit::Mic> mics; int velocity; };
             std::vector<Loaded> hits;
@@ -261,6 +264,7 @@ namespace synth::drums
                 {
                     std::sort (micFolders.begin(), micFolders.end(), [] (const auto& a, const auto& b) { return a.second.getFileName() < b.second.getFileName(); });
                     auto names = micFolders.front().second.findChildFiles (juce::File::findFiles, false, audio);
+                    names.removeIf ([] (const juce::File& f) { return f.getFileName().startsWith ("._"); });
                     names.sort();
                     for (const auto& first : names)
                     {

@@ -413,7 +413,7 @@ void EqPage::paintDynamics (juce::Graphics& g)
         g.drawText (name, row.removeFromLeft (78), juce::Justification::centredLeft, false);
         ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         g.setFont (juce::FontOptions (12.0f, juce::Font::bold));
-        ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), text, (row.removeFromRight (200)).toFloat(), juce::Justification::centredLeft));
+        ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), text, row.withLeft (row.getRight() - 200).toFloat(), juce::Justification::centredLeft));
         g.drawText (text, row.removeFromRight (200), juce::Justification::centredLeft, false);
         ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         row.removeFromRight (10);

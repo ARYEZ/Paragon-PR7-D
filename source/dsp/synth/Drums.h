@@ -363,6 +363,9 @@ namespace synth::drums
             const LayerTweak* tweak = nullptr;
         };
         std::array<Layer, numLayers> layers {};
+        // 0.70.0: MIXER CHANNEL: a hit with no mics of its own (a sample, a folder of stereo hits, a synth drum) plays into
+        // this mixer mic channel (its fader, effects, sends, routing) instead of its own way (-1).
+        int mixChannel = -1;
 
         bool filtered() const noexcept { return lowPass < 19999.0f || highPass > 20.01f; }
         // The sequencer's lead for the anchor (seconds early).

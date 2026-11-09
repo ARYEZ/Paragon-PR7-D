@@ -2,6 +2,27 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.70.0
+
+**Drums from a mixed sample pack onto the drums you choose**, a **MIXER CHANNEL** for drums without mics of their own, and **a default preset**.
+
+- **DRUMS > LOAD... > Drums from a mixed sample pack, onto the drums you choose**: choose the pack's folder, its version and mix, then for each of the pack's drums either "Keep this kit's" (the default) or which of this kit's drums it replaces (a crash onto any cymbal, a tom onto any tom). Everything else in the kit stays as it was. A cymbal's choke comes with it (onto the choke), and the replaced drum's articulations the pack doesn't have are turned off, so they play the pack's nearest sound rather than the old kit's. The summary lists what went where.
+- **The replaced drum keeps its mixer channel.** A pack's drum is one stereo sound, so before now it skipped the mixer. Now it plays into the channel the old drum's close mic used (a Djent kit crash's own channel, for example), so that channel's fader, mute / solo, effects, sends and bus apply to it. Its parallel-mix layer goes into the same channel.
+- **MIXER CHANNEL** (DRUM view, the row under the hit's picture): which mixer channel a drum without mics of its own plays into, or ITS OWN WAY (VOLUME, PAN, INSERT and OUTPUT, as before). A drum with mics of its own keeps its mics' channels.
+- **A folder of hits loaded in place of a multi-mic drum** (LOAD... > A folder of hits) picks that channel by itself, and so does its choke loaded after it.
+- **THE DEFAULT PRESET** (PRESETS page): choose a preset, press **OPEN WITH THIS IN EVERY NEW PR7-D**. Every new PR7-D then starts with it instead of Init (the list marks it DEFAULT; press again to go back to Init). A project you open keeps the sound it was saved with, and the default's samples aren't loaded for nothing first.
+- Fixed: some lettering drawn one line lower or further left than laid out since 0.67.0 (the preset list's stars, the drum's LOADING... and hit titles, an EQ label, a layer's status).
+
+## 0.69.0
+
+**A MIXED SAMPLE PACK in one go** (DRUMS > LOAD... > A mixed sample pack): a drum library whose hits come already mixed to stereo, in several finished mixes of each drum (folders like `KICK\ORIGINAL\KICK 1\00 - STEREO PRESET - MIX 1`).
+
+- Choose the pack's folder, then the **version** (Original or Gain Boosted), the **mix** (Mix 1, Mix 1 Punchy, Mix 2, Mix 2 Canon, Canon + Verb, Gunfire, Gunfire + Verb) and whether to load the **parallel mixes**. A drum without that mix takes the nearest it has (a drum with one mix, like the cymbals, takes that).
+- What goes where: kick 1 the kick (kick 2 its layer 2, off: raise it to hear it); snare center, rimshot, sidestick; toms 1-4; hats closed, 25%, 50%, 100% open and pedal; crashes by size (smallest CRASH, then CRASH 2, CRASH 3), their edges, the first two's chokes; ride center, bell, edge. Each drum's PARALLEL mix is its layer 1 at -10 dB, ready to blend in on its LAYERS tab.
+- Left out (no drum for them yet), and listed in the summary: the snare's edge and extra hits, the crashes' centers, the third crash's choke, the tighter pedal.
+- The hits are mixes, so each drum is one stereo sound: the mixer's close / overhead / room balance and bleed don't apply to them.
+- Loading a folder of hits now skips a Mac's "._" files (one beside every file in a zip made on a Mac) and reads round robins named "RR (10)" in order.
+
 ## 0.68.0
 
 - **Lettering is white again** instead of the full gradient sweep (too much on text). The gradient stays on the meters, knob arcs, sliders, scroll bars, chosen rows and strips, filter chips, menus and notes.

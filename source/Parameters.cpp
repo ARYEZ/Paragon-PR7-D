@@ -35,6 +35,7 @@ namespace
     constexpr int pr7d0360 = 38; // PR7-D 0.36.0: drums 30 to 36 (every setting of theirs)
     constexpr int pr7d0380 = 39; // PR7-D 0.38.0: THE DRUM MACHINE's own TEMPO
     constexpr int pr7d0500 = 40; // PR7-D 0.50.0: LAYERS 2 and 3
+    constexpr int pr7d0700 = 41; // PR7-D 0.70.0: a drum's MIXER CHANNEL
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -183,6 +184,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
                      [] (float v, int) { return v <= -59.95f ? juce::String ("Off") : juce::String (v, 1) + " dB"; }, pr7d0500);
                 addChoice (layout, drum (k, layerOut (n)), name + "Layer " + juce::String (n + 1) + " Out", layerOutNames, 0, pr7d0500);
             }
+            addChoice (layout, drum (k, "MixOut"), name + "Mixer Channel", mixOutNames, 0, pr7d0700);
         }
 
         // THE MIXER (0.20.0): the mic channels.

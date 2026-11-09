@@ -127,7 +127,15 @@ RigBrowser::RigBrowser (ParagonX1AudioProcessor& p) : processor (p)
         folder.createDirectory();
         folder.revealToUser();
     };
-    for (auto* button : { &loadButton, &saveDetailsButton, &saveAsButton, &deleteButton, &folderButton })
+    // 0.70.0: THE DEFAULT PRESET (pressed again on it: back to Init).
+    defaultButton.onClick = [this]
+    {
+        if (const auto* entry = selectedEntry())
+            processor.setDefaultRig (processor.isDefaultRig (*entry) ? nullptr : entry);
+        showDetails();
+        refreshList();
+    };
+    for (auto* button : { &loadButton, &saveDetailsButton, &saveAsButton, &deleteButton, &folderButton, &defaultButton })
         addAndMakeVisible (*button);
 
     processor.rigBroadcaster.addChangeListener (this);
@@ -176,6 +184,13 @@ void RigBrowser::refreshList()
 {
     const auto query = search.getText().trim();
     visible.clear();
+    defaultFile = juce::File();
+    defaultFactory.clear();
+    if (const auto* chosen = processor.findDefaultRigEntry())
+    {
+        defaultFile = chosen->file;
+        defaultFactory = chosen->isFactory ? chosen->rig.name : juce::String();
+    }
 
     const auto& entries = processor.getRigLibrary().getEntries();
     for (size_t index = 0; index < entries.size(); ++index)
@@ -235,7 +250,7 @@ void RigBrowser::paintListBoxItem (int row, juce::Graphics& g, int width, int he
     g.drawText (entry.rig.getSlotName(), area.removeFromLeft (40), juce::Justification::centredLeft, false);
 
     ParagonColours::setFill (g, entry.rig.favourite ? ParagonColours::accent : ParagonColours::panelEdge, juce::Rectangle<int> (0, 0, width, height));
-    ParagonColours::setTextFill (g, entry.rig.favourite ? ParagonColours::accent : ParagonColours::panelEdge, ParagonColours::textSpan (g.getCurrentFont(), entry.rig.favourite ? juce::String (juce::CharPointer_UTF8 ("\xe2\x98\x85")) : juce::String (juce::CharPointer_UTF8 ("\xe2\x98\x86")), (area.removeFromRight (20)).toFloat(), juce::Justification::centred));
+    ParagonColours::setTextFill (g, entry.rig.favourite ? ParagonColours::accent : ParagonColours::panelEdge, ParagonColours::textSpan (g.getCurrentFont(), entry.rig.favourite ? juce::String (juce::CharPointer_UTF8 ("\xe2\x98\x85")) : juce::String (juce::CharPointer_UTF8 ("\xe2\x98\x86")), area.withLeft (area.getRight() - 20).toFloat(), juce::Justification::centred));
     g.drawText (entry.rig.favourite ? juce::String (juce::CharPointer_UTF8 ("\xe2\x98\x85")) : juce::String (juce::CharPointer_UTF8 ("\xe2\x98\x86")),
                 area.removeFromRight (20), juce::Justification::centred, false);
     ParagonColours::setFill (g, entry.rig.favourite ? ParagonColours::accent : ParagonColours::panelEdge, juce::Rectangle<int> (0, 0, width, height));
@@ -245,6 +260,15 @@ void RigBrowser::paintListBoxItem (int row, juce::Graphics& g, int width, int he
         g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
         g.setColour (ParagonColours::textDim);
         g.drawText ("FACTORY", area.removeFromRight (60), juce::Justification::centred, false);
+    }
+    if (entry.isFactory ? (defaultFactory.isNotEmpty() && defaultFactory == entry.rig.name) : (defaultFile != juce::File() && defaultFile == entry.file))
+    {
+        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+        auto tag = area.removeFromRight (60);
+        ParagonColours::setFill (g, ParagonColours::accent, tag.toFloat().reduced (4.0f, (float) height * 0.28f));
+        g.drawRoundedRectangle (tag.toFloat().reduced (4.0f, (float) height * 0.28f), 3.0f, 1.0f);
+        g.setColour (ParagonColours::text);
+        g.drawText ("DEFAULT", tag, juce::Justification::centred, false);
     }
 
     g.setFont (juce::FontOptions (11.0f));
@@ -290,6 +314,9 @@ void RigBrowser::showDetails()
     tagsEditor.setReadOnly (! editable);
     favouriteButton.setEnabled (hasEntry);
     loadButton.setEnabled (hasEntry);
+    defaultButton.setEnabled (hasEntry);
+    defaultButton.setButtonText (hasEntry && processor.isDefaultRig (*entry) ? "THE DEFAULT (PRESS: BACK TO INIT)"
+                                                                            : "OPEN WITH THIS IN EVERY NEW PR7-D");
 
     juce::String text;
     if (hasEntry)
@@ -457,6 +484,8 @@ void RigBrowser::resized()
     folderButton.setBounds (details.removeFromBottom (26));
     details.removeFromBottom (6);
     saveAsButton.setBounds (details.removeFromBottom (30));
+    details.removeFromBottom (6);
+    defaultButton.setBounds (details.removeFromBottom (30));
     details.removeFromBottom (6);
     auto row = details.removeFromBottom (30);
     loadButton.setBounds (row.removeFromLeft (row.getWidth() / 3).withTrimmedRight (4));
