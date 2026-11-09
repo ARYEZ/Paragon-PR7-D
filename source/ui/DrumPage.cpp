@@ -435,7 +435,7 @@ void DrumHitDisplay::paint (juce::Graphics& g)
         if (instrument == nullptr)
         {
             const auto problems = processor.getInstrumentProblems();
-            ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), processor.isLoadingInstruments() ? "LOADING..." : "COULDN'T LOAD IT", (area.removeFromTop (18.0f)).toFloat(), juce::Justification::topLeft));
+            ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), processor.isLoadingInstruments() ? "LOADING..." : "COULDN'T LOAD IT", area.withHeight (18.0f).toFloat(), juce::Justification::topLeft));
             g.drawText (processor.isLoadingInstruments() ? "LOADING..." : "COULDN'T LOAD IT", area.removeFromTop (18.0f), juce::Justification::topLeft, false);
             ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
             g.setFont (juce::FontOptions (11.0f));
@@ -507,7 +507,7 @@ void DrumHitDisplay::paint (juce::Graphics& g)
         auto title = file->name + "   " + juce::String ((endShare - startShare) * seconds, 2) + " s of " + juce::String (seconds, 1) + " s";
         if (chosen >= 0)
             title << "   (hit " << (chosen + 1) << " of " << (int) hits.size() << ")";
-        ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), title, (area.removeFromTop (18.0f)).toFloat(), juce::Justification::topLeft));
+        ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), title, area.withHeight (18.0f).toFloat(), juce::Justification::topLeft));
         g.drawText (title, area.removeFromTop (18.0f), juce::Justification::topLeft, false);
         ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
 
@@ -580,7 +580,7 @@ void DrumHitDisplay::paint (juce::Graphics& g)
     auto title = drumName (s, processor, slot);
     if (! picture.peaks.empty())
         title << "   " << juce::String (picture.seconds, picture.seconds < 1.0 ? 2 : 1) << " s";
-    ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), title, (area.removeFromTop (18.0f)).toFloat(), juce::Justification::topLeft));
+    ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), title, area.withHeight (18.0f).toFloat(), juce::Justification::topLeft));
     g.drawText (title, area.removeFromTop (18.0f), juce::Justification::topLeft, false);
     ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
     auto axis = area.removeFromBottom (16.0f);
@@ -708,6 +708,10 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), en
                                                               "Off: each hit as loud as it was recorded.");
     slotControl (instrumentControls, "LayerLimit", "LAYER LIMIT", "How many of each layer's hits are used (ALL: every one). Fewer: more repeats.");
     slotControl (instrumentControls, "Voices", "VOICES", "How many of this drum's hits ring at once; past that the oldest fades.");
+    slotControl (instrumentControls, "MixOut", "MIXER CHANNEL", "Which of THE MIXER's channels this drum plays into (its fader, effects, "
+                                                                "sends and bus), or ITS OWN WAY: VOLUME, PAN, INSERT and OUTPUT here, as before. "
+                                                                "For a drum without mics of its own (one stereo sound, a sample, a mixed pack's "
+                                                                "drum); a multi-mic drum's mics keep their own channels.");
 
     for (auto* list : { &kitControls, &slotControls, &routingControls, &velocityControls, &instrumentControls, &acousticControls })
         for (auto& c : *list)
@@ -1110,6 +1114,7 @@ void DrumPage::showLoadMenu()
     menu.addItem ("A sample pack: a multi-mic library's folder (onto every drum)...", [this] { importSamplePack(); });
     // 0.69.0: a library whose hits come already mixed, several finished mixes of each drum in folders of their own.
     menu.addItem ("A mixed sample pack: finished stereo mixes of each drum (onto every drum)...", [this] { importMixPack(); });
+    menu.addItem ("Drums from a mixed sample pack, onto the drums you choose (the rest of this kit stays)...", [this] { importMixPackOnto(); });
     menu.addItem ("Get free kits (drumgizmo.org)...", []
     {
         juce::URL ("https://drumgizmo.org/wiki/doku.php?id=kits").launchInDefaultBrowser();
@@ -1363,6 +1368,110 @@ void DrumPage::importMixPack()
                 text << "\n\nNot used (no drum for them): " << result.unused.joinIntoString (", ").substring (0, 500);
             text << "\n\nSave it as a preset to keep it (the preset remembers where the pack's folders are).";
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::NoIcon, "Mixed sample pack: " + result.name, text);
+        }));
+    });
+}
+
+juce::Array<int> DrumPage::mixPackTargetsFor (int piece)
+{
+    using namespace synth::drums;
+    static const juce::Array<int> cymbals { 6, 7, 8, 9, 10, 15, 16, 17, 18, 19, 20 };   // CRASH 1, 2, RIDE, CHINA, SPLASH, CRASH 3-6, FX CRASH, CHINA 2
+    static const juce::Array<int> toms { 3, 4, 5, 14, 21 };                             // TOM 1-3, TOM 4, TOM 5
+    juce::Array<int> targets { piece };
+    for (const auto* group : { &cymbals, &toms })
+        if (group->contains (piece))
+            for (const auto p : *group)
+                targets.addIfNotAlreadyThere (p);
+    return targets;
+}
+
+void DrumPage::importMixPackOnto()
+{
+    chooser = std::make_unique<juce::FileChooser> ("A mixed sample pack's folder (the one holding KICK, SNARE, TOMS, HATS...)", juce::File());
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories, [this] (const juce::FileChooser& fc)
+    {
+        using namespace synth::drums;
+        const auto folder = fc.getResult();
+        if (! folder.isDirectory())
+            return;
+        // The pack's pieces, each named by its own folders ("CRASH 2: 19 CRASH - ORIGINAL / EDGE").
+        const auto plan = mixpack::plan (folder, mixpack::Version::original, 0);
+        std::map<int, juce::String> found;
+        for (const auto& [slot, drum] : plan.slots)
+        {
+            const auto piece = pieceOfSlot (slot);
+            if (piece < 0 || (found.count (piece) > 0 && pieces[(size_t) piece].articulations[0].slot != slot))
+                continue;
+            juce::StringArray parts;
+            parts.addTokens (drum.mix.getParentDirectory().getRelativePathFrom (folder), juce::File::getSeparatorString(), "");
+            parts.removeEmptyStrings();
+            parts.remove (0);   // (the piece's own folder: KICK, CYMBALS...)
+            parts.removeString ("ORIGINAL", true);
+            parts.removeString ("GAIN BOOSTED", true);
+            found[piece] = juce::String (pieces[(size_t) piece].name) + (parts.isEmpty() ? juce::String() : ": " + parts.joinIntoString (" / "));
+        }
+        if (found.empty())
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "No drums found",
+                                                   "No folder of hits could be read as a drum. A mixed pack's folders are named by piece "
+                                                   "(KICK, SNARE, TOMS, HATS, CYMBALS, RIDE), version (ORIGINAL / GAIN BOOSTED), "
+                                                   "articulation and mix (e.g. 01 - MIX PRESET 1).");
+            return;
+        }
+        auto window = std::make_shared<juce::AlertWindow> ("Drums from: " + folder.getFileName(),
+                                                           "Choose which of the pack's drums replace which of this kit's (the rest stay as "
+                                                           "they are). Each plays into the mixer channel the drum it replaces used, so its "
+                                                           "fader, effects and bus stay. Its chokes and other articulations come with it.",
+                                                           juce::MessageBoxIconType::NoIcon, this);
+        window->addComboBox ("version", { "Original", "Gain Boosted" }, "Version");
+        window->addComboBox ("mix", mixpack::mixNames, "Mix");
+        window->addComboBox ("parallel", { "As each drum's layer, ready to blend in", "Leave them out (half the memory)" }, "Parallel mixes");
+        std::vector<std::pair<int, juce::Array<int>>> rows;
+        for (const auto& [piece, label] : found)
+        {
+            const auto targets = mixPackTargetsFor (piece);
+            juce::StringArray items { "Keep this kit's (not imported)" };
+            for (const auto t : targets)
+                items.add ("Onto this kit's " + juce::String (pieces[(size_t) t].name));
+            window->addComboBox ("piece" + juce::String (piece), items, label);
+            rows.emplace_back (piece, targets);
+        }
+        window->addButton ("Import", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        window->enterModalState (true, juce::ModalCallbackFunction::create ([this, window, folder, rows] (int answer)
+        {
+            if (answer != 1)
+                return;
+            std::map<int, int> onto;
+            for (const auto& [piece, targets] : rows)
+                if (const auto chosen = window->getComboBoxComponent ("piece" + juce::String (piece))->getSelectedItemIndex(); chosen > 0)
+                    onto[piece] = targets[chosen - 1];
+            if (onto.empty())
+                return;
+            const auto boosted = window->getComboBoxComponent ("version")->getSelectedItemIndex() == 1;
+            const auto mix = juce::jmax (0, window->getComboBoxComponent ("mix")->getSelectedItemIndex());
+            const auto parallel = window->getComboBoxComponent ("parallel")->getSelectedItemIndex() != 1;
+            const auto result = processor.importMixPack (folder, boosted, mix, parallel, &onto);
+            juce::String text;
+            for (const auto& [slot, mixName] : result.slots)
+            {
+                text << synth::drums::slotDefaults[(size_t) slot].key << " " << synth::drums::articulationName (slot) << ": " << mixName;
+                if (const auto it = result.channels.find (slot); it != result.channels.end())
+                    text << "  (mixer: " << processor.getMixerChannelName (it->second) << ")";
+                text << "\n";
+            }
+            if (! result.turnedOff.isEmpty())
+            {
+                juce::StringArray off;
+                for (const auto slot : result.turnedOff)
+                    off.add (synth::drums::articulationName (slot));
+                text << "\nTurned off (the pack has none; they play the nearest it has): " << off.joinIntoString (", ") << "\n";
+            }
+            if (parallel)
+                text << "\nEach drum's PARALLEL mix is its LAYER 1, " << juce::String ((int) ParagonX1AudioProcessor::parallelDb)
+                     << " dB: raise it on the drum's LAYERS tab to blend it in.";
+            text << "\n\nMatch their level with the drum's LEVEL (DRUMS page) or its mixer fader. Save it as a preset to keep it.";
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::NoIcon, "Drums from: " + result.name, text);
         }));
     });
 }

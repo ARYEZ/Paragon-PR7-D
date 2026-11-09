@@ -105,6 +105,14 @@ public:
 
     CurrentRig getCurrentRig() const { return currentRig; }
     const RigLibrary::Entry* findCurrentRigEntry() const;
+    // 0.70.0: THE DEFAULT PRESET: the one every new PR7-D opens with ("Default Preset.xml" in the presets folder: a user
+    // preset's file or a factory preset's name). A new instance applies it on its first housekeeping tick unless the DAW
+    // gave it a saved state first (so opening a project never loads the default's samples for nothing).
+    void setDefaultRig (const RigLibrary::Entry* entry);   // null: none (Init)
+    bool isDefaultRig (const RigLibrary::Entry& entry) const;
+    const RigLibrary::Entry* findDefaultRigEntry() const;
+    bool applyDefaultRigIfPending();   // true: it was applied (tests call it; the timer does otherwise)
+    juce::File defaultRigFile() const;
 
     // True once anything in the preset has changed since it was loaded or saved.
     bool isRigModified() const noexcept { return rigModified.load(); }
@@ -232,9 +240,24 @@ public:
         std::vector<std::pair<int, juce::String>> slots;   // slot, the mix folder taken
         juce::StringArray unused;
         bool secondKick = false;
+        std::map<int, int> channels;   // 0.70.0: slot -> the mixer channel it plays into (onto chosen drums)
+        juce::Array<int> turnedOff;    // 0.70.0: the replaced pieces' articulations the pack has none of
     };
     static constexpr float parallelDb = -10.0f;
-    MixPackImport importMixPack (const juce::File& folder, bool gainBoosted, int mix, bool parallelLayers = true);
+    // 0.70.0: `onto` (pack's piece -> this kit's piece; null: every drum, as 0.69.0) imports only those pieces, each
+    // onto the piece asked (`mixPackSlotOnto`), and leaves every other drum as it is. Each drum it replaces plays into the
+    // mixer channel the piece's close mic used (`closeChannelOfPiece`: its fader, effects and bus stay), and the piece's
+    // articulations the pack doesn't have are turned off (they play the nearest it has).
+    MixPackImport importMixPack (const juce::File& folder, bool gainBoosted, int mix, bool parallelLayers = true,
+                                 const std::map<int, int>* onto = nullptr);
+    // The slot of `toPiece` that the pack's `slot` goes onto (-1: none): its main articulation onto the main one, the
+    // others onto the one of the same name (a choke onto a choke).
+    static int mixPackSlotOnto (int slot, int toPiece);
+    // The mixer channel a piece's close mic plays into now (its instrument's own mic, through ROUTE MICS; -1: none, the
+    // piece has no multi-mic sound).
+    int closeChannelOfPiece (int piece) const;
+    // 0.70.0: a drum's MIXER CHANNEL as it plays (-1: its own way; a drum with mics of its own uses theirs).
+    int getDrumMixChannel (int slot) const;
     int getStreamUnderruns() const noexcept { return diskStreamer != nullptr ? diskStreamer->getUnderruns() : 0; }
     int getActiveStreams() const noexcept { return diskStreamer != nullptr ? diskStreamer->getActiveStreams() : 0; }
     bool waitForStreams (int timeoutMs = 5000) noexcept { return diskStreamer == nullptr || diskStreamer->waitUntilFilled (timeoutMs); }   // tests
@@ -944,6 +967,7 @@ private:
     std::atomic<bool> rigModified { false }, applyingRig { false };
 
     UndoHistory<Snapshot> history;
+    bool defaultRigPending = true;   // 0.70.0: cleared by a saved state or once applied
     std::atomic<int> activeGestures { 0 };
     std::atomic<bool> checkpointWanted { true };
 

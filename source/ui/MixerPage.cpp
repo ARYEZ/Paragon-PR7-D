@@ -1227,6 +1227,10 @@ juce::Array<int> MixerPage::getChannelsInUse() const
                 else if (to >= 0)
                     channels.addIfNotAlreadyThere (to);
             }
+    // 0.70.0: the channels drums play into as their MIXER CHANNEL.
+    for (int k = 0; k < drums::numSlots; ++k)
+        if (const auto channel = processor.getDrumMixChannel (k); channel >= 0)
+            channels.addIfNotAlreadyThere (channel);
     // 0.29.0: the channels the drums' layers play into.
     for (int k = 0; k < drums::numSlots; ++k)
         for (int n = 0; n < ParamIDs::numLayers; ++n)   // 0.50.0: three of them, a multi-mic one's mics too

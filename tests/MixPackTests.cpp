@@ -4,6 +4,7 @@
 #include "TestUtils.h"
 #include "PluginTestUtils.h"
 #include <catch2/catch_approx.hpp>
+#include <set>
 
 #include "dsp/synth/Instrument.h"
 #include "dsp/synth/MixPack.h"
@@ -274,4 +275,206 @@ TEST_CASE ("MIXED SAMPLE PACK: the parallel mixes left out when asked", "[mixpac
     CHECK (p.processor->getLayer (BD, 0) == nullptr);
     CHECK (p.processor->getLayer (SD, 0) == nullptr);
     CHECK (p.processor->getLayer (BD, 1) != nullptr);   // (the second kick still offered)
+}
+
+// ---- 0.70.0: a mixed pack's drums onto the drums chosen, a drum's MIXER CHANNEL, THE DEFAULT PRESET ----
+
+namespace
+{
+    namespace mixer = synth::mixer;
+
+    // A multi-mic crash as a kit like the owner's first gives it: a folder of mic folders (CRASH: its close mic, into
+    // CYMBALS; OH: the overheads), the close mic at 600 Hz.
+    juce::File multiMicCrash (const juce::File& at)
+    {
+        const auto folder = at.getChildFile ("MULTI MIC CRASH");
+        for (int v = 1; v <= 2; ++v)
+        {
+            writeHit (folder.getChildFile ("CRASH/CRASH_V" + juce::String (v) + "_RR1.wav"), 600.0, 0.2f * (float) v);
+            writeHit (folder.getChildFile ("OH/CRASH_V" + juce::String (v) + "_RR1.wav"), 650.0, 0.1f * (float) v);
+        }
+        return folder;
+    }
+
+    float rmsOf (const std::vector<float>& out) { return rms (out, 0, 8192); }
+}
+
+TEST_CASE ("MIXED SAMPLE PACK 0.70.0: which slot of a piece a pack's drum goes onto", "[mixpack]")
+{
+    using P = ParagonX1AudioProcessor;
+    CHECK (P::mixPackSlotOnto (CR2, 6) == CY);     // CRASH 2's hit onto CRASH 1's
+    CHECK (P::mixPackSlotOnto (C2C, 6) == C1C);    // its choke onto the choke
+    CHECK (P::mixPackSlotOnto (C2C, 15) == -1);    // CRASH 3 has no choke
+    CHECK (P::mixPackSlotOnto (RD, 6) == CY);      // the ride's bow onto a crash's hit
+    CHECK (P::mixPackSlotOnto (RB, 6) == -1);      // its bell: nowhere on a crash
+    CHECK (P::mixPackSlotOnto (CY, 9) == CHN);     // a crash onto the china
+    CHECK (P::mixPackSlotOnto (HT, 14) == T4);
+}
+
+TEST_CASE ("MIXED SAMPLE PACK 0.70.0: only the drums chosen replaced, onto the drums chosen, through the replaced drum's mixer channel", "[mixpack]")
+{
+    TempFolder t;
+    const auto top = makePack (t.folder);
+    Plugin p;
+    p.processor->setNonRealtime (true);
+    // This kit's crash: multi-mic (its close mic in CYMBALS); its snare a sound of its own.
+    p.processor->loadInstrumentFolder (CY, multiMicCrash (t.folder));
+    REQUIRE (p.processor->waitForInstruments());
+    REQUIRE (p.processor->getDrumInstrument (CY)->hasMics());
+    CHECK (p.get (ParamIDs::drum (CY, "MixOut")) == 0.0f);   // (mic folders keep their own channels)
+    CHECK (p.processor->closeChannelOfPiece (6) == mixer::cymbals);
+    const auto snareBefore = p.processor->getInstrumentRef (SD);
+    const auto kickModelBefore = p.get (ParamIDs::drum (BD, "Model"));
+
+    // The pack's CRASH 2 (its 18": 1018 Hz) onto this kit's CRASH 1.
+    const std::map<int, int> onto { { 7, 6 } };
+    const auto result = p.processor->importMixPack (top, false, 0, true, &onto);
+    REQUIRE (p.processor->waitForInstruments());
+    std::set<int> slots;
+    for (const auto& [slot, name] : result.slots)
+        slots.insert (slot);
+    CHECK (slots == std::set<int> { CY, C1C });
+    CHECK (p.processor->getInstrumentRef (CY).contains ("18 CRASH"));
+    CHECK (p.processor->getInstrumentRef (CY).contains ("EDGE"));
+    CHECK (p.processor->getInstrumentRef (C1C).contains ("CHOKE"));
+    // Nothing else touched: the snare, the kick, the hat's steps.
+    CHECK (p.processor->getInstrumentRef (SD) == snareBefore);
+    CHECK (p.get (ParamIDs::drum (BD, "Model")) == kickModelBefore);
+    CHECK (p.get (ParamIDs::drum (HO3, "On")) == 1.0f);
+    CHECK (p.processor->getDrumInstrument (BD) == nullptr);
+
+    // The new crash: one stereo sound, into CYMBALS, where the old crash's close mic was.
+    CHECK (! p.processor->getDrumInstrument (CY)->hasMics());
+    CHECK (p.get (ParamIDs::drum (CY, "MixOut")) == (float) (mixer::cymbals + 1));
+    CHECK (p.processor->getDrumMixChannel (CY) == mixer::cymbals);
+    CHECK (result.channels.at (CY) == mixer::cymbals);
+
+    // Heard: the 18" (1018 Hz), and its level is CYMBALS' fader's.
+    const auto at0 = p.play (CY, 120, 0.3);
+    CHECK (rmsOf (at0) > 0.01f);
+    CHECK (frequencyOf (at0, 1024, 8192) == Catch::Approx (1018.0).margin (3.0));
+    testkit::set (*p.processor, ParamIDs::mix (mixer::cymbals, "Level"), -6.0f);
+    const auto at6 = p.play (CY, 120, 0.3);
+    CHECK (rmsOf (at6) / rmsOf (at0) == Catch::Approx (0.501).margin (0.02));
+    testkit::set (*p.processor, ParamIDs::mix (mixer::cymbals, "Mute"), 1.0f);
+    CHECK (rmsOf (p.play (CY, 120, 0.3)) < 1.0e-5f);
+}
+
+TEST_CASE ("MIXED SAMPLE PACK 0.70.0: a replaced piece's articulations the pack lacks are turned off", "[mixpack]")
+{
+    TempFolder t;
+    const auto top = makePack (t.folder);
+    Plugin p;
+    // The pack's ride (bell, center, edge) onto this kit's RIDE; the pack's 17" crash onto CRASH 3 (no choke there).
+    const std::map<int, int> onto { { 8, 8 }, { 6, 15 } };
+    const auto result = p.processor->importMixPack (top, false, 0, true, &onto);
+    REQUIRE (p.processor->waitForInstruments());
+    std::set<int> slots;
+    for (const auto& [slot, name] : result.slots)
+        slots.insert (slot);
+    CHECK (slots == std::set<int> { RD, RB, RE, C3 });
+    CHECK (result.turnedOff.isEmpty());
+    CHECK (p.get (ParamIDs::drum (CY, "On")) == 1.0f);   // (this kit's CRASH 1 untouched)
+
+    // The hats onto the hats: the pack has no shoulder, so it goes off; no mixer channel (this kit's hat had no mics).
+    const std::map<int, int> hats { { 2, 2 } };
+    const auto second = p.processor->importMixPack (top, false, 0, true, &hats);
+    REQUIRE (p.processor->waitForInstruments());
+    CHECK (second.turnedOff.contains (HSH));
+    CHECK (p.get (ParamIDs::drum (HSH, "On")) == 0.0f);
+    CHECK (p.get (ParamIDs::drum (CH, "MixOut")) == 0.0f);
+}
+
+TEST_CASE ("A DRUM'S MIXER CHANNEL 0.70.0: a drum without mics played into a mixer channel", "[mixpack]")
+{
+    Plugin p;
+    testkit::useSample (*p.processor, SD, testkit::sine (440.0, 0.5, 0.5f));
+    const auto own = p.play (SD, 127, 0.3);
+    REQUIRE (rmsOf (own) > 0.01f);
+    // ITS OWN WAY: the SNARE TOP fader means nothing to it.
+    testkit::set (*p.processor, ParamIDs::mix (mixer::snareTop, "Level"), -60.0f);
+    CHECK (rmsOf (p.play (SD, 127, 0.3)) == Catch::Approx (rmsOf (own)).epsilon (0.01));
+    // Into SNARE TOP: its fader now.
+    testkit::set (*p.processor, ParamIDs::drum (SD, "MixOut"), (float) (mixer::snareTop + 1));
+    CHECK (p.processor->getDrumMixChannel (SD) == mixer::snareTop);
+    CHECK (rmsOf (p.play (SD, 127, 0.3)) < 1.0e-5f);
+    testkit::set (*p.processor, ParamIDs::mix (mixer::snareTop, "Level"), -6.0f);
+    CHECK (rmsOf (p.play (SD, 127, 0.3)) / rmsOf (own) == Catch::Approx (0.501).margin (0.02));
+    // A USER channel works too (and counts as in use).
+    testkit::set (*p.processor, ParamIDs::drum (SD, "MixOut"), (float) (mixer::numChannels + 2 + 1));
+    CHECK (p.processor->getUserChannelsInUse().contains (mixer::numChannels + 2));
+    CHECK (rmsOf (p.play (SD, 127, 0.3)) == Catch::Approx (rmsOf (own)).epsilon (0.01));
+}
+
+TEST_CASE ("A DRUM'S MIXER CHANNEL 0.70.0: a stereo folder of hits in place of a multi-mic drum takes its close mic's channel", "[mixpack]")
+{
+    TempFolder t;
+    const auto top = makePack (t.folder);
+    Plugin p;
+    p.processor->loadInstrumentFolder (CY, multiMicCrash (t.folder));
+    REQUIRE (p.processor->waitForInstruments());
+    p.processor->loadInstrumentFolder (CY, top.getChildFile ("CYMBALS/20 inch/20 CRASH - ORIGINAL/EDGE/01 - MIX PRESET"));
+    REQUIRE (p.processor->waitForInstruments());
+    CHECK (p.get (ParamIDs::drum (CY, "MixOut")) == (float) (mixer::cymbals + 1));
+    // And its choke, loaded the same way after, beside it.
+    p.processor->loadInstrumentFolder (C1C, top.getChildFile ("CYMBALS/20 inch/20 CRASH - ORIGINAL/CHOKE/01 - MIX PRESET"));
+    REQUIRE (p.processor->waitForInstruments());
+    CHECK (p.get (ParamIDs::drum (C1C, "MixOut")) == (float) (mixer::cymbals + 1));   // (the crash's MIXER CHANNEL followed)
+}
+
+TEST_CASE ("THE DEFAULT PRESET 0.70.0: every new PR7-D opens with it, unless the DAW gives it a saved state", "[mixpack]")
+{
+    TempFolder t;
+    const auto presets = t.folder.getChildFile ("Presets");
+    {
+        Plugin p;
+        p.processor->useRigFolder (presets);
+        const auto* room = p.processor->getRigLibrary().findFactory ("Room Kit");
+        REQUIRE (room != nullptr);
+        p.processor->setDefaultRig (room);
+        CHECK (p.processor->isDefaultRig (*room));
+    }
+    // A new one: Init until its first tick, then the default (not modified, nothing to undo).
+    {
+        ParagonX1AudioProcessor q;
+        q.useRigFolder (presets);
+        CHECK (q.getCurrentRig().name == "Init");
+        CHECK (q.applyDefaultRigIfPending());
+        CHECK (q.getCurrentRig().name == "Room Kit");
+        CHECK (! q.isRigModified());
+        CHECK (! q.canUndo());
+        CHECK (! q.applyDefaultRigIfPending());   // (once)
+    }
+    // A saved project: its state, not the default.
+    {
+        ParagonX1AudioProcessor init;
+        juce::MemoryBlock state;
+        init.getStateInformation (state);
+        ParagonX1AudioProcessor q;
+        q.useRigFolder (presets);
+        q.setStateInformation (state.getData(), (int) state.getSize());
+        CHECK (! q.applyDefaultRigIfPending());
+        CHECK (q.getCurrentRig().name == "Init");
+    }
+    // A user preset as the default, then none.
+    {
+        ParagonX1AudioProcessor q;
+        q.useRigFolder (presets);
+        testkit::set (q, ParamIDs::drum (SD, "Pitch"), 3.0f);
+        REQUIRE (q.saveCurrentRigAs ("PARAGON KIT"));
+        const auto* mine = q.findCurrentRigEntry();
+        REQUIRE (mine != nullptr);
+        q.setDefaultRig (mine);
+        ParagonX1AudioProcessor r;
+        r.useRigFolder (presets);
+        CHECK (r.applyDefaultRigIfPending());
+        CHECK (r.getCurrentRig().name == "PARAGON KIT");
+        auto* pitch = dynamic_cast<juce::RangedAudioParameter*> (r.getParameters().getParameter (ParamIDs::drum (SD, "Pitch")));
+        CHECK (pitch->convertFrom0to1 (pitch->getValue()) == Catch::Approx (3.0f).margin (0.01));
+        q.setDefaultRig (nullptr);
+        ParagonX1AudioProcessor s;
+        s.useRigFolder (presets);
+        CHECK (! s.applyDefaultRigIfPending());
+        CHECK (s.getCurrentRig().name == "Init");
+    }
 }

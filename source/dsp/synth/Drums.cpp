@@ -1853,12 +1853,28 @@ namespace synth::drums
         };
         if (mics == nullptr)
         {
+            // 0.70.0: its MIXER CHANNEL, if set: into that channel as its direct sound (late by the channel's TIME
+            // OFFSET, faded at its RELEASE), as a layer set to a channel plays.
+            const auto mixChannel = s.mixChannel >= 0 && s.mixChannel < mixer::numMicChannels ? s.mixChannel : -1;
             auto* chosen = freeVoice();
-            chosen->start (s, slot, velocityGain, sampleRate, noiseSeed, options);
+            if (mixChannel >= 0)
+            {
+                const auto& ch = settings.channels[(size_t) mixChannel];
+                auto part = s;
+                part.delay = (float) (juce::jmax (0.0, (double) s.delay) + ch.offsetSeconds);
+                chosen->start (part, slot, velocityGain, sampleRate, noiseSeed, options);
+                chosen->releaseLeft = ch.releaseSeconds > 0.0 ? juce::jmax (1, (int) (ch.releaseSeconds * sampleRate)) + chosen->waitLeft : -1;
+            }
+            else
+            {
+                chosen->start (s, slot, velocityGain, sampleRate, noiseSeed, options);
+                chosen->releaseLeft = -1;
+            }
             chosen->age = age;
-            chosen->channel = -1;
+            chosen->channel = mixChannel;
             chosen->primary = true;
-            chosen->releaseLeft = -1;
+            chosen->micGain = 1.0f;
+            chosen->bleed = false;
             startLayers();
             return;
         }

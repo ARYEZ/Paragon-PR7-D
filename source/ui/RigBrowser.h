@@ -57,6 +57,8 @@ private:
     const RigLibrary::Entry* visibleEntry (int row) const;
 
     // Which rig is selected, by identity (entries are rebuilt on every rescan).
+    juce::File defaultFile;           // 0.70.0: THE DEFAULT PRESET (a user one's file, or a factory one's name)
+    juce::String defaultFactory;
     juce::File selectedFile;
     juce::String selectedFactoryName;
 
@@ -71,7 +73,11 @@ private:
     juce::Label bankLabel { {}, "BANK" }, numberLabel { {}, "NUMBER" }, tagsLabel { {}, "TAGS (comma separated)" };
     juce::TextButton loadButton { "LOAD" }, saveDetailsButton { "SAVE DETAILS" },
                      saveAsButton { "SAVE CURRENT SOUND AS NEW..." }, deleteButton { "DELETE" },
-                     folderButton { "OPEN PRESETS FOLDER" };
+                     folderButton { "OPEN PRESETS FOLDER" },
+                     defaultButton { "OPEN WITH THIS IN EVERY NEW PR7-D" };   // 0.70.0: THE DEFAULT PRESET
+public:
+    juce::TextButton& getDefaultButton() noexcept { return defaultButton; }   // tests
+private:
 
     juce::Rectangle<int> sidebarArea, detailsArea;
     std::unique_ptr<juce::AlertWindow> dialog;

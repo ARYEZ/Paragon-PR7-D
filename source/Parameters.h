@@ -83,7 +83,15 @@ namespace ParamIDs
                                                    "Tom 1", "Tom 2", "Tom 3", "Cymbals", "Overheads", "Room", "Ambience", "Other",
                                                    "User 1", "User 2", "User 3", "User 4", "User 5", "User 6", "User 7", "User 8",
                                                    "User 9", "User 10", "User 11", "User 12", "User 13", "User 14", "User 15",
-                                                   "User 16" };   // (0.34.0: USER 9-16)
+                                                   "User 16" };
+    // 0.70.0: a drum's MIXER CHANNEL (its "MixOut"): 0 its own way (VOLUME, PAN, INSERT, OUTPUT, as always), else a mic
+    // channel + 1, as layerOutNames (only append).
+    inline const juce::StringArray mixOutNames = []
+    {
+        auto names = layerOutNames;
+        names.set (0, "Its Own Way");
+        return names;
+    }();   // (0.34.0: USER 9-16)
     inline constexpr auto drumsRoom = "drumsRoom";
     inline constexpr auto drumsRoomDecay = "drumsRoomDecay";
     inline constexpr auto drumsRoomTone = "drumsRoomTone";
@@ -116,7 +124,10 @@ namespace ParamIDs
                                                     "LayerLevel", "LayerOut",   // 0.29.0 (hint 34): a LAYER of your own
                                                     // 0.50.0 (hint 40): LAYERS 2 and 3 (the rest of each layer's settings
                                                     // are preset data: ModMatrix::drumLayers)
-                                                    "Layer2Level", "Layer2Out", "Layer3Level", "Layer3Out" };
+                                                    "Layer2Level", "Layer2Out", "Layer3Level", "Layer3Out",
+                                                    // 0.70.0 (hint 41): MIXER CHANNEL, the mixer channel a drum's own
+                                                    // sound plays into when it has no mics of its own (0: its own way)
+                                                    "MixOut" };
     consteval int drumSetting (std::string_view what)
     {
         for (int i = 0; i < (int) std::size (drumSettings); ++i)

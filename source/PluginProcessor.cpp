@@ -995,6 +995,7 @@ void ParagonX1AudioProcessor::timerCallback()
     updateLatency();
     rack->eqMatch.update (rack->eqInputTap);   // EQ Match listens with its window closed too
     recordCheckpointIfReady();
+    applyDefaultRigIfPending();
 }
 
 //==============================================================================
@@ -1307,6 +1308,12 @@ bool ParagonX1AudioProcessor::waitForInstruments (int timeoutMs)
 void ParagonX1AudioProcessor::loadInstrumentFolder (int slot, const juce::File& folder)
 {
     slot = juce::jlimit (0, ParamIDs::numDrums - 1, slot);
+    // 0.70.0: a stereo folder of hits in place of a multi-mic drum (or beside one of the piece's: a choke, an edge) plays
+    // into the channel the piece's close mic used, so its fader, effects and bus stay. A folder of mic folders keeps its
+    // mics' channels.
+    if (! synth::drums::instruments::hasMicFolders (folder))
+        if (const auto channel = closeChannelOfPiece (synth::drums::pieceOfSlot (slot)); channel >= 0)
+            setParameterNow (ParamIDs::drum (slot, "MixOut"), (float) (channel + 1));
     setDrumSample (slot, nullptr);
     makeSlotPlaySample (slot);
     startLoading ({ { slot, "folder||" + folder.getFullPathName() } });
@@ -1463,6 +1470,7 @@ ParagonX1AudioProcessor::KitImport ParagonX1AudioProcessor::importSfzKit (const 
         result.slotNotes.emplace_back (slot, note);
         setDrumSample (slot, nullptr);
         makeSlotPlaySample (slot);
+        setParameterNow (ParamIDs::drum (slot, "MixOut"), 0.0f);   // 0.70.0: a whole kit: its own mics / way
         refs.emplace_back (slot, "sfz|" + juce::String (note) + "|" + sfz.getFullPathName());
     }
     result.unused.sort();
@@ -1488,6 +1496,7 @@ ParagonX1AudioProcessor::DrumGizmoImport ParagonX1AudioProcessor::importDrumGizm
         result.slots.emplace_back (slot, names);
         setDrumSample (slot, nullptr);
         makeSlotPlaySample (slot);
+        setParameterNow (ParamIDs::drum (slot, "MixOut"), 0.0f);   // 0.70.0: a whole kit: its own mics / way
         setParameterNow (ParamIDs::drum (slot, "On"), 1.0f);
         refs.emplace_back (slot, "dg|" + names.joinIntoString (",") + (load == KitLoad::full ? ";full" : load == KitLoad::streamed ? ";stream" : ";light")
                                  + "|" + kitFile.getFullPathName());
@@ -1523,6 +1532,7 @@ ParagonX1AudioProcessor::SamplePackImport ParagonX1AudioProcessor::importSampleP
         result.slots.emplace_back (slot, (int) files.size());
         setDrumSample (slot, nullptr);
         makeSlotPlaySample (slot);
+        setParameterNow (ParamIDs::drum (slot, "MixOut"), 0.0f);   // 0.70.0: a whole kit: its own mics / way
         setParameterNow (ParamIDs::drum (slot, "On"), 1.0f);
         for (int n = 0; n < ParamIDs::numLayers; ++n)   // (a layer's USER channel may be one of the pack's now)
             setParameterNow (ParamIDs::drum (slot, ParamIDs::layerOut (n)), 0.0f);
@@ -1564,7 +1574,76 @@ ParagonX1AudioProcessor::SamplePackImport ParagonX1AudioProcessor::importSampleP
     return result;
 }
 
-ParagonX1AudioProcessor::MixPackImport ParagonX1AudioProcessor::importMixPack (const juce::File& folder, bool gainBoosted, int mix, bool parallelLayers)
+int ParagonX1AudioProcessor::mixPackSlotOnto (int slot, int toPiece)
+{
+    using namespace synth::drums;
+    const auto from = pieceOfSlot (slot);
+    if (from < 0 || toPiece < 0 || toPiece >= numPieces)
+        return -1;
+    const auto& source = pieces[(size_t) from];
+    const auto& target = pieces[(size_t) toPiece];
+    for (int a = 0; a < source.count; ++a)
+        if (source.articulations[(size_t) a].slot == slot)
+        {
+            if (a == 0)
+                return target.articulations[0].slot;
+            for (int b = 1; b < target.count; ++b)
+                if (juce::String (target.articulations[(size_t) b].name) == source.articulations[(size_t) a].name)
+                    return target.articulations[(size_t) b].slot;
+            return -1;
+        }
+    return -1;
+}
+
+int ParagonX1AudioProcessor::closeChannelOfPiece (int piece) const
+{
+    using namespace synth;
+    if (piece < 0 || piece >= drums::numPieces)
+        return -1;
+    const auto& p = drums::pieces[(size_t) piece];
+    for (int a = 0; a < p.count; ++a)
+    {
+        const auto slot = p.articulations[(size_t) a].slot;
+        const auto& instrument = drumInstruments[(size_t) slot];
+        if (instrument == nullptr || ! instrument->hasMics())
+            continue;
+        auto best = -1;
+        for (const auto c : instrument->micChannels())
+        {
+            const auto source = c >= 0 ? c : drums::homeChannel (slot);
+            const auto own = source >= mixer::numChannels;
+            if (! own && (! drums::isDirect (slot, source) || mixer::hearsWholeKit (source)))
+                continue;
+            auto to = own ? source : getMicRoute (piece, source);
+            if (to == mixer::routeAuto)
+                to = source;
+            // (the lowest: a kick's KICK IN before its OUT, a snare's TOP before its BOTTOM)
+            if (to >= 0 && (best < 0 || to < best))
+                best = to;
+        }
+        if (best >= 0)
+            return best;
+    }
+    // None multi-mic: the channel one of its drums was already given as its MIXER CHANNEL (a choke loaded after its crash).
+    for (int a = 0; a < p.count; ++a)
+        if (const auto channel = getDrumMixChannel (p.articulations[(size_t) a].slot); channel >= 0)
+            return channel;
+    return -1;
+}
+
+int ParagonX1AudioProcessor::getDrumMixChannel (int slot) const
+{
+    if (slot < 0 || slot >= ParamIDs::numDrums)
+        return -1;
+    if (const auto& instrument = drumInstruments[(size_t) slot]; instrument != nullptr && instrument->hasMics())
+        return -1;
+    const auto* value = parameters.getRawParameterValue (ParamIDs::drum (slot, "MixOut"));
+    const auto channel = value != nullptr ? juce::roundToInt (value->load()) - 1 : -1;
+    return channel >= 0 && channel < synth::mixer::numMicChannels ? channel : -1;
+}
+
+ParagonX1AudioProcessor::MixPackImport ParagonX1AudioProcessor::importMixPack (const juce::File& folder, bool gainBoosted, int mix,
+                                                                             bool parallelLayers, const std::map<int, int>* onto)
 {
     using namespace synth::drums;
     MixPackImport result;
@@ -1573,15 +1652,54 @@ ParagonX1AudioProcessor::MixPackImport ParagonX1AudioProcessor::importMixPack (c
     result.unused = plan.unused;
     if (! plan.valid())
         return result;
-    std::vector<std::pair<int, juce::String>> refs;
-    auto m = matrix;
+    // Where each of the pack's drums goes (every drum: its own slot), and the pieces it replaces with their mixer
+    // channels (worked out before anything is replaced).
+    std::map<int, const mixpack::Drum*> targets;
+    std::map<int, int> channelOf;   // piece -> its close mic's channel (only when importing onto chosen drums)
+    auto secondKickTo = -1;
     for (const auto& [slot, drum] : plan.slots)
     {
+        if (onto == nullptr)
+        {
+            targets[slot] = &drum;
+            continue;
+        }
+        const auto it = onto->find (pieceOfSlot (slot));
+        if (it == onto->end())
+            continue;
+        if (const auto to = mixPackSlotOnto (slot, it->second); to >= 0)
+            targets[to] = &drum;
+    }
+    if (plan.secondKick != juce::File())
+    {
+        if (onto == nullptr)
+            secondKickTo = notemap::BD;
+        else if (const auto it = onto->find (pieceOfSlot (notemap::BD)); it != onto->end())
+            secondKickTo = mixPackSlotOnto (notemap::BD, it->second);
+    }
+    if (onto != nullptr)
+        for (const auto& [from, to] : *onto)
+            channelOf[to] = closeChannelOfPiece (to);
+    if (targets.empty())
+        return result;
+
+    std::vector<std::pair<int, juce::String>> refs;
+    auto m = matrix;
+    for (const auto& [slot, drumPointer] : targets)
+    {
+        const auto& drum = *drumPointer;
         result.slots.emplace_back (slot, drum.mixName);
         setDrumSample (slot, nullptr);
         makeSlotPlaySample (slot);
         setParameterNow (ParamIDs::drum (slot, "On"), 1.0f);
         refs.emplace_back (slot, "folder||" + drum.mix.getFullPathName());
+        // 0.70.0: onto chosen drums, into the channel the piece's own close mic used; every drum: its own way.
+        auto channel = -1;
+        if (const auto it = channelOf.find (pieceOfSlot (slot)); it != channelOf.end())
+            channel = it->second;
+        setParameterNow (ParamIDs::drum (slot, "MixOut"), (float) (channel + 1));
+        if (channel >= 0)
+            result.channels[slot] = channel;
         // Its layers: the PARALLEL mix as the first (blend to taste), the second kick as the kick's second; the rest
         // emptied (a layer from the kit before would play over the pack's).
         for (int n = 0; n < ParamIDs::numLayers; ++n)
@@ -1590,14 +1708,14 @@ ParagonX1AudioProcessor::MixPackImport ParagonX1AudioProcessor::importMixPack (c
             auto level = parallelDb;
             if (n == 0 && parallelLayers)
                 layer = drum.parallel;
-            else if (n == 1 && slot == notemap::BD && plan.secondKick != juce::File())
+            else if (n == 1 && slot == secondKickTo)
             {
                 layer = plan.secondKick;
                 level = -60.0f;
                 result.secondKick = true;
             }
             m.layer (slot, n) = {};
-            setParameterNow (ParamIDs::drum (slot, ParamIDs::layerOut (n)), 0.0f);
+            setParameterNow (ParamIDs::drum (slot, ParamIDs::layerOut (n)), (float) (channel + 1));
             if (layer != juce::File())
             {
                 refs.emplace_back ((int) layerOf (slot, n), "folder||" + layer.getFullPathName());
@@ -1612,9 +1730,23 @@ ParagonX1AudioProcessor::MixPackImport ParagonX1AudioProcessor::importMixPack (c
     }
     setModMatrix (m);
     using namespace notemap;
-    for (const auto slot : { HO1, HO3, HH, SD2, RE, RB, HSH, C1C, C2C, CHC, SPC, T4, T5, C3, C4, C5, C6, CFX, CH2 })
-        if (plan.slots.count (slot) == 0)
-            setParameterNow (ParamIDs::drum (slot, "On"), 0.0f);
+    if (onto == nullptr)
+    {
+        for (const auto slot : { HO1, HO3, HH, SD2, RE, RB, HSH, C1C, C2C, CHC, SPC, T4, T5, C3, C4, C5, C6, CFX, CH2 })
+            if (targets.count (slot) == 0)
+                setParameterNow (ParamIDs::drum (slot, "On"), 0.0f);
+    }
+    else
+    {
+        // The replaced pieces' articulations the pack has none of: off (they play the nearest it has, not this kit's).
+        for (const auto& [piece, channel] : channelOf)
+            for (int a = 0; a < pieces[(size_t) piece].count; ++a)
+                if (const auto slot = pieces[(size_t) piece].articulations[(size_t) a].slot; targets.count (slot) == 0)
+                {
+                    setParameterNow (ParamIDs::drum (slot, "On"), 0.0f);
+                    result.turnedOff.add (slot);
+                }
+    }
     startLoading (refs);
     markModified();
     requestCheckpoint();
@@ -2094,6 +2226,10 @@ juce::Array<int> ParagonX1AudioProcessor::getUserChannelsInUse() const
             for (const auto c : instrument->micChannels())
                 if (synth::mixer::isUserChannel (c))
                     used.addIfNotAlreadyThere (c);
+    // 0.70.0: and the drums' MIXER CHANNELs.
+    for (int k = 0; k < ParamIDs::numDrums; ++k)
+        if (const auto channel = getDrumMixChannel (k); synth::mixer::isUserChannel (channel))
+            used.addIfNotAlreadyThere (channel);
     // 0.29.0: and the drums' layers' channels (and a multi-mic layer's own USER mics).
     for (int k = 0; k < ParamIDs::numDrums; ++k)
         for (int n = 0; n < ParamIDs::numLayers; ++n)
@@ -2404,6 +2540,7 @@ synth::drums::KitSettings ParagonX1AudioProcessor::getKitSettings() const noexce
                 layer.tweak = compiled != nullptr ? &compiled->layers[k * (size_t) synth::drums::numLayers + (size_t) n] : nullptr;
             }
         }
+        s.mixChannel = juce::roundToInt (get (drumSetting ("MixOut"))) - 1;   // 0.70.0
         s.layerLimit = juce::roundToInt (get (drumSetting ("LayerLimit")));
         s.voices = juce::jlimit (1, synth::drums::Kit::maxVoices, juce::roundToInt (get (drumSetting ("Voices"))));
         s.position = get (drumSetting ("Position"));
@@ -3033,6 +3170,63 @@ void ParagonX1AudioProcessor::loadRig (const RigLibrary::Entry& entry)
     rigBroadcaster.sendChangeMessage();
 }
 
+juce::File ParagonX1AudioProcessor::defaultRigFile() const { return rigLibrary->getFolder().getChildFile ("Default Preset.xml"); }
+
+void ParagonX1AudioProcessor::setDefaultRig (const RigLibrary::Entry* entry)
+{
+    if (entry == nullptr)
+    {
+        defaultRigFile().deleteFile();
+        return;
+    }
+    juce::XmlElement xml ("DefaultPreset");
+    if (entry->isFactory)
+        xml.setAttribute ("factory", entry->rig.name);
+    else
+        xml.setAttribute ("file", entry->file.getFullPathName());
+    rigLibrary->getFolder().createDirectory();
+    xml.writeTo (defaultRigFile());
+}
+
+const RigLibrary::Entry* ParagonX1AudioProcessor::findDefaultRigEntry() const
+{
+    const auto xml = juce::XmlDocument::parse (defaultRigFile());
+    if (xml == nullptr || ! xml->hasTagName ("DefaultPreset"))
+        return nullptr;
+    if (xml->hasAttribute ("factory"))
+        return rigLibrary->findFactory (xml->getStringAttribute ("factory"));
+    const juce::File file (xml->getStringAttribute ("file"));
+    if (const auto* entry = rigLibrary->find (file))
+        return entry;
+    // (a preset renamed or moved in the folder since: the same name)
+    return nullptr;
+}
+
+bool ParagonX1AudioProcessor::isDefaultRig (const RigLibrary::Entry& entry) const
+{
+    const auto* chosen = findDefaultRigEntry();
+    return chosen != nullptr && chosen->isFactory == entry.isFactory
+        && (entry.isFactory ? chosen->rig.name == entry.rig.name : chosen->file == entry.file);
+}
+
+bool ParagonX1AudioProcessor::applyDefaultRigIfPending()
+{
+    if (! defaultRigPending)
+        return false;
+    defaultRigPending = false;
+    const auto* entry = findDefaultRigEntry();
+    if (entry == nullptr)
+        return false;
+    loadRig (*entry);
+    // It's where this instance starts: no undo step back to Init, not "modified".
+    rigModified = false;
+    history.clear();
+    history.record (takeSnapshot());
+    checkpointWanted = false;
+    rigBroadcaster.sendChangeMessage();
+    return true;
+}
+
 const RigLibrary::Entry* ParagonX1AudioProcessor::findCurrentRigEntry() const
 {
     if (currentRig.isUserRig())
@@ -3205,6 +3399,7 @@ void ParagonX1AudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 
 void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
+    defaultRigPending = false;   // 0.70.0: the DAW's saved state, not the default preset
     auto xml = getXmlFromBinary (data, sizeInBytes);
     if (xml == nullptr || ! xml->hasTagName (parameters.state.getType()))
         return;

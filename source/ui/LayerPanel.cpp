@@ -311,7 +311,7 @@ void LayerPanel::paint (juce::Graphics& g)
             g.setFont (juce::FontOptions (11.0f, juce::Font::bold));
             auto left = c.area.reduced (10, 5);
             left = left.removeFromLeft (juce::jmin (330, left.getWidth() / 3));
-            ParagonColours::setTextFill (g, status[(size_t) n].startsWith ("CAN'T") ? ParagonColours::meterRed : ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), status[(size_t) n], (left.removeFromBottom (16)).toFloat(), juce::Justification::centredLeft));
+            ParagonColours::setTextFill (g, status[(size_t) n].startsWith ("CAN'T") ? ParagonColours::meterRed : ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), status[(size_t) n], left.withTop (left.getBottom() - 16).toFloat(), juce::Justification::centredLeft));
             g.drawFittedText (status[(size_t) n], left.removeFromBottom (16), juce::Justification::centredLeft, 1, 0.7f);
             ParagonColours::setFill (g, status[(size_t) n].startsWith ("CAN'T") ? ParagonColours::meterRed : ParagonColours::accent, getLocalBounds());
             g.setColour (ParagonColours::panelEdge);

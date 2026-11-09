@@ -173,7 +173,12 @@ private:
     void importSfzKit();
     void importDrumGizmoKit();
     void importSamplePack();   // 0.33.0
-    void importMixPack();      // 0.69.0   // 0.27.0
+    void importMixPack();      // 0.69.0
+    void importMixPackOnto();  // 0.70.0: only the drums chosen, onto the drums chosen
+public:
+    // 0.70.0: the kit's pieces a pack's piece can go onto (its own first: toms onto toms, cymbals onto cymbals).
+    static juce::Array<int> mixPackTargetsFor (int piece);
+private:   // 0.27.0
     void importRender();   // 0.51.0: IMPORT A RENDER
     void chooseLayer (int layer = -1);   // 0.29.0 (0.50.0: which of the three; -1: the first free)
     DrumHitDisplay display;
