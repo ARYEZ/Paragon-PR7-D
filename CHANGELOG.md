@@ -13,6 +13,7 @@ Each version's notes appear on its GitHub Release page.
 - **THE DRUM MACHINE** has a third bank, **37-42**, for the pads.
 - The splash's stand moved a little left to make room (the splash itself hasn't moved).
 - Presets, kits and projects from before keep every drum's layers where they were (drum numbers after the 36 moved up by 6 inside the files).
+- The SEQUENCER's rows grew to 42 too; its notes keep their height on the thinner rows (they'd have shrunk to nothing).
 
 ## 0.70.2
 

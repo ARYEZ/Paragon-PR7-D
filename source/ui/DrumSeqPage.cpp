@@ -116,13 +116,15 @@ void DrumSeqGrid::setHighlightedRow (int row)
 juce::Rectangle<float> DrumSeqGrid::rowArea (int row) const
 {
     const auto h = (float) getHeight() / (float) synth::drumseq::numRows;
-    return juce::Rectangle<float> (0.0f, h * (float) row, (float) getWidth(), h).reduced (0.0f, 2.0f);   // as the kit's rows
+    return juce::Rectangle<float> (0.0f, h * (float) row, (float) getWidth(), h).reduced (0.0f, juce::jmin (2.0f, h * 0.12f));   // as the kit's rows
 }
 
 juce::Rectangle<float> DrumSeqGrid::cell (int row, double step) const
 {
     const auto stepWidth = (float) getWidth() / (float) getLengthSteps();
-    return rowArea (row).reduced (0.0f, 4.0f).withX ((float) step * stepWidth).withWidth (stepWidth).reduced (juce::jmin (1.5f, stepWidth * 0.1f), 0.0f);
+    // (0.71.0: the inset in step with the row: at 42 rows a fixed 4 px left the notes no height at all)
+    const auto r = rowArea (row);
+    return r.reduced (0.0f, juce::jmin (4.0f, r.getHeight() * 0.22f)).withX ((float) step * stepWidth).withWidth (stepWidth).reduced (juce::jmin (1.5f, stepWidth * 0.1f), 0.0f);
 }
 
 double DrumSeqGrid::stepAt (float x, bool snap) const
