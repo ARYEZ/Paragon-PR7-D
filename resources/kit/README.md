@@ -77,3 +77,10 @@ right hand, past the floor tom, its back corner under the china (`pad_unit` in `
 stand moved left for it). Each pad is its own piece (`pad1`-`pad6`, slots 36-41) with its own glow; the unit's body
 chooses nothing. 42 slots no longer fit the click map's step of 7, so it's 6 now (`zone_colour`, `regions.py`,
 `process_assets.py`).
+
+## 0.74.0: crash 3 and the splash in the middle
+
+The owner asked for more symmetry: CRASH 3 now stands where the splash was (CRASH 2's twin on the ride side: 16",
+the same height, its stand where the splash's was) and the splash in the middle, just above the gap between tom 2 and
+tom 3, its stand behind the kick. `zone_of` gives "crash3" slot 29 (C3); 19 lit pictures. Checked first in a 24-sample
+preview against the old render.

@@ -2,6 +2,15 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.74.0
+
+**THE KIT VIEW: a third crash, and the splash in the middle**, so the kit is balanced, with two crashes up high on each side (your layout, approved from a preview render).
+
+- **CRASH 3** now stands where the splash was, on the ride side: the same 16" size and height as CRASH 2 on the hi-hat side, mirroring it. Click it to choose it and hear it; it glows when it plays, like the other cymbals.
+- **The splash** moved to the middle, between the two high crashes, just above the gap between tom 2 and tom 3, a little lower and nearer than the crashes. Its stand stands behind the kick.
+- Nothing else moved.
+- CRASH 3 has been one of PR7-D's drums since 0.36.0 (with its own sound, MIDI note and mixer routing); only its place on the picture is new. If your kit has no CRASH 3 sound loaded (the Djent Drums pack records two crashes), it plays its stand-in, crash 1, as before.
+
 ## 0.73.0
 
 **THE SEQUENCER's electronic tricks, part 2: THE STEP FX LANE.** A strip under the sequencer's grid, lined up with its steps, where you lay down effects that work on the whole drum mix while the pattern plays through them: stutters, chops, tape stops and so on, in time with the beat. Our own design, after what electronic beat-effect units do.

@@ -42,7 +42,8 @@ namespace
     // 0.17.0: the ride's edge (20) a ring round its bow; the hat's openness steps are chosen in the articulations.
     // 0.37.0: the owner's bigger kit: tom 4 and 5 (the floor toms), crashes 3 to 6, the FX crash, china 2; no tambourine.
     // 0.43.0: the owner's 12-piece kit: crashes 3 to 6, the FX crash, china 2 and tom 5 left the picture.
-    const std::vector<int> onTheKit { 0, 1, 2, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 20, 23,
+    // 0.74.0: crash 3 (29) back, where the splash was (the splash in the middle).
+    const std::vector<int> onTheKit { 0, 1, 2, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 20, 23, 29,
                                      36, 37, 38, 39, 40, 41 };   // (0.71.0: THE PADS, each its own)
 
     // A pixel's hue in degrees, and whether it's coloured enough to count (the family's rule is about colours, not
@@ -99,8 +100,11 @@ TEST_CASE ("KIT VIEW: each drum on the kit has its part, the clap, tambourine an
     CHECK (KitView::pieceOf (18) == -1);   // (0.37.0: no tambourine in the bigger kit)
     // 0.37.0: each new piece its own; 0.43.0: the ones the owner's pack doesn't record left the picture.
     CHECK (KitView::pieceOf (23) != KitView::pieceOf (5));
-    for (const auto gone : { 29, 30, 31, 32, 33, 34, 35 })
+    for (const auto gone : { 30, 31, 32, 33, 34, 35 })
         CHECK (KitView::pieceOf (gone) == -1);
+    // 0.74.0: crash 3 its own piece, apart from crash 1, crash 2 and the splash.
+    for (const auto other : { 11, 14, 16 })
+        CHECK (KitView::pieceOf (29) != KitView::pieceOf (other));
     CHECK (KitView::pieceOf (25) == KitView::pieceOf (11));   // a choke on its cymbal
     // The empty floor in the corners chooses nothing.
     CHECK (view.slotAt ({ 3.0f, 3.0f }) == -1);

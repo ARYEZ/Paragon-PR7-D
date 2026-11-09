@@ -336,6 +336,21 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 processor.processBlock (buffer, midi);
             drums.updateLights();
         }
+        // 0.74.0: PARAGON_SNAPSHOT_KIT=3: CRASH 3 (where the splash was) and the splash (in the middle) just hit,
+        // CRASH 3 chosen.
+        if (env ("PARAGON_SNAPSHOT_KIT") == "3")
+        {
+            drums.showView (DrumPage::View::kit);
+            drums.select (synth::drums::notemap::C3);
+            juce::AudioBuffer<float> buffer (2, 512);
+            juce::MidiBuffer midi;
+            processor.previewDrum (synth::drums::notemap::C3);
+            processor.processBlock (buffer, midi);
+            processor.previewDrum (synth::drums::notemap::SPL);
+            for (int b = 0; b < 4; ++b)
+                processor.processBlock (buffer, midi);
+            drums.updateLights();
+        }
         // 0.17.0: the hi-hat's articulations: OPEN 3 off (its stand-in named), the pedal half open, and OPEN 3's note
         // just played (OPEN 4 lights: it plays for it).
         if (env ("PARAGON_SNAPSHOT_ARTIC") == "1")

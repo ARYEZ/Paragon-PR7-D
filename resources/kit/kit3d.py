@@ -485,7 +485,9 @@ def boom_cymbal(name, diameter, centre, tilt=(0.25, 0, 0), china=False, base=(0.
 # crash 2 in the middle over the toms; crash 5 and 6 to the right; the china, the ride over the floor toms, china 2.
 boom_cymbal("CRASH", 0.406, (-0.741, 0.728, 1.35), tilt=(-0.05, -0.1, 0), base=(-0.95, 0.62))
 boom_cymbal("CRASH 2", 0.406, (-0.45, 0.54, 1.68), tilt=(-0.05, -0.05, 0), drop=0.45, base=(-0.6, 0.3))
-boom_cymbal("SPLASH", 0.305, (0.33, 0.50, 1.68), tilt=(-0.05, 0.05, 0), drop=0.75, base=(0.45, -0.30))   # (0.71.0: its stand moved for THE PADS; was 0.62, -0.15)
+# 0.74.0: the splash in the middle, over the gap between toms 2 and 3; crash 3 where the splash was, CRASH 2's twin.
+boom_cymbal("SPLASH", 0.305, (0.03, 0.22, 1.3), tilt=(-0.1, 0.0, 0), drop=0.45, base=(0.03, -0.62))
+boom_cymbal("CRASH 3", 0.406, (0.45, 0.54, 1.68), tilt=(-0.05, 0.05, 0), drop=0.75, base=(0.45, -0.30))
 boom_cymbal("RIDE", 0.52, (0.582, 0.61, 1.2), tilt=(-0.05, 0.08, 0), base=(0.95, 0.25))
 boom_cymbal("CHINA", 0.43, (0.792, 1.176, 1.3), tilt=(-0.05, 0.1, 0), china=True, base=(1.0, 1.15))
 
@@ -654,7 +656,7 @@ torus("KICK logo ring", 0.205, 0.003, (0, front_y, 0.29), rot=(math.pi / 2, 0, 0
 # Which piece an object belongs to (its name's start), longest names first so "CRASH 2" isn't "CRASH".
 PIECES = ["kick:KICK", "kick:LOGO", "snare:SNARE", "tom1:TOM 1", "tom2:TOM 2", "tom3:TOM 3", "floor:FLOOR",
           "hihat:HI-HAT", "crash:CRASH", "crash2:CRASH 2", "ride:RIDE", "china:CHINA",
-          "splash:SPLASH",   # (0.43.0: the 12 pieces the owner's sample pack records)
+          "splash:SPLASH", "crash3:CRASH 3",   # (0.43.0: the 12 pieces the owner's sample pack records)
           "pad1:PADS pad 1", "pad2:PADS pad 2", "pad3:PADS pad 3", "pad4:PADS pad 4", "pad5:PADS pad 5",
           "pad6:PADS pad 6"]   # (0.71.0: THE PADS, each its own piece: each glows when it plays; the unit's body none)
 PIECES.sort(key=lambda e: -len(e.split(":")[1]))
@@ -688,7 +690,7 @@ def zone_of(name):
     if piece.startswith("pad"):
         return 35 + int(piece[3:])                    # 0.71.0: PAD 1-6 are slots 36-41
     return {"kick": 0, "tom1": 9, "tom2": 7, "tom3": 5, "floor": 23, "crash": 11, "crash2": 14, "china": 15,
-            "splash": 16}[piece]
+            "splash": 16, "crash3": 29}[piece]
 
 def flat_emission(name, value, ride_split=False):
     m = bpy.data.materials.new(name)
