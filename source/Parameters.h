@@ -26,7 +26,7 @@ namespace ParamIDs
     // THE NOTE MAP (PR7-D 0.2.0, version hint 24): which notes play which drum (notemap::layoutNames). Global, like
     // OUTPUT: it suits the player's controller and grooves, not a sound, so presets leave it alone.
     inline constexpr auto drumsMap      = "drumsMap";
-    inline constexpr int numDrums = 36;   // 12 until PR7-D 0.2.0 (drum13 to drum20: version hint 24), 20 until 0.17.0
+    inline constexpr int numDrums = 42;   // (42 from 0.71.0: THE PADS, drum37 to drum42, hint 42)   // 12 until PR7-D 0.2.0 (drum13 to drum20: version hint 24), 20 until 0.17.0
                                           // (drum21 to drum23, the articulations: hint 26), 23 until 0.33.0 (drum24 to
                                           // drum29: tom 4, the hat's shoulder, the chokes: hint 35), 29 until 0.36.0 (drum30
                                           // to drum36: crashes 3 to 6, the FX crash, china 2, tom 5: hint 38)
@@ -42,7 +42,8 @@ namespace ParamIDs
     // 0.50.0: up to three LAYERS per drum: instrument numDrums x (1 + n) + slot (layer n = 0, 1, 2).
     inline constexpr int numLayers = 3;
     inline constexpr int numInstruments = (1 + numLayers) * numDrums;
-    inline constexpr int drumsSavedBy (int version) noexcept { return version < 3 ? 23 : version < 4 ? 29 : numDrums; }
+    // 0.71.0: versions 4 and 5 (0.36.0 to 0.70.x) counted 36; 6 counts 42 (kit files jump from 4 to 6 to match).
+    inline constexpr int drumsSavedBy (int version) noexcept { return version < 3 ? 23 : version < 4 ? 29 : version < 6 ? 36 : numDrums; }
     inline constexpr int instrumentIndexFrom (int saved, int version) noexcept
     {
         const auto then = drumsSavedBy (version);

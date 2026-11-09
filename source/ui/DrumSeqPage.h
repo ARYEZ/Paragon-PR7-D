@@ -96,6 +96,48 @@ private:
     float lastPlayhead = -2.0f;
 };
 
+// THE STEP FX LANE (0.73.0): under the grid, lined up with its steps: effects on the whole drum mix while the
+// pattern plays through them (REPEAT, CHOP, TAPE STOP, REVERSE, FILTER, BITCRUSH: see dsp/synth/StepFx.h). Drag along
+// an empty part to add the effect last used (REPEAT at first); right-click an empty part for the list; drag a block to
+// move it, its right edge to stretch it; right-click a block for its effect, RATE, AMOUNT or to remove it; the mouse
+// wheel over a block sets its AMOUNT. Each change one undo step.
+class StepFxLane final : public juce::Component,
+                         public juce::SettableTooltipClient,
+                         private juce::Timer
+{
+public:
+    explicit StepFxLane (ParagonX1AudioProcessor&);
+    std::vector<synth::drumseq::FxStep> getFx() const;   // the pattern shown's
+    void setFx (std::vector<synth::drumseq::FxStep>, bool finished);
+    int fxAt (float x) const;                            // the block under x (-1: none)
+    juce::Rectangle<float> blockArea (int index) const;
+    juce::PopupMenu menuFor (int index, double step);    // public for tests (index -1: an empty place)
+    void runMenuItem (int index, double step, int item);
+    synth::drumseq::FxType nextType = synth::drumseq::FxType::repeat;
+
+    void paint (juce::Graphics&) override;
+    void mouseDown (const juce::MouseEvent&) override;
+    void mouseDrag (const juce::MouseEvent&) override;
+    void mouseUp (const juce::MouseEvent&) override;
+    void mouseWheelMove (const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+
+private:
+    void timerCallback() override;
+    double stepAt (float x) const;   // on whole steps
+    double getLengthSteps() const;
+    int getPattern() const;
+
+    ParagonX1AudioProcessor& processor;
+    enum class Drag { none, add, move, stretch };
+    Drag drag = Drag::none;
+    int dragIndex = -1;
+    double downStep = 0.0;
+    synth::drumseq::FxStep original;
+    bool changed = false;
+    float lastPlayhead = -2.0f;
+    int lastPlaying = -1;
+};
+
 // A chosen note's setting: drag up / down (SHIFT finer), double-click for its default; a choice opens a menu.
 class NoteField final : public juce::Component,
                         public juce::SettableTooltipClient
@@ -126,8 +168,10 @@ class DrumSeqPanel final : public juce::Component,
 public:
     explicit DrumSeqPanel (ParagonX1AudioProcessor&);
     DrumSeqGrid& getGrid() noexcept { return grid; }
+    StepFxLane& getFxLane() noexcept { return fxLane; }
+    static constexpr int fxLaneHeight = 25;   // under the grid: the page keeps this much below the rows (0.73.0)
     juce::TextButton& getPatternButton (int pattern) { return *patternButtons[(size_t) pattern]; }
-    NoteField& getField (int index) { return *fields[(size_t) index]; }   // VELOCITY, PAN, PITCH, GATE, ROLL, REVERSE
+    NoteField& getField (int index) { return *fields[(size_t) index]; }   // VELOCITY, PAN, PITCH, GATE, ROLL, REVERSE, RAMP, FADE, CHANCE, CONDITION (0.72.0)
     // Where the grid goes (this panel's space), lined up with the kit's rows; the rest is laid out above it.
     void setGridArea (juce::Rectangle<int>);
     void selectPattern (int pattern);
@@ -142,6 +186,7 @@ private:
 
     ParagonX1AudioProcessor& processor;
     DrumSeqGrid grid;
+    StepFxLane fxLane;
     std::vector<std::unique_ptr<ParamControl>> controls;
     std::vector<std::unique_ptr<juce::TextButton>> patternButtons;
     juce::TextButton pen { "PEN" }, frameTool { "SELECT" };

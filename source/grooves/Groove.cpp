@@ -17,6 +17,7 @@ namespace grooves
                 case CY: case CR2: case CHN: case SPL: case C1C: case C2C: case CHC: case SPC:
                 case C3: case C4: case C5: case C6: case CFX: case CH2: return PowerHand::crash;
                 case TMB: case SHK: return PowerHand::percussion;
+                case P1: case P2: case P3: case P4: case P5: case P6: return PowerHand::percussion;   // 0.71.0
                 default: return PowerHand::none;   // the feet (kick, pedal hat), snares, toms, the clap
             }
         }
@@ -36,6 +37,7 @@ namespace grooves
             case CY: case CR2: case CHN: case SPL: case C1C: case C2C: case CHC: case SPC:
             case C3: case C4: case C5: case C6: case CFX: case CH2: return (int) DrumPart::crash;
             case CLP: case TMB: case SHK: return (int) DrumPart::percussion;
+            case P1: case P2: case P3: case P4: case P5: case P6: return (int) DrumPart::percussion;   // 0.71.0: THE PADS
             default: return -1;
         }
     }

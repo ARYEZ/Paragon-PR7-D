@@ -245,7 +245,8 @@ TEST_CASE ("SONG: a groove as a block (through the folder's map, the factor and 
     g.file = juce::File ("/grooves/Rock/Chorus 01.mid");
     g.lengthBeats = 4.0;
     g.hits = { { 0.0, 36, 1.0f }, { 1.0, 42, 0.5f }, { 2.0, 4, 1.0f } };   // 42: closed hat in the groove library map; 4: no drum
-    const auto b = song::blockFrom (g, grooveLibrary(), grooves::TempoFactor::twice, 0.8f);
+    // (0.71.0: General MIDI's map, which still has notes no drum plays: GROOVE LIBRARY plays every note now)
+    const auto b = song::blockFrom (g, generalMidi(), grooves::TempoFactor::twice, 0.8f);
     CHECK (b.name == "Chorus 01");
     CHECK (b.part == grooves::Part::chorus);
     CHECK (b.loopLength == 2.0);

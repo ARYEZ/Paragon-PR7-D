@@ -11,6 +11,7 @@
 #include <juce_events/juce_events.h>
 
 #include <map>
+#include <set>
 #include <mutex>
 
 namespace grooves
@@ -225,6 +226,9 @@ namespace grooves
         void setFocus (const juce::File&);
         juce::File getFocus() const;
         bool hasUnlisted (const juce::File& folder, int upTo = 5000) const;
+        // 0.70.1: a macOS companion file ("._name.mid", one beside every file in a zip made on a Mac): never a groove.
+        void rememberNotGrooves (const std::map<juce::String, juce::String>& paths);
+        static bool isMacCompanion (const juce::File& f) { return f.getFileName().startsWith ("._"); }
 
         // THE GROOVES (a copy: safe while the scan replaces them).
         std::vector<Entry> getEntries() const;
@@ -278,7 +282,9 @@ namespace grooves
         Preview getPreview() const noexcept { return preview; }
         void setPreview (const Preview&);
 
-        static constexpr int maxFiles = 100000;   // read no more than this (a whole drive linked by mistake)
+        // Read no more than this (a whole drive linked by mistake). 100,000 until 0.70.1: a library that size never
+        // finished listing, so every folder opened looked as if it had new files.
+        static constexpr int maxFiles = 500000;
 
     private:
         void load();
@@ -308,6 +314,9 @@ namespace grooves
         std::atomic<int> scanned { 0 }, looked { 0 };
         mutable std::mutex focusLock;
         juce::File focus;
+        // 0.70.1: MIDI files a scan found that aren't grooves (no notes, not MIDI): kept in the index ("N") by their
+        // stamp so they aren't read again, and not "unlisted" for hasUnlisted (every folder opened rescanned).
+        std::set<juce::String> notGrooves;   // (guarded by focusLock)
         std::unique_ptr<Scanner> scanner;
     };
 }

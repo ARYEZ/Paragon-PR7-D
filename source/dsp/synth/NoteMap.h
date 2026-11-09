@@ -29,8 +29,9 @@ namespace synth::drums::notemap
     enum Slot : std::int8_t { BD, RIM, SD, CLP, SD2, LT, CH, MT, PH, HT, OH, CY, RD, RB, CR2, CHN, SPL, HH, TMB, SHK,
                               RE, HO1, HO3,              // 0.17.0
                               T4, HSH, C1C, C2C, CHC, SPC,     // 0.33.0
-                              C3, C4, C5, C6, CFX, CH2, T5 };  // 0.36.0
-    static_assert (T5 == numSlots - 1);
+                              C3, C4, C5, C6, CFX, CH2, T5,    // 0.36.0
+                              P1, P2, P3, P4, P5, P6 };        // 0.71.0: THE PADS
+    static_assert (P6 == numSlots - 1);
     // A note that plays the hi-hat at the pedal's openness (CC 4): KitSettings::hatPedal.
     inline constexpr std::int8_t PEDAL = KitSettings::hatPedal;
 
@@ -86,9 +87,11 @@ namespace synth::drums::notemap
     //   - MUTE HITs: cymbal 1, cymbal 2, china 1 and the splash their CHOKE slots; cymbals 3-6, china 2 and the
     //     holed cymbal (its "Spock", our FX CRASH) have no choke: their crash.
     // Cymbal 1 is CRASH (CY), cymbal 2 CRASH 2, cymbals 3-6 CRASH 3-6; racktom 1-3 TOM 1-3 (HT MT LT), floortom 1-2
-    // FLOOR (T4) and FLOOR 2 (T5). Notes 0-5 play nothing (as in that map).
+    // FLOOR (T4) and FLOOR 2 (T5). Notes 0-5 play nothing in that map: since 0.71.0 they're THE PADS 1-6 (ours).
     struct LibraryNote { int note; std::int8_t slot; const char* name; };
     inline constexpr LibraryNote libraryNotes[] = {
+        { 0, P1, "Pad 1" },                    { 1, P2, "Pad 2" },                   { 2, P3, "Pad 3" },   // 0.71.0
+        { 3, P4, "Pad 4" },                    { 4, P5, "Pad 5" },                   { 5, P6, "Pad 6" },
         { 6, SD, "Snare: Zone Trigger" },      { 7, PEDAL, "Hats: Edge Trigger" },   { 8, PEDAL, "Hats: Tip Trigger" },
         { 9, PEDAL, "Hats: Tip Trigger" },     { 10, PH, "Hats: Closed Pedal" },     { 11, HSH, "Hats: Closed Edge" },
         { 12, HO1, "Hats: Open 0" },           { 13, HO1, "Hats: Open 1" },          { 14, HH, "Hats: Open 2" },
@@ -131,7 +134,7 @@ namespace synth::drums::notemap
         { 123, HO1, "Hats: Open 0" },          { 124, OH, "Hats: Open 5" },          { 125, SD, "Snare: Center (Stack)" },
         { 126, SD2, "Snare: Rimshot" },        { 127, RIM, "Snare: Sidestick" },
     };
-    static_assert (std::size (libraryNotes) == 122);
+    static_assert (std::size (libraryNotes) == 128);   // (122 + THE PADS on 0-5 since 0.71.0)
 
     inline Map grooveLibrary()
     {
@@ -190,9 +193,11 @@ namespace synth::drums::notemap
             // Each slot's main note: General MIDI's where it has one; GROOVE LIBRARY's (0.58.0) the owner's map's
             // first-octave note for that drum (its crashes and toms are numbered differently from General MIDI's).
             constexpr std::array<int, numSlots> gm { 36, 37, 38, 39, 40, 43, 42, 45, 44, 48, 46, 49, 51, 53, 57, 52, 55, -1, 54, 69,
-                                                     -1, -1, -1, 41, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1 };
+                                                     -1, -1, -1, 41, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1,
+                                                     -1, -1, -1, -1, -1, -1 };
             constexpr std::array<int, numSlots> library { 36, 37, 38, -1, 40, 45, 42, 47, 44, 48, 60, 28, 51, 53, 49, 27, 55, 25, -1, -1,
-                                                          59, 24, 26, 43, 22, 94, 50, 83, 56, 30, 31, 57, 32, 29, 52, 41 };
+                                                          59, 24, 26, 43, 22, 94, 50, 83, 56, 30, 31, 57, 32, 29, 52, 41,
+                                                          0, 1, 2, 3, 4, 5 };   // (0.71.0: THE PADS)
             const auto& preferred = layout == Layout::grooveLibrary ? library : gm;
             const auto n = preferred[(size_t) juce::jlimit (0, numSlots - 1, slot)];
             if (n >= 0 && n < 128 && m[(size_t) n] == slot)

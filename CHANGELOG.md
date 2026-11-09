@@ -2,6 +2,70 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.74.0
+
+**THE KIT VIEW: a third crash, and the splash in the middle**, so the kit is balanced, with two crashes up high on each side (your layout, approved from a preview render).
+
+- **CRASH 3** now stands where the splash was, on the ride side: the same 16" size and height as CRASH 2 on the hi-hat side, mirroring it. Click it to choose it and hear it; it glows when it plays, like the other cymbals.
+- **The splash** moved to the middle, between the two high crashes, just above the gap between tom 2 and tom 3, a little lower and nearer than the crashes. Its stand stands behind the kick.
+- Nothing else moved.
+- CRASH 3 has been one of PR7-D's drums since 0.36.0 (with its own sound, MIDI note and mixer routing); only its place on the picture is new. If your kit has no CRASH 3 sound loaded (the Djent Drums pack records two crashes), it plays its stand-in, crash 1, as before.
+
+## 0.73.0
+
+**THE SEQUENCER's electronic tricks, part 2: THE STEP FX LANE.** A strip under the sequencer's grid, lined up with its steps, where you lay down effects that work on the whole drum mix while the pattern plays through them: stutters, chops, tape stops and so on, in time with the beat. Our own design, after what electronic beat-effect units do.
+
+- **The effects** (each a block of steps you draw):
+  - **REPEAT:** a stutter. The first slice plays as it is, then loops for the rest of the block. RATE sets the slice (1/2 to 1/32 note); AMOUNT is each repeat's level against the one before (100%: all alike, lower: they die away).
+  - **CHOP:** a gate opening and closing every RATE; AMOUNT how far it closes (100%: silence between).
+  - **TAPE STOP:** the sound slows down like a tape machine switched off, over the block; AMOUNT how far (100%: to a stop, fading out as it gets there; 50%: down to half speed, an octave lower).
+  - **REVERSE:** each slice plays the slice before it backwards (the first one, the slice just before the block).
+  - **FILTER:** a low-pass sweeping down over the block; AMOUNT how far (100%: down to about 150 Hz).
+  - **BITCRUSH:** fewer bits and a lower sample rate; AMOUNT how much.
+- **Using the lane:** drag along an empty part to add a block of the effect you used last (REPEAT at first); right-click an empty part to pick an effect; drag a block to move it, its right edge to stretch it; right-click a block to change its effect, RATE or AMOUNT, or to remove it; the mouse wheel over a block changes its AMOUNT. The block playing lights up. Each change is one undo step.
+- **Each pattern (A-D) has its own lane.** It's saved with the pattern: in presets, the project and sequence files. TO SEQUENCER and dropping grooves on the grid change the notes and leave the lane as it was.
+- **Where it sits:** after the kit, its delay and reverb returns and MOD / LO-FI, before the FX page's master EQ, compressor and LIMITER, so the echoes stutter with the drums and the limiter still catches the peaks. It only plays while the sequencer does (SONG with the DAW or THE DRUM MACHINE's PLAY, or a KEY pattern key held). It adds no delay (latency): REPEAT, REVERSE and TAPE STOP play back what was just heard.
+- **Limits:** it works on MAIN only (drums sent to OUT 2-16 aren't touched); MIDI EXPORT writes the notes, not the effects.
+- **The sequencer's rows** keep their height: the lane uses the room that was left under them.
+
+## 0.72.0
+
+**THE SEQUENCER's electronic tricks, part 1: ratchets that ramp, and notes that don't play every time.** Four new settings on each note (choose notes on the SEQUENCER and set them in the note fields, as with VELOCITY or ROLL). Our own design, after what electronic drum machines do; part 2 (0.73.0) is a lane of step effects (beat repeat, chop, tape stop...).
+
+- **ROLL** goes up to **12x and 16x** (was 8x at most): the step split into that many fast repeats, for snare builds and hat buzzes.
+- **RAMP** (-24 to +24 semitones): a roll's repeats climb or fall in pitch, the first at the note's pitch, the last this far from it. +12 on a 4x snare roll is the classic rising build; -12 on toms drops like a fill.
+- **FADE** (-1 to +1): a roll's repeats die away (below 0: at -1 the last is silent) or swell up from nothing (above 0).
+- **CHANCE** (0-100%): how often the note plays. Below 100% it's left out on some passes of the pattern, so a beat breathes. It's not truly random: the same pass always decides the same way, so a bounce or an export sounds like what you heard.
+- **CONDITION:** which passes of the loop the note plays on: Always, 1st / 2nd of 2, 1st-3rd of 3, 1st-4th of 4, First pass only, Not the first pass. "4th of 4" on a crash or a fill note plays it once every four loops. Passes count from the song's start (SONG) or from when a pattern key starts it (KEY).
+- MIDI EXPORT writes the pattern's first pass: notes set to other passes, and notes CHANCE leaves out of that pass, aren't in the file.
+- Older patterns, kits and presets load as they were; notes that don't use the new settings are saved exactly as before.
+
+## 0.71.0
+
+**THE PADS: an electronic pad unit on the kit.** Six pads (3 across, 2 deep) on their own stand by your right hand, past the floor tom and partly under the china, where a drummer would set up a sample pad. Our own design, in the kit's look.
+
+- **On the KIT VIEW:** each pad is its own drum: click one to choose it and hear it, and it glows when it plays. Its articulation list (PADS: Pad 1-6) has each pad's ON, level and note.
+- **Six new drums, PAD 1-6** (drums 37-42), on MIDI **notes 0-5** in the GROOVE LIBRARY map (notes that map left empty, so nothing else moved; in Cubase's naming C-2 to F-2). Pads 1-3 are the front row (nearest you), 4-6 the back, left to right.
+- **They play straight away:** each starts on one of our electronic sounds (pad 1 a clap, 2 a high rim click, 3 a cowbell, 4 a long low 808-style kick, 5 a short high tom, 6 a bright snare). Load your own samples, folders or layers onto any of them as onto any drum.
+- **In the mixer** they play through OTHER (no simulated mic hears them: they're electronic). In the grooves they count as percussion.
+- **THE DRUM MACHINE** has a third bank, **37-42**, for the pads.
+- The splash's stand moved a little left to make room (the splash itself hasn't moved).
+- Presets, kits and projects from before keep every drum's layers where they were (drum numbers after the 36 moved up by 6 inside the files).
+- The SEQUENCER's rows grew to 42 too; its notes keep their height on the thinner rows (they'd have shrunk to nothing).
+
+## 0.70.2
+
+**RERACK** (GROOVES, top right, beside the groove count): checks every linked folder again for new, changed and removed grooves, the same as MENU > FOLDERS > CHECK ALL FOLDERS FOR CHANGES, now one click away. Since 0.70.1 a folder is only looked through once while the GROOVES page is open, so grooves you copy in after that come in with RERACK. (0.70.1's notes called this REFRESH: there was no such button until now.)
+
+- While a check runs, the count beside it reads "N grooves, checking: X seen, Y new".
+
+## 0.70.1
+
+**GROOVES no longer starts a new scan every time you open a folder.**
+
+- Why it happened: opening a folder checks it for MIDI files that aren't in the list yet (added in 0.33.2, so a freshly copied pack shows up at once). Files that can never be listed (the hidden "._" companions a Mac leaves beside every file in its zips, empty or broken .mid files, MIDI files without notes) looked "new" every time, so every click started another scan. Libraries over 100,000 grooves did the same: the scan stopped at 100,000, and the rest always looked new.
+- Now: files that aren't grooves are remembered in the groove index by their size and date, so they're neither read again nor taken for new files (a mended one is read again). Mac "._" files are skipped entirely. The limit is now 500,000 grooves. And each folder is looked through once while the GROOVES page is open; files copied in after that come in with MENU > FOLDERS > CHECK ALL FOLDERS FOR CHANGES (a RERACK button since 0.70.2).
+
 ## 0.70.0
 
 **Drums from a mixed sample pack onto the drums you choose**, a **MIXER CHANNEL** for drums without mics of their own, and **a default preset**.

@@ -26,6 +26,7 @@
 //                                    PARAGON_SNAPSHOT_DRUMCHOSEN=1: the hats and cymbal chosen together, the tom's playhead;
 //                                    any of these shows the DRUM view; with none, the KIT VIEW (0.14.0), the page's first:
 //                                    PARAGON_SNAPSHOT_KIT=1: the kick, snare, crash and china just hit, glowing, the ride's bell chosen;
+//                                    PARAGON_SNAPSHOT_KIT=2: THE PADS 2 and 4 just hit, pad 2 chosen (0.71.0);
 //                                    PARAGON_SNAPSHOT_ARTIC=1: the hi-hat's articulations, OPEN 3 off, the pedal half open;
 //                                    PARAGON_SNAPSHOT_VELOCITY=1: the snare's VELOCITY curve and gate;
 //                                    PARAGON_SNAPSHOT_LAYERS=1: the snare's LAYERS (one aligned, one multi-mic);
@@ -320,6 +321,36 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 processor.processBlock (buffer, midi);
             drums.updateLights();
         }
+        // 0.71.0: PARAGON_SNAPSHOT_KIT=2: THE PADS: pads 2 and 4 just hit (notes 1 and 3 in GROOVE LIBRARY), pad 2 chosen.
+        if (env ("PARAGON_SNAPSHOT_KIT") == "2")
+        {
+            drums.showView (DrumPage::View::kit);
+            drums.select (synth::drums::notemap::P2);
+            juce::AudioBuffer<float> buffer (2, 512);
+            juce::MidiBuffer midi;
+            for (const auto note : { 1, 3 })
+                midi.addEvent (juce::MidiMessage::noteOn (10, note, 1.0f), 0);
+            processor.processBlock (buffer, midi);
+            midi.clear();
+            for (int b = 0; b < 4; ++b)
+                processor.processBlock (buffer, midi);
+            drums.updateLights();
+        }
+        // 0.74.0: PARAGON_SNAPSHOT_KIT=3: CRASH 3 (where the splash was) and the splash (in the middle) just hit,
+        // CRASH 3 chosen.
+        if (env ("PARAGON_SNAPSHOT_KIT") == "3")
+        {
+            drums.showView (DrumPage::View::kit);
+            drums.select (synth::drums::notemap::C3);
+            juce::AudioBuffer<float> buffer (2, 512);
+            juce::MidiBuffer midi;
+            processor.previewDrum (synth::drums::notemap::C3);
+            processor.processBlock (buffer, midi);
+            processor.previewDrum (synth::drums::notemap::SPL);
+            for (int b = 0; b < 4; ++b)
+                processor.processBlock (buffer, midi);
+            drums.updateLights();
+        }
         // 0.17.0: the hi-hat's articulations: OPEN 3 off (its stand-in named), the pedal half open, and OPEN 3's note
         // just played (OPEN 4 lights: it plays for it).
         if (env ("PARAGON_SNAPSHOT_ARTIC") == "1")
@@ -587,6 +618,10 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             note (5, 15.0).pitch = -3.0f;
             note (11, 15.0).reverse = synth::drumseq::Reverse::endSync;
             note (1, 6.0, 0.6f).pan = -0.5f;
+            // THE STEP FX LANE (0.73.0): a stutter across beat 2 (playing in the shot), a chop, and a tape stop to end.
+            beat.fx.push_back ({ 4.0, 2.0, synth::drumseq::FxType::repeat, 3, 1.0f });
+            beat.fx.push_back ({ 8.0, 4.0, synth::drumseq::FxType::chop, 4, 0.75f });
+            beat.fx.push_back ({ 13.0, 3.0, synth::drumseq::FxType::tapeStop, 3, 1.0f });
             auto matrix = processor.getModMatrix();
             matrix.drumPatterns[0] = beat;
             processor.setModMatrix (matrix);
@@ -640,6 +675,8 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 machine.setBank (1);
                 machine.toggleRecord();
             }
+            if (env ("PARAGON_SNAPSHOT_MACHINE") == "3")
+                machine.setBank (2);   // 0.71.0: THE PADS' bank
             juce::AudioBuffer<float> buffer (2, 512);
             juce::MidiBuffer midi;
             for (int b = 0; b < 118; ++b)   // 2.5 beats at 120 BPM: the 11th step

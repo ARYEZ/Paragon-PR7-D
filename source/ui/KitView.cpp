@@ -11,7 +11,9 @@ namespace
     // 0.43.0: the owner's 12-piece kit (the pieces their sample pack records: three rack toms, a floor tom, the hi-hat,
     // two crashes, the ride, a china, a splash).
     constexpr const char* pieceNames[KitView::numPieces] = { "kick", "snare", "tom1", "tom2", "tom3", "floor", "hihat",
-                                                              "crash", "crash2", "ride", "china", "splash" };
+                                                              "crash", "crash2", "ride", "china", "splash",
+                                                              "pad1", "pad2", "pad3", "pad4", "pad5", "pad6",   // (0.71.0)
+                                                              "crash3" };   // (0.74.0: where the splash was; the splash in the middle)
 
     // Each slot's piece (synth::drums::slotDefaults' order): BD, RIM, SD, CLP, SD2, LT, CH, MT, PH, HT, OH, CY,
     // RD, RB, CR2, CHN, SPL, HH, TMB, SHK, then 0.17.0's RE (the ride's edge), HO1 and HO3 (the hat's openness), then
@@ -20,7 +22,8 @@ namespace
     // are C3-C6, CFX, CH2 and T5 (they play their stand-ins: the owner's pack has none of them).
     constexpr int slotPieces[] = { 0, 1, 1, -1, 1, 4, 6, 3, 6, 2, 6, 7, 9, 9, 8, 10, 11, 6, -1, -1, 9, 6, 6,
                                    5, 6, 7, 8, 10, 11,
-                                   -1, -1, -1, -1, -1, -1, -1 };
+                                   18, -1, -1, -1, -1, -1, -1,   // 0.74.0: C3 on the kit (CRASH 3)
+                                   12, 13, 14, 15, 16, 17 };   // 0.71.0: THE PADS, each pad its own piece (its own glow)
     static_assert (std::size (slotPieces) == synth::drums::numSlots);
 
     // 0.17.0: the ride's edge, a ring round the outside of its bow in the click map (the renders have bow and bell

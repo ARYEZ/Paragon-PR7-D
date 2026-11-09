@@ -17,6 +17,8 @@
 // - GROOVE PARTS beside them (it folds away), with TO SEQUENCER and LAYER ONTO.
 #pragma once
 
+#include <set>
+
 #include "ui/PaintCache.h"
 
 #include "PluginProcessor.h"
@@ -141,8 +143,17 @@ private:
     PaintCache panelCache;
     void requery();
     void rebuildBrowser();
+public:
     void browseTo (const juce::File& folder, bool remember);   // the folder chosen (history kept unless going back)
+private:
     void checkShownFolder();   // 0.33.2: new files in it: scanned, it first
+    // 0.70.1: folders already checked this time the page is open (each looked through once; RERACK starts again).
+    std::set<juce::String> foldersChecked;
+public:
+    int getFolderScansStarted() const noexcept { return folderScansStarted; }   // tests
+    juce::TextButton& getRerackButton() noexcept { return rerack; }              // tests (0.70.2)
+private:
+    int folderScansStarted = 0;
     void savePreview();
     void showMenu();
     void showFolderMenu (const juce::File& folder);
@@ -155,7 +166,7 @@ private:
     std::optional<grooves::Groove> readRow (int row) const;
     std::vector<BrowserRow> rowsFor (const juce::File& folder) const;   // a browser column's rows for a folder
     std::vector<juce::File> childrenOf (const juce::File&) const;
-    // 0.30.0: each folder's subfolders, read from the disk once until the library changes or REFRESH (the browser asks
+    // 0.30.0: each folder's subfolders, read from the disk once until the library changes or RERACK (the browser asks
     // for them many times a click).
     mutable std::map<juce::String, std::vector<juce::File>> childCache;
     mutable std::map<juce::String, std::vector<BrowserRow>> rowCache;
@@ -173,7 +184,7 @@ private:
 
     // The header.
     juce::TextButton menuButton { "MENU" }, backButton { "<" }, forwardButton { ">" }, originalTempo { "ORIGINAL TEMPO" },
-                     stop { "STOP" }, partsToggle { "GROOVE PARTS" }, windowButton { "OWN WINDOW" };
+                     stop { "STOP" }, rerack { "RERACK" }, partsToggle { "GROOVE PARTS" }, windowButton { "OWN WINDOW" };
     juce::ComboBox factor;
     juce::Label tempoLabel { {}, "TEMPO" }, velocityLabel { {}, "VELOCITY" }, status, playing;
     juce::Slider velocity { juce::Slider::LinearHorizontal, juce::Slider::TextBoxRight };

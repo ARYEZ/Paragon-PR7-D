@@ -364,6 +364,7 @@ public:
     // The page's preview: a hit in the next block.
     void previewDrum (int slot) noexcept;
     const synth::drums::Kit& getDrumKit() const noexcept { return drumKit; }
+    int getPlayingStepFx() const noexcept { return playingStepFx.load(); }   // THE STEP FX LANE's block playing (-1: none)
     // THE MIDI MONITOR (0.18.0): what came in since the last call (one reader: SETTINGS' MIDI IN panel).
     int popMidiEvents (synth::drums::Kit::MidiEvent* into, int max) noexcept { return drumKit.popMidiEvents (into, max); }
 
@@ -1005,6 +1006,7 @@ private:
     };
     std::shared_ptr<const CompiledMatrix> compiledMatrix;
     std::atomic<const CompiledMatrix*> matrixForAudio { nullptr };
+    std::atomic<int> playingStepFx { -1 };   // THE STEP FX LANE's block playing (0.73.0)
     std::vector<std::pair<std::shared_ptr<const CompiledMatrix>, double>> retiredMatrices;
     MidiIn midiIn;
     std::shared_ptr<const MidiIn> midiInShared;

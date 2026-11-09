@@ -60,6 +60,8 @@ namespace synth::micsim
 
     juce::Array<int> channelsFor (int piece)
     {
+        if (piece == 22)
+            return { mixer::other };   // 0.71.0: THE PADS (electronic)
         if (isExtra (piece))
             return { mixer::other, mixer::overheads, mixer::room, mixer::ambience };
         juce::Array<int> all;

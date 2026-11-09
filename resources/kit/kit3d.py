@@ -485,9 +485,56 @@ def boom_cymbal(name, diameter, centre, tilt=(0.25, 0, 0), china=False, base=(0.
 # crash 2 in the middle over the toms; crash 5 and 6 to the right; the china, the ride over the floor toms, china 2.
 boom_cymbal("CRASH", 0.406, (-0.741, 0.728, 1.35), tilt=(-0.05, -0.1, 0), base=(-0.95, 0.62))
 boom_cymbal("CRASH 2", 0.406, (-0.45, 0.54, 1.68), tilt=(-0.05, -0.05, 0), drop=0.45, base=(-0.6, 0.3))
-boom_cymbal("SPLASH", 0.305, (0.33, 0.50, 1.68), tilt=(-0.05, 0.05, 0), drop=0.75, base=(0.62, -0.15))
+# 0.74.0: the splash in the middle, over the gap between toms 2 and 3; crash 3 where the splash was, CRASH 2's twin.
+boom_cymbal("SPLASH", 0.305, (0.03, 0.22, 1.3), tilt=(-0.1, 0.0, 0), drop=0.45, base=(0.03, -0.62))
+boom_cymbal("CRASH 3", 0.406, (0.45, 0.54, 1.68), tilt=(-0.05, 0.05, 0), drop=0.75, base=(0.45, -0.30))
 boom_cymbal("RIDE", 0.52, (0.582, 0.61, 1.2), tilt=(-0.05, 0.08, 0), base=(0.95, 0.25))
 boom_cymbal("CHINA", 0.43, (0.792, 1.176, 1.3), tilt=(-0.05, 0.1, 0), china=True, base=(1.0, 1.15))
+
+# 0.71.0: THE PADS: an electronic pad unit of 6 pads (3 across, 2 deep) behind the floor tom, on its own stand, tipped
+# towards the drummer and turned to face the seat (the owner's idea, from a picture of another program's e-kit: our own
+# design in the kit's look). Built before the mirror, like the rest (here on +x, the drummer's right after it).
+PAD_BODY = material("pad body", srgb("0c0a0c"), rough=0.6, spec=0.25)   # matte: a lacquer finish shone pale under the key light
+
+def pad_unit(name, centre, tilt, yaw, stand_base):
+    from mathutils import Euler
+    rot = Euler((-tilt, 0.0, yaw), "XYZ")
+    R = rot.to_matrix()
+    C = Vector(centre)
+    at = lambda u, v, w: C + R @ Vector((u, v, w))
+    W, D, T = 0.36, 0.25, 0.045            # the unit: width (across), depth (to the drummer), thickness
+    box(name + " body", (W, D, T), C, rot=tuple(rot), mat=PAD_BODY, bevel=0.008)
+    # Its edge glows like the drums' hoops.
+    corners = [at(-W / 2, -D / 2, T / 2), at(W / 2, -D / 2, T / 2), at(W / 2, D / 2, T / 2), at(-W / 2, D / 2, T / 2)]
+    for k in range(4):
+        rod(name + " neon edge", corners[k], corners[(k + 1) % 4], r=0.0018, mat=NEON_SOFT)
+    # A slim screen strip along the back.
+    box(name + " screen", (W * 0.5, 0.02, 0.004), at(0.0, -D / 2 + 0.018, T / 2 + 0.001), rot=tuple(rot), mat=SATIN, bevel=0.001)
+    # The six pads: rubber squares, each outlined in neon; numbered 1-3 at the front (nearest the drummer), 4-6 behind,
+    # left to right as the drummer sees them.
+    pw, gap = 0.098, 0.012
+    depth_area = D - 0.05
+    pd = (depth_area - gap) / 2
+    for row in range(2):
+        for col in range(3):
+            n = (1 + col) if row == 0 else (4 + col)
+            u = (col - 1) * (pw + gap)
+            v = 0.012 + (pd + gap) / 2 * (1 if row == 0 else -1)
+            box("%s pad %d" % (name, n), (pw, pd, 0.008), at(u, v, T / 2 + 0.004), rot=tuple(rot), mat=RUBBER, bevel=0.003)
+            c = [at(u - pw / 2, v - pd / 2, T / 2 + 0.0085), at(u + pw / 2, v - pd / 2, T / 2 + 0.0085),
+                 at(u + pw / 2, v + pd / 2, T / 2 + 0.0085), at(u - pw / 2, v + pd / 2, T / 2 + 0.0085)]
+            for k in range(4):
+                rod("%s pad %d neon" % (name, n), c[k], c[(k + 1) % 4], r=0.0013, mat=NEON)
+    # Its mount under the middle, an arm down to the stand.
+    under = at(0.0, 0.0, -T / 2 - 0.02)
+    box(name + " mount", (0.09, 0.07, 0.02), at(0.0, 0.0, -T / 2 - 0.01), rot=tuple(rot), mat=SATIN)
+    bx, by = stand_base
+    top = under.z - 0.06
+    tripod(name + " stand", bx, by, top, spread=0.28)
+    rod(name + " stand arm", (bx, by, top), under, r=0.0095)
+    collar(name + " stand arm", (bx, by, top), 0.0095)
+
+pad_unit("PADS", (0.66, 0.86, 0.80), tilt=0.42, yaw=1.30, stand_base=(0.70, 1.08))
 
 # A right-handed kit: built with the hi-hat on the drummer's right, mirrored (x -> -x).
 for o in list(bpy.data.objects):
@@ -609,7 +656,9 @@ torus("KICK logo ring", 0.205, 0.003, (0, front_y, 0.29), rot=(math.pi / 2, 0, 0
 # Which piece an object belongs to (its name's start), longest names first so "CRASH 2" isn't "CRASH".
 PIECES = ["kick:KICK", "kick:LOGO", "snare:SNARE", "tom1:TOM 1", "tom2:TOM 2", "tom3:TOM 3", "floor:FLOOR",
           "hihat:HI-HAT", "crash:CRASH", "crash2:CRASH 2", "ride:RIDE", "china:CHINA",
-          "splash:SPLASH"]   # (0.43.0: the 12 pieces the owner's sample pack records)
+          "splash:SPLASH", "crash3:CRASH 3",   # (0.43.0: the 12 pieces the owner's sample pack records)
+          "pad1:PADS pad 1", "pad2:PADS pad 2", "pad3:PADS pad 3", "pad4:PADS pad 4", "pad5:PADS pad 5",
+          "pad6:PADS pad 6"]   # (0.71.0: THE PADS, each its own piece: each glows when it plays; the unit's body none)
 PIECES.sort(key=lambda e: -len(e.split(":")[1]))
 
 def piece_of(name):
@@ -638,8 +687,10 @@ def zone_of(name):
         return 12                                     # RD (the lathe itself splits at the bell, below)
     # 0.37.0: the rack toms HT, MT, LT (high to low, left to right), the floor toms T4 and T5; crashes 1 to 6, the FX
     # crash, china 2 on 0.36.0's slots.
+    if piece.startswith("pad"):
+        return 35 + int(piece[3:])                    # 0.71.0: PAD 1-6 are slots 36-41
     return {"kick": 0, "tom1": 9, "tom2": 7, "tom3": 5, "floor": 23, "crash": 11, "crash2": 14, "china": 15,
-            "splash": 16}[piece]
+            "splash": 16, "crash3": 29}[piece]
 
 def flat_emission(name, value, ride_split=False):
     m = bpy.data.materials.new(name)
@@ -671,7 +722,7 @@ def flat_emission(name, value, ride_split=False):
     return m
 
 def zone_colour(slot):
-    v = (slot + 1) * 7 / 255.0 if slot >= 0 else 0.0      # the red channel: (slot + 1) x 7 (0.37.0: 36 slots; 12 before); 0: nothing
+    v = (slot + 1) * 6 / 255.0 if slot >= 0 else 0.0      # the red channel: (slot + 1) x 6 (0.71.0: 42 slots; 7 for 36, 12 before); 0: nothing
     return (v, 0.0, 0.0, 1.0)
 
 if STYLE == "mask":

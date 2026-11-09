@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.24)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "macOS architectures")
 
-project(ParagonX1 VERSION 0.70.0 LANGUAGES C CXX)
+project(ParagonX1 VERSION 0.74.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -63,7 +63,14 @@ juce_add_binary_data(ParagonX1Kit
         resources/kit/litcrash2.png
         resources/kit/litride.png
         resources/kit/litchina.png
-        resources/kit/litsplash.png)
+        resources/kit/litsplash.png
+        resources/kit/litcrash3.png
+        resources/kit/litpad1.png
+        resources/kit/litpad2.png
+        resources/kit/litpad3.png
+        resources/kit/litpad4.png
+        resources/kit/litpad5.png
+        resources/kit/litpad6.png)
 
 target_sources(ParagonX1
     PRIVATE
@@ -77,6 +84,7 @@ target_sources(ParagonX1
         source/dsp/synth/DrumGizmo.cpp
         source/dsp/synth/SamplePack.cpp
         source/dsp/synth/MixPack.cpp
+        source/dsp/synth/StepFx.cpp
         source/dsp/synth/DiskStreamer.cpp
         source/dsp/synth/Instrument.cpp
         source/dsp/synth/RenderImport.cpp

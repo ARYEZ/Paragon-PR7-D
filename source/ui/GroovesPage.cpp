@@ -623,6 +623,11 @@ GroovesPage::GroovesPage (ParagonX1AudioProcessor& p) : processor (p), library (
     velocity.onValueChange = [this] { if (! velocity.isMouseButtonDown()) savePreview(); };
     stop.setTooltip ("Stop the groove playing.");
     stop.onClick = [this] { processor.stopGroove(); };
+    // 0.70.2: RERACK: every linked folder checked for new, changed and removed grooves (MENU > FOLDERS > CHECK ALL
+    // FOLDERS FOR CHANGES, on a button: since 0.70.1 an opened folder is only looked through once).
+    rerack.setTooltip ("Check every linked folder again for new, changed and removed grooves (grooves copied in while "
+                       "the page is open come in with this).");
+    rerack.onClick = [this] { foldersChecked.clear(); library.scan(); };
     for (auto* l : { &tempoLabel, &velocityLabel })
     {
         l->setFont (juce::FontOptions (10.5f, juce::Font::bold));
@@ -634,7 +639,7 @@ GroovesPage::GroovesPage (ParagonX1AudioProcessor& p) : processor (p), library (
     playing.setColour (juce::Label::textColourId, ParagonColours::accent);
     for (juce::Component* c : { (juce::Component*) &menuButton, (juce::Component*) &backButton, (juce::Component*) &forwardButton,
                                 (juce::Component*) &originalTempo, (juce::Component*) &tempoLabel, (juce::Component*) &factor,
-                                (juce::Component*) &velocityLabel, (juce::Component*) &velocity, (juce::Component*) &stop,
+                                (juce::Component*) &velocityLabel, (juce::Component*) &velocity, (juce::Component*) &stop, (juce::Component*) &rerack,
                                 (juce::Component*) &playing, (juce::Component*) &status })
         addAndMakeVisible (c);
 
@@ -989,8 +994,15 @@ void GroovesPage::checkShownFolder()
     // 0.33.2: a folder opened with MIDI files the list hasn't (copied in since the last check, or not come to yet by a
     // long scan): scanned (again), that folder first, so its grooves come in at once. (A scan stopped keeps what it read.)
     library.setFocus (within);
-    if (within.isDirectory() && library.hasUnlisted (within))
+    // 0.70.1: each folder looked through once while the page is open (not on every click: a file that never lists, or
+    // a scan still on its way through a big library, started a new scan each time); RERACK looks again.
+    if (! within.isDirectory() || ! foldersChecked.insert (within.getFullPathName()).second)
+        return;
+    if (library.hasUnlisted (within))
+    {
+        ++folderScansStarted;
         library.scan();
+    }
 }
 
 bool GroovesPage::goBack()
@@ -1083,7 +1095,7 @@ void GroovesPage::showFolderMenu (const juce::File& folder)
     }
     if (f >= 0)
         menu.addItem (inUser && userNeedsSync ? juce::String ("SYNC FILE CHANGES  (changed on disk)") : juce::String ("SYNC FILE CHANGES"),
-                      [this] { library.scan(); });
+                      [this] { foldersChecked.clear(); library.scan(); });
     if (isRoot && ! folders[(size_t) f].user)
     {
         menu.addSeparator();
@@ -1120,7 +1132,7 @@ void GroovesPage::showMenu()
                     refresh();
             });
         });
-        folders.addItem ("CHECK ALL FOLDERS FOR CHANGES", [this] { library.scan(); });
+        folders.addItem ("CHECK ALL FOLDERS FOR CHANGES", [this] { foldersChecked.clear(); library.scan(); });
         menu.addSubMenu ("FOLDERS", folders);
     }
     {
@@ -1843,8 +1855,9 @@ void GroovesPage::timerCallback()
     else if (library.isScanning() && results.empty() && library.getNumEntries() == 0)
         status.setText ("Reading your grooves... " + juce::String (library.getNumScanned()) + " files", juce::dontSendNotification);
     else if (library.isScanning())
-        status.setText (juce::String (results.size()) + (results.size() == 1 ? " groove" : " grooves") + " (checking for new ones: "
-                            + juce::String (library.getNumLooked()) + " files looked at, " + juce::String (library.getNumScanned()) + " new)",
+        // (0.70.2: shorter, beside RERACK) e.g. "7 grooves, checking: 1200 seen, 3 new"
+        status.setText (juce::String (results.size()) + (results.size() == 1 ? " groove" : " grooves") + ", checking: "
+                            + juce::String (library.getNumLooked()) + " seen, " + juce::String (library.getNumScanned()) + " new",
                         juce::dontSendNotification);
     else if (library.getNumEntries() == 0)
         status.setText ("No grooves yet: MENU > FOLDERS > ADD LINKED FOLDER..., or drop MIDI files on User MIDI", juce::dontSendNotification);
@@ -2335,7 +2348,9 @@ void GroovesPage::resized()
     place (top, velocityLabel, 64, 6);
     place (top, velocity, 190, 12);
     place (top, stop, 64, 14);
-    status.setBounds (top.removeFromRight (360));
+    rerack.setBounds (top.removeFromRight (96).withSizeKeepingCentre (96, 30));
+    top.removeFromRight (12);
+    status.setBounds (top.removeFromRight (280));
     playing.setBounds (top);
     area.removeFromTop (12);
 

@@ -24,6 +24,8 @@ public:
     ~MachineView() override;
 
     static constexpr int numColumns = 18, numSteps = 16;
+    static constexpr int numBanks = (ParamIDs::numDrums + numColumns - 1) / numColumns;   // 3 since 0.71.0 (the last: THE PADS)
+    bool columnUsed (int column) const noexcept { return bank * numColumns + column < ParamIDs::numDrums; }
     static constexpr float refWidth = 1900.0f, refHeight = 990.0f;   // the layout's own units (scaled to fit)
 
     // The DRUMS page's other views (VIEW: KIT, DRUM, SEQ), the chosen drum (shared with the page), choosing one.
@@ -32,7 +34,7 @@ public:
     std::function<int()> getChosen;
     std::function<void (int slot)> onChoose;
 
-    void setBank (int bank);   // 0: drums 1-18, 1: 19-36
+    void setBank (int bank);   // 0: drums 1-18, 1: 19-36, 2: 37-42 (0.71.0)
     int getBank() const noexcept { return bank; }
     // 0.39.0: the drum on each column is the project's pad order (right-click a pad or its name: pick another).
     int slotOfColumn (int column) const noexcept;

@@ -15,6 +15,7 @@
 #include "dsp/eq/EqMatchSession.h"
 #include "dsp/eq/ParametricEq.h"
 #include "dsp/synth/Drums.h"
+#include "dsp/synth/StepFx.h"
 #include "rigs/CompPresets.h"
 #include "rigs/DominionPresets.h"
 
@@ -62,6 +63,9 @@ struct Rack
     std::array<effects::Modulation, 2> modulation;
     effects::LoFi loFi;
     std::atomic<float> loFiPeak { 0.0f };   // LO-FI's output peak in the last block, while it's on (its unit's meter)
+    // THE STEP FX LANE (0.73.0): after MOD / LO-FI, before ECHELON (so the master's EQ, compressor and LIMITER see
+    // what it makes).
+    synth::stepfx::Processor stepFx;
 
     // THE INSERT BUSES (stage 7d): A to D, each PR7-G's DRIVE and GLITCH (mono there: one a side here), MOD and LO-FI,
     // on the drums routed to it, before the sends (the bus sends at its own amounts) and the mix.
