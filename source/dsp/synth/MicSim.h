@@ -33,7 +33,7 @@ namespace synth::micsim
     // Where things stand: x to the drummer's right, y forward, z up (metres).
     struct Point { float x = 0.0f, y = 0.0f, z = 0.0f; };
     // A piece's place (THE PIECES' order, drums::pieces).
-    inline constexpr int numPieces = 22;
+    inline constexpr int numPieces = 23;
     inline constexpr std::array<Point, numPieces> piecePlaces {{
         {  0.0f,  0.45f, 0.30f },   // KICK (its beater)
         { -0.15f, 0.35f, 0.65f },   // SNARE
@@ -57,6 +57,7 @@ namespace synth::micsim
         { -0.80f, 0.15f, 1.15f },   // FX CRASH (left, low)
         {  1.00f, 0.25f, 1.05f },   // CHINA 2 (right, low)
         {  0.95f, 0.30f, 0.45f },   // TOM 5 (beyond tom 4)
+        {  0.65f, 0.0f, 0.80f },    // PADS (0.71.0: by the drummer's right hand, past the floor tom; electronic: OTHER only)
     }};
 
     // The mics a piece plays through (every channel but OTHER for the kit's drums and cymbals; the clap, tambourine
@@ -65,6 +66,8 @@ namespace synth::micsim
     // Whether a piece is heard in a mic channel (the same, without making a list: for the audio thread).
     inline bool hears (int piece, int channel) noexcept
     {
+        if (piece == 22)
+            return channel == mixer::other;   // 0.71.0: THE PADS are electronic: no mic hears them, only their own channel
         if (piece >= 11 && piece <= 13)
             return channel == mixer::other || mixer::hearsWholeKit (channel);
         return channel != mixer::other && channel >= 0 && channel < mixer::numChannels;
@@ -107,7 +110,7 @@ namespace synth::micsim
     class Simulator
     {
     public:
-        static constexpr int numSlots = 36;
+        static constexpr int numSlots = 42;
         static constexpr int maxFilters = 3;
 
         void prepare (double sampleRate, int blockSize);

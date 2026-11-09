@@ -2,6 +2,18 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.71.0
+
+**THE PADS: an electronic pad unit on the kit.** Six pads (3 across, 2 deep) on their own stand by your right hand, past the floor tom and partly under the china, where a drummer would set up a sample pad. Our own design, in the kit's look.
+
+- **On the KIT VIEW:** each pad is its own drum: click one to choose it and hear it, and it glows when it plays. Its articulation list (PADS: Pad 1-6) has each pad's ON, level and note.
+- **Six new drums, PAD 1-6** (drums 37-42), on MIDI **notes 0-5** in the GROOVE LIBRARY map (notes that map left empty, so nothing else moved; in Cubase's naming C-2 to F-2). Pads 1-3 are the front row (nearest you), 4-6 the back, left to right.
+- **They play straight away:** each starts on one of our electronic sounds (pad 1 a clap, 2 a high rim click, 3 a cowbell, 4 a long low 808-style kick, 5 a short high tom, 6 a bright snare). Load your own samples, folders or layers onto any of them as onto any drum.
+- **In the mixer** they play through OTHER (no simulated mic hears them: they're electronic). In the grooves they count as percussion.
+- **THE DRUM MACHINE** has a third bank, **37-42**, for the pads.
+- The splash's stand moved a little left to make room (the splash itself hasn't moved).
+- Presets, kits and projects from before keep every drum's layers where they were (drum numbers after the 36 moved up by 6 inside the files).
+
 ## 0.70.2
 
 **RERACK** (GROOVES, top right, beside the groove count): checks every linked folder again for new, changed and removed grooves, the same as MENU > FOLDERS > CHECK ALL FOLDERS FOR CHANGES, now one click away. Since 0.70.1 a folder is only looked through once while the GROOVES page is open, so grooves you copy in after that come in with RERACK. (0.70.1's notes called this REFRESH: there was no such button until now.)

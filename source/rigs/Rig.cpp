@@ -15,7 +15,8 @@ namespace
     // 3: PR7-D 0.33.0 (drums 24 to 29: older presets load with them off; their layers' instrument numbers moved).
     // 4: PR7-D 0.36.0 (drums 30 to 36, likewise).
     // 5: PR7-D 0.39.0 (the drum buses: older presets keep their channels' routes, their buses unnamed).
-    constexpr int parameterVersion = 5;
+    // 6: PR7-D 0.71.0 (THE PADS: 42 drums; their layers' instrument numbers moved).
+    constexpr int parameterVersion = 6;
 
     const juce::Identifier rigTag { "ParagonRig" };
     const juce::Identifier parameterTag { "Param" };

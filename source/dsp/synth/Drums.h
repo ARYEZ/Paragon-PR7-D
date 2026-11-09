@@ -43,7 +43,8 @@ namespace synth
 
 namespace synth::drums
 {
-    inline constexpr int numSlots = 36;   // 12 in PR7-K, 20 from PR7-D 0.2.0, 23 from 0.17.0 (articulations), 29 from 0.33.0,
+    inline constexpr int numSlots = 42;   // 12 in PR7-K, 20 from PR7-D 0.2.0, 23 from 0.17.0 (articulations), 29 from 0.33.0,
+                                          // (42 from 0.71.0: THE PADS, six electronic pads)
                                           // 36 from 0.36.0 (the bigger kit's cymbals and tom 5)
 
     // Saved by index (drum{k}Model): only ever append. RIDE, BELL, TAMBOURINE and SHAKER came in PR7-D 0.2.0.
@@ -116,6 +117,14 @@ namespace synth::drums
         { Model::cymbal,    3.0f, 0.3f, 0.35f, 0.85f, 0, "CFX" },  // the FX crash (holes: short and trashy)
         { Model::cymbal,   -2.0f, 0.45f, 0.25f, 0.9f, 0, "CH2" },  // china 2
         { Model::tom,     -13.0f, 0.6f, 0.5f, 0.5f, 0, "T5" },     // tom 5 (the lowest)
+        // PR7-D 0.71.0 (ROOT + 36 to + 41): THE PADS, an electronic pad unit by the drummer's right hand. Each starts on
+        // one of our synth models, an electronic sound of its own (load your samples over any of them).
+        { Model::clap,      2.0f, 0.45f, 0.6f, 0.6f, 0, "P1" },    // pad 1: a clap
+        { Model::rim,       5.0f, 0.3f, 0.7f, 0.5f, 0, "P2" },     // pad 2: a high rim click
+        { Model::cowbell,   0.0f, 0.4f, 0.5f, 0.5f, 0, "P3" },     // pad 3: a cowbell
+        { Model::kick,     -5.0f, 0.85f, 0.25f, 0.2f, 0, "P4" },   // pad 4: a long, low electronic kick (an 808-style boom)
+        { Model::tom,       7.0f, 0.3f, 0.6f, 0.7f, 0, "P5" },     // pad 5: a short, high electronic tom
+        { Model::snare,     3.0f, 0.35f, 0.8f, 0.9f, 0, "P6" },    // pad 6: a bright, noisy snare
     }};
 
     // THE PIECES AND THEIR ARTICULATIONS (PR7-D 0.17.0). Inspired by drum software where each drum of the kit is one
@@ -134,7 +143,7 @@ namespace synth::drums
         std::array<Articulation, 8> articulations;   // (6 until 0.33.0)
         int count;
     };
-    inline constexpr int numPieces = 22;   // 14 until 0.33.0 (TOM 4 appended: pieces are saved by index), 15 until 0.36.0
+    inline constexpr int numPieces = 23;   // (23 from 0.71.0: PADS) 14 until 0.33.0 (TOM 4 appended: pieces are saved by index), 15 until 0.36.0
     inline constexpr std::array<Piece, numPieces> pieces {{
         { "KICK",        {{ { 0, "Hit" } }}, 1 },
         { "SNARE",       {{ { 2, "Center" }, { 4, "Rimshot" }, { 1, "Sidestick" } }}, 3 },
@@ -158,6 +167,7 @@ namespace synth::drums
         { "FX CRASH",    {{ { 33, "Hit" } }}, 1 },
         { "CHINA 2",     {{ { 34, "Hit" } }}, 1 },
         { "TOM 5",       {{ { 35, "Hit" } }}, 1 },
+        { "PADS",        {{ { 36, "Pad 1" }, { 37, "Pad 2" }, { 38, "Pad 3" }, { 39, "Pad 4" }, { 40, "Pad 5" }, { 41, "Pad 6" } }}, 6 },   // 0.71.0
     }};
     // 0.33.0: a choke articulation (hit, then grabbed): it stops what's ringing of its cymbal first.
     inline bool isChoke (int slot) noexcept { return slot >= 25 && slot <= 28; }
@@ -246,6 +256,12 @@ namespace synth::drums
         { 15, 11, -1, -1, -1, -1 },          // CFX: the china, crash 1
         { 15, 11, -1, -1, -1, -1 },          // CH2: the china, crash 1
         { 23, 5, 7, -1, -1, -1 },            // T5: tom 4, floor tom 2, floor tom 1
+        { -1, -1, -1, -1, -1, -1 },          // P1-P6 (0.71.0): a pad switched off plays nothing (no drum stands in)
+        { -1, -1, -1, -1, -1, -1 },
+        { -1, -1, -1, -1, -1, -1 },
+        { -1, -1, -1, -1, -1, -1 },
+        { -1, -1, -1, -1, -1, -1 },
+        { -1, -1, -1, -1, -1, -1 },
     }};
 
     // THE HI-HAT PEDAL (PR7-D 0.17.0): a controller's hi-hat pedal sends CC 4, 127 fully closed, 0 fully open. A note

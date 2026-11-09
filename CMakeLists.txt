@@ -63,7 +63,13 @@ juce_add_binary_data(ParagonX1Kit
         resources/kit/litcrash2.png
         resources/kit/litride.png
         resources/kit/litchina.png
-        resources/kit/litsplash.png)
+        resources/kit/litsplash.png
+        resources/kit/litpad1.png
+        resources/kit/litpad2.png
+        resources/kit/litpad3.png
+        resources/kit/litpad4.png
+        resources/kit/litpad5.png
+        resources/kit/litpad6.png)
 
 target_sources(ParagonX1
     PRIVATE

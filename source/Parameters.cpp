@@ -36,6 +36,7 @@ namespace
     constexpr int pr7d0380 = 39; // PR7-D 0.38.0: THE DRUM MACHINE's own TEMPO
     constexpr int pr7d0500 = 40; // PR7-D 0.50.0: LAYERS 2 and 3
     constexpr int pr7d0700 = 41; // PR7-D 0.70.0: a drum's MIXER CHANNEL
+    constexpr int pr7d0710 = 42; // PR7-D 0.71.0: drums 37 to 42, THE PADS (every setting of theirs)
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -127,7 +128,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
             // PR7-K's 12 drums keep their version hints; the 8 PR7-D added take 0.2.0's, the 3 after them 0.17.0's;
             // 0.33.0's six take its hint for every setting (`newer` below).
             const auto added = k >= 12, articulation = k >= 20, newer = k >= 23, newest = k >= 29;
-            const auto at = [newer, newest] (int hint) { return newest ? pr7d0360 : newer ? pr7d0330 : hint; };
+            const auto pads = k >= 36;   // 0.71.0
+            const auto at = [newer, newest, pads] (int hint) { return pads ? pr7d0710 : newest ? pr7d0360 : newer ? pr7d0330 : hint; };
             const auto hint = articulation ? pr7d0170 : added ? pr7d020 : stage6a;
             const auto hintStart = articulation ? pr7d0170 : added ? pr7d020 : stage6aStart;
             const auto hintEditor = articulation ? pr7d0170 : added ? pr7d020 : stage6c;
@@ -181,10 +183,10 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
             for (int n = 1; n < numLayers; ++n)
             {
                 add (layout, drum (k, layerLevel (n)), name + "Layer " + juce::String (n + 1) + " Level", { -60.0f, 12.0f, 0.1f }, 0.0f,
-                     [] (float v, int) { return v <= -59.95f ? juce::String ("Off") : juce::String (v, 1) + " dB"; }, pr7d0500);
-                addChoice (layout, drum (k, layerOut (n)), name + "Layer " + juce::String (n + 1) + " Out", layerOutNames, 0, pr7d0500);
+                     [] (float v, int) { return v <= -59.95f ? juce::String ("Off") : juce::String (v, 1) + " dB"; }, pads ? pr7d0710 : pr7d0500);
+                addChoice (layout, drum (k, layerOut (n)), name + "Layer " + juce::String (n + 1) + " Out", layerOutNames, 0, pads ? pr7d0710 : pr7d0500);
             }
-            addChoice (layout, drum (k, "MixOut"), name + "Mixer Channel", mixOutNames, 0, pr7d0700);
+            addChoice (layout, drum (k, "MixOut"), name + "Mixer Channel", mixOutNames, 0, pads ? pr7d0710 : pr7d0700);
         }
 
         // THE MIXER (0.20.0): the mic channels.

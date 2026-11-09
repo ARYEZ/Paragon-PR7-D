@@ -501,6 +501,7 @@ TEST_CASE ("GROOVE INTO THE SEQUENCER: a pattern with the groove's notes, played
     const auto pack = t.folder.getChildFile ("Pack");
     pack.createDirectory();
     REQUIRE (library.addFolder (pack));
+    library.setLayout (0, synth::drums::notemap::Layout::generalMidi);   // (0.71.0: a map with a note no drum has; GROOVE LIBRARY plays every note now)
     const auto r = t.p.grooveToPattern (g, 0, 1);   // pattern B
     CHECK (r.placed == 3);
     CHECK (r.noDrum == 1);
@@ -1212,6 +1213,7 @@ TEST_CASE ("RIFF MATCH: the riff is heard with the preview, from its start, loop
     CHECK (std::abs (out[(size_t) peakIn (out, 0, (int) out.size())]) < 1.0e-6f);
 
     // A preview (a note no drum plays: silent drums): the click at its start, then every 0.8 s, to the sample.
+    testkit::set (t.p, ParamIDs::drum (synth::drums::notemap::P1, "On"), 0.0f);   // (0.71.0: note 0 is PAD 1: silenced, so it's a groove of nothing)
     t.p.playGroove (groove ({ { 0.0, 0 } }, 90.0), 0, true);
     out = t.play (2.0);
     for (int k = 0; k < 3; ++k)

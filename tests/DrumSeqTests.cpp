@@ -145,7 +145,7 @@ TEST_CASE ("DRUM SEQUENCER: patterns save and load as text", "[drumseq]")
     CHECK (short_.notes[0].start == 6.0);
     CHECK (short_.notes[0].velocity == 1.0f);
     // Out of range: kept in range.
-    CHECK (drumseq::Pattern::decode ("40:-2:3:5:99:0:9:7").notes[0] .row == drumseq::numRows - 1);
+    CHECK (drumseq::Pattern::decode ("90:-2:3:5:99:0:9:7").notes[0] .row == drumseq::numRows - 1);
 }
 
 TEST_CASE ("DRUM SEQUENCER: hit times: steps, SPEED, SHUFFLE on odd steps, ROLLs across the step, end sync, LENGTH",

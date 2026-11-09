@@ -16,16 +16,16 @@ namespace
         "KICK", "SIDESTICK", "SNARE", "CLAP", "RIMSHOT", "TOM 3", "CL HAT", "TOM 2", "PEDAL HAT", "TOM 1", "OPEN HAT", "CRASH",
         "RIDE", "BELL", "CRASH 2", "CHINA", "SPLASH", "HAT OPEN 2", "TAMBOURINE", "SHAKER", "RIDE EDGE", "HAT OPEN 1",
         "HAT OPEN 3", "TOM 4", "SHOULDER", "CR 1 CHOKE", "CR 2 CHOKE", "CHN CHOKE", "SPL CHOKE", "CRASH 3", "CRASH 4",
-        "CRASH 5", "CRASH 6", "FX CRASH", "CHINA 2", "TOM 5",
+        "CRASH 5", "CRASH 6", "FX CRASH", "CHINA 2", "TOM 5", "PAD 1", "PAD 2", "PAD 3", "PAD 4", "PAD 5", "PAD 6",
     };
     static_assert (std::size (padNames) == (size_t) ParamIDs::numDrums);
 
     // The key names, in `keys`' order.
-    const char* const keyNames[] = { "PLAY", "STOP", "REC", "TAP", "A", "B", "C", "D", "1-18", "19-36", "MUTE", "SOLO",
+    const char* const keyNames[] = { "PLAY", "STOP", "REC", "TAP", "A", "B", "C", "D", "1-18", "19-36", "37-42", "MUTE", "SOLO",
                                      "KIT", "MACHINE", "DRUM", "SEQ", "SONG", "COPY", "CLEAR", "FILL", "<", ">", "FINISH..." };
     namespace K
     {
-    enum Key { play, stop, rec, tapKey, patternA, patternB, patternC, patternD, bank1, bank2, mute, solo,
+    enum Key { play, stop, rec, tapKey, patternA, patternB, patternC, patternD, bank1, bank2, bank3, mute, solo,
                viewKit, viewMachine, viewDrum, viewSeq, song, copy, clear, fill, pagePrev, pageNext, finish, numKeys };
     }
     static_assert (std::size (keyNames) == (size_t) K::numKeys);
@@ -290,6 +290,7 @@ MachineView::MachineView (ParagonX1AudioProcessor& p) : processor (p)
             "Pattern " + synth::drumseq::patternNames[pattern] + " (after COPY: the pattern playing copied here first)");
     on (K::bank1, [this] { setBank (0); }, "Drums 1-18 on the columns");
     on (K::bank2, [this] { setBank (1); }, "Drums 19-36 on the columns");
+    on (K::bank3, [this] { setBank (2); }, "Drums 37-42 on the columns: THE PADS");   // 0.71.0
     on (K::mute, [this]
         {
             const auto id = ParamIDs::drum (chosenSlot(), "Mute");
@@ -356,7 +357,7 @@ void MachineView::showPadMenu (int column)
                     return i;
             return -1;
         }();
-        const auto where = place >= 0 ? (place < numColumns ? "  (bank 1-18)" : "  (bank 19-36)") : "";
+        const auto where = place >= 0 ? (place < numColumns ? "  (bank 1-18)" : place < 2 * numColumns ? "  (bank 19-36)" : "  (bank 37-42)") : "";
         menu.addItem (slot + 1, nameOf (slot) + where, true, slot == current);
     }
     menu.addSeparator();
@@ -437,6 +438,13 @@ void MachineView::bindColumns()
     columnAttachments.clear();
     for (int c = 0; c < numColumns; ++c)
     {
+        // 0.71.0: the third bank has 6 drums: its other columns stand empty.
+        const auto used = columnUsed (c);
+        for (juce::Component* part : { (juce::Component*) tunes[(size_t) c].get(), (juce::Component*) decays[(size_t) c].get(),
+                                       (juce::Component*) faders[(size_t) c].get(), (juce::Component*) pads[(size_t) c].get() })
+            part->setVisible (used);
+        if (! used)
+            continue;
         const auto slot = slotOfColumn (c);
         const auto name = nameOf (slot);
         const auto bindKnob = [&] (juce::Slider& k, const juce::String& id, const juce::String& what)
@@ -456,7 +464,7 @@ void MachineView::bindColumns()
 
 void MachineView::setBank (int newBank)
 {
-    newBank = juce::jlimit (0, 1, newBank);
+    newBank = juce::jlimit (0, numBanks - 1, newBank);
     if (newBank == bank)
         return;
     bank = newBank;
@@ -683,6 +691,7 @@ void MachineView::refreshKeys()
         set ((K::Key) (K::patternA + pattern), shownPattern() == pattern);
     set (K::bank1, bank == 0);
     set (K::bank2, bank == 1);
+    set (K::bank3, bank == 2);
     const auto slot = chosenSlot();
     set (K::mute, value (ParamIDs::drum (slot, "Mute")) > 0.5f);
     set (K::solo, value (ParamIDs::drum (slot, "Solo")) > 0.5f);
@@ -716,6 +725,8 @@ void MachineView::update()
     const auto chosen = chosenSlot();
     for (int c = 0; c < numColumns; ++c)
     {
+        if (! columnUsed (c))
+            continue;
         const auto age = kit.getHitAge (slotOfColumn (c));
         pads[(size_t) c]->setLight (age >= 0.0f ? (1.0f - age) * (1.0f - age) : 0.0f);
         pads[(size_t) c]->setChosen (slotOfColumn (c) == chosen);
@@ -803,8 +814,9 @@ void MachineView::resized()
         place (*faders[(size_t) c], column (c) + 10, 432, 66, 254);
         place (*pads[(size_t) c], column (c) - 12, 678, 110, 110);
     }
-    place (*keys[K::bank1], 1654, 290, 94, 34);
-    place (*keys[K::bank2], 1756, 290, 94, 34);
+    place (*keys[K::bank1], 1654, 290, 62, 34);   // (0.71.0: three banks)
+    place (*keys[K::bank2], 1721, 290, 62, 34);
+    place (*keys[K::bank3], 1788, 290, 62, 34);
     place (*keys[K::mute], 1654, 370, 94, 34);
     place (*keys[K::solo], 1756, 370, 94, 34);
     for (int i = 0; i < 4; ++i)
@@ -852,7 +864,7 @@ void MachineView::paintFace (juce::Graphics& g)
 
     g.setColour (Finish::printedRed().withAlpha (0.5f));
     g.fillRect (at (34, 240, 1832, 1.4f));
-    stamp (g, bank == 0 ? "DRUMS 1-18" : "DRUMS 19-36", at (44, 248, 400, 18), juce::Justification::centredLeft, 13.0f, ink);
+    stamp (g, bank == 0 ? "DRUMS 1-18" : bank == 1 ? "DRUMS 19-36" : "DRUMS 37-42: THE PADS", at (44, 248, 400, 18), juce::Justification::centredLeft, 13.0f, ink);
     stamp (g, "TUNE", at (20, 301, 44, 14), juce::Justification::centredLeft, 10.0f, ink);
     stamp (g, "DECAY", at (20, 387, 44, 14), juce::Justification::centredLeft, 10.0f, ink);
     stamp (g, "LEVEL", at (20, 552, 44, 14), juce::Justification::centredLeft, 10.0f, ink);
@@ -895,7 +907,7 @@ void MachineView::paint (juce::Graphics& g)
     const auto chosen = chosenSlot();
     if (reaches (namesArea))
         for (int c = 0; c < numColumns; ++c)
-            if (const auto where = at (column (c) - 8, 778, 102, 16); reaches (where.getSmallestIntegerContainer()))
+            if (const auto where = at (column (c) - 8, 778, 102, 16); columnUsed (c) && reaches (where.getSmallestIntegerContainer()))
             {
                 const auto slot = slotOfColumn (c);
                 stamp (g, nameOf (slot), where, juce::Justification::centred, 10.5f, slot == chosen ? Finish::printedRed() : Finish::ink());

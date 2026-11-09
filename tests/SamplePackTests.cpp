@@ -398,8 +398,8 @@ TEST_CASE ("0.36.0's DRUMS: crashes 3 to 6, the FX crash, china 2, tom 5: they p
            "[samplepack][articulations]")
 {
     using namespace synth::drums;
-    CHECK (numSlots == 36);
-    CHECK (numPieces == 22);
+    CHECK (numSlots >= 36);   // (42 since 0.71.0)
+    CHECK (numPieces >= 22);
     CHECK (synth::mixer::numPieces == numPieces);
     CHECK (synth::micsim::numPieces == numPieces);
     CHECK (articulationName (C3) == "CRASH 3");
@@ -453,6 +453,95 @@ TEST_CASE ("0.36.0's DRUMS: crashes 3 to 6, the FX crash, china 2, tom 5: they p
             CHECK (old->parameters.at (id) == 0.0f);
     }
     // Saved now and read back: as saved (no shift).
-    CHECK (ParamIDs::instrumentIndexFrom (ParamIDs::numDrums + SD, 4) == ParamIDs::numDrums + SD);
+    CHECK (ParamIDs::instrumentIndexFrom (ParamIDs::numDrums + SD, 6) == ParamIDs::numDrums + SD);
     CHECK (ParamIDs::instrumentIndexFrom (SD, 2) == SD);
+}
+
+TEST_CASE ("THE PADS 0.71.0: six electronic pads, each its own sound on notes 0-5; older files and projects load as they were",
+           "[samplepack][articulations][pads]")
+{
+    using namespace synth::drums;
+    CHECK (numSlots == 42);
+    CHECK (numPieces == 23);
+    CHECK (synth::mixer::numPieces == numPieces);
+    CHECK (synth::micsim::numPieces == numPieces);
+    CHECK (synth::drumseq::numRows == numSlots);
+    CHECK (ModMatrix::numDrumSlots == numSlots);
+    const auto pads = pieceOfSlot (P1);
+    REQUIRE (pads == numPieces - 1);
+    CHECK (juce::String (pieces[(size_t) pads].name) == "PADS");
+    CHECK (pieces[(size_t) pads].count == 6);
+    for (int n = 0; n < 6; ++n)
+    {
+        CHECK (pieceOfSlot (P1 + n) == pads);
+        CHECK (articulationName (P1 + n) == "PADS PAD " + juce::String (n + 1));
+        CHECK (homeChannel (P1 + n) == synth::mixer::other);
+        CHECK (grooves::drumPartOf (P1 + n) == (int) grooves::DrumPart::percussion);
+        // GROOVE LIBRARY: notes 0-5 (empty in that map before) play the pads; nothing else moved.
+        CHECK (grooveLibrary()[(size_t) n] == P1 + n);
+        CHECK (juce::String (grooveLibraryName (n)) == "Pad " + juce::String (n + 1));
+        CHECK (homeNote (grooveLibrary(), Layout::grooveLibrary, P1 + n, 36) == n);
+    }
+    CHECK (grooveLibrary()[6] == SD);
+    // Electronic: no simulated mic hears them, only their own channel (OTHER).
+    CHECK (synth::micsim::hears (pads, synth::mixer::other));
+    CHECK_FALSE (synth::micsim::hears (pads, synth::mixer::overheads));
+    CHECK_FALSE (synth::micsim::hears (pads, synth::mixer::room));
+
+    // Each pad sounds out of the box (its own synth drum), on its note in the default map (GROOVE LIBRARY), and no
+    // two alike.
+    ParagonX1AudioProcessor p;
+    p.setPlayConfigDetails (0, 2, sampleRate, blockSize);
+    std::vector<std::vector<float>> heard;
+    for (int n = 0; n < 6; ++n)
+    {
+        p.prepareToPlay (sampleRate, blockSize);
+        juce::MidiBuffer midi;
+        midi.addEvent (juce::MidiMessage::noteOn (10, n, (juce::uint8) 120), 0);
+        std::vector<float> out;
+        juce::AudioBuffer<float> buffer (p.getTotalNumOutputChannels(), blockSize);
+        for (int b = 0; b < (int) (0.4 * sampleRate / blockSize); ++b)
+        {
+            buffer.clear();
+            p.processBlock (buffer, midi);
+            midi.clear();
+            out.insert (out.end(), buffer.getReadPointer (0), buffer.getReadPointer (0) + blockSize);
+        }
+        INFO ("pad " << n + 1);
+        CHECK (rms (out, 0, (int) out.size()) > 0.005f);
+        heard.push_back (out);
+    }
+    for (int a = 0; a < 6; ++a)
+        for (int b = a + 1; b < 6; ++b)
+        {
+            double diff = 0.0;
+            for (size_t i = 0; i < heard[(size_t) a].size(); ++i)
+                diff += std::abs (heard[(size_t) a][i] - heard[(size_t) b][i]);
+            CHECK (diff > 1.0);
+        }
+    // Pad 4 is the low one (an 808-style boom): most of it under 200 Hz.
+    {
+        const auto& boom = heard[3];
+        CHECK (levelAt (boom, 50.0, 0, 9600) + levelAt (boom, 80.0, 0, 9600) > levelAt (boom, 2000.0, 0, 9600));
+    }
+
+    // A preset from 0.36.0-0.70.x (version 4 or 5) counted 36 drums: a layer it saved as instrument 36 + slot is that
+    // drum's layer now (42 + slot); the pads are on (nothing played their notes before).
+    for (const auto version : { 4, 5 })
+    {
+        auto xml = Rig {}.toXml();
+        xml->setAttribute ("parameterVersion", version);
+        auto* layerRef = xml->createNewChildElement ("DrumInstrument");
+        layerRef->setAttribute ("slot", 36 + SD + 1);
+        layerRef->setAttribute ("ref", "file||/my/snare.wav");
+        const auto old = Rig::fromXml (*xml);
+        REQUIRE (old.has_value());
+        CHECK (old->drumInstruments.count (ParagonX1AudioProcessor::layerOf (SD)) == 1);
+        CHECK (old->drumInstruments.count (36 + SD) == 0);   // (not mistaken for pad 1 + SD)
+    }
+    CHECK (ParamIDs::instrumentIndexFrom (36 + T5, 5) == ParamIDs::numDrums + T5);
+    CHECK (ParamIDs::instrumentIndexFrom (P6, 6) == P6);
+    CHECK (ParamIDs::instrumentIndexFrom (ParamIDs::numDrums + P6, 6) == ParamIDs::numDrums + P6);
+    auto* on = dynamic_cast<juce::RangedAudioParameter*> (p.getParameters().getParameter (ParamIDs::drum (P1, "On")));
+    CHECK (on->convertFrom0to1 (on->getDefaultValue()) == 1.0f);
 }

@@ -654,7 +654,9 @@ torus("KICK logo ring", 0.205, 0.003, (0, front_y, 0.29), rot=(math.pi / 2, 0, 0
 # Which piece an object belongs to (its name's start), longest names first so "CRASH 2" isn't "CRASH".
 PIECES = ["kick:KICK", "kick:LOGO", "snare:SNARE", "tom1:TOM 1", "tom2:TOM 2", "tom3:TOM 3", "floor:FLOOR",
           "hihat:HI-HAT", "crash:CRASH", "crash2:CRASH 2", "ride:RIDE", "china:CHINA",
-          "splash:SPLASH"]   # (0.43.0: the 12 pieces the owner's sample pack records)
+          "splash:SPLASH",   # (0.43.0: the 12 pieces the owner's sample pack records)
+          "pad1:PADS pad 1", "pad2:PADS pad 2", "pad3:PADS pad 3", "pad4:PADS pad 4", "pad5:PADS pad 5",
+          "pad6:PADS pad 6"]   # (0.71.0: THE PADS, each its own piece: each glows when it plays; the unit's body none)
 PIECES.sort(key=lambda e: -len(e.split(":")[1]))
 
 def piece_of(name):
@@ -683,6 +685,8 @@ def zone_of(name):
         return 12                                     # RD (the lathe itself splits at the bell, below)
     # 0.37.0: the rack toms HT, MT, LT (high to low, left to right), the floor toms T4 and T5; crashes 1 to 6, the FX
     # crash, china 2 on 0.36.0's slots.
+    if piece.startswith("pad"):
+        return 35 + int(piece[3:])                    # 0.71.0: PAD 1-6 are slots 36-41
     return {"kick": 0, "tom1": 9, "tom2": 7, "tom3": 5, "floor": 23, "crash": 11, "crash2": 14, "china": 15,
             "splash": 16}[piece]
 
@@ -716,7 +720,7 @@ def flat_emission(name, value, ride_split=False):
     return m
 
 def zone_colour(slot):
-    v = (slot + 1) * 7 / 255.0 if slot >= 0 else 0.0      # the red channel: (slot + 1) x 7 (0.37.0: 36 slots; 12 before); 0: nothing
+    v = (slot + 1) * 6 / 255.0 if slot >= 0 else 0.0      # the red channel: (slot + 1) x 6 (0.71.0: 42 slots; 7 for 36, 12 before); 0: nothing
     return (v, 0.0, 0.0, 1.0)
 
 if STYLE == "mask":

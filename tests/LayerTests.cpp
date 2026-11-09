@@ -543,9 +543,13 @@ TEST_CASE ("LAYERS 0.50.0: presets, kits and the project keep all three and thei
         check (*q.processor, "project");
     }
     // Saved instrument numbers: a 0.29.0-0.49.0 file's layer (numDrums + k) is layer 1, layers 2 and 3 after it.
-    CHECK (ParamIDs::instrumentIndexFrom (ParamIDs::numDrums + 4, 5) == ParagonX1AudioProcessor::layerOf (4, 0));
-    CHECK (ParamIDs::instrumentIndexFrom (2 * ParamIDs::numDrums + 4, 5) == ParagonX1AudioProcessor::layerOf (4, 1));
-    CHECK (ParamIDs::instrumentIndexFrom (3 * ParamIDs::numDrums + 4, 5) == ParagonX1AudioProcessor::layerOf (4, 2));
+    CHECK (ParamIDs::instrumentIndexFrom (ParamIDs::numDrums + 4, 6) == ParagonX1AudioProcessor::layerOf (4, 0));
+    CHECK (ParamIDs::instrumentIndexFrom (2 * ParamIDs::numDrums + 4, 6) == ParagonX1AudioProcessor::layerOf (4, 1));
+    CHECK (ParamIDs::instrumentIndexFrom (3 * ParamIDs::numDrums + 4, 6) == ParagonX1AudioProcessor::layerOf (4, 2));
+    // (0.71.0: a 0.50.0-0.70.x file (version 5) counted 36 drums.)
+    CHECK (ParamIDs::instrumentIndexFrom (36 + 4, 5) == ParagonX1AudioProcessor::layerOf (4, 0));
+    CHECK (ParamIDs::instrumentIndexFrom (2 * 36 + 4, 5) == ParagonX1AudioProcessor::layerOf (4, 1));
+    CHECK (ParamIDs::instrumentIndexFrom (3 * 36 + 4, 5) == ParagonX1AudioProcessor::layerOf (4, 2));
     CHECK (ParamIDs::instrumentIndexFrom (23 + 4, 2) == ParagonX1AudioProcessor::layerOf (4, 0));
     CHECK (ParamIDs::instrumentIndexFrom (29 + 4, 3) == ParagonX1AudioProcessor::layerOf (4, 0));
 }

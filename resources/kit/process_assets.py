@@ -10,7 +10,8 @@ from PIL import Image, ImageFilter
 
 RAW, OUT = sys.argv[1], sys.argv[2]
 PIECES = ["kick", "snare", "tom1", "tom2", "tom3", "floor", "hihat", "crash", "crash2", "ride", "china",
-          "splash"]   # (0.43.0: the 12 pieces of the owner's sample pack)
+          "splash",   # (0.43.0: the 12 pieces of the owner's sample pack)
+          "pad1", "pad2", "pad3", "pad4", "pad5", "pad6"]   # (0.71.0: THE PADS)
 LOW, HIGH = 330.0, 30.0     # the hues kept (degrees, through 0), inside the family's 318-42: JPEG drifts a few degrees
 
 def family_hues(rgb):
@@ -51,7 +52,7 @@ Image.fromarray(base).save(os.path.join(OUT, "kit.jpg"), quality=90, subsampling
 # The click map: Blender wrote (slot + 1) x 7 / 255 through the sRGB curve (0.37.0: 7, for 36 slots; 12 before); undo it.
 m = np.array(Image.open(os.path.join(RAW, "mask.png")).convert("RGB"))[..., 0] / 255.0
 linear = np.where(m <= 0.04045, m / 12.92, ((m + 0.055) / 1.055) ** 2.4) * 255.0
-zones = np.clip(np.round(linear / 7.0), 0, 255).astype(np.uint8)
+zones = np.clip(np.round(linear / 6.0), 0, 255).astype(np.uint8)   # (0.71.0: step 6, for 42 slots)
 print("zones:", sorted(int(v) - 1 for v in np.unique(zones) if v > 0))
 Image.fromarray(np.stack([zones] * 3, axis=2)).save(os.path.join(OUT, "kitzones.png"), optimize=True)
 

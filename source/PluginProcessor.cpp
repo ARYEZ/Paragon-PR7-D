@@ -28,7 +28,7 @@ namespace
     const juce::Identifier modulationKey { "Modulation" };
     const juce::Identifier midiLinksKey { "MidiLinks" };
     const juce::Identifier noteMapKey { "NoteMap" };
-    constexpr int parameterVersion = 5;   // 2: 0.17.0 (the articulations: older projects load with drums 21 to 23 off)
+    constexpr int parameterVersion = 6;   // 6: 0.71.0 (THE PADS: 42 drums, so layers' instrument numbers moved)   // 2: 0.17.0 (the articulations: older projects load with drums 21 to 23 off)
                                           // 3: 0.33.0 (drums 24 to 29 off; layers' instrument numbers moved)
                                           // 4: 0.36.0 (drums 30 to 36 likewise)
                                           // 5: 0.39.0 (the drum buses: older projects keep their channels' routes)
@@ -2727,7 +2727,7 @@ juce::Array<juce::File> ParagonX1AudioProcessor::listDrumSequences() const { ret
 std::unique_ptr<juce::XmlElement> ParagonX1AudioProcessor::captureDrumKit() const
 {
     auto xml = std::make_unique<juce::XmlElement> ("DrumKit");
-    xml->setAttribute ("version", 4);   // 2: 0.17.0 (older kits load with drums 21 to 23 off); 3: 0.33.0 (24 to 29); 4: 0.36.0 (30 to 36)
+    xml->setAttribute ("version", 6);   // 6: 0.71.0 (42 drums; 5 skipped so a version means the same drum count as a preset's)   // 2: 0.17.0 (older kits load with drums 21 to 23 off); 3: 0.33.0 (24 to 29); 4: 0.36.0 (30 to 36)
     for (auto* parameter : AudioProcessor::getParameters())
         if (auto* ranged = dynamic_cast<juce::RangedAudioParameter*> (parameter); ranged != nullptr && isKitParameter (ranged->paramID))
         {
@@ -3476,7 +3476,11 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
         machinePads[(size_t) i] = i;
     if (auto saved = state.getChildWithName ("MachinePads"); saved.isValid())
     {
-        const auto tokens = juce::StringArray::fromTokens (saved["slots"].toString(), " ", {});
+        auto tokens = juce::StringArray::fromTokens (saved["slots"].toString(), " ", {});
+        // 0.71.0: a project from before THE PADS listed 36: the pads keep their own places after them.
+        if (tokens.size() == 36)
+            for (int i = 36; i < ParamIDs::numDrums; ++i)
+                tokens.add (juce::String (i));
         std::array<int, ParamIDs::numDrums> pads {};
         std::array<bool, ParamIDs::numDrums> seen {};
         auto whole = tokens.size() == ParamIDs::numDrums;

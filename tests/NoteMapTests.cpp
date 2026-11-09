@@ -88,11 +88,17 @@ TEST_CASE ("NOTE MAP: the groove libraries' layout plays every note of the owner
             CHECK (map[(size_t) n] == slot);
             listed.insert (n);
         }
+    // 0.71.0: notes 0-5 (empty in the owner's map) are THE PADS 1-6.
+    for (int n = 0; n < 6; ++n)
+    {
+        CHECK (map[(size_t) n] == P1 + n);
+        listed.insert (n);
+    }
     for (int n = 0; n < 128; ++n)
         if (! listed.contains (n))
         {
             INFO ("note " << n);
-            CHECK (map[(size_t) n] == -1);   // 0 to 5: nothing
+            CHECK (map[(size_t) n] == -1);   // (0.71.0: none: 0 to 5 are THE PADS, listed)
         }
 }
 
@@ -143,8 +149,8 @@ TEST_CASE ("NOTE MAP in the plugin: each layout's notes play their drums; ROOT a
     CHECK (p.sounding (7) == std::vector<int> { CH });     // HI-HAT (PEDAL), no pedal heard: closed
     CHECK (p.sounding (53) == std::vector<int> { RB });
     CHECK (p.sounding (40) == std::vector<int> { SD2 });   // the rimshot
-    CHECK (p.sounding (3).empty());   // 0.58.0: nothing on 0-5 (the tambourine and shaker had 3 and 2)
-    CHECK (p.sounding (4).empty());
+    CHECK (p.sounding (3) == std::vector<int> { P4 });   // 0.71.0: THE PADS on 0-5 (0.58.0-0.70.x: nothing)
+    CHECK (p.sounding (4) == std::vector<int> { P5 });
 
     p.layout (Layout::generalMidi);
     CHECK (p.sounding (49) == std::vector<int> { CY });
@@ -298,8 +304,8 @@ TEST_CASE ("NOTE MAP 0.58.0: the groove libraries' layout keeps the owner's map'
     CHECK (juce::String (grooveLibraryName (29)) == "Spock: Crash");
     CHECK (juce::String (grooveLibraryName (118)) == "Ride: Mute Hit");
     CHECK (juce::String (grooveLibraryName (127)) == "Snare: Sidestick");
-    for (int n = 0; n <= 5; ++n)
-        CHECK (juce::String (grooveLibraryName (n)).isEmpty());
+    for (int n = 0; n <= 5; ++n)   // (0.71.0: THE PADS, ours, on the notes the owner's map left empty)
+        CHECK (juce::String (grooveLibraryName (n)) == "Pad " + juce::String (n + 1));
     // Every note from 6 up named and played.
     const auto map = grooveLibrary();
     for (int n = 6; n < 128; ++n)

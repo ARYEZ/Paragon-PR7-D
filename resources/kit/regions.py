@@ -4,9 +4,10 @@ import sys, numpy as np
 from PIL import Image
 # (0.37.0: the owner's bigger kit; the click map's step is 7 now, for 36 slots)
 PIECE_SLOTS = {"kick": [0], "snare": [1, 2, 4], "tom1": [9], "tom2": [7], "tom3": [5], "floor": [23],
-               "hihat": [6, 8], "crash": [11], "crash2": [14], "ride": [12, 13], "china": [15], "splash": [16]}  # (0.43.0)
+               "hihat": [6, 8], "crash": [11], "crash2": [14], "ride": [12, 13], "china": [15], "splash": [16],  # (0.43.0)
+               "pad1": [36], "pad2": [37], "pad3": [38], "pad4": [39], "pad5": [40], "pad6": [41]}           # (0.71.0)
 m = np.array(Image.open(sys.argv[1]).convert("RGB"))[..., 0] / 255.0
-z = np.round(np.where(m <= 0.04045, m / 12.92, ((m + 0.055) / 1.055) ** 2.4) * 255.0 / 7.0).astype(int) - 1
+z = np.round(np.where(m <= 0.04045, m / 12.92, ((m + 0.055) / 1.055) ** 2.4) * 255.0 / 6.0).astype(int) - 1   # (0.71.0: step 6, for 42 slots)
 H, W = z.shape
 for piece, slots in PIECE_SLOTS.items():
     ys, xs = np.nonzero(np.isin(z, slots))
