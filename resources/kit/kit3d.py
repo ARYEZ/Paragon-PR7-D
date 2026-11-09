@@ -532,7 +532,7 @@ def pad_unit(name, centre, tilt, yaw, stand_base):
     rod(name + " stand arm", (bx, by, top), under, r=0.0095)
     collar(name + " stand arm", (bx, by, top), 0.0095)
 
-pad_unit("PADS", (0.97, -0.02, 0.80), tilt=0.5, yaw=0.45, stand_base=(1.16, -0.12))
+pad_unit("PADS", (0.66, 0.86, 0.80), tilt=0.42, yaw=1.30, stand_base=(0.70, 1.08))
 
 # A right-handed kit: built with the hi-hat on the drummer's right, mirrored (x -> -x).
 for o in list(bpy.data.objects):
