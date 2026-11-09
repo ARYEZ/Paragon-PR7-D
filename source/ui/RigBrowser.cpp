@@ -315,7 +315,7 @@ void RigBrowser::showDetails()
     favouriteButton.setEnabled (hasEntry);
     loadButton.setEnabled (hasEntry);
     defaultButton.setEnabled (hasEntry);
-    defaultButton.setButtonText (hasEntry && processor.isDefaultRig (*entry) ? "EVERY NEW PR7-D OPENS WITH THIS (PRESS: INIT AGAIN)"
+    defaultButton.setButtonText (hasEntry && processor.isDefaultRig (*entry) ? "THE DEFAULT (PRESS: BACK TO INIT)"
                                                                             : "OPEN WITH THIS IN EVERY NEW PR7-D");
 
     juce::String text;

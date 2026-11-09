@@ -56,6 +56,9 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
     const auto rigFolder = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ParagonX1SnapshotRigs");
     rigFolder.deleteRecursively();
     processor.useRigFolder (rigFolder);
+    // 0.70.0: PARAGON_SNAPSHOT_DEFAULT=<factory preset>: THE DEFAULT PRESET set to it (the list's DEFAULT tag).
+    if (const auto name = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_DEFAULT", {}); name.isNotEmpty())
+        processor.setDefaultRig (processor.getRigLibrary().findFactory (name));
 
     const auto page = env ("PARAGON_SNAPSHOT_PAGE");
     if (page == "presets")
