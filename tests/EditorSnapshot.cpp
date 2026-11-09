@@ -26,6 +26,7 @@
 //                                    PARAGON_SNAPSHOT_DRUMCHOSEN=1: the hats and cymbal chosen together, the tom's playhead;
 //                                    any of these shows the DRUM view; with none, the KIT VIEW (0.14.0), the page's first:
 //                                    PARAGON_SNAPSHOT_KIT=1: the kick, snare, crash and china just hit, glowing, the ride's bell chosen;
+//                                    PARAGON_SNAPSHOT_KIT=2: THE PADS 2 and 4 just hit, pad 2 chosen (0.71.0);
 //                                    PARAGON_SNAPSHOT_ARTIC=1: the hi-hat's articulations, OPEN 3 off, the pedal half open;
 //                                    PARAGON_SNAPSHOT_VELOCITY=1: the snare's VELOCITY curve and gate;
 //                                    PARAGON_SNAPSHOT_LAYERS=1: the snare's LAYERS (one aligned, one multi-mic);
@@ -317,6 +318,21 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             processor.processBlock (buffer, midi);
             midi.clear();
             for (int b = 0; b < 8; ++b)
+                processor.processBlock (buffer, midi);
+            drums.updateLights();
+        }
+        // 0.71.0: PARAGON_SNAPSHOT_KIT=2: THE PADS: pads 2 and 4 just hit (notes 1 and 3 in GROOVE LIBRARY), pad 2 chosen.
+        if (env ("PARAGON_SNAPSHOT_KIT") == "2")
+        {
+            drums.showView (DrumPage::View::kit);
+            drums.select (synth::drums::notemap::P2);
+            juce::AudioBuffer<float> buffer (2, 512);
+            juce::MidiBuffer midi;
+            for (const auto note : { 1, 3 })
+                midi.addEvent (juce::MidiMessage::noteOn (10, note, 1.0f), 0);
+            processor.processBlock (buffer, midi);
+            midi.clear();
+            for (int b = 0; b < 4; ++b)
                 processor.processBlock (buffer, midi);
             drums.updateLights();
         }
@@ -640,6 +656,8 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 machine.setBank (1);
                 machine.toggleRecord();
             }
+            if (env ("PARAGON_SNAPSHOT_MACHINE") == "3")
+                machine.setBank (2);   // 0.71.0: THE PADS' bank
             juce::AudioBuffer<float> buffer (2, 512);
             juce::MidiBuffer midi;
             for (int b = 0; b < 118; ++b)   // 2.5 beats at 120 BPM: the 11th step

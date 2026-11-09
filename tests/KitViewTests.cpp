@@ -42,7 +42,8 @@ namespace
     // 0.17.0: the ride's edge (20) a ring round its bow; the hat's openness steps are chosen in the articulations.
     // 0.37.0: the owner's bigger kit: tom 4 and 5 (the floor toms), crashes 3 to 6, the FX crash, china 2; no tambourine.
     // 0.43.0: the owner's 12-piece kit: crashes 3 to 6, the FX crash, china 2 and tom 5 left the picture.
-    const std::vector<int> onTheKit { 0, 1, 2, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 20, 23 };
+    const std::vector<int> onTheKit { 0, 1, 2, 4, 5, 6, 7, 8, 9, 11, 12, 13, 14, 15, 16, 20, 23,
+                                     36, 37, 38, 39, 40, 41 };   // (0.71.0: THE PADS, each its own)
 
     // A pixel's hue in degrees, and whether it's coloured enough to count (the family's rule is about colours, not
     // the near-black onyx or pearl greys).
