@@ -4,6 +4,7 @@
 
 #include "dsp/synth/StepSequencer.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cmath>
@@ -99,12 +100,77 @@ namespace synth::drumseq
         return (float) (h >> 8) / 16777216.0f;
     }
 
+    // 0.73.0: THE STEP FX LANE: effects on the whole drum mix, in time with the pattern (our design, after what
+    // electronic beat effects do). Each a stretch of steps; one at a time (where two overlap, the earlier starting
+    // one plays). Choices saved by index: only append.
+    enum class FxType { none, repeat, chop, tapeStop, reverse, filter, bitcrush };
+    inline const juce::StringArray fxNames { "None", "Repeat", "Chop", "Tape Stop", "Reverse", "Filter", "Bitcrush" };
+    // RATE: the slice REPEAT loops and REVERSE turns round, and CHOP's gate: notes, in beats.
+    inline const juce::StringArray fxRateNames { "1/2", "1/4", "1/8", "1/16", "1/32" };
+    inline constexpr std::array<double, 5> fxRateBeats { 2.0, 1.0, 0.5, 0.25, 0.125 };
+    inline constexpr int maxFxSteps = 64;
+    struct FxStep
+    {
+        double start = 0.0;    // in steps from the pattern's start
+        double length = 1.0;   // in steps
+        FxType type = FxType::repeat;
+        int rate = 3;          // fxRateNames: 1/16
+        float amount = 1.0f;   // 0 to 1: what it means is the effect's (see StepFx.h)
+
+        bool operator== (const FxStep& o) const noexcept
+        {
+            return juce::exactlyEqual (start, o.start) && juce::exactlyEqual (length, o.length) && type == o.type && rate == o.rate
+                && juce::exactlyEqual (amount, o.amount);
+        }
+        double rateBeats() const noexcept { return fxRateBeats[(size_t) juce::jlimit (0, (int) fxRateBeats.size() - 1, rate)]; }
+    };
+
     struct Pattern
     {
         std::vector<Note> notes;   // on the heap: patterns are copied with presets and undo steps
+        std::vector<FxStep> fx;    // THE STEP FX LANE (0.73.0), in start order
 
-        bool operator== (const Pattern& o) const noexcept { return notes == o.notes; }
-        bool isEmpty() const noexcept { return notes.empty(); }
+        bool operator== (const Pattern& o) const noexcept { return notes == o.notes && fx == o.fx; }
+        bool isEmpty() const noexcept { return notes.empty() && fx.empty(); }
+
+        // The lane as text: "type:start:length:rate:amount" separated by spaces (kept apart from the notes' text, so
+        // older versions read the notes as before).
+        juce::String encodeFx() const
+        {
+            juce::StringArray parts;
+            for (const auto& f : fx)
+                parts.add (juce::String ((int) f.type) + ":" + juce::String (f.start, 4) + ":" + juce::String (f.length, 4) + ":"
+                           + juce::String (f.rate) + ":" + juce::String (f.amount, 3));
+            return parts.joinIntoString (" ");
+        }
+        void decodeFx (const juce::String& text)
+        {
+            fx.clear();
+            for (const auto& part : juce::StringArray::fromTokens (text, " ", {}))
+            {
+                const auto f = juce::StringArray::fromTokens (part, ":", {});
+                if (f.size() < 5 || (int) fx.size() >= maxFxSteps)
+                    continue;
+                FxStep s;
+                s.type = (FxType) juce::jlimit (0, fxNames.size() - 1, f[0].getIntValue());
+                s.start = juce::jmax (0.0, f[1].getDoubleValue());
+                s.length = juce::jmax (1.0 / 16.0, f[2].getDoubleValue());
+                s.rate = juce::jlimit (0, fxRateNames.size() - 1, f[3].getIntValue());
+                s.amount = juce::jlimit (0.0f, 1.0f, f[4].getFloatValue());
+                if (s.type != FxType::none)
+                    fx.push_back (s);
+            }
+            sortFx();
+        }
+        void sortFx() { std::stable_sort (fx.begin(), fx.end(), [] (const auto& a, const auto& b) { return a.start < b.start; }); }
+        // The effect playing at `step` (within the pattern's length), or -1.
+        int fxAt (double step) const noexcept
+        {
+            for (int i = 0; i < (int) fx.size(); ++i)
+                if (step >= fx[(size_t) i].start && step < fx[(size_t) i].start + fx[(size_t) i].length)
+                    return i;
+            return -1;
+        }
 
         // As text: notes "row:start:velocity:pan:pitch:gate:roll:reverse", separated by spaces (0.72.0: then
         // ":pitchRamp:fade:chance:condition", only when any isn't its default, so older versions still read the rest).
@@ -115,7 +181,7 @@ namespace synth::drumseq
                 parts.add (juce::String (n.row) + ":" + juce::String (n.start, 4) + ":" + juce::String (n.velocity, 3) + ":"
                            + juce::String (n.pan, 3) + ":" + juce::String (n.pitch, 2) + ":" + juce::String (n.gate, 3) + ":"
                            + juce::String (n.roll) + ":" + juce::String ((int) n.reverse)
-                           + (n.rollPitch != 0.0f || n.rollFade != 0.0f || n.chance < 1.0f || n.condition != 0
+                           + (! juce::exactlyEqual (n.rollPitch, 0.0f) || ! juce::exactlyEqual (n.rollFade, 0.0f) || n.chance < 1.0f || n.condition != 0
                                   ? ":" + juce::String (n.rollPitch, 2) + ":" + juce::String (n.rollFade, 3) + ":" + juce::String (n.chance, 3)
                                         + ":" + juce::String (n.condition)
                                   : juce::String()));

@@ -206,6 +206,7 @@ void ParagonX1AudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
         bus.buffer.setSize (2, preparedBlockSize);
     }
     rack->loFi.prepare (sampleRate, preparedBlockSize);
+    rack->stepFx.prepare (sampleRate);
     for (auto& send : rack->sends)
         send.setSize (2, preparedBlockSize);
     rack->eqOutputTap.setSampleRate (sampleRate);
@@ -848,6 +849,14 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
     }
     const auto bpm = juce::jmax (1.0, hostBpm.load());
     auto* left = buffer.getWritePointer (0, start);
+    // THE STEP FX LANE's clock for each piece (0.73.0): where the sequencer was, as the kit played it.
+    struct FxPiece
+    {
+        int offset = 0, length = 0;
+        synth::drums::Kit::SeqClock clock;
+    };
+    std::array<FxPiece, 64> fxPieces;
+    auto numFxPieces = 0;
     for (int done = 0, n = 0; done < numSamples; done += n)
     {
         n = juce::jmin ((int) std::size (scratchRight), numSamples - done);
@@ -896,6 +905,10 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
         if (numGrooveHits > 0 && numHits > numGrooveHits)
             std::sort (grooveHits.begin(), grooveHits.begin() + numHits, [] (const auto& a, const auto& b) { return a.offset < b.offset; });
         drumKit.process (out, n, drums, start + done, kit, sequencer, seqHere, seqBpm, grooveHits.data(), numHits);
+        if (numFxPieces < (int) fxPieces.size())
+            fxPieces[(size_t) numFxPieces++] = { done, n, drumKit.getSeqClock() };
+        else
+            fxPieces.back().length += n;   // (more pieces than that: the last one's clock runs on)
         if (numChannels == 1)
             for (int i = 0; i < n; ++i)
                 left[done + i] = 0.5f * (left[done + i] + scratchRight[i]);
@@ -913,6 +926,20 @@ void ParagonX1AudioProcessor::processChunk (juce::AudioBuffer<float>& buffer, co
         processSends (block, aux);
         processModFx (block);   // after the returns, so the echoes and reverb are part of what they shape
     }
+    // THE STEP FX LANE (0.73.0): the pattern's effects on the whole mix, piece by piece on the sequencer's clock.
+    if (const auto* compiled = matrixForAudio.load())
+        for (int p = 0; p < numFxPieces; ++p)
+        {
+            const auto& piece = fxPieces[(size_t) p];
+            const auto& clock = piece.clock;
+            auto* l = block.getChannelPointer (0) + piece.offset;
+            auto* r = block.getNumChannels() > 1 ? block.getChannelPointer (1) + piece.offset : nullptr;
+            const auto* pattern = clock.startSteps >= 0.0 ? &compiled->drumPatterns[(size_t) juce::jlimit (0, synth::drumseq::numPatterns - 1, clock.pattern)]
+                                                          : nullptr;
+            rack->stepFx.process (l, r, piece.length, clock.startSteps, clock.stepsPerSample, sequencer.beatsPerStep(), pattern,
+                                  sequencer.lengthSteps());
+        }
+    playingStepFx = rack->stepFx.getPlayingIndex();
     processRack (block);
     // The preset's level and OUTPUT: the whole plugin's volume, so on OUT 2 to 16 too (a drum moved off MAIN keeps its
     // level). MAIN's effects and the LIMITER are MAIN's alone: the other outputs are for the DAW to mix.
@@ -2787,6 +2814,8 @@ std::unique_ptr<juce::XmlElement> ParagonX1AudioProcessor::captureDrumSequence()
         auto* e = xml->createNewChildElement ("DrumPattern");
         e->setAttribute ("pattern", synth::drumseq::patternNames[p]);
         e->setAttribute ("notes", matrix.drumPatterns[(size_t) p].encode());
+        if (! matrix.drumPatterns[(size_t) p].fx.empty())
+            e->setAttribute ("fx", matrix.drumPatterns[(size_t) p].encodeFx());   // THE STEP FX LANE (0.73.0)
     }
     return xml;
 }
@@ -2875,7 +2904,10 @@ bool ParagonX1AudioProcessor::applyDrumSequence (const juce::XmlElement& xml)
         pattern = {};
     for (const auto* e : xml.getChildWithTagNameIterator ("DrumPattern"))
         if (const auto p = synth::drumseq::patternNames.indexOf (e->getStringAttribute ("pattern")); p >= 0)
+        {
             m.drumPatterns[(size_t) p] = synth::drumseq::Pattern::decode (e->getStringAttribute ("notes"));
+            m.drumPatterns[(size_t) p].decodeFx (e->getStringAttribute ("fx"));
+        }
     setModMatrix (m);
     markModified();
     requestCheckpoint();
@@ -3805,6 +3837,7 @@ ParagonX1AudioProcessor::GrooveToPattern ParagonX1AudioProcessor::grooveToPatter
         }
     }
     auto m = matrix;
+    made.fx = m.drumPatterns[(size_t) juce::jlimit (0, ds::numPatterns - 1, pattern)].fx;   // the STEP FX lane stays (0.73.0)
     m.drumPatterns[(size_t) juce::jlimit (0, ds::numPatterns - 1, pattern)] = std::move (made);
     setModMatrix (m);
     modMatrixEditFinished();   // an undo step of its own (the settings below may not change and make one)

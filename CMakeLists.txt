@@ -83,6 +83,7 @@ target_sources(ParagonX1
         source/dsp/synth/DrumGizmo.cpp
         source/dsp/synth/SamplePack.cpp
         source/dsp/synth/MixPack.cpp
+        source/dsp/synth/StepFx.cpp
         source/dsp/synth/DiskStreamer.cpp
         source/dsp/synth/Instrument.cpp
         source/dsp/synth/RenderImport.cpp

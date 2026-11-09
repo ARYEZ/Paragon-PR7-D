@@ -1781,7 +1781,11 @@ void DrumPage::resized()
         globals.push_back (c.get());
     SynthPanel::layoutRow (k.removeFromTop (ParamControl::knobHeight), globals, 110);
     k.removeFromTop (6);
-    const auto rowHeight = k.getHeight() / synth::drums::numSlots;
+    // (0.73.0: room kept under the rows for the SEQUENCER's STEP FX lane, on every view so the rows don't jump: what's
+    // left over under whole rows if that's enough, else the rows a little shorter.)
+    auto rowHeight = k.getHeight() / synth::drums::numSlots;
+    if (k.getHeight() - rowHeight * synth::drums::numSlots < DrumSeqPanel::fxLaneHeight)
+        rowHeight = (k.getHeight() - DrumSeqPanel::fxLaneHeight) / synth::drums::numSlots;
     const auto rowsTop = k.getY();
     for (auto& row : rows)
         row->setBounds (k.removeFromTop (rowHeight).reduced (0, 2));

@@ -6,6 +6,7 @@
 #include "PluginProcessor.h"
 #include "PluginTestUtils.h"
 #include "ui/DrumPage.h"
+#include "rigs/ModMatrix.h"
 #include "rigs/FactoryRigs.h"
 
 namespace
@@ -404,4 +405,91 @@ TEST_CASE ("DRUM SEQUENCER in the plugin 0.72.0: a ratchet's PITCH RAMP and FADE
     CHECK (peakOf (dying, 0.07, 0.1) < 0.8 * peakOf (dying, 0.0, 0.05));
     const auto swelling = play (0.0f, 0.5f);
     CHECK (peakOf (swelling, 0.0, 0.05) < 0.8 * peakOf (swelling, 0.07, 0.1));
+}
+
+TEST_CASE ("STEP FX LANE in the plugin 0.73.0: REPEAT on the pattern's first beat stutters the kick in time; saved with the pattern", "[drumseqplugin][stepfx]")
+{
+    // The kick plays a 30 ms 200 Hz tone on step 1; a REPEAT over steps 1-4 (1/16 slices: 6000 samples at 120 BPM)
+    // plays it again on steps 2, 3 and 4.
+    const auto make = [] (bool withFx)
+    {
+        auto p = std::make_unique<Plugin>();
+        testkit::useSample (p->processor, 0, testkit::sine (200.0, 0.03));
+        auto m = p->processor.getModMatrix();
+        synth::drumseq::Note n;
+        n.row = 0;
+        m.drumPatterns[0].notes.push_back (n);
+        if (withFx)
+            m.drumPatterns[0].fx.push_back ({ 0.0, 4.0, synth::drumseq::FxType::repeat, 3, 1.0f });
+        p->processor.setModMatrix (m);
+        return p;
+    };
+    auto plain = make (false);
+    const auto dry = plain->play (0.6);
+    CHECK (peakOf (dry, 0.0, 0.03) > 0.1);
+    CHECK (peakOf (dry, 0.13, 0.48) < 1.0e-4);   // nothing between the kick and the next beat
+
+    auto stutter = make (true);
+    const auto wet = stutter->play (0.6);
+    for (int k = 0; k < 4; ++k)
+    {
+        INFO ("repeat " << k);
+        const auto at = 0.125 * k;
+        CHECK (peakOf (wet, at + 0.002, at + 0.028) > 0.1);
+        CHECK_THAT (frequencyOf (wet, (size_t) ((at + 0.003) * sampleRate), (size_t) ((at + 0.027) * sampleRate)), WithinAbs (200.0, 3.0));
+        CHECK (peakOf (wet, at + 0.035, at + 0.12) < 1.0e-3);
+    }
+    CHECK (peakOf (wet, 0.51, 0.6) < 1.0e-3);   // after the lane's block (step 5 on): the beat as it is (silence here)
+
+    // The sequencer off: the lane does nothing.
+    auto off = make (true);
+    off->set (ParamIDs::dseqOn, 0.0f);
+    CHECK (peakOf (off->play (0.6)) < 1.0e-6);
+
+    // Kept by presets and the project (the pattern's XML) and by sequence files, with the notes.
+    auto xml = stutter->processor.getModMatrix().toXml();
+    const auto back = ModMatrix::fromXml (*xml);
+    REQUIRE (back.drumPatterns[0].fx.size() == 1);
+    CHECK (back.drumPatterns[0].fx[0] == stutter->processor.getModMatrix().drumPatterns[0].fx[0]);
+    const auto sequence = stutter->processor.captureDrumSequence();
+    auto other = make (false);
+    other->processor.applyDrumSequence (*sequence);
+    CHECK (other->processor.getModMatrix().drumPatterns[0].fx == back.drumPatterns[0].fx);
+}
+
+TEST_CASE ("STEP FX LANE 0.73.0: the lane adds, changes and removes effects, each one undo step; the grid leaves it alone", "[drumseqplugin][stepfx][ui]")
+{
+    Plugin p;
+    StepFxLane lane (p.processor);
+    lane.setSize (800, 24);
+    using synth::drumseq::FxType;
+    p.processor.flushUndoStep();
+    lane.runMenuItem (-1, 4.0, (int) FxType::tapeStop);   // right-click an empty step: TAPE STOP there
+    p.processor.flushUndoStep();
+    auto fx = lane.getFx();
+    REQUIRE (fx.size() == 1);
+    CHECK (fx[0].type == FxType::tapeStop);
+    CHECK (fx[0].start == 4.0);
+    CHECK (fx[0].length == 4.0);   // a beat of 1/16 steps
+    CHECK (lane.nextType == FxType::tapeStop);
+    CHECK (lane.fxAt (lane.blockArea (0).getCentreX()) == 0);
+    lane.runMenuItem (0, 4.0, 225);   // AMOUNT 25%
+    p.processor.flushUndoStep();
+    lane.runMenuItem (0, 4.0, 101);   // RATE 1/4
+    p.processor.flushUndoStep();
+    lane.runMenuItem (0, 4.0, (int) FxType::chop);
+    p.processor.flushUndoStep();
+    fx = lane.getFx();
+    CHECK (fx[0].amount == 0.25f);
+    CHECK (fx[0].rate == 1);
+    CHECK (fx[0].type == FxType::chop);
+
+    // Undo steps back through them.
+    p.processor.undo();
+    CHECK (lane.getFx()[0].type == FxType::tapeStop);
+    // A note added on the grid keeps the lane.
+    p.addNote (0, 2, 0.0);
+    CHECK (lane.getFx().size() == 1);
+    lane.runMenuItem (0, 4.0, 300);   // Remove
+    CHECK (lane.getFx().empty());
 }

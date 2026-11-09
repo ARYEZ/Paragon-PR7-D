@@ -52,9 +52,12 @@ void DrumSeqGrid::refreshShown()
 void DrumSeqGrid::setShown (const Pattern& p, bool finished)
 {
     auto matrix = processor.getModMatrix();
-    matrix.drumPatterns[(size_t) getPattern()] = p;
+    auto& to = matrix.drumPatterns[(size_t) getPattern()];
+    const auto fx = to.fx;   // the grid edits notes; THE STEP FX LANE (0.73.0) edits its own part
+    to = p;
+    to.fx = fx;
     processor.setModMatrix (matrix);
-    shown = p;
+    shown = to;
     selected.resize (shown.notes.size(), false);
     if (finished)
         processor.modMatrixEditFinished();
@@ -528,6 +531,317 @@ bool DrumSeqGrid::keyPressed (const juce::KeyPress& key)
 }
 
 //==============================================================================
+namespace
+{
+    using synth::drumseq::FxStep;
+    using synth::drumseq::FxType;
+
+    // A colour each, in the family's range (red, pink, orange, amber, pearl, rose).
+    juce::Colour fxColour (FxType type)
+    {
+        switch (type)
+        {
+            case FxType::repeat:   return ParagonColours::familyRed;
+            case FxType::chop:     return ParagonColours::familyPink;
+            case FxType::tapeStop: return ParagonColours::familyOrange;
+            case FxType::reverse:  return amber;
+            case FxType::filter:   return juce::Colour (0xffe8d6d6);
+            case FxType::bitcrush: return juce::Colour (0xffb0306a);
+            case FxType::none:     break;
+        }
+        return ParagonColours::textDim;
+    }
+    bool usesRate (FxType type) { return type == FxType::repeat || type == FxType::chop || type == FxType::reverse; }
+    juce::String fxLabel (const FxStep& f)
+    {
+        auto text = synth::drumseq::fxNames[(int) f.type].toUpperCase();
+        if (usesRate (f.type))
+            text << " " << synth::drumseq::fxRateNames[f.rate];
+        return text + " " + juce::String (juce::roundToInt (f.amount * 100.0f)) + "%";
+    }
+}
+
+StepFxLane::StepFxLane (ParagonX1AudioProcessor& p) : processor (p)
+{
+    setTooltip ("STEP FX: effects on the whole drum mix while the pattern plays through them. Drag along an empty part to add one "
+                "(the effect last used), right-click for the list; drag a block to move it, its right edge to stretch it; "
+                "right-click a block to change it or remove it; the mouse wheel sets its AMOUNT.");
+    startTimerHz (30);
+}
+
+int StepFxLane::getPattern() const { return processor.getDrumSeqSettings().pattern; }
+double StepFxLane::getLengthSteps() const { return processor.getDrumSeqSettings().lengthSteps(); }
+
+std::vector<FxStep> StepFxLane::getFx() const
+{
+    return processor.getModMatrix().drumPatterns[(size_t) getPattern()].fx;
+}
+
+void StepFxLane::setFx (std::vector<FxStep> fx, bool finished)
+{
+    auto matrix = processor.getModMatrix();
+    auto& pattern = matrix.drumPatterns[(size_t) getPattern()];
+    pattern.fx = std::move (fx);
+    if ((int) pattern.fx.size() > synth::drumseq::maxFxSteps)
+        pattern.fx.resize ((size_t) synth::drumseq::maxFxSteps);
+    pattern.sortFx();
+    processor.setModMatrix (matrix);
+    if (finished)
+        processor.modMatrixEditFinished();
+    repaint();
+}
+
+double StepFxLane::stepAt (float x) const
+{
+    const auto length = getLengthSteps();
+    return juce::jlimit (0.0, length - 1.0, std::floor ((double) x / juce::jmax (1, getWidth()) * length));
+}
+
+juce::Rectangle<float> StepFxLane::blockArea (int index) const
+{
+    const auto fx = getFx();
+    if (index < 0 || index >= (int) fx.size())
+        return {};
+    const auto stepWidth = (float) getWidth() / (float) getLengthSteps();
+    const auto& f = fx[(size_t) index];
+    const auto x0 = (float) f.start * stepWidth, x1 = juce::jmin ((float) getWidth(), (float) (f.start + f.length) * stepWidth);
+    return juce::Rectangle<float> (x0, 2.0f, juce::jmax (2.0f, x1 - x0), (float) getHeight() - 4.0f).reduced (1.0f, 0.0f);
+}
+
+int StepFxLane::fxAt (float x) const
+{
+    const auto fx = getFx();
+    for (int i = (int) fx.size(); --i >= 0;)
+        if (const auto a = blockArea (i); x >= a.getX() - 1.0f && x <= a.getRight() + 1.0f)
+            return i;
+    return -1;
+}
+
+void StepFxLane::paint (juce::Graphics& g)
+{
+    const auto area = getLocalBounds().toFloat();
+    g.setColour (juce::Colour (0xff100c10));
+    g.fillRoundedRectangle (area, 4.0f);
+    g.setColour (ParagonColours::panelEdge.withAlpha (0.6f));
+    g.drawRoundedRectangle (area.reduced (0.5f), 4.0f, 1.0f);
+
+    const auto length = getLengthSteps();
+    const auto stepWidth = (float) getWidth() / (float) length;
+    const auto stepsPerBeat = 1.0 / processor.getDrumSeqSettings().beatsPerStep();
+    for (int k = 1; k < (int) std::ceil (length); ++k)
+    {
+        const auto beat = std::fmod ((double) k, stepsPerBeat) < 1.0e-6;
+        if (! beat && stepWidth < 5.0f)
+            continue;
+        g.setColour (ParagonColours::panelEdge.withAlpha (beat ? 0.8f : 0.3f));
+        g.drawVerticalLine (juce::roundToInt ((float) k * stepWidth), 3.0f, (float) getHeight() - 3.0f);
+    }
+
+    const auto fx = getFx();
+    if (fx.empty())
+    {
+        g.setColour (ParagonColours::textDim);
+        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
+        g.drawText ("STEP FX: DRAG HERE TO ADD AN EFFECT (RIGHT-CLICK FOR THE LIST)", getLocalBounds().reduced (8, 0), juce::Justification::centredLeft, false);
+    }
+    const auto playing = processor.getPlayingStepFx();
+    for (int i = 0; i < (int) fx.size(); ++i)
+    {
+        const auto& f = fx[(size_t) i];
+        if (f.start >= length)
+            continue;
+        const auto r = blockArea (i);
+        const auto colour = fxColour (f.type);
+        const auto lit = playing == i;
+        g.setColour (colour.withAlpha (lit ? 0.75f : 0.2f + 0.3f * f.amount));
+        g.fillRoundedRectangle (r, 3.0f);
+        g.setColour (colour);
+        g.drawRoundedRectangle (r, 3.0f, lit ? 2.0f : 1.0f);
+        if (r.getWidth() > 24.0f)
+        {
+            g.setColour (lit ? juce::Colours::black : ParagonColours::text);
+            g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+            g.drawFittedText (fxLabel (f), r.reduced (4.0f, 0.0f).toNearestInt(), juce::Justification::centredLeft, 1, 0.8f);
+        }
+    }
+
+    // Where the beat is playing (as the grid's line).
+    const auto position = processor.getDrumKit().getSequencerPosition();
+    if (position >= 0.0 && processor.getDrumKit().getSequencerPattern() == getPattern())
+    {
+        const auto x = (float) (position / length * getWidth());
+        g.setColour (ParagonColours::text.withAlpha (0.85f));
+        g.fillRect (juce::Rectangle<float> (x - 0.75f, 2.0f, 1.5f, (float) getHeight() - 4.0f));
+    }
+}
+
+void StepFxLane::timerCallback()
+{
+    if (! isShowing())
+        return;
+    const auto position = processor.getDrumKit().getSequencerPosition();
+    const auto x = position >= 0.0 ? (float) (position / getLengthSteps() * getWidth()) : -1.0f;
+    const auto playing = processor.getPlayingStepFx();
+    if (std::abs (x - lastPlayhead) >= 1.0f || playing != lastPlaying)
+    {
+        lastPlayhead = x;
+        lastPlaying = playing;
+        repaint();
+    }
+}
+
+juce::PopupMenu StepFxLane::menuFor (int index, double step)
+{
+    juce::PopupMenu m;
+    const auto fx = getFx();
+    if (index < 0 || index >= (int) fx.size())
+    {
+        m.addSectionHeader ("ADD AN EFFECT ON THIS STEP");
+        for (int t = 1; t < synth::drumseq::fxNames.size(); ++t)
+            m.addItem (t, synth::drumseq::fxNames[t]);
+        juce::ignoreUnused (step);
+        return m;
+    }
+    const auto& f = fx[(size_t) index];
+    m.addSectionHeader (fxLabel (f));
+    juce::PopupMenu types, rates, amounts;
+    for (int t = 1; t < synth::drumseq::fxNames.size(); ++t)
+        types.addItem (t, synth::drumseq::fxNames[t], true, (int) f.type == t);
+    m.addSubMenu ("Effect", types);
+    for (int r = 0; r < synth::drumseq::fxRateNames.size(); ++r)
+        rates.addItem (100 + r, synth::drumseq::fxRateNames[r], true, f.rate == r);
+    m.addSubMenu ("Rate", rates, usesRate (f.type));
+    for (const auto a : { 25, 50, 75, 100 })
+        amounts.addItem (200 + a, juce::String (a) + "%", true, juce::roundToInt (f.amount * 100.0f) == a);
+    m.addSubMenu ("Amount", amounts);
+    m.addSeparator();
+    m.addItem (300, "Remove");
+    return m;
+}
+
+void StepFxLane::runMenuItem (int index, double step, int item)
+{
+    if (item <= 0)
+        return;
+    auto fx = getFx();
+    if (index < 0 || index >= (int) fx.size())
+    {
+        if (item < synth::drumseq::fxNames.size())
+        {
+            // A new one on that step (cut short of the next one), as long as a beat if there's room.
+            FxStep f;
+            f.type = (FxType) item;
+            f.start = step;
+            auto end = juce::jmin (getLengthSteps(), step + juce::jmax (1.0, std::round (1.0 / processor.getDrumSeqSettings().beatsPerStep())));
+            for (const auto& other : fx)
+                if (other.start > step)
+                    end = juce::jmin (end, other.start);
+            f.length = juce::jmax (1.0, end - step);
+            fx.push_back (f);
+            nextType = f.type;
+            setFx (std::move (fx), true);
+        }
+        return;
+    }
+    auto& f = fx[(size_t) index];
+    if (item < synth::drumseq::fxNames.size())
+        nextType = f.type = (FxType) item;
+    else if (item >= 100 && item < 100 + synth::drumseq::fxRateNames.size())
+        f.rate = item - 100;
+    else if (item > 200 && item < 300)
+        f.amount = (float) (item - 200) / 100.0f;
+    else if (item == 300)
+        fx.erase (fx.begin() + index);
+    setFx (std::move (fx), true);
+}
+
+void StepFxLane::mouseDown (const juce::MouseEvent& e)
+{
+    const auto index = fxAt (e.position.x);
+    const auto step = stepAt (e.position.x);
+    changed = false;
+    if (e.mods.isPopupMenu())
+    {
+        menuFor (index, step).showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition(),
+                                             [safe = juce::Component::SafePointer<StepFxLane> (this), index, step] (int item)
+                                             {
+                                                 if (safe != nullptr)
+                                                     safe->runMenuItem (index, step, item);
+                                             });
+        return;
+    }
+    downStep = step;
+    if (index >= 0)
+    {
+        dragIndex = index;
+        original = getFx()[(size_t) index];
+        drag = e.position.x > blockArea (index).getRight() - 6.0f ? Drag::stretch : Drag::move;
+        return;
+    }
+    // A new block of the effect last used, on this step, stretched as the mouse drags.
+    auto fx = getFx();
+    FxStep f;
+    f.type = nextType;
+    f.start = step;
+    f.length = 1.0;
+    fx.push_back (f);
+    setFx (fx, false);
+    changed = true;
+    const auto now = getFx();
+    for (int i = 0; i < (int) now.size(); ++i)
+        if (juce::exactlyEqual (now[(size_t) i].start, step) && now[(size_t) i].type == nextType && juce::exactlyEqual (now[(size_t) i].length, 1.0))
+            dragIndex = i;
+    original = f;
+    drag = Drag::add;
+}
+
+void StepFxLane::mouseDrag (const juce::MouseEvent& e)
+{
+    if (drag == Drag::none || dragIndex < 0)
+        return;
+    auto fx = getFx();
+    if (dragIndex >= (int) fx.size())
+        return;
+    const auto length = getLengthSteps();
+    const auto step = stepAt (e.position.x);
+    auto f = original;
+    if (drag == Drag::move)
+        f.start = juce::jlimit (0.0, juce::jmax (0.0, length - 1.0), original.start + (step - downStep));
+    else
+        f.length = juce::jmax (1.0, step + 1.0 - f.start);
+    if (f == fx[(size_t) dragIndex])
+        return;
+    fx[(size_t) dragIndex] = f;
+    // Keep following the same block through the re-sort.
+    setFx (fx, false);
+    const auto now = getFx();
+    for (int i = 0; i < (int) now.size(); ++i)
+        if (now[(size_t) i] == f)
+            dragIndex = i;
+    changed = true;
+}
+
+void StepFxLane::mouseUp (const juce::MouseEvent&)
+{
+    if (changed)
+        processor.modMatrixEditFinished();
+    drag = Drag::none;
+    dragIndex = -1;
+    changed = false;
+}
+
+void StepFxLane::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWheelDetails& wheel)
+{
+    const auto index = fxAt (e.position.x);
+    if (index < 0)
+        return;
+    auto fx = getFx();
+    auto& f = fx[(size_t) index];
+    f.amount = juce::jlimit (0.0f, 1.0f, std::round ((f.amount + (wheel.deltaY > 0.0f ? 0.05f : -0.05f)) * 20.0f) / 20.0f);
+    setFx (std::move (fx), true);
+}
+
+//==============================================================================
 NoteField::NoteField (juce::String l, float lo, float hi, float s, float d, std::function<juce::String (float)> f)
     : label (std::move (l)), min (lo), max (hi), step (s), defaultValue (d), format (std::move (f))
 {
@@ -650,7 +964,7 @@ void DrumSeqPanel::style (juce::TextButton& b)
     b.setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
 }
 
-DrumSeqPanel::DrumSeqPanel (ParagonX1AudioProcessor& p) : processor (p), grid (p)
+DrumSeqPanel::DrumSeqPanel (ParagonX1AudioProcessor& p) : processor (p), grid (p), fxLane (p)
 {
     setInterceptsMouseClicks (false, true);   // the page's own buttons show through the gaps
     auto& state = p.getParameters();
@@ -700,6 +1014,7 @@ DrumSeqPanel::DrumSeqPanel (ParagonX1AudioProcessor& p) : processor (p), grid (p
     exportButton.exportTo = [this] (const juce::File& f) { return processor.exportDrumMidi (grid.getPattern(), f); };
     addAndMakeVisible (exportButton);
     addAndMakeVisible (grid);
+    addAndMakeVisible (fxLane);
 
     // The chosen notes' settings: set on all of them; shown from the first.
     const auto field = [this] (const juce::String& label, float lo, float hi, float step, float def, std::function<juce::String (float)> format,
@@ -853,6 +1168,8 @@ void DrumSeqPanel::resized()
             fields[(size_t) (line * 5 + i)]->setBounds (strip.removeFromLeft (72));
     }
     grid.setBounds (gridArea);
+    // THE STEP FX LANE under it (0.73.0), in the room the page keeps below the rows.
+    fxLane.setBounds (gridArea.getX(), gridArea.getBottom() + 4, gridArea.getWidth(), fxLaneHeight - 5);
 }
 
 void DrumSeqPanel::paint (juce::Graphics& g)

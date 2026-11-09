@@ -2,6 +2,23 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.73.0
+
+**THE SEQUENCER's electronic tricks, part 2: THE STEP FX LANE.** A strip under the sequencer's grid, lined up with its steps, where you lay down effects that work on the whole drum mix while the pattern plays through them: stutters, chops, tape stops and so on, in time with the beat. Our own design, after what electronic beat-effect units do.
+
+- **The effects** (each a block of steps you draw):
+  - **REPEAT:** a stutter. The first slice plays as it is, then loops for the rest of the block. RATE sets the slice (1/2 to 1/32 note); AMOUNT is each repeat's level against the one before (100%: all alike, lower: they die away).
+  - **CHOP:** a gate opening and closing every RATE; AMOUNT how far it closes (100%: silence between).
+  - **TAPE STOP:** the sound slows down like a tape machine switched off, over the block; AMOUNT how far (100%: to a stop, fading out as it gets there; 50%: down to half speed, an octave lower).
+  - **REVERSE:** each slice plays the slice before it backwards (the first one, the slice just before the block).
+  - **FILTER:** a low-pass sweeping down over the block; AMOUNT how far (100%: down to about 150 Hz).
+  - **BITCRUSH:** fewer bits and a lower sample rate; AMOUNT how much.
+- **Using the lane:** drag along an empty part to add a block of the effect you used last (REPEAT at first); right-click an empty part to pick an effect; drag a block to move it, its right edge to stretch it; right-click a block to change its effect, RATE or AMOUNT, or to remove it; the mouse wheel over a block changes its AMOUNT. The block playing lights up. Each change is one undo step.
+- **Each pattern (A-D) has its own lane.** It's saved with the pattern: in presets, the project and sequence files. TO SEQUENCER and dropping grooves on the grid change the notes and leave the lane as it was.
+- **Where it sits:** after the kit, its delay and reverb returns and MOD / LO-FI, before the FX page's master EQ, compressor and LIMITER, so the echoes stutter with the drums and the limiter still catches the peaks. It only plays while the sequencer does (SONG with the DAW or THE DRUM MACHINE's PLAY, or a KEY pattern key held). It adds no delay (latency): REPEAT, REVERSE and TAPE STOP play back what was just heard.
+- **Limits:** it works on MAIN only (drums sent to OUT 2-16 aren't touched); MIDI EXPORT writes the notes, not the effects.
+- **The sequencer's rows** keep their height: the lane uses the room that was left under them.
+
 ## 0.72.0
 
 **THE SEQUENCER's electronic tricks, part 1: ratchets that ramp, and notes that don't play every time.** Four new settings on each note (choose notes on the SEQUENCER and set them in the note fields, as with VELOCITY or ROLL). Our own design, after what electronic drum machines do; part 2 (0.73.0) is a lane of step effects (beat repeat, chop, tape stop...).

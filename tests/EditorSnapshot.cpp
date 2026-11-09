@@ -603,6 +603,10 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             note (5, 15.0).pitch = -3.0f;
             note (11, 15.0).reverse = synth::drumseq::Reverse::endSync;
             note (1, 6.0, 0.6f).pan = -0.5f;
+            // THE STEP FX LANE (0.73.0): a stutter across beat 2 (playing in the shot), a chop, and a tape stop to end.
+            beat.fx.push_back ({ 4.0, 2.0, synth::drumseq::FxType::repeat, 3, 1.0f });
+            beat.fx.push_back ({ 8.0, 4.0, synth::drumseq::FxType::chop, 4, 0.75f });
+            beat.fx.push_back ({ 13.0, 3.0, synth::drumseq::FxType::tapeStop, 3, 1.0f });
             auto matrix = processor.getModMatrix();
             matrix.drumPatterns[0] = beat;
             processor.setModMatrix (matrix);

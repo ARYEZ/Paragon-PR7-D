@@ -1983,6 +1983,17 @@ namespace synth::drums
             keyRunning = false;
             numHeld = 0;
         }
+        seqClock = {};
+        if (sequencing && bpm > 0.0)
+        {
+            const auto beatsPerStep = sequencer.beatsPerStep();
+            seqClock.stepsPerSample = bpm / 60.0 / sampleRate / beatsPerStep;
+            if (! keyed && ppq >= 0.0)
+                seqClock.startSteps = ppq / beatsPerStep;
+            else if (keyed && keyRunning)
+                seqClock.startSteps = keyClock;
+            seqClock.pattern = keyed ? keyPattern : sequencer.pattern;
+        }
         int done = 0;
         const auto renderTo = [&] (int until)
         {

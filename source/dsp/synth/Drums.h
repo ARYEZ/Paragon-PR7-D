@@ -664,6 +664,15 @@ namespace synth::drums
                       const SlotHit* hits = nullptr, int numHits = 0) noexcept;
 
         // The sequencer now (any thread): where it is in its pattern, in steps (-1: stopped), and which pattern.
+        // THE STEP FX LANE's clock (0.73.0, audio thread): the sequencer's step at the start of the last process()
+        // (counted from its start: the song's beat 0, or the KEY key going down; < 0: not playing), steps per sample,
+        // and the pattern playing.
+        struct SeqClock
+        {
+            double startSteps = -1.0, stepsPerSample = 0.0;
+            int pattern = 0;
+        };
+        SeqClock getSeqClock() const noexcept { return seqClock; }
         double getSequencerPosition() const noexcept { return sequencerPosition.load(); }
         int getSequencerPattern() const noexcept { return sequencerPattern.load(); }
         // KEY: the four keys under ROOT start pattern A to D (lowest A).
@@ -754,6 +763,7 @@ namespace synth::drums
         float keyVelocity = 1.0f;
         std::vector<int> heldPatterns = std::vector<int> (8);
         int numHeld = 0;
+        SeqClock seqClock;
         std::atomic<double> sequencerPosition { -1.0 };
         std::atomic<int> sequencerPattern { 0 };
         static bool audible (const KitSettings&, int slot) noexcept;   // MUTE / SOLO

@@ -279,6 +279,8 @@ struct ModMatrix
                 auto* e = xml->createNewChildElement ("DrumPattern");
                 e->setAttribute ("pattern", synth::drumseq::patternNames[p]);
                 e->setAttribute ("notes", drumPatterns[(size_t) p].encode());
+                if (! drumPatterns[(size_t) p].fx.empty())
+                    e->setAttribute ("fx", drumPatterns[(size_t) p].encodeFx());   // THE STEP FX LANE (0.73.0)
             }
         return xml;
     }
@@ -350,7 +352,10 @@ struct ModMatrix
         m.readLayers (xml);
         for (const auto* e : xml.getChildWithTagNameIterator ("DrumPattern"))
             if (const auto p = synth::drumseq::patternNames.indexOf (e->getStringAttribute ("pattern")); p >= 0)
+            {
                 m.drumPatterns[(size_t) p] = synth::drumseq::Pattern::decode (e->getStringAttribute ("notes"));
+                m.drumPatterns[(size_t) p].decodeFx (e->getStringAttribute ("fx"));
+            }
         return m;
     }
 };

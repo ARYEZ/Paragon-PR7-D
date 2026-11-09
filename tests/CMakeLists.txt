@@ -24,6 +24,7 @@ add_executable(ParagonX1Tests
     RiffTests.cpp
     SamplePackTests.cpp
     MixPackTests.cpp
+    StepFxTests.cpp
     DrumSeqPluginTests.cpp
     StackSizeTests.cpp
     ParameterIdTests.cpp
