@@ -2,6 +2,17 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.75.0
+
+**Drums from another sample pack, onto the drums you choose.** For packs that keep every microphone in its own file (named like your Djent Drums kit: `JAD_PAISTE_CHINA_SPOT_V01_RR1.wav`), so you can bring in, say, a second library's china or crash and keep the rest of your kit as it is.
+
+- **How:** DRUMS > LOAD... > *Drums from a sample pack with separate mics, onto the drums you choose*. Point it at the pack's folder, or at one piece's folder (e.g. its PAISTE CHINA folder). Every folder of hits is listed by its name; for each, choose *Keep this kit's* or *Onto this kit's CHINA / CHINA 2 / CRASH 3...* (cymbals onto cymbals, toms onto toms).
+- **What comes in** (your choice): its **close (spot) mic**, on a **new mixer channel of its own** named after where it went and where it came from (e.g. *CHINA 2 PAISTE CHINA*), into the same bus / output as your cymbals; and its **overheads**, into OVERHEADS with your kit's. Its room mics are left out: they were recorded in another room, around another kit.
+- **Its choke** comes with it when the drum it goes onto has one (onto your CHINA: hit and choke; onto CHINA 2 or CRASH 3, which have no choke, just the hit). Articulations of that drum the pack has none of are turned off (they play the nearest it has).
+- Every other drum, channel and setting stays as it was; the import is one undo step; save a preset to keep it (the pack is found again by its folder, as your Djent kit is).
+- **Also:** the pack reader now keeps a piece's name when a folder holds only that piece (every file there starts "JAD_PAISTE_CHINA_"), and reads three room mics apart: RM CLOSE the ROOM, RM FAR the AMBIENCE, RM MONO a channel of its own (for importing such a pack whole). Your Djent kit reads exactly as before.
+- **Not checked here:** your real files' audio (only their names, from your screenshot), and how the new cymbal sits in your mix: its level against your Djent cymbals is yours to set on its channel.
+
 ## 0.74.0
 
 **THE KIT VIEW: a third crash, and the splash in the middle**, so the kit is balanced, with two crashes up high on each side (your layout, approved from a preview render).

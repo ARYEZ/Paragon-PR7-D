@@ -545,3 +545,89 @@ TEST_CASE ("THE PADS 0.71.0: six electronic pads, each its own sound on notes 0-
     auto* on = dynamic_cast<juce::RangedAudioParameter*> (p.getParameters().getParameter (ParamIDs::drum (P1, "On")));
     CHECK (on->convertFrom0to1 (on->getDefaultValue()) == 1.0f);
 }
+
+TEST_CASE ("SAMPLE PACK 0.75.0: a second pack's china onto this kit's drums: its spot on a channel of its own, its overheads in, its rooms out", "[samplepack][onto]")
+{
+    Plugin p;
+    p.processor->importSamplePack (makePack (p.temp.folder));
+    REQUIRE (p.processor->waitForInstruments());
+
+    // The second pack, laid out and named as the owner's: one piece's folder, five mics, its choke beside it (the choke
+    // 50 Hz higher, so the two can be told apart; each room mic a pitch of its own).
+    const auto second = p.temp.folder.getChildFile ("JUST ADD MODERN DRUMS");
+    const auto china = second.getChildFile ("WAV & ONE-SHOTS/INDIVIDUAL MICS/4. CYMBALS/PAISTE CHINA");
+    const std::vector<std::pair<juce::String, double>> mics { { "OH", 1300.0 }, { "RM_CLOSE", 1700.0 }, { "RM_FAR", 1900.0 },
+                                                             { "RM_MONO", 2100.0 }, { "SPOT", 400.0 } };
+    for (const auto* choke : { "", "CHOKE_" })
+        for (const auto& [mic, hz] : mics)
+            for (int v = 1; v <= 2; ++v)
+                for (int r = 1; r <= 2; ++r)
+                    writeHit (china.getChildFile ("JAD_PAISTE_CHINA_" + juce::String (choke) + mic + "_V0" + juce::String (v) + "_RR"
+                                                  + juce::String (r) + ".wav"),
+                              hz + (juce::String (choke).isEmpty() ? 0.0 : 50.0), 0.1f * (float) v, 0.5);
+
+    // Read: the piece's own name kept (every file shares "JAD PAISTE CHINA"), the three room mics told apart.
+    const auto info = pack::scan (china);
+    CHECK (info.unused.isEmpty());
+    REQUIRE (info.slots.count (CHN) == 1);
+    REQUIRE (info.slots.count (CHC) == 1);
+    CHECK (pack::mainSlotOf (info) == CHN);
+    std::map<juce::String, int> channelOf;
+    for (const auto& f : info.slots.at (CHN))
+        channelOf[f.mic] = f.channel;
+    CHECK (channelOf.at ("SPOT") == synth::mixer::cymbals);
+    CHECK (channelOf.at ("OH") == synth::mixer::overheads);
+    CHECK (channelOf.at ("RM CLOSE") == synth::mixer::room);
+    CHECK (channelOf.at ("RM FAR") == synth::mixer::ambience);
+    CHECK (channelOf.at ("RM MONO") >= synth::mixer::numChannels);   // a channel of its own
+    CHECK (pack::pieceFolders (second) == std::vector<juce::File> { china });
+    CHECK (pack::pieceFolders (china) == std::vector<juce::File> { china });
+
+    // Onto this kit's CHINA 2 (one articulation: the choke has nowhere to go); every other drum as it was.
+    const auto crashRef = p.processor->getInstrumentRef (CY);
+    const auto chinaRef = p.processor->getInstrumentRef (CHN);
+    p.processor->flushUndoStep();
+    auto result = p.processor->importSamplePackOnto (second, { { china, synth::drums::pieceOfSlot (CH2) } });
+    p.processor->flushUndoStep();
+    REQUIRE (p.processor->waitForInstruments());
+    REQUIRE (result.slots.size() == 1);
+    CHECK (result.slots[0].first == CH2);
+    CHECK (result.problems.isEmpty());
+    const auto spot = result.channels.at (CH2);
+    CHECK (spot >= synth::mixer::numChannels);
+    CHECK (p.processor->getMixerChannelName (spot) == "CHINA 2 PAISTE CHINA");
+    CHECK (p.processor->getInstrumentRef (CH2).startsWith ("packon|"));
+    CHECK (p.processor->getInstrumentRef (CY) == crashRef);
+    CHECK (p.processor->getInstrumentRef (CHN) == chinaRef);
+    CHECK (p.get (ParamIDs::drum (CH2, "On")) > 0.5f);
+
+    // Its spot mic (400 Hz) on its own channel; its overheads (1300 Hz) in OVERHEADS; no room mic anywhere.
+    p.soloOnly (spot);
+    auto out = p.play (CH2, 127, 0.3);
+    CHECK (levelAt (out, 400.0, 0, 4800) > 0.02);
+    CHECK (levelAt (out, 1300.0, 0, 4800) < 0.001);
+    p.soloOnly (synth::mixer::overheads);
+    out = p.play (CH2, 127, 0.3);
+    CHECK (levelAt (out, 1300.0, 0, 4800) > 0.02);
+    CHECK (levelAt (out, 400.0, 0, 4800) < 0.001);
+    p.soloOnly (-1);
+    out = p.play (CH2, 127, 0.3);
+    for (const auto hz : { 1700.0, 1900.0, 2100.0 })
+        CHECK (levelAt (out, hz, 0, 4800) < 0.001);
+    CHECK (levelAt (out, 400.0, 0, 4800) > 0.02);
+
+    // One undo step: the channel's name (and the drum) back as they were.
+    p.processor->undo();
+    CHECK (p.processor->getMixerChannelName (spot) != "CHINA 2 PAISTE CHINA");
+
+    // Onto the kit's own CHINA: the hit onto the hit, the choke onto the choke, both through the new spot channel.
+    result = p.processor->importSamplePackOnto (second, { { china, synth::drums::pieceOfSlot (CHN) } });
+    REQUIRE (p.processor->waitForInstruments());
+    REQUIRE (result.slots.size() == 2);
+    CHECK (result.channels.at (CHN) == result.channels.at (CHC));
+    CHECK (p.processor->getMixerChannelName (result.channels.at (CHN)) == "CHINA PAISTE CHINA");
+    p.soloOnly (result.channels.at (CHC));
+    out = p.play (CHC, 127, 0.3);
+    CHECK (levelAt (out, 450.0, 0, 4800) > 0.02);
+    CHECK (p.processor->getInstrumentRef (CY) == crashRef);
+}

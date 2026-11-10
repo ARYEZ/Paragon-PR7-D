@@ -175,6 +175,7 @@ private:
     void importSamplePack();   // 0.33.0
     void importMixPack();      // 0.69.0
     void importMixPackOnto();  // 0.70.0: only the drums chosen, onto the drums chosen
+    void importSamplePackOnto();   // 0.75.0: a multi-mic pack's pieces (by folder) onto the drums chosen
 public:
     // 0.70.0: the kit's pieces a pack's piece can go onto (its own first: toms onto toms, cymbals onto cymbals).
     static juce::Array<int> mixPackTargetsFor (int piece);
