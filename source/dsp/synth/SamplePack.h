@@ -30,6 +30,7 @@ namespace synth::drums::samplepack
         juce::File file;
         int channel = -1;      // mixer channel (0-12 named, 13-20 USER)
         int layer = 1, round = 1;
+        juce::String mic;      // 0.75.0: its mic words ("OH", "RM CLOSE", "SPOT"; "" a close mic named by none)
     };
 
     struct PackInfo
@@ -54,5 +55,11 @@ namespace synth::drums::samplepack
     // Our rules, for tests and the import's summary: the slot a sound's name plays (-1: none), and a mic word's channel
     // for that slot (-1: a USER channel of its own; -2: not a mic word).
     int slotFor (const juce::StringArray& soundWords);
+
+    // 0.75.0: a pack's pieces' folders (the folder itself and those under it holding its hits; inside its INDIVIDUAL
+    // MICS folder when it has one), in name order; and a scanned folder's main sound (its piece's first articulation,
+    // else its first slot; -1: none).
+    std::vector<juce::File> pieceFolders (const juce::File& folder);
+    int mainSlotOf (const PackInfo&);
     int channelFor (const juce::String& micWords, int slot);
 }

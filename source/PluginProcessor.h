@@ -229,6 +229,21 @@ public:
         juce::StringArray userChannels, unused;
     };
     SamplePackImport importSamplePack (const juce::File& folder);
+    // 0.75.0: A SAMPLE PACK's PIECES ONTO CHOSEN DRUMS (a multi-mic pack named as importSamplePack reads them, e.g. a
+    // second library's china onto this kit's CHINA 2): each (piece folder, this kit's piece) pair brings that folder's
+    // sounds onto the piece (`mixPackSlotOnto`: its hit onto the hit, its choke onto the choke), with only its close
+    // (spot) mics, summed onto a new USER channel of its own named "<PIECE> <FOLDER>" (into the bus / output of the
+    // piece's own channel), and its overheads into OVERHEADS; its room mics left out (they were recorded in another
+    // room). Every other drum stays as it is; the piece's articulations the folder has none of: off. Refs
+    // "packon|<its slot>,<channel>|{kit:<pack folder>}/<piece folder>". One undo step.
+    struct SamplePackOntoImport
+    {
+        std::vector<std::pair<int, juce::String>> slots;   // slot, the folder its sounds came from
+        std::map<int, int> channels;                        // slot -> its spot mic's USER channel
+        juce::Array<int> turnedOff;
+        juce::StringArray problems;                         // (no USER channel left, a folder with no drum...)
+    };
+    SamplePackOntoImport importSamplePackOnto (const juce::File& packFolder, const std::vector<std::pair<juce::File, int>>& onto);
     // 0.69.0: A MIXED SAMPLE PACK (mixpack: each drum's hits already mixed to stereo, several finished mixes in folders
     // of their own). Each drum it has takes the chosen version's chosen mix (else the nearest) as a folder of hits, its
     // PARALLEL mix as layer 1 at `parallelDb` (unless `parallelLayers` is false: they double the memory), a second kick as the kick's layer 2 (off: -60 dB); the hat's steps,

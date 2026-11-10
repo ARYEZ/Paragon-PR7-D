@@ -133,8 +133,9 @@ namespace synth::drums::samplepack
         const auto m = micWords.toUpperCase();
         if (m.startsWith ("OH") || m.startsWith ("OVERHEAD"))
             return mixer::overheads;
+        // (0.75.0: a pack with three room mics: CLOSE (or none) the room, FAR the ambience, MONO a channel of its own)
         if (m.startsWith ("RM") || m.startsWith ("ROOM"))
-            return mixer::room;
+            return m.endsWith ("FAR") ? mixer::ambience : m.endsWith ("MONO") ? -1 : mixer::room;
         if (m.startsWith ("AMB"))
             return mixer::ambience;
         const auto kick = slot == BD, snare = slot == SD || slot == SD2 || slot == RIM;
@@ -183,11 +184,13 @@ namespace synth::drums::samplepack
         if (named.empty())
             return info;
         // The prefix every name shares (at least one word left in each).
+        // 0.75.0: never past a word that names a drum or a mic: a folder of one piece ("JAD_PAISTE_CHINA_...") shares
+        // its piece's name too, and that's what places it.
         auto prefix = named.front().second.size();
         for (const auto& [f, t] : named)
         {
             int k = 0;
-            while (k < prefix && k < t.size() - 1 && t[k] == named.front().second[k])
+            while (k < prefix && k < t.size() - 1 && t[k] == named.front().second[k] && ! isMicWord (t[k]) && slotFor (juce::StringArray { t[k] }) < 0)
                 ++k;
             prefix = juce::jmin (prefix, k);
         }
@@ -209,7 +212,8 @@ namespace synth::drums::samplepack
             for (int k = prefix; k < tokens.size(); ++k)
             {
                 const auto& t = tokens[k];
-                if (isMicWord (t) || (t == "CLOSE" && ! mic.isEmpty() && (mic[mic.size() - 1] == "RM" || mic[mic.size() - 1] == "ROOM")))
+                // (0.75.0: a room's CLOSE, FAR or MONO is the mic's: "RM FAR" is a second room mic, not a sound)
+                if (isMicWord (t) || ((t == "CLOSE" || t == "FAR" || t == "MONO") && ! mic.isEmpty() && (mic[mic.size() - 1] == "RM" || mic[mic.size() - 1] == "ROOM")))
                     mic.add (t);
                 else if (sound.isEmpty() || sound[sound.size() - 1] != t)
                     sound.addIfNotAlreadyThere (t);   // "KICK_CON_KICK": the sound named twice
@@ -249,7 +253,7 @@ namespace synth::drums::samplepack
                     continue;
                 channel = mixer::numChannels + u;
             }
-            info.slots[p.slot].push_back ({ p.file, channel, p.layer, p.round });
+            info.slots[p.slot].push_back ({ p.file, channel, p.layer, p.round, p.mic });
         }
         return info;
     }
@@ -428,5 +432,48 @@ namespace synth::drums::samplepack
             inst->layers[(size_t) k].hi = (k + 1) * 127 / L;
         }
         return inst;
+    }
+
+    std::vector<juce::File> pieceFolders (const juce::File& folder)
+    {
+        // Every folder (this one and those under it) holding files named as a pack's are; under an INDIVIDUAL MICS
+        // folder only, when there is one (its pre-mixed one-shots would be read as other drums).
+        auto root = folder;
+        if (! folder.getFileName().equalsIgnoreCase ("INDIVIDUAL MICS"))
+            for (const auto& entry : juce::RangedDirectoryIterator (folder, true, "*", juce::File::findDirectories))
+                if (entry.getFile().getFileName().equalsIgnoreCase ("INDIVIDUAL MICS"))
+                {
+                    root = entry.getFile();
+                    break;
+                }
+        const auto holdsHits = [] (const juce::File& f)
+        {
+            for (const auto& entry : juce::RangedDirectoryIterator (f, false, "*.wav;*.wave;*.aif;*.aiff;*.flac", juce::File::findFiles))
+            {
+                juce::StringArray tokens;
+                int layer = 0, round = 0;
+                if (! entry.getFile().getFileName().startsWithChar ('.') && parse (entry.getFile().getFileNameWithoutExtension(), tokens, layer, round))
+                    return true;
+            }
+            return false;
+        };
+        std::vector<juce::File> found;
+        if (holdsHits (root))
+            found.push_back (root);
+        for (const auto& entry : juce::RangedDirectoryIterator (root, true, "*", juce::File::findDirectories))
+            if (holdsHits (entry.getFile()))
+                found.push_back (entry.getFile());
+        std::sort (found.begin(), found.end(), [] (const juce::File& a, const juce::File& b)
+                   { return a.getFullPathName().compareNatural (b.getFullPathName()) < 0; });
+        return found;
+    }
+
+    int mainSlotOf (const PackInfo& info)
+    {
+        // The piece's main articulation if the folder has it, else its first.
+        for (const auto& [slot, files] : info.slots)
+            if (const auto piece = pieceOfSlot (slot); piece >= 0 && pieces[(size_t) piece].articulations[0].slot == slot)
+                return slot;
+        return info.slots.empty() ? -1 : info.slots.begin()->first;
     }
 }

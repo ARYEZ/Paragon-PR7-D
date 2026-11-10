@@ -7,6 +7,7 @@
 #include "dsp/synth/Instrument.h"
 
 #include <map>
+#include <set>
 
 #include "Parameters.h"
 #include "PluginEditor.h"
@@ -1217,7 +1218,7 @@ void ParagonX1AudioProcessor::startLoading (std::vector<std::pair<int, juce::Str
                 const auto known = knownKitFolder (kitName);
                 if (known == juce::File())
                 {
-                    problems.add (parts[0] == "pack" ? "the " + kitName + " sample pack isn't on this computer yet (or was moved): DRUMS > LOAD... > A SAMPLE PACK..."
+                    problems.add (parts[0].startsWith ("pack") ? "the " + kitName + " sample pack isn't on this computer yet (or was moved): DRUMS > LOAD... > A SAMPLE PACK..."
                                                      : "the " + kitName + " kit isn't on this computer yet: DRUMS > LOAD... > GET FREE KITS..., then LOAD... > A DRUMGIZMO KIT...");
                     done.emplace_back (slot, nullptr);
                     continue;
@@ -1247,6 +1248,32 @@ void ParagonX1AudioProcessor::startLoading (std::vector<std::pair<int, juce::Str
                 if (it == packs.end())
                     it = packs.emplace (key, synth::drums::samplepack::scan (source, cymbalChannels)).first;
                 instrument = synth::drums::samplepack::load (it->second, parts[1].getIntValue(), problems);
+            }
+            else if (parts[0] == "packon")
+            {
+                // 0.75.0: a pack's piece onto another drum: "packon|<its slot>,<spot channel>|<piece folder>": its close
+                // mics onto that channel, its overheads kept, its room mics left out.
+                const auto args = juce::StringArray::fromTokens (parts[1], ",", {});
+                const auto from = args[0].getIntValue(), spot = args[1].getIntValue();
+                const auto key = source.getFullPathName() + "#on";
+                auto it = packs.find (key);
+                if (it == packs.end())
+                    it = packs.emplace (key, synth::drums::samplepack::scan (source, false)).first;
+                auto only = it->second;
+                only.slots.clear();
+                if (const auto found = it->second.slots.find (from); found != it->second.slots.end())
+                    for (auto f : found->second)
+                    {
+                        const auto mic = f.mic.toUpperCase();
+                        if (mic.startsWith ("OH") || mic.startsWith ("OVERHEAD"))
+                            f.channel = synth::mixer::overheads;
+                        else if (mic.startsWith ("RM") || mic.startsWith ("ROOM") || mic.startsWith ("AMB") || spot < 0)
+                            continue;
+                        else
+                            f.channel = spot;
+                        only.slots[from].push_back (f);
+                    }
+                instrument = synth::drums::samplepack::load (only, from, problems);
             }
             else if (parts[0] == "folder")
                 instrument = synth::drums::instruments::fromFolder (source);
@@ -1667,6 +1694,95 @@ int ParagonX1AudioProcessor::getDrumMixChannel (int slot) const
     const auto* value = parameters.getRawParameterValue (ParamIDs::drum (slot, "MixOut"));
     const auto channel = value != nullptr ? juce::roundToInt (value->load()) - 1 : -1;
     return channel >= 0 && channel < synth::mixer::numMicChannels ? channel : -1;
+}
+
+ParagonX1AudioProcessor::SamplePackOntoImport ParagonX1AudioProcessor::importSamplePackOnto (const juce::File& packFolder,
+                                                                                         const std::vector<std::pair<juce::File, int>>& onto)
+{
+    using namespace synth::drums;
+    SamplePackOntoImport result;
+    std::vector<std::pair<int, juce::String>> refs;
+    std::set<int> targeted, piecesHit;
+    auto taken = getUserChannelsInUse();
+    auto m = matrix;
+    for (const auto& [folder, toPiece] : onto)
+    {
+        if (toPiece < 0 || toPiece >= numPieces)
+            continue;
+        const auto info = samplepack::scan (folder, false);
+        if (! info.valid())
+        {
+            result.problems.add (folder.getFileName() + ": no drum could be read in it");
+            continue;
+        }
+        // Its close mics' channel: a USER channel of its own, settings new, named, into the bus / output of the
+        // piece's own channel.
+        auto spot = -1;
+        for (int u = 0; u < synth::mixer::numUserChannels && spot < 0; ++u)
+            if (const auto channel = synth::mixer::numChannels + u; ! taken.contains (channel))
+                spot = channel;
+        if (spot < 0)
+            result.problems.add (folder.getFileName() + ": no USER channel left for its close mic (only its overheads come in)");
+        else
+        {
+            taken.add (spot);
+            for (const auto* what : ParamIDs::mixSettings)
+                if (auto* parameter = parameters.getParameter (ParamIDs::mix (spot, what)))
+                {
+                    parameter->beginChangeGesture();
+                    parameter->setValueNotifyingHost (parameter->getDefaultValue());
+                    parameter->endChangeGesture();
+                }
+            m.userChannelNames[(size_t) (spot - synth::mixer::numChannels)]
+                = (juce::String (pieces[(size_t) toPiece].name) + " " + folder.getFileName().toUpperCase()).substring (0, 24);
+            if (const auto home = homeChannel (pieces[(size_t) toPiece].articulations[0].slot); home >= 0 && home < synth::mixer::numChannels)
+            {
+                setParameterNow (ParamIDs::mix (spot, "Output"), (float) getMixerOutput (home));
+                setParameterNow (ParamIDs::mix (spot, "Route"), (float) getMixerRoute (home));
+            }
+        }
+        const auto relative = folder.getRelativePathFrom (packFolder).replaceCharacter ('\\', '/');
+        for (const auto& [slot, files] : info.slots)
+        {
+            const auto to = mixPackSlotOnto (slot, toPiece);
+            if (to < 0 || targeted.count (to) > 0)
+                continue;
+            targeted.insert (to);
+            piecesHit.insert (toPiece);
+            result.slots.emplace_back (to, folder.getFileName());
+            if (spot >= 0)
+                result.channels[to] = spot;
+            setDrumSample (to, nullptr);
+            makeSlotPlaySample (to);
+            setParameterNow (ParamIDs::drum (to, "On"), 1.0f);
+            setParameterNow (ParamIDs::drum (to, "MixOut"), 0.0f);   // (its own mics)
+            // Its layers emptied (a layer from the kit before would play over it).
+            for (int n = 0; n < ParamIDs::numLayers; ++n)
+            {
+                m.layer (to, n) = {};
+                setParameterNow (ParamIDs::drum (to, ParamIDs::layerOut (n)), 0.0f);
+                setDrumInstrument (layerOf (to, n), nullptr);
+                forgetLoad ((int) layerOf (to, n));
+            }
+            refs.emplace_back (to, "packon|" + juce::String (slot) + "," + juce::String (spot) + "|{kit:" + packFolder.getFileName() + "}/" + relative);
+        }
+    }
+    if (refs.empty())
+        return result;
+    setModMatrix (m);
+    // The pieces' articulations the folders have none of: off (they play the nearest they have).
+    for (const auto piece : piecesHit)
+        for (int a = 0; a < pieces[(size_t) piece].count; ++a)
+            if (const auto slot = pieces[(size_t) piece].articulations[(size_t) a].slot; targeted.count (slot) == 0)
+            {
+                setParameterNow (ParamIDs::drum (slot, "On"), 0.0f);
+                result.turnedOff.add (slot);
+            }
+    rememberKit (packFolder.getFileName(), packFolder);
+    startLoading (refs);
+    markModified();
+    requestCheckpoint();
+    return result;
 }
 
 ParagonX1AudioProcessor::MixPackImport ParagonX1AudioProcessor::importMixPack (const juce::File& folder, bool gainBoosted, int mix,

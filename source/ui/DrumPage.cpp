@@ -1,6 +1,7 @@
 #include "DrumPage.h"
 
 #include "dsp/synth/MixPack.h"
+#include "dsp/synth/SamplePack.h"
 #include "NoteNames.h"
 
 #include "dsp/synth/DrumGizmo.h"
@@ -1115,6 +1116,8 @@ void DrumPage::showLoadMenu()
     // 0.69.0: a library whose hits come already mixed, several finished mixes of each drum in folders of their own.
     menu.addItem ("A mixed sample pack: finished stereo mixes of each drum (onto every drum)...", [this] { importMixPack(); });
     menu.addItem ("Drums from a mixed sample pack, onto the drums you choose (the rest of this kit stays)...", [this] { importMixPackOnto(); });
+    menu.addItem ("Drums from a sample pack with separate mics, onto the drums you choose (the rest of this kit stays)...",
+                  [this] { importSamplePackOnto(); });
     menu.addItem ("Get free kits (drumgizmo.org)...", []
     {
         juce::URL ("https://drumgizmo.org/wiki/doku.php?id=kits").launchInDefaultBrowser();
@@ -1472,6 +1475,84 @@ void DrumPage::importMixPackOnto()
                      << " dB: raise it on the drum's LAYERS tab to blend it in.";
             text << "\n\nMatch their level with the drum's LEVEL (DRUMS page) or its mixer fader. Save it as a preset to keep it.";
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::NoIcon, "Drums from: " + result.name, text);
+        }));
+    });
+}
+
+void DrumPage::importSamplePackOnto()
+{
+    chooser = std::make_unique<juce::FileChooser> ("A sample pack with separate mics: the pack's folder, or one piece's (e.g. its PAISTE CHINA folder)",
+                                                   juce::File());
+    chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories, [this] (const juce::FileChooser& fc)
+    {
+        using namespace synth::drums;
+        const auto folder = fc.getResult();
+        if (! folder.isDirectory())
+            return;
+        // Each folder of hits is a piece, named by its folder ("PAISTE CHINA"), placed by its sounds' names.
+        struct Row { juce::File folder; int piece; juce::Array<int> targets; };
+        std::vector<Row> rows;
+        for (const auto& f : samplepack::pieceFolders (folder))
+        {
+            const auto main = samplepack::mainSlotOf (samplepack::scan (f, false));
+            if (const auto piece = main >= 0 ? pieceOfSlot (main) : -1; piece >= 0)
+                rows.push_back ({ f, piece, mixPackTargetsFor (piece) });
+        }
+        if (rows.empty())
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, "No drums found",
+                                                   "No folder of hits could be read as a drum. This reads packs whose files are named "
+                                                   "piece by piece and mic by mic, e.g. JAD_PAISTE_CHINA_SPOT_V01_RR1.wav.");
+            return;
+        }
+        auto window = std::make_shared<juce::AlertWindow> ("Drums from: " + folder.getFileName(),
+                                                           "Choose which of its drums replace which of this kit's (the rest stay as they are). "
+                                                           "Each brings its close (spot) mic onto a new mixer channel of its own and its "
+                                                           "overheads into OVERHEADS; its room mics are left out (another room). Its choke "
+                                                           "comes with it where this kit's drum has one.",
+                                                           juce::MessageBoxIconType::NoIcon, this);
+        for (size_t r = 0; r < rows.size(); ++r)
+        {
+            juce::StringArray items { "Keep this kit's (not imported)" };
+            for (const auto t : rows[r].targets)
+                items.add ("Onto this kit's " + juce::String (pieces[(size_t) t].name));
+            window->addComboBox ("row" + juce::String ((int) r), items,
+                                 rows[r].folder.getFileName() + " (" + juce::String (pieces[(size_t) rows[r].piece].name) + ")");
+        }
+        window->addButton ("Import", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        window->addButton ("Cancel", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        window->enterModalState (true, juce::ModalCallbackFunction::create ([this, window, folder, rows] (int answer)
+        {
+            if (answer != 1)
+                return;
+            std::vector<std::pair<juce::File, int>> onto;
+            for (size_t r = 0; r < rows.size(); ++r)
+                if (const auto chosen = window->getComboBoxComponent ("row" + juce::String ((int) r))->getSelectedItemIndex(); chosen > 0)
+                    onto.emplace_back (rows[r].folder, rows[r].targets[chosen - 1]);
+            if (onto.empty())
+                return;
+            const auto result = processor.importSamplePackOnto (folder, onto);
+            juce::String text;
+            for (const auto& [slot, from] : result.slots)
+            {
+                text << slotDefaults[(size_t) slot].key << " " << articulationName (slot) << ": " << from;
+                if (const auto it = result.channels.find (slot); it != result.channels.end())
+                    text << "  (spot mic: " << processor.getMixerChannelName (it->second) << ")";
+                text << "\n";
+            }
+            if (! result.turnedOff.isEmpty())
+            {
+                juce::StringArray off;
+                for (const auto slot : result.turnedOff)
+                    off.add (articulationName (slot));
+                text << "\nTurned off (the pack has none; they play the nearest it has): " << off.joinIntoString (", ") << "\n";
+            }
+            if (! result.problems.isEmpty())
+                text << "\n" << result.problems.joinIntoString ("\n") << "\n";
+            text << "\nIts overheads play in OVERHEADS with this kit's; set its spot mic's level on its own channel in the MIXER. "
+                    "Save it as a preset to keep it.";
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::NoIcon, "Drums from: " + folder.getFileName(),
+                                                   result.slots.empty() ? "None of them could go onto those drums." : text);
         }));
     });
 }
