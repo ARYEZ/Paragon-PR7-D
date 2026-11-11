@@ -1046,8 +1046,7 @@ namespace grooves
             std::vector<float> score (all.entries.size(), 0.0f);
             {
                 std::lock_guard<std::mutex> guard (lock);
-                const auto key = tap->riff != nullptr ? "riff#" + tap->riff->key
-                                                      : tap->rhythm.encode() + "#" + juce::String (tap->rhythm.slackBeats, 6) + "#" + juce::String (tap->grid, 6);
+                const auto key = tap->rhythm.encode() + "#" + juce::String (tap->rhythm.slackBeats, 6) + "#" + juce::String (tap->grid, 6);
                 if (key != matchKey)
                 {
                     matchKey = key;
@@ -1061,7 +1060,6 @@ namespace grooves
                         score[(size_t) r] = known->second;
                     else
                         score[(size_t) r] = matchScores[path] = e.rhythm == nullptr ? 0.0f
-                            : tap->riff != nullptr ? (float) riffMatch (*tap->riff, *e.rhythm, e.feel)
                             : (float) match (tap->rhythm, *e.rhythm, tap->grid);
                 }
             }

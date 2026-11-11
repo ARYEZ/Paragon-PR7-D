@@ -2,6 +2,17 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.77.0
+
+**RIFF MATCH is gone from PR7-D** (you asked to remove it: it belongs to the song engine in PR7-S). That was the box beside FIND SIMILAR on the GROOVES page where you dropped a guitar, bass or keys riff to find grooves that fit it, and heard the riff with each groove you previewed. Its code is kept in the project's history, so PR7-S can take it from there.
+
+- **Gone:** the RIFF MATCH box and its LOAD RIFF... button, the riff panel (bars, tempo, LISTEN, LEVEL), the riff heard with groove previews, and the "FITS RIFF" search.
+- **Unchanged:** FIND SIMILAR (tapping, a MIDI file dropped on its box, right-click a groove), the filters, the browser, GROOVE PARTS and the previews.
+- **A MIDI file dropped anywhere else on the GROOVES page** searches with its rhythm again, as it did before 0.55.0 (and as FIND SIMILAR's box does). An audio file dropped on the page is no longer taken.
+- The filter columns get the room the RIFF MATCH box had.
+
+**Also measured for your setup** (44.1 kHz samples in a 44.1 kHz session, after 0.76.0): with the same streamed Djent-shaped kit and 180 BPM beat as in 0.76.0's notes, the audio thread went from about 5.9% of a core with 0.75.0 to 5.0% with 0.76.0, with identical sound. Files at the session's own rate take the faster path, so your setup gets 0.76.0's full gain.
+
 ## 0.76.0
 
 **Sampled kits play with less work again** (you asked for another round of optimization). Measured as in 0.56.0, with a sample pack laid out like your Djent Drums: five mics on the kick, four on the snare, toms, hats, crash, china and ride, all streamed from disk. Mixer effects are on the kick, snare, toms, room and overheads, and the master compressor and LIMITER are on. The beat is 180 BPM with 16th-note double kicks.
