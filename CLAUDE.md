@@ -254,6 +254,7 @@ Seen in 0.1.0, for later (corrected in 0.2.0): a drum voice ends when its level 
 - Bump `project(ParagonX1 VERSION x.y.z)` in CMakeLists.txt and add a matching `## x.y.z` section at the top of CHANGELOG.md, then push.
 - CI builds Windows and Linux (macOS left out since 0.46.0, the owner's choice: GitHub stopped giving its job a machine; the matrix entry is kept commented out in `build.yml`) and publishes a GitHub Release with the two zips, using that changelog section as the notes. It publishes from a push to **any** branch whose version isn't released yet.
 - After pushing, check the release published (both zips) about 15-20 minutes later, **and that its `target_commitish` is your commit**. If the version was already taken, CI skips silently and the release you'd link is someone else's build. Send the owner the link.
+- **A run stuck in Queued** (0.79.0: no job given a machine for 1.5 hours, "Failed to cancel workflow" for the owner, and this session can't re-run): push the next real commit; its new run builds and publishes the same unreleased version.
 - **One chat per plugin at a time.** In October 2026 two chats released PR7-G and PR7-V under the same version numbers: one chat's releases were skipped, and features (and a UI fix) went missing from the builds the owner installed. Before choosing a version, check the repo's tags *and* other branches for unreleased work; if another branch is ahead, merge it first so every release contains everything.
 - The owner installs from GitHub Releases on **Windows**.
 
