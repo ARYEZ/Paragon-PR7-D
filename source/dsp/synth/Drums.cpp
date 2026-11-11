@@ -1305,6 +1305,38 @@ namespace synth::drums
                             break;
                         const auto* a = run[0] + (index - runFrom);
                         const auto* b = channels > 1 ? run[1] + (index - runFrom) : nullptr;
+                        // 0.79.0: a steady level (DECAY fully open: envCoef exactly 1; SNAP no spike: the gain's
+                        // (1 + spike x click) exactly 1): the gain is the same for every frame, so the frames are
+                        // independent and the loop runs as a plain multiply-add (the compiler does several at
+                        // once). The same arithmetic per frame as below; `click` only matters with a spike.
+                        if (juce::exactlyEqual (envCoef, 1.0f) && juce::exactlyEqual (spike, 0.0f))
+                        {
+                            if (env < 1.0e-4f)
+                                break;   // quiet: the loop below ends it
+                            const auto gain = env * level * fade * shapeGain;
+                            const auto pl = panLeft, pr = panRight;
+                            auto* outL = left + i;
+                            auto* outR = right + i;
+                            const auto count = (int) n;
+                            if (b != nullptr)
+                                for (int f = 0; f < count; ++f)
+                                {
+                                    outL[f] += (a[f] * gain) * pl;
+                                    outR[f] += (b[f] * gain) * pr;
+                                }
+                            else
+                                for (int f = 0; f < count; ++f)
+                                {
+                                    const auto o0 = a[f] * gain;
+                                    outL[f] += o0 * pl;
+                                    outR[f] += o0 * pr;
+                                }
+                            for (int f = 0; f < count; ++f)
+                                t += perSample;
+                            position += (double) n;   // (whole frames: exact, as n steps of 1 are)
+                            i += count;
+                            continue;
+                        }
                         juce::int64 k = 0;
                         for (; k < n && ! (env < 1.0e-4f); ++k, ++i)
                         {

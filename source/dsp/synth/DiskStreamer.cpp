@@ -229,19 +229,11 @@ namespace synth::drums
 
         {
             const std::scoped_lock readerLock (readersLock);
-            // Into each mic's ring, as the recipe says: cleared, then each file read once (one, or one a mic) and its
-            // parts added.
+            // Into each mic's ring, as the recipe says: each file read once (one, or one a mic) and its parts added.
+            // 0.79.0: the first part into a ring line writes 0 + its sound (what clearing the line and adding it gave,
+            // to the bit: -0 too) instead of a clear and an add; lines no part wrote are cleared after.
             const auto start = (size_t) ((written - source.headFrames) & (ringFrames - 1));
-            for (int o = 0; o < source.numOutputs && o < maxOutputs; ++o)
-                for (int c = 0; c < 2; ++c)
-                {
-                    auto* ring = s.ring.data() + ((size_t) o * 2 + (size_t) c) * ringFrames;
-                    // (0.76.0) In the ring's two stretches (to its end, then from its start), not a sample at a time
-                    // through the wrap's mask: the same values, done as plain runs.
-                    const auto first = juce::jmin ((size_t) frames, (size_t) ringFrames - start);
-                    std::fill (ring + start, ring + start + first, 0.0f);
-                    std::fill (ring, ring + ((size_t) frames - first), 0.0f);
-                }
+            std::array<std::array<bool, 2>, maxOutputs> filled {};
             const auto numFiles = juce::jmax (1, (int) source.files.size());
             auto anyRead = false;
             for (int f = 0; f < numFiles; ++f)
@@ -270,12 +262,34 @@ namespace synth::drums
                     auto* ring = s.ring.data() + ((size_t) part.output * 2 + (size_t) juce::jlimit (0, 1, part.channel)) * ringFrames;
                     const auto first = (int) juce::jmin ((size_t) frames, (size_t) ringFrames - start);
                     const auto gain = part.gain;
-                    for (int i = 0; i < first; ++i)
-                        ring[start + (size_t) i] += from[i] * gain;
-                    for (int i = first; i < frames; ++i)
-                        ring[(size_t) (i - first)] += from[i] * gain;
+                    auto& done = filled[(size_t) part.output][(size_t) juce::jlimit (0, 1, part.channel)];
+                    if (! done)
+                    {
+                        done = true;
+                        for (int i = 0; i < first; ++i)
+                            ring[start + (size_t) i] = 0.0f + from[i] * gain;
+                        for (int i = first; i < frames; ++i)
+                            ring[(size_t) (i - first)] = 0.0f + from[i] * gain;
+                    }
+                    else
+                    {
+                        for (int i = 0; i < first; ++i)
+                            ring[start + (size_t) i] += from[i] * gain;
+                        for (int i = first; i < frames; ++i)
+                            ring[(size_t) (i - first)] += from[i] * gain;
+                    }
                 }
             }
+            // (0.76.0) Cleared in the ring's two stretches (to its end, then from its start), not a sample at a time.
+            for (int o = 0; o < source.numOutputs && o < maxOutputs; ++o)
+                for (int c = 0; c < 2; ++c)
+                    if (! filled[(size_t) o][(size_t) c])
+                    {
+                        auto* ring = s.ring.data() + ((size_t) o * 2 + (size_t) c) * ringFrames;
+                        const auto first = juce::jmin ((size_t) frames, (size_t) ringFrames - start);
+                        std::fill (ring + start, ring + start + first, 0.0f);
+                        std::fill (ring, ring + ((size_t) frames - first), 0.0f);
+                    }
             if (! anyRead)
             {
                 // Every file's gone: silence from here (the hit ends at its head's end, in effect).
