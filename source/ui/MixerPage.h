@@ -11,7 +11,7 @@
 //   - two SENDS: where each sends a copy (a bus, an FX bus, DELAY, REVERB); click one to choose;
 //   - PAN, the FADER (with its meter), M (mute), S (solo), the polarity (flip);
 //   - OUTPUT: MAIN, OUT 2 to 16, a bus (a bus: only a later one) or an FX bus; and its name (click it to choose it).
-// Beside them, the chosen strip's PROPERTIES. BLEED (mic channels): BLEED FROM INSTRUMENTS (each drum that bleeds
+// (0.78.0: in the PR7-O mixer's style, five across; see MixerPage.cpp's Strip.) Over them, the chosen strip's PROPERTIES. BLEED (mic channels): BLEED FROM INSTRUMENTS (each drum that bleeds
 // into it: on, level, polarity) and CLOSE MIC AUDIO (the drums it's meant for), TIME OFFSET, RELEASE. SENDS: each
 // send's target, POST / PRE FADER, its DIRECT and BLEED sound's on, level and pan, LINK.
 // MENU...: MUTE MODE (pre / post send), STEREO REVERSE, STEREO OUTPUTS, MULTICHANNEL OUTPUTS.
@@ -27,6 +27,20 @@ public:
 
     void selectChannel (int channel) { selectStrip (synth::mixer::stripOfChannel (channel)); }   // a mic channel (0.23.0: USER too)
     void selectStrip (int strip);                    // a channel, or numChannels + a bus
+    // 0.78.0: PROPERTIES is a panel over the strips: showTab opens it on that tab (for the chosen strip).
+    void closeProperties();
+    bool isPropertiesOpen() const;
+    // 0.78.0: every strip's EFFECTS slots shown or folded away (folded at first: longer faders and meters).
+    bool areEffectsShown() const noexcept { return effectsShown; }
+    void setEffectsShown (bool);
+    void toggleEffectsShown() { setEffectsShown (! effectsShown); }
+    juce::String effectsSummary (int strip) const;   // a folded strip's EFFECTS heading ("2 ON", "NONE")
+    juce::String describeStrip (int strip) const;    // its screen's last line (what it hears, what feeds it)
+    // A strip's effect slot on / off (its ON key), its settings opened (PROPERTIES > EFFECTS), a send's level (its knob;
+    // one undo step when final).
+    void toggleEffect (int strip, int slot);
+    void openEffect (int strip, int slot);
+    void setStripSendLevel (int strip, int slot, float db, bool final);
     int getSelectedChannel() const noexcept { return selected; }
     int getSelectedStrip() const noexcept { return selected; }
     void showTab (Tab);
@@ -75,6 +89,13 @@ public:
     void resized() override;
 
 private:
+    class Properties;
+    std::unique_ptr<Properties> properties;
+    void layoutProperties();
+    void paintProperties (juce::Graphics&);
+    bool effectsShown = false;
+    juce::TextButton effectsButton;
+    juce::Rectangle<int> hintArea;
     int bleedRowHeight = 26;   // (0.36.0) the BLEED table's rows, fitted to the panel
     void timerCallback() override;
     void refreshProperties();

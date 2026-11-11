@@ -35,6 +35,7 @@
 //   PARAGON_SNAPSHOT_PAGE=mixer      THE MIXER (0.20.0) with a multi-mic kit, a hit just played
 //                                    (PARAGON_SNAPSHOT_MIXERBUS=1: buses and sends, the snare top's SENDS; =2 the buses;
 //                                    PARAGON_SNAPSHOT_MIXERFX=1: effects on the snare top, its EFFECTS tab (=3: SATURATION);
+//                                    PARAGON_SNAPSHOT_MIXERSHOWFX=1: every strip's EFFECTS shown (0.78.0);
 //                                    PARAGON_SNAPSHOT_MIXERROUTE=1: ROUTE MICS on the snare, =2 the user channels;
 //                                    PARAGON_SNAPSHOT_MICSIM=1: the Djent Kit through SIMULATED MICS, their panel open,
 //                                    =2 its strips after a kick and snare)
@@ -1063,6 +1064,9 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         processor.setModMatrix (matrix);
         view->showPage (MainView::Page::mixer);
         view->getMixerPage().selectChannel (synth::mixer::snareTop);
+        // 0.78.0: PARAGON_SNAPSHOT_MIXERSHOWFX=1 every strip's EFFECTS shown (folded away at first).
+        if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_MIXERSHOWFX", {}) == "1")
+            view->getMixerPage().setEffectsShown (true);
         // 0.21.0: PARAGON_SNAPSHOT_MIXERBUS=1 the snare's mics into BUS 1, sends to BUS 2 and the DELAY, BUS 1 to the
         // REVERB, the snare top's SENDS shown; =2 scrolled to the buses, BUS 1 chosen.
         if (const auto bus = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_MIXERBUS", {}).getIntValue(); bus > 0)
