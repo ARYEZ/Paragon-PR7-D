@@ -2,6 +2,21 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.78.0
+
+**THE MIXER redone in the PR7-O mixer's style** (you asked for our mixer tab in the style of the mixer being made for PR7-O, five strips across, the EFFECTS section folding away and folded at first so the meters run longer, and the settings in a pop-up over the strips).
+
+- **Five strips across the page**, each a small pearl-black unit with a red glow, the way THE DRUM MACHINE's face is drawn. Scroll sideways for the rest: the mic channels, then your own channels, then the buses.
+- **Each strip, top to bottom:**
+  - **Its screen:** what it is (MIC CHANNEL 3, BUS 1, USER 2), its name, and what it hears (CLOSE MIC, WHOLE KIT MIC, NOT IN USE BY THIS KIT, or how many channels a bus is fed by). Click it to choose the strip; right-click a bus or one of your channels to rename it.
+  - **EFFECTS**, folded at first (its heading says what's loaded, e.g. "1 ON"). Click any strip's EFFECTS heading, or SHOW EFFECTS at the top, to unfold every strip's at once. Each slot has an ON key and its effect's name: click a loaded one for its settings, an empty one ("+ ADD EFFECT") to choose one, right-click for copy / paste / remove.
+  - **SENDS, PAN AND BLEED:** a knob each for SEND 1 and SEND 2 (its level; the name above its box says where it goes: click it to choose; click the box for the send's full settings), PAN, and on mic channels BLEED (click its box to switch bleed on or off, its name for each drum's bleed).
+  - **LEVEL:** the fader with its scale (+12 to -60 dB), a segmented meter beside it, the level under it.
+  - **MUTE, SOLO, PHASE** keys, and **OUTPUT** (click to choose where it goes).
+- **PROPERTIES is a pop-up** over the right of the strips: the same BLEED, EFFECTS and SENDS settings as before, opened from a strip's effect slot, send box or BLEED name. X closes it; ROUTE MICS and SIM MICS take its place.
+- **Not like PR7-O's picture:** your sends can go anywhere (a bus, an FX bus, the delay or the reverb), so the knobs are named by where they go rather than fixed DELAY / REVERB knobs, and mic channels have a fourth knob, BLEED. The meter is one column: the mixer measures one level per channel, so two columns would only repeat it.
+- Nothing about the sound changed: the same mixer, routing and effects underneath.
+
 ## 0.77.0
 
 **RIFF MATCH is gone from PR7-D** (you asked to remove it: it belongs to the song engine in PR7-S). That was the box beside FIND SIMILAR on the GROOVES page where you dropped a guitar, bass or keys riff to find grooves that fit it, and heard the riff with each groove you previewed. Its code is kept in the project's history, so PR7-S can take it from there.
