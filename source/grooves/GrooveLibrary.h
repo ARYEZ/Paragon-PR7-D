@@ -6,7 +6,6 @@
 
 #include "Groove.h"
 #include "Rhythm.h"
-#include "Riff.h"
 
 #include <juce_events/juce_events.h>
 
@@ -246,7 +245,6 @@ namespace grooves
         {
             Rhythm rhythm;
             double grid = 0.5;
-            std::shared_ptr<const RiffQuery> riff;   // 0.32.0, RIFF MATCH: scored by riffMatch instead (rhythm unused)
         };
         std::vector<Entry> query (const juce::File& within, const juce::String& text, bool favouritesOnly, SortOrder sort,
                                   double songBpm, int songNumerator, int songDenominator, const Filters& filters = {},

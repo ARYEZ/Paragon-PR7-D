@@ -91,7 +91,6 @@ target_sources(ParagonX1
         source/grooves/Groove.cpp
         source/grooves/GrooveLibrary.cpp
         source/grooves/Rhythm.cpp
-        source/grooves/Riff.cpp
         source/grooves/SqliteReader.cpp
         source/grooves/GrooveDatabase.cpp
         source/song/Song.cpp
@@ -149,7 +148,6 @@ target_sources(ParagonX1
         source/ui/MixerPage.cpp
         source/ui/GroovesPage.cpp
         source/ui/TapPanel.cpp
-        source/ui/RiffPanel.cpp
         source/ui/SongTrack.cpp
         source/ui/BlockEditor.cpp
         source/ui/PlayStylePanel.cpp

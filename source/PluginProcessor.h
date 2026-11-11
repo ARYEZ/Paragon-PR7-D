@@ -475,15 +475,6 @@ public:
     void playGroove (const grooves::Groove&, int folder, bool loop, unsigned parts = grooves::allParts);
     void stopGroove();
     void applyGroovePreview();
-    // RIFF MATCH (0.32.0): a riff heard with the groove previews, in time: from the preview's start, looping its part
-    // (`loopSeconds` from `startSeconds` of `audio`, mono, at `rate`). While it's heard the previews play at its tempo
-    // (times the preview's factor). Message thread.
-    void setRiff (std::shared_ptr<const juce::AudioBuffer<float>> audio, double rate, double startSeconds, double loopSeconds, double bpm);
-    void clearRiff();
-    bool hasRiff() const noexcept { return riffPlayback != nullptr; }
-    void setRiffListening (bool on) noexcept { riffListening = on; }
-    bool isRiffListening() const noexcept { return riffListening.load(); }
-    void setRiffLevel (float gain) noexcept { riffLevel = gain; }
     // Beats into the groove playing (its loop), or -1; and which file.
     double getGroovePosition() const noexcept { return groovePosition.load(); }
     juce::File getGrooveFile() const { return groovePreview != nullptr ? groovePreview->file : juce::File(); }
@@ -834,20 +825,6 @@ private:
         juce::File file;
     };
     int collectGrooveHits (int numSamples) noexcept;   // audio thread: the preview's hits in the next numSamples
-    struct RiffPlayback
-    {
-        std::shared_ptr<const juce::AudioBuffer<float>> audio;
-        double rate = 48000.0, start = 0.0, loop = 1.0, bpm = 120.0;
-    };
-    std::shared_ptr<const RiffPlayback> riffPlayback;
-    std::atomic<const RiffPlayback*> riffForAudio { nullptr };
-    std::vector<std::pair<std::shared_ptr<const RiffPlayback>, double>> retiredRiffs;
-    std::atomic<bool> riffListening { true };
-    std::atomic<float> riffLevel { 1.0f };
-    // Audio thread: where the preview was at this block's start (beats since it began), and its beats a sample.
-    double riffFrom = -1.0, riffPerSample = 0.0;
-    bool riffFirstChunk = true;
-    void runRiff (juce::AudioBuffer<float>&, int numSamples) noexcept;
     std::unique_ptr<grooves::Library> grooveFolders;
     std::unique_ptr<song::playstyle::AmountModel> amountModel;   // 0.54.0 (getAmountModel)
     int amountModelGeneration = -1;
