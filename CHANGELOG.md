@@ -2,6 +2,23 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.79.0
+
+**Efficiency, round 5** (you asked for another round of optimization). Measured the same way as 0.76.0, with your setup: 44.1 kHz samples in a 44.1 kHz session, a streamed kit shaped like Djent Drums (5 mics on the kick, 4 on the snare, toms, hats, cymbals), mixer EQs, compressors and gates, the master compressor and LIMITER, a 180 BPM beat with 16th-note kicks. Old and new builds were run in turn, five times each.
+
+- **The audio: about 23% less work, the same sound to the bit.** The audio thread went from about 5.6% of a core to 4.3% (60 s of playing in about 3.3 s before, about 2.6 s now). The output is identical, sample for sample, at 44.1 kHz and at 48 kHz.
+  - **Streamed samples at a steady level:** a sample drum whose envelope is fully open (as imported kits are) now plays each stretch the disk has ready in one plain loop at one gain, instead of working out its envelope and attack sample by sample. Same arithmetic, so the same result.
+  - **The disk thread:** when it reads the next piece of a hit, it writes each mic's first file straight into its ring instead of clearing the ring and then adding the file. Only mics with no file left are cleared.
+- **THE MIXER page draws in about half the time.** A full redraw went from 12.4 ms to about 5.5 ms on a normal screen, and from 51 ms to about 16 ms on a 200% screen.
+  - Each strip's screen (its metal frame's shadow, glass and lettering) is drawn once and reused until what it says changes.
+  - Each fader's cap is drawn once and moved with the level, set on a whole screen pixel. At 100% a cap can sit up to half a pixel from where it was: you won't see it.
+  - Nothing else on the page changed.
+- **Measured and left alone:**
+  - The compressors' per-sample level maths while they compress: that's their sound.
+  - Reading WAV files from disk.
+  - The LIMITER's true-peak detector: already trimmed in 0.49.0.
+  - The page's background: one plain gradient, and keeping it as a picture would cost about 16 MB on a 200% screen for very little.
+
 ## 0.78.0
 
 **THE MIXER redone in the PR7-O mixer's style** (you asked for our mixer tab in the style of the mixer being made for PR7-O, five strips across, the EFFECTS section folding away and folded at first so the meters run longer, and the settings in a pop-up over the strips).

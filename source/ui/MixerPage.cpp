@@ -131,12 +131,32 @@ public:
             g.setColour (juce::Colour (0xff050405));
             g.fillRoundedRectangle (slot.reduced (1.6f), 3.0f);
             const auto capY = t.getBottom() - t.getHeight() * proportion();
+            // 0.79.0: the cap (its shadow, chrome bezel, key and light) drawn once into a picture and moved with the
+            // level (on a whole pixel), again only when it's hovered or let go.
             const auto cap = juce::Rectangle<float> (40.0f, 20.0f).withCentre ({ slot.getCentreX(), capY });
-            juce::DropShadow (juce::Colours::black.withAlpha (0.6f), 6, { 0, 3 }).drawForRectangle (g, cap.toNearestInt());
-            const auto well = ParagonLookAndFeel::drawChromeBezel (g, cap, 4.0f);
-            ParagonLookAndFeel::drawPianoKey (g, well, 2.5f, 1.6f, false, isMouseOverOrDragging());
-            ParagonLookAndFeel::drawNeonBar (g, well.withSizeKeepingCentre (well.getWidth() - 10.0f, 3.0f), true, false);
+            // On a whole screen pixel (so the picture is copied, not resampled): within half of one of where it was.
+            const auto scale = juce::jmax (0.01f, (float) g.getInternalContext().getPhysicalPixelScaleFactor());
+            const auto corner = ((cap.getTopLeft() - juce::Point<float> (capPad, capPad)) * scale).roundToInt().toFloat() / scale;
+            const auto hover = isMouseOverOrDragging();
+            if (hover != capHover)
+            {
+                capHover = hover;
+                capCache.invalidate();
+            }
+            juce::Graphics::ScopedSaveState state (g);
+            g.addTransform (juce::AffineTransform::translation (corner));
+            capCache.draw (g, { 0, 0, 40 + 2 * capPad, 20 + 2 * capPad }, [hover] (juce::Graphics& cg)
+            {
+                const auto c = juce::Rectangle<float> ((float) capPad, (float) capPad, 40.0f, 20.0f);
+                juce::DropShadow (juce::Colours::black.withAlpha (0.6f), 6, { 0, 3 }).drawForRectangle (cg, c.toNearestInt());
+                const auto well = ParagonLookAndFeel::drawChromeBezel (cg, c, 4.0f);
+                ParagonLookAndFeel::drawPianoKey (cg, well, 2.5f, 1.6f, false, hover);
+                ParagonLookAndFeel::drawNeonBar (cg, well.withSizeKeepingCentre (well.getWidth() - 10.0f, 3.0f), true, false);
+            });
         }
+        static constexpr int capPad = 12;
+        PaintCache capCache;
+        bool capHover = false;
         void mouseDown (const juce::MouseEvent& e) override
         {
             if (attachment == nullptr)
@@ -333,6 +353,7 @@ public:
     void resized() override
     {
         body.invalidate();
+        screen.invalidate();
         auto a = getLocalBounds().reduced (14, 12);
         screenArea = a.removeFromTop (70);
         a.removeFromTop (8);
@@ -398,19 +419,31 @@ public:
         // The screen: what it is, its name, what it hears.
         if (g.clipRegionIntersects (screenArea.expanded (6)))
         {
-            const auto glass = LedDisplay::paintScreen (g, screenArea.toFloat(), 0.8f);
-            const auto text = glass.reduced (12.0f, 6.0f);
-            g.setColour (LedDisplay::ledOrange.withAlpha (0.65f));
-            g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
-            g.drawText (caption(), text.withHeight (12.0f), juce::Justification::centredLeft, false);
-            g.setColour (LedDisplay::ledOrange);
-            g.setFont (juce::FontOptions (20.0f, juce::Font::bold));
-            g.drawFittedText (stripName (page.processor, strip).toUpperCase(), text.withTrimmedTop (12.0f).withHeight (26.0f).toNearestInt(),
-                              juce::Justification::centredLeft, 1, 0.7f);
-            g.setColour (LedDisplay::ledOrange.withAlpha (0.65f));
-            g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
-            g.drawText (page.describeStrip (strip), text.withTrimmedTop (40.0f), juce::Justification::centredLeft, true);
-            LedDisplay::paintGlassOverlay (g, glass, 0.8f);
+            // 0.79.0: drawn once into a picture (its metal frame's shadow, chrome, glass and lettering were 30% of the
+            // page's drawing, every meter tick), again only when what it says changes.
+            const auto name = stripName (page.processor, strip).toUpperCase();
+            const auto line = page.describeStrip (strip);
+            const auto key = caption() + "\n" + name + "\n" + line;
+            if (key != screenShown)
+            {
+                screenShown = key;
+                screen.invalidate();
+            }
+            screen.draw (g, screenArea.expanded (10), [this, &name, &line] (juce::Graphics& sg)
+            {
+                const auto glass = LedDisplay::paintScreen (sg, screenArea.toFloat(), 0.8f);
+                const auto text = glass.reduced (12.0f, 6.0f);
+                sg.setColour (LedDisplay::ledOrange.withAlpha (0.65f));
+                sg.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+                sg.drawText (caption(), text.withHeight (12.0f), juce::Justification::centredLeft, false);
+                sg.setColour (LedDisplay::ledOrange);
+                sg.setFont (juce::FontOptions (20.0f, juce::Font::bold));
+                sg.drawFittedText (name, text.withTrimmedTop (12.0f).withHeight (26.0f).toNearestInt(), juce::Justification::centredLeft, 1, 0.7f);
+                sg.setColour (LedDisplay::ledOrange.withAlpha (0.65f));
+                sg.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+                sg.drawText (line, text.withTrimmedTop (40.0f), juce::Justification::centredLeft, true);
+                LedDisplay::paintGlassOverlay (sg, glass, 0.8f);
+            });
             if (selected)
             {
                 ParagonColours::setFill (g, ParagonColours::accent, screenArea);
@@ -542,7 +575,8 @@ private:
 
     MixerPage& page;
     int strip;
-    PaintCache body;
+    PaintCache body, screen;
+    juce::String screenShown;
     juce::Image grain;
     std::array<juce::TextButton, mixer::numFxSlots> fxOn;
     std::array<Box, mixer::numFxSlots> fxBox;
