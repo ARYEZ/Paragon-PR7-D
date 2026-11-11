@@ -103,6 +103,13 @@ namespace effects
         makeUp.setTargetValue (juce::Decibels::decibelsToGain (settings.makeUpDb));
         fetGrit.setTargetValue (character == Character::fet ? 1.0f : 0.0f);
 
+        // (PR7-D 0.76.0) A detector reading surely under where the gain computer starts (1 dB below the knee's foot)
+        // gives no reduction whatever its exact dB: the log is skipped for it (-120 stands in; LINK's louder side still
+        // wins). Off when the threshold is so low that the -120 floor itself could reduce.
+        const auto quietDb = settings.thresholdDb - (settings.ratio < 1.25f ? 0.0f : 0.5f * knee) - 1.0f;
+        const auto canSkip = quietDb > -110.0f;
+        const auto quietPeak = canSkip ? std::pow (10.0f, quietDb / 20.0f) : 0.0f;
+        const auto quietMeanSquare = canSkip ? std::pow (10.0f, (quietDb - rmsToPeakDb) / 10.0f) - 1.0e-12f : -1.0f;
         std::array<float, 2> most {};
         auto gritNow = fetGrit.getCurrentValue();   // FET grit's fade, this sample
         auto block = juce::dsp::AudioBlock<float> (audio).getSubBlock (0, (size_t) numSamples);
@@ -120,8 +127,10 @@ namespace effects
                     const auto level = std::abs (x);
                     peak[c] = level > peak[c] ? level : peak[c] + (level - peak[c]) * peakRelease;
                     meanSquare[c] += (x * x - meanSquare[c]) * rmsCoefficient;
-                    levelDb[c] = character == Character::fet ? juce::Decibels::gainToDecibels (peak[c], -120.0f)
-                                                             : 10.0f * std::log10 (meanSquare[c] + 1.0e-12f) + rmsToPeakDb;
+                    if (character == Character::fet)
+                        levelDb[c] = peak[c] < quietPeak ? -120.0f : juce::Decibels::gainToDecibels (peak[c], -120.0f);
+                    else
+                        levelDb[c] = meanSquare[c] < quietMeanSquare ? -120.0f : 10.0f * std::log10 (meanSquare[c] + 1.0e-12f) + rmsToPeakDb;
                 }
                 if (settings.link && numChannels == 2)
                     levelDb[0] = levelDb[1] = juce::jmax (levelDb[0], levelDb[1]);

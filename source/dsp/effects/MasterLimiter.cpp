@@ -177,6 +177,7 @@ namespace effects
                 c.boxSum = (double) (lookahead + 1);
                 c.holdFront = c.holdBack = 0;
                 c.fast = 1.0f;
+                c.fastSeen = std::numeric_limits<float>::quiet_NaN();
                 c.slowDb = 0.0f;
                 c.memory = 0.0f;
                 c.meanSquare = 0.0f;
@@ -341,16 +342,30 @@ namespace effects
                     // the way, quickly.
                     channel.usualDb += (channel.sustainedDb - channel.usualDb) * usualCoefficient;
                     const auto holdDb = channel.memory * channel.usualDb;
-                    const auto target = juce::jmin (boxed, toGain (-holdDb));
+                    // (PR7-D 0.76.0) The same arithmetic, with fewer logarithms and powers: -toDb (fast) kept until
+                    // `fast` moves, and the recovery's target worked out only when it could raise `fast` (`boxed`
+                    // above it: the target is never above `boxed`).
+                    const auto fastDbOf = [&channel]
+                    {
+                        if (! (channel.fast == channel.fastSeen))
+                        {
+                            channel.fastSeen = channel.fast;
+                            channel.fastDbSeen = -toDb (channel.fast);
+                        }
+                        return channel.fastDbSeen;
+                    };
                     if (boxed < channel.fast)
                         channel.fast = boxed;
-                    else if (target > channel.fast)
+                    else if (boxed > channel.fast)
                     {
-                        const auto deeper = -toDb (channel.fast) > channel.sustainedDb + 0.5f;
-                        const auto releaseMs = character.fastReleaseMs * p.fastReleaseScale * (deeper ? 1.0f : 1.0f + character.adapt * channel.memory);
-                        channel.fast += (target - channel.fast) * coefficientFor (sampleRate, releaseMs);
+                        if (const auto target = juce::jmin (boxed, toGain (-holdDb)); target > channel.fast)
+                        {
+                            const auto deeper = fastDbOf() > channel.sustainedDb + 0.5f;
+                            const auto releaseMs = character.fastReleaseMs * p.fastReleaseScale * (deeper ? 1.0f : 1.0f + character.adapt * channel.memory);
+                            channel.fast += (target - channel.fast) * coefficientFor (sampleRate, releaseMs);
+                        }
                     }
-                    const auto fastDb = -toDb (channel.fast);
+                    const auto fastDb = fastDbOf();
                     // Only limiting that goes on and on slows the recovery (less distortion
                     // there); separate hits, however hard, keep it quick (no pumping).
                     channel.memory += fastDb > 0.5f ? (1.0f - channel.memory) * memoryRise : -channel.memory * memoryFall;

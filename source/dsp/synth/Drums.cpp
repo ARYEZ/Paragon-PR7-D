@@ -1284,6 +1284,46 @@ namespace synth::drums
                 && ! (attackTime > 0.0f && t < attackTime))
             {
                 const auto perSample = 1.0 / sampleRate;
+                // 0.76.0: at the hit's own pitch (a step of one whole frame from a whole frame: a sample pack's hit
+                // at its own rate), runs of frames known to be inside the ready stretch, the hit and its end, played
+                // without the checks the loop below makes at every frame: the same arithmetic in the same order.
+                if (juce::exactlyEqual (step, 1.0))
+                    while (i < numSamples)
+                    {
+                        const auto index = (juce::int64) position;
+                        if (! juce::exactlyEqual (position, (double) index) || position >= endPosition || index >= length - 1)
+                            break;
+                        if (index < runFrom || index >= runTo)
+                            if (index < 0 || ! refill (index) || index >= runTo)
+                                break;
+                        const auto toEnd = endPosition - position;   // (frames before the end, one fewer to be safe)
+                        auto n = (juce::int64) (numSamples - i);
+                        n = juce::jmin (n, runTo - index, length - 1 - index);
+                        if (toEnd < 1.0e15)
+                            n = juce::jmin (n, (juce::int64) std::floor (toEnd) - 1);
+                        if (n <= 0)
+                            break;
+                        const auto* a = run[0] + (index - runFrom);
+                        const auto* b = channels > 1 ? run[1] + (index - runFrom) : nullptr;
+                        juce::int64 k = 0;
+                        for (; k < n && ! (env < 1.0e-4f); ++k, ++i)
+                        {
+                            auto gain = env * level * fade * shapeGain;
+                            gain *= 1.0f + spike * click;
+                            click *= clickCoef;
+                            env *= envCoef;
+                            const auto o0 = a[k] * gain;
+                            left[i] += o0 * panLeft;
+                            if (b != nullptr)
+                                right[i] += (b[k] * gain) * panRight;
+                            else
+                                right[i] += o0 * panRight;
+                            position += step;
+                            t += perSample;
+                        }
+                        if (k < n)
+                            break;   // quiet: the loop below ends it
+                    }
                 for (; i < numSamples; ++i)
                 {
                     const auto index = (juce::int64) position;
@@ -2381,6 +2421,10 @@ namespace synth::drums
         std::array<bool, mixer::numMicChannels> used {};
         auto* vl = voiceScratch.data();
         auto* vr = vl + blockSize;
+        // 0.76.0: the voice lines cleared once here, then each voice's line zeroed as it's added in (one pass over it,
+        // not a clear and then an add): a multi-mic kit runs a hundred voices a block.
+        std::fill (vl, vl + numSamples, 0.0f);
+        std::fill (vr, vr + numSamples, 0.0f);
         for (auto& v : voices)
         {
             if (! v.active || v.channel < 0)
@@ -2392,8 +2436,6 @@ namespace synth::drums
                 if (v.releaseLeft < 0 && v.fadeStep <= 0.0f)
                     v.fadeOut (0.03);
             }
-            std::fill (vl, vl + numSamples, 0.0f);
-            std::fill (vr, vr + numSamples, 0.0f);
             v.render (vl, vr, numSamples);
             const auto& s = settings.slots[(size_t) v.slot];
             const auto g = v.micGain * settings.gain * s.gain * s.trim * (audible (settings, v.slot) ? 1.0f : 0.0f);
@@ -2405,6 +2447,8 @@ namespace synth::drums
             {
                 cl[i] += vl[i] * g;
                 cr[i] += vr[i] * g;
+                vl[i] = 0.0f;
+                vr[i] = 0.0f;
             }
             used[(size_t) v.channel] = true;
         }
