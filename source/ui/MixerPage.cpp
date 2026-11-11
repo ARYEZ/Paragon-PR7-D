@@ -5,11 +5,15 @@
 #include "dsp/synth/Instrument.h"
 #include "ui/DockPanels.h"
 #include "ui/DrumSeqPage.h"
+#include "ui/Finish.h"
+#include "ui/LedDisplay.h"
+#include "ui/PaintCache.h"
+#include "ui/PedalBody.h"
 #include "ui/ParagonLookAndFeel.h"
 
 namespace
 {
-    constexpr int propertiesWidth = 360, rowHeight = 26, stripWidth = 82, headerHeight = 44;
+    constexpr int propertiesWidth = 400, rowHeight = 26, stripsShown = 5, headerHeight = 44;
     using Attachment = juce::AudioProcessorValueTreeState;
     using namespace synth;
 
@@ -37,94 +41,239 @@ namespace
 }
 
 //==============================================================================
-// A channel's or a bus's strip.
+// 0.78.0: THE STRIPS in the PR7-O mixer's style (the owner: "redo our mixer tab in the style of the mixer we are creating
+// for the PR7-O"; five across, EFFECTS folding away, folded at first, so the meters run longer). Each strip is a small
+// unit in pearl black, as THE DRUM MACHINE's face is (its keys and knobs in neon rings), top to bottom:
+//   - its screen: what it is (MIC CHANNEL n, BUS n, USER n), its name, what it hears; click to choose it (its PROPERTIES
+//     when they're open), right-click a bus's or user channel's to rename it;
+//   - EFFECTS (folds for every strip at once: its heading): four slots, each an ON key and its effect (click: its
+//     settings in PROPERTIES; an empty one: choose one; right-click: the menu);
+//   - SENDS AND PAN: SEND 1 and 2 (the knob its level, the name over the box where it goes: click to choose; the box:
+//     PROPERTIES > SENDS), PAN, and (a mic channel) BLEED (its box: on / off; its name: PROPERTIES > BLEED);
+//   - LEVEL: the fader with its scale, the meter beside it, the level under it;
+//   - MUTE, SOLO, PHASE;
+//   - OUTPUT: where it goes (click to choose).
 class MixerPage::Strip final : public juce::Component
 {
 public:
+    // A box the strip's values are shown in (a small screen), clickable.
+    class Box final : public juce::Component, public juce::SettableTooltipClient
+    {
+    public:
+        juce::String text;
+        bool dim = false, large = false, plain = false;   // plain: just the text (a knob's name)
+        std::function<void (const juce::MouseEvent&)> onClick;
+        void setText (const juce::String& t, bool d)
+        {
+            if (t != text || d != dim)
+            {
+                text = t;
+                dim = d;
+                repaint();
+            }
+        }
+        void paint (juce::Graphics& g) override
+        {
+            const auto r = getLocalBounds().toFloat();
+            if (! plain)
+            {
+                g.setColour (juce::Colour (0xff0a0708));
+                g.fillRoundedRectangle (r.reduced (0.5f), 3.0f);
+                g.setColour (isMouseOver() && onClick != nullptr ? LedDisplay::ledOrange.withAlpha (0.55f) : juce::Colour (0xff3a2a2e));
+                g.drawRoundedRectangle (r.reduced (0.5f), 3.0f, 1.0f);
+            }
+            g.setFont (juce::FontOptions (large ? 13.0f : plain ? 9.5f : 11.0f, juce::Font::bold));
+            const auto colour = plain ? (dim ? Finish::inkDim() : Finish::ink()) : LedDisplay::ledOrange;
+            g.setColour (dim ? colour.withAlpha (plain ? 0.8f : 0.4f) : colour);
+            g.drawFittedText (text, getLocalBounds().reduced (plain ? 0 : 6, 0), plain || large ? juce::Justification::centred
+                                                                                                  : juce::Justification::centredLeft, 1, 0.8f);
+        }
+        void mouseUp (const juce::MouseEvent& e) override
+        {
+            if (onClick != nullptr && getLocalBounds().contains (e.getPosition()))
+                onClick (e);
+        }
+        void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+        void mouseExit (const juce::MouseEvent&) override { repaint(); }
+    };
+
+    // The LEVEL fader: a narrow lit slot, a scale beside it, a black cap with its LED (drawn as THE DRUM MACHINE's,
+    // narrower).
+    class LevelFader final : public juce::Component, public juce::SettableTooltipClient
+    {
+    public:
+        LevelFader() { setMouseCursor (juce::MouseCursor::UpDownResizeCursor); }
+        void bind (juce::RangedAudioParameter* p)
+        {
+            parameter = p;
+            attachment = std::make_unique<juce::ParameterAttachment> (*p, [this] (float) { repaint(); });
+            attachment->sendInitialUpdate();
+        }
+        float proportion() const { return parameter != nullptr ? parameter->getValue() : 0.0f; }
+        juce::Rectangle<float> travel() const { return getLocalBounds().toFloat().withSizeKeepingCentre (28.0f, (float) getHeight()).reduced (0.0f, 14.0f); }
+        float yOf (float db) const
+        {
+            const auto t = travel();
+            const auto v = parameter != nullptr ? parameter->convertTo0to1 (db) : 0.0f;
+            return t.getBottom() - t.getHeight() * v;
+        }
+        void paint (juce::Graphics& g) override
+        {
+            const auto t = travel();
+            const auto slot = juce::Rectangle<float> (t.getCentreX() - 4.0f, t.getY() - 6.0f, 8.0f, t.getHeight() + 12.0f);
+            g.setColour (juce::Colours::black.withAlpha (0.55f));
+            g.fillRoundedRectangle (slot.translated (0.0f, 1.5f), 4.0f);
+            if (Finish::neonRings())
+                g.setGradientFill (Finish::neonGradient (slot.getX(), slot.getRight()));
+            else
+                g.setColour (juce::Colour (0xffbfb2b8));
+            g.fillRoundedRectangle (slot, 4.0f);
+            g.setColour (juce::Colour (0xff050405));
+            g.fillRoundedRectangle (slot.reduced (1.6f), 3.0f);
+            const auto capY = t.getBottom() - t.getHeight() * proportion();
+            const auto cap = juce::Rectangle<float> (40.0f, 20.0f).withCentre ({ slot.getCentreX(), capY });
+            juce::DropShadow (juce::Colours::black.withAlpha (0.6f), 6, { 0, 3 }).drawForRectangle (g, cap.toNearestInt());
+            const auto well = ParagonLookAndFeel::drawChromeBezel (g, cap, 4.0f);
+            ParagonLookAndFeel::drawPianoKey (g, well, 2.5f, 1.6f, false, isMouseOverOrDragging());
+            ParagonLookAndFeel::drawNeonBar (g, well.withSizeKeepingCentre (well.getWidth() - 10.0f, 3.0f), true, false);
+        }
+        void mouseDown (const juce::MouseEvent& e) override
+        {
+            if (attachment == nullptr)
+                return;
+            attachment->beginGesture();
+            startValue = proportion();
+            startY = e.position.y;
+        }
+        void mouseDrag (const juce::MouseEvent& e) override
+        {
+            if (attachment == nullptr)
+                return;
+            const auto fine = e.mods.isShiftDown() ? 0.25f : 1.0f;
+            const auto v = juce::jlimit (0.0f, 1.0f, startValue - (e.position.y - startY) / juce::jmax (20.0f, travel().getHeight()) * fine);
+            attachment->setValueAsPartOfGesture (parameter->convertFrom0to1 (v));
+        }
+        void mouseUp (const juce::MouseEvent&) override
+        {
+            if (attachment != nullptr)
+                attachment->endGesture();
+        }
+        void mouseDoubleClick (const juce::MouseEvent&) override
+        {
+            if (attachment != nullptr)
+                attachment->setValueAsCompleteGesture (parameter->convertFrom0to1 (parameter->getDefaultValue()));
+        }
+        void mouseEnter (const juce::MouseEvent&) override { repaint(); }
+        void mouseExit (const juce::MouseEvent&) override { repaint(); }
+
+    private:
+        juce::RangedAudioParameter* parameter = nullptr;
+        std::unique_ptr<juce::ParameterAttachment> attachment;
+        float startValue = 0.0f, startY = 0.0f;
+    };
+
     Strip (MixerPage& p, int s) : page (p), strip (s)
     {
         auto& state = page.processor.getParameters();
         const auto id = [s] (const char* what) { return stripId (s, what); };
-        if (! isBus (strip))
+        const auto knob = [this] (juce::Slider& k, const juce::String& tip)
         {
-            styleToggle (bleedOn, "BLEED on: the other drums heard through this mic. Off: only the drums it's meant for.");
-            bleedOn.setButtonText ("BLEED");
-            bleed.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-            bleed.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-            bleed.setTooltip ("BLEED level: every other drum in this mic, together (their balance is in PROPERTIES).");
-            addAndMakeVisible (bleedOn);
-            addAndMakeVisible (bleed);
-            attachments.push_back (std::make_unique<Attachment::SliderAttachment> (state, id ("Bleed"), bleed));
-            buttons.push_back (std::make_unique<Attachment::ButtonAttachment> (state, id ("BleedOn"), bleedOn));
-            bleed.setDoubleClickReturnValue (true, 0.0);
-        }
+            k.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
+            k.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
+            k.getProperties().set (ParagonLookAndFeel::pedalKnobProperty, true);
+            k.setTooltip (tip);
+            addAndMakeVisible (k);
+        };
+        const auto key = [this] (juce::TextButton& b, const juce::String& tip)
+        {
+            b.getProperties().set (ParagonLookAndFeel::pedalButtonProperty, true);
+            b.setClickingTogglesState (true);
+            b.setTooltip (tip);
+            addAndMakeVisible (b);
+        };
         for (int k = 0; k < mixer::numFxSlots; ++k)
         {
-            auto& b = effects[(size_t) k];
-            DrumSeqPanel::style (b);
-            b.setTooltip ("EFFECT " + juce::String (k + 1) + ": EQ, COMPRESSOR, GATE, TRANSIENT, DRIVE, LO-FI or MOD, in order from the "
-                          "top, before the pan and fader. Click to choose; its settings are in PROPERTIES > EFFECTS.");
-            b.onClick = [this, k] { page.showEffectMenu (strip, k, effects[(size_t) k]); };
+            key (fxOn[(size_t) k], "EFFECT " + juce::String (k + 1) + " on or off.");
+            fxOn[(size_t) k].setClickingTogglesState (false);
+            fxOn[(size_t) k].onClick = [this, k] { page.toggleEffect (strip, k); };
+            auto& b = fxBox[(size_t) k];
+            b.setTooltip ("EFFECT " + juce::String (k + 1) + ": click for its settings (empty: choose one: EQ, COMPRESSOR, GATE, TRANSIENT, "
+                          "DRIVE, LO-FI, MOD, SATURATION); right-click for its menu. The four run in order, before the pan and fader.");
+            b.onClick = [this, k] (const juce::MouseEvent& e)
+            {
+                if (e.mods.isPopupMenu() || ! page.processor.getModMatrix().effect (strip, k).isLoaded())
+                    page.showEffectMenu (strip, k, fxBox[(size_t) k]);
+                else
+                    page.openEffect (strip, k);
+            };
             addAndMakeVisible (b);
         }
         for (int k = 0; k < mixer::numSendSlots; ++k)
         {
-            auto& b = sends[(size_t) k];
-            DrumSeqPanel::style (b);
-            b.setTooltip ("SEND " + juce::String (k + 1) + ": a copy of this " + (isBus (strip) ? "bus" : "channel")
-                          + " into a bus, an FX bus (the FX page's insert buses, with their effects), the DELAY or the REVERB. "
-                            "Click to choose; its levels and pans are in PROPERTIES > SENDS.");
-            b.onClick = [this, k] { page.showSendMenu (strip, k, sends[(size_t) k]); };
-            addAndMakeVisible (b);
+            knob (sendLevel[(size_t) k], "SEND " + juce::String (k + 1) + "'s level (its DIRECT sound: the BLEED's and both pans are in PROPERTIES > SENDS).");
+            sendLevel[(size_t) k].setRange (-60.0, 12.0, 0.1);
+            sendLevel[(size_t) k].setDoubleClickReturnValue (true, 0.0);
+            sendLevel[(size_t) k].onValueChange = [this, k] { page.setStripSendLevel (strip, k, (float) sendLevel[(size_t) k].getValue(), false); };
+            sendLevel[(size_t) k].onDragEnd = [this, k] { page.setStripSendLevel (strip, k, (float) sendLevel[(size_t) k].getValue(), true); };
+            auto& name = sendName[(size_t) k];
+            name.plain = true;
+            name.setTooltip ("Where SEND " + juce::String (k + 1) + " goes: a bus, an FX bus (the FX page's insert buses, with their "
+                             "effects), the DELAY or the REVERB. Click to choose.");
+            name.onClick = [this, k] (const juce::MouseEvent&) { page.showSendMenu (strip, k, sendName[(size_t) k]); };
+            addAndMakeVisible (name);
+            sendBox[(size_t) k].setTooltip ("SEND " + juce::String (k + 1) + "'s level: click for its settings (PROPERTIES > SENDS).");
+            sendBox[(size_t) k].onClick = [this] (const juce::MouseEvent&) { page.selectStrip (strip); page.showTab (Tab::sends); };
+            addAndMakeVisible (sendBox[(size_t) k]);
         }
-        pan.setSliderStyle (juce::Slider::RotaryHorizontalVerticalDrag);
-        pan.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
-        pan.setTooltip ("PAN: left to right (a balance).");
-        fader.setSliderStyle (juce::Slider::LinearVertical);
-        fader.setTextBoxStyle (juce::Slider::TextBoxBelow, false, 60, 18);
-        fader.setTooltip (isBus (strip) ? "The bus's level." : "The channel's level.");
-        styleToggle (mute, isBus (strip) ? "MUTE this bus." : "MUTE this channel (its sends too, unless MENU... > POST SEND).");
-        mute.setButtonText ("M");
-        styleToggle (solo, isBus (strip) ? "SOLO: only the soloed buses heard (the channels aren't touched)."
-                                         : "SOLO: only the soloed channels heard (the buses aren't touched).");
-        solo.setButtonText ("S");
-        styleToggle (invert, "POLARITY: the waveform flipped (to line a mic up with another).");
-        invert.setButtonText (juce::String (juce::CharPointer_UTF8 ("\xc3\x98")));
-        DrumSeqPanel::style (output);
-        output.setTooltip (isBus (strip) ? "Where the bus goes: MAIN, OUT 2 to 16 (switch it on in your DAW; until then MAIN), a later "
-                                           "bus, or an FX bus. The outputs stay with the project, the buses with presets."
-                                         : "Where the channel goes: MAIN, OUT 2 to 16 (switch it on in your DAW; until then MAIN), a "
-                                           "bus, or an FX bus. The outputs stay with the project, the buses with presets.");
-        output.onClick = [this] { page.showOutputMenu (strip, output); };
-        for (juce::Component* comp : { (juce::Component*) &pan, (juce::Component*) &fader, (juce::Component*) &mute,
-                                       (juce::Component*) &solo, (juce::Component*) &invert, (juce::Component*) &output })
-            addAndMakeVisible (comp);
+        knob (pan, "PAN: left to right (a balance). Double-click: centre.");
+        pan.setDoubleClickReturnValue (true, 0.0);
+        pan.onValueChange = [this] { refreshBoxes(); };
         attachments.push_back (std::make_unique<Attachment::SliderAttachment> (state, id ("Pan"), pan));
-        attachments.push_back (std::make_unique<Attachment::SliderAttachment> (state, id ("Level"), fader));
+        panName.plain = true;
+        panName.text = "PAN";
+        addAndMakeVisible (panName);
+        addAndMakeVisible (panBox);
+        if (! isBus (strip))
+        {
+            knob (bleed, "BLEED: every other drum heard through this mic, together (each one's level: its name, PROPERTIES > BLEED).");
+            bleed.setDoubleClickReturnValue (true, 0.0);
+            bleed.onValueChange = [this] { refreshBoxes(); };
+            attachments.push_back (std::make_unique<Attachment::SliderAttachment> (state, id ("Bleed"), bleed));
+            bleedName.plain = true;
+            bleedName.text = "BLEED";
+            bleedName.setTooltip ("Each drum's bleed into this mic, TIME OFFSET and RELEASE: click for PROPERTIES > BLEED.");
+            bleedName.onClick = [this] (const juce::MouseEvent&) { page.selectStrip (strip); page.showTab (Tab::bleed); };
+            addAndMakeVisible (bleedName);
+            bleedBox.setTooltip ("Click to switch the bleed on or off (off: only the drums this mic is meant for).");
+            bleedBox.onClick = [this] (const juce::MouseEvent&)
+            {
+                if (auto* on = page.processor.getParameters().getParameter (stripId (strip, "BleedOn")))
+                    on->setValueNotifyingHost (on->getValue() > 0.5f ? 0.0f : 1.0f);
+                refreshBoxes();
+            };
+            addAndMakeVisible (bleedBox);
+        }
+        fader.bind (state.getParameter (id ("Level")));
+        fader.setTooltip ((isBus (strip) ? juce::String ("The bus's level.") : juce::String ("The channel's level."))
+                          + " Drag (SHIFT: finer); double-click: 0 dB.");
+        addAndMakeVisible (fader);
+        levelBox.large = true;
+        addAndMakeVisible (levelBox);
+        key (mute, isBus (strip) ? "MUTE this bus." : "MUTE this channel (its sends too, unless MENU... > POST SEND).");
+        key (solo, isBus (strip) ? "SOLO: only the soloed buses heard (the channels aren't touched)."
+                                 : "SOLO: only the soloed channels heard (the buses aren't touched).");
+        key (invert, "PHASE: the waveform flipped (to line a mic up with another).");
         buttons.push_back (std::make_unique<Attachment::ButtonAttachment> (state, id ("Mute"), mute));
         buttons.push_back (std::make_unique<Attachment::ButtonAttachment> (state, id ("Solo"), solo));
         buttons.push_back (std::make_unique<Attachment::ButtonAttachment> (state, id ("Phase"), invert));
-        fader.setDoubleClickReturnValue (true, 0.0);
-        pan.setDoubleClickReturnValue (true, 0.0);
+        output.large = true;
+        output.setTooltip (isBus (strip) ? "Where the bus goes: MAIN, OUT 2 to 16 (switch it on in your DAW; until then MAIN), a later "
+                                           "bus, or an FX bus. Click to choose. The outputs stay with the project, the buses with presets."
+                                         : "Where the channel goes: MAIN, OUT 2 to 16 (switch it on in your DAW; until then MAIN), a "
+                                           "bus, or an FX bus. Click to choose. The outputs stay with the project, the buses with presets.");
+        output.onClick = [this] (const juce::MouseEvent&) { page.showOutputMenu (strip, output); };
+        addAndMakeVisible (output);
         refresh();
-    }
-
-    void setFade (juce::Button& b, float fade)
-    {
-        if (std::abs (getFade (b) - fade) > 1.0e-4f)
-        {
-            b.getProperties().set ("fade", fade);
-            repaint (b.getBounds());
-        }
-    }
-    std::vector<juce::Button*> fadeButtons()
-    {
-        std::vector<juce::Button*> out;
-        for (auto& b : effects)
-            out.push_back (&b);
-        for (auto& b : sends)
-            out.push_back (&b);
-        return out;
     }
 
     void setMeter (float peak)
@@ -134,137 +283,184 @@ public:
         if (std::abs (shown - meter) > 1.0e-4f)
         {
             meter = shown;
-            repaint (meterArea());
+            repaint (meterArea);
         }
     }
-    void setSelected (bool s) { if (s != selected) { selected = s; repaint(); } }
-    // 0.49.0: faded with a sheet of the strip's own colour drawn over it (`paintOverChildren`), not `setAlpha`: a
-    // component with an alpha is drawn into a layer of its own and blended back, and with most strips and their effect
-    // and send buttons faded that blending was over a third of drawing the page.
+    void setSelected (bool s) { if (s != selected) { selected = s; repaint (screenArea.expanded (6)); } }
     void setInUse (bool u) { if (u != used) { used = u; repaint(); } }
+    bool isInUse() const noexcept { return used; }
+    int getStrip() const noexcept { return strip; }
+    void effectsShownChanged() { body.invalidate(); resized(); repaint(); }
 
-    // The OUTPUT and SEND buttons' words (the timer: they follow undo, presets and the DAW).
+    // What the boxes, the effect slots and the sends show (the timer: they follow undo, presets and the DAW).
     void refresh()
     {
-        if (const auto text = page.describeOutput (strip); text != output.getButtonText())
-            output.setButtonText (text);
+        const auto& m = page.processor.getModMatrix();
         for (int k = 0; k < mixer::numFxSlots; ++k)
         {
-            auto& b = effects[(size_t) k];
-            const auto& fx = page.processor.getModMatrix().effect (strip, k);
-            if (const auto text = page.describeEffect (strip, k); text != b.getButtonText())
-                b.setButtonText (text);
-            b.setToggleState (fx.isLoaded() && fx.on, juce::dontSendNotification);
-            setFade (b, fx.isLoaded() ? (fx.on ? 1.0f : 0.75f) : 0.6f);
+            const auto& fx = m.effect (strip, k);
+            fxBox[(size_t) k].setText (fx.isLoaded() ? page.describeEffect (strip, k).toUpperCase() : juce::String ("+ ADD EFFECT"), ! fx.isLoaded() || ! fx.on);
+            fxOn[(size_t) k].setToggleState (fx.isLoaded() && fx.on, juce::dontSendNotification);
         }
-        // (0.40.0: the effect buttons' set-up, repeated here every tick by mistake, removed: the constructor does it.)
         for (int k = 0; k < mixer::numSendSlots; ++k)
         {
-            auto& b = sends[(size_t) k];
-            const auto on = page.processor.getModMatrix().send (strip, k).isOn();
-            if (const auto text = page.describeSend (strip, k); text != b.getButtonText())
-                b.setButtonText (text);
-            b.setToggleState (on, juce::dontSendNotification);
-            setFade (b, on ? 1.0f : 0.6f);
+            const auto& d = m.send (strip, k);
+            sendName[(size_t) k].setText (d.isOn() ? page.describeSend (strip, k).toUpperCase() : "SEND " + juce::String (k + 1), ! d.isOn());
+            if (! sendLevel[(size_t) k].isMouseButtonDown())
+                sendLevel[(size_t) k].setValue (d.directDb, juce::dontSendNotification);
+            sendLevel[(size_t) k].setEnabled (d.isOn());
+            sendBox[(size_t) k].setText (! d.isOn() ? juce::String ("OFF") : ! d.directOn || d.directDb <= -59.9f ? juce::String ("-INF")
+                                                                          : juce::String (d.directDb, 1) + " dB", ! d.isOn());
+        }
+        output.setText (page.describeOutput (strip).toUpperCase(), false);
+        refreshBoxes();
+    }
+    void refreshBoxes()
+    {
+        const auto p = (float) pan.getValue();
+        const auto amount = juce::roundToInt (std::abs (p) * 100.0f);
+        panBox.setText (amount == 0 ? juce::String ("C") : juce::String (amount) + (p < 0.0f ? " L" : " R"), false);
+        if (! isBus (strip))
+        {
+            auto* on = page.processor.getParameters().getRawParameterValue (stripId (strip, "BleedOn"));
+            const auto off = on != nullptr && on->load() < 0.5f;
+            bleedBox.setText (off ? juce::String ("OFF") : juce::String (bleed.getValue(), 1) + " dB", off);
+        }
+        if (auto* level = page.processor.getParameters().getRawParameterValue (stripId (strip, "Level")))
+            levelBox.setText (level->load() <= -59.9f ? juce::String ("-INF") : juce::String (level->load(), 1) + " dB", false);
+    }
+
+    void resized() override
+    {
+        body.invalidate();
+        auto a = getLocalBounds().reduced (14, 12);
+        screenArea = a.removeFromTop (70);
+        a.removeFromTop (8);
+        const auto shown = page.areEffectsShown();
+        effectsHead = a.removeFromTop (18);
+        for (int k = 0; k < mixer::numFxSlots; ++k)
+        {
+            fxOn[(size_t) k].setVisible (shown);
+            fxBox[(size_t) k].setVisible (shown);
+            if (! shown)
+                continue;
+            a.removeFromTop (4);
+            auto row = a.removeFromTop (24);
+            fxOn[(size_t) k].setBounds (row.removeFromLeft (34));
+            row.removeFromLeft (8);
+            fxBox[(size_t) k].setBounds (row);
+        }
+        a.removeFromTop (6);
+        sendsHead = a.removeFromTop (18);
+        a.removeFromTop (4);
+        auto knobs = a.removeFromTop (44);
+        auto names = a.removeFromTop (14);
+        auto boxes = a.removeFromTop (20);
+        const auto columns = isBus (strip) ? 3 : 4;
+        const auto w = knobs.getWidth() / columns;
+        std::vector<std::tuple<juce::Slider*, Box*, Box*>> cells;
+        for (int k = 0; k < mixer::numSendSlots; ++k)
+            cells.push_back ({ &sendLevel[(size_t) k], &sendName[(size_t) k], &sendBox[(size_t) k] });
+        cells.push_back ({ &pan, &panName, &panBox });
+        if (! isBus (strip))
+            cells.push_back ({ &bleed, &bleedName, &bleedBox });
+        for (auto& [k, name, box] : cells)
+        {
+            k->setBounds (knobs.removeFromLeft (w).withSizeKeepingCentre (44, 44));
+            name->setBounds (names.removeFromLeft (w).reduced (1, 0));
+            box->setBounds (boxes.removeFromLeft (w).reduced (3, 0));
+        }
+        a.removeFromTop (6);
+        levelHead = a.removeFromTop (18);
+        auto bottom = a.removeFromBottom (44);   // OUTPUT
+        output.setBounds (bottom.withTrimmedTop (14));
+        outputArea = bottom;
+        a.removeFromBottom (6);
+        auto keys = a.removeFromBottom (40);
+        keysArea = keys;
+        const auto kw = keys.getWidth() / 3;
+        for (auto* b : { &mute, &solo, &invert })
+            b->setBounds (keys.removeFromLeft (kw).removeFromTop (26).withSizeKeepingCentre (44, 24));
+        a.removeFromBottom (4);
+        levelBox.setBounds (a.removeFromBottom (24).withSizeKeepingCentre (96, 24));
+        a.removeFromBottom (4);
+        faderArea = a;
+        const auto tall = a.getHeight() >= 40;
+        fader.setVisible (tall);
+        fader.setBounds (a.withSizeKeepingCentre (56, a.getHeight()).translated (-28, 0));
+        meterArea = a.withSizeKeepingCentre (26, a.getHeight()).translated (40, 0).reduced (0, 14).toNearestInt();
+    }
+
+    void paint (juce::Graphics& g) override
+    {
+        Finish::paintAs (Finish::Type::pearlBlack);
+        body.draw (g, getLocalBounds(), [this] (juce::Graphics& bg) { paintBody (bg); });
+        // The screen: what it is, its name, what it hears.
+        if (g.clipRegionIntersects (screenArea.expanded (6)))
+        {
+            const auto glass = LedDisplay::paintScreen (g, screenArea.toFloat(), 0.8f);
+            const auto text = glass.reduced (12.0f, 6.0f);
+            g.setColour (LedDisplay::ledOrange.withAlpha (0.65f));
+            g.setFont (juce::FontOptions (9.0f, juce::Font::bold));
+            g.drawText (caption(), text.withHeight (12.0f), juce::Justification::centredLeft, false);
+            g.setColour (LedDisplay::ledOrange);
+            g.setFont (juce::FontOptions (20.0f, juce::Font::bold));
+            g.drawFittedText (stripName (page.processor, strip).toUpperCase(), text.withTrimmedTop (12.0f).withHeight (26.0f).toNearestInt(),
+                              juce::Justification::centredLeft, 1, 0.7f);
+            g.setColour (LedDisplay::ledOrange.withAlpha (0.65f));
+            g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
+            g.drawText (page.describeStrip (strip), text.withTrimmedTop (40.0f), juce::Justification::centredLeft, true);
+            LedDisplay::paintGlassOverlay (g, glass, 0.8f);
+            if (selected)
+            {
+                ParagonColours::setFill (g, ParagonColours::accent, screenArea);
+                g.drawRoundedRectangle (screenArea.toFloat().expanded (3.0f), 7.0f, 2.0f);
+            }
+        }
+        // The meter: a column of segments, lit from the bottom to the level.
+        if (g.clipRegionIntersects (meterArea) && meterArea.getHeight() > 20)
+        {
+            const auto m = meterArea.toFloat();
+            g.setColour (juce::Colour (0xff070506));
+            g.fillRoundedRectangle (m.expanded (3.0f), 3.0f);
+            const auto db = juce::Decibels::gainToDecibels (meter, -60.0f);
+            const auto lit = juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 72.0f);
+            const auto rows = juce::jmax (4, (int) (m.getHeight() / 4.0f));
+            const auto h = m.getHeight() / (float) rows;
+            for (int i = 0; i < rows; ++i)
+            {
+                const auto on = (float) (i + 1) / (float) rows <= lit + 1.0e-4f;
+                const auto seg = juce::Rectangle<float> (m.getX(), m.getBottom() - (float) (i + 1) * h, m.getWidth(), h).reduced (0.0f, 0.7f);
+                const auto colour = (float) i / (float) rows > 0.83f ? ParagonColours::meterRed
+                                  : ParagonColours::familyPink.interpolatedWith (ParagonColours::familyRed, (float) i / (float) rows);
+                g.setColour (on ? colour.brighter (0.3f) : colour.withAlpha (0.12f));
+                g.fillRect (seg);
+            }
         }
     }
 
     void paintOverChildren (juce::Graphics& g) override
     {
-        // The faded buttons, then (not in use) the whole strip: the strip's colour over them at 1 - their alpha.
-        const auto behind = isBus (strip) ? juce::Colour (0xff120d0a) : juce::Colour (0xff0d0a0e);
-        for (auto* b : fadeButtons())
-            if (const auto fade = (float) b->getProperties().getWithDefault ("fade", 1.0f); fade < 1.0f && b->isVisible())
-            {
-                g.setColour (behind.withAlpha (1.0f - fade));
-                g.fillRect (b->getBounds());
-            }
+        Finish::paintAs (std::nullopt);
         if (! used)
         {
-            g.setColour (behind.withAlpha (0.55f));
-            g.fillRoundedRectangle (getLocalBounds().toFloat().reduced (1.0f), 4.0f);
+            g.setColour (juce::Colour (0xff0d0a0e).withAlpha (0.55f));
+            g.fillRoundedRectangle (getLocalBounds().toFloat().reduced (3.0f), 14.0f);
         }
-    }
-
-    float getFade (const juce::Button& b) const { return (float) b.getProperties().getWithDefault ("fade", 1.0f); }
-    bool isInUse() const noexcept { return used; }
-
-    juce::Rectangle<int> meterArea() const { return fader.getBounds().withWidth (6).translated (fader.getWidth() - 4, 0).withTrimmedBottom (20); }
-
-    void resized() override
-    {
-        auto a = getLocalBounds().reduced (4, 6);
-        if (! isBus (strip))
-        {
-            bleedOn.setBounds (a.removeFromTop (22));
-            a.removeFromTop (2);
-            bleed.setBounds (a.removeFromTop (36).withSizeKeepingCentre (36, 36));
-        }
-        else
-        {
-            a.removeFromTop (60);   // where a channel's BLEED is: the bus's label is drawn there
-        }
-        a.removeFromTop (4);
-        for (auto& b : effects)
-        {
-            b.setBounds (a.removeFromTop (18));
-            a.removeFromTop (2);
-        }
-        a.removeFromTop (4);
-        for (auto& b : sends)
-        {
-            b.setBounds (a.removeFromTop (18));
-            a.removeFromTop (2);
-        }
-        a.removeFromTop (2);
-        pan.setBounds (a.removeFromTop (36).withSizeKeepingCentre (36, 36));
-        a.removeFromTop (4);
-        a.removeFromBottom (24);   // the name
-        output.setBounds (a.removeFromBottom (22));
-        a.removeFromBottom (4);
-        auto buttonsRow = a.removeFromBottom (22);
-        const auto w = buttonsRow.getWidth() / 3;
-        mute.setBounds (buttonsRow.removeFromLeft (w).reduced (1, 0));
-        solo.setBounds (buttonsRow.removeFromLeft (w).reduced (1, 0));
-        invert.setBounds (buttonsRow.reduced (1, 0));
-        a.removeFromBottom (4);
-        fader.setBounds (a);
-    }
-
-    void paint (juce::Graphics& g) override
-    {
-        const auto r = getLocalBounds().toFloat();
-        const auto colour = isBus (strip) ? busColour : ParagonColours::accent;
-        ParagonColours::setFill (g, selected ? colour.withAlpha (0.12f) : isBus (strip) ? juce::Colour (0xff120d0a) : juce::Colour (0xff0d0a0e), r, true);
-        g.fillRoundedRectangle (r.reduced (1.0f), 4.0f);
-        ParagonColours::setFill (g, selected ? colour : isBus (strip) ? busColour.withAlpha (0.35f) : ParagonColours::panelEdge, r, true);
-        g.drawRoundedRectangle (r.reduced (1.5f), 4.0f, 1.0f);
-        g.setFont (juce::FontOptions (10.0f, juce::Font::bold));
-        ParagonColours::drawText (g, stripName (page.processor, strip), getLocalBounds().removeFromBottom (28).toFloat(), juce::Justification::centred,
-                                  selected || isBus (strip) ? colour : ParagonColours::text);
-        if (isBus (strip))
-        {
-            g.setFont (juce::FontOptions (20.0f, juce::Font::bold));
-            g.setColour (busColour.withAlpha (0.55f));
-            g.drawText (juce::String (strip - mixer::numChannels + 1), getLocalBounds().reduced (4, 6).removeFromTop (60),
-                        juce::Justification::centred, false);
-        }
-        // The meter beside the fader.
-        const auto m = meterArea().toFloat();
-        g.setColour (ParagonColours::panelEdge);
-        g.fillRect (m);
-        const auto db = juce::Decibels::gainToDecibels (meter, -60.0f);
-        const auto h = m.getHeight() * juce::jlimit (0.0f, 1.0f, (db + 60.0f) / 66.0f);
-        g.setColour (db > -1.0f ? ParagonColours::meterRed : colour);
-        g.fillRect (m.withTop (m.getBottom() - h));
     }
 
     void mouseDown (const juce::MouseEvent& e) override
     {
-        if (e.y > getHeight() - 30 || (isBus (strip) && e.y < 66))
-            page.selectStrip (strip);
+        if (effectsHead.expanded (0, 2).contains (e.getPosition()))
+        {
+            page.toggleEffectsShown();
+            return;
+        }
+        if (! screenArea.contains (e.getPosition()))
+            return;
+        page.selectStrip (strip);
         // A user channel's or (0.39.0) a bus's name: right-click to rename it (0.23.0).
-        if ((isUser (strip) || isBus (strip)) && e.y > getHeight() - 30 && e.mods.isPopupMenu())
+        if ((isUser (strip) || isBus (strip)) && e.mods.isPopupMenu())
         {
             const auto bus = isBus (strip);
             auto* window = new juce::AlertWindow (bus ? "RENAME BUS" : "RENAME CHANNEL", bus ? "A name for this bus (empty: its number):"
@@ -288,19 +484,112 @@ public:
         }
     }
 
-    int getStrip() const noexcept { return strip; }
+private:
+    juce::String caption() const
+    {
+        if (isBus (strip))
+            return "BUS " + juce::String (strip - mixer::numChannels + 1);
+        const auto channel = mixer::channelOfStrip (strip);
+        return isUser (strip) ? "USER " + juce::String (channel - mixer::numChannels + 1) : "MIC CHANNEL " + juce::String (channel + 1);
+    }
+
+    void paintBody (juce::Graphics& g)
+    {
+        g.fillAll (ParagonColours::background);
+        if (! grain.isValid() || grain.getWidth() != getWidth() || grain.getHeight() != getHeight())
+            grain = Finish::makeSatinGrain (juce::jmax (1, getWidth()), juce::jmax (1, getHeight()), 11 + strip);
+        const auto chassis = getLocalBounds().toFloat().reduced (3.0f);
+        PedalBody::paintUnit (g, chassis, chassis.reduced (6.0f), [this] (juce::Graphics& gg) { gg.drawImage (grain, getLocalBounds().toFloat()); },
+                              { 16.0f, 11.0f, 5.0f, 0.35f });
+        const auto heading = [&g] (juce::Rectangle<int> r, const juce::String& text, const juce::String& mark = {})
+        {
+            const auto rf = r.toFloat();
+            g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+            const auto label = (mark.isEmpty() ? text : text + "  " + mark);
+            const auto w = juce::GlyphArrangement::getStringWidth (g.getCurrentFont(), label) + 14.0f;
+            g.setColour (Finish::printedRed().withAlpha (0.7f));
+            g.fillRect (rf.getX(), rf.getCentreY() - 0.5f, (rf.getWidth() - w) / 2.0f, 1.0f);
+            g.fillRect (rf.getCentreX() + w / 2.0f, rf.getCentreY() - 0.5f, (rf.getWidth() - w) / 2.0f, 1.0f);
+            ParagonLookAndFeel::drawStampedText (g, label, rf, juce::Justification::centred, Finish::ink());
+        };
+        heading (effectsHead, "EFFECTS", page.areEffectsShown() ? juce::String::fromUTF8 ("\xe2\x96\xbe") : page.effectsSummary (strip));
+        heading (sendsHead, isBus (strip) ? "SENDS AND PAN" : "SENDS, PAN AND BLEED");
+        heading (levelHead, "LEVEL");
+        // The fader's scale.
+        if (fader.isVisible())
+        {
+            g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+            for (const auto db : { 12.0f, 0.0f, -12.0f, -24.0f, -36.0f, -60.0f })
+            {
+                const auto y = (float) fader.getY() + fader.yOf (db);
+                const auto x = (float) fader.getX();
+                g.setColour (Finish::inkDim().withAlpha (0.7f));
+                g.fillRect (x + 4.0f, y - 0.5f, 7.0f, 1.0f);
+                g.fillRect (x + (float) fader.getWidth() - 11.0f, y - 0.5f, 7.0f, 1.0f);
+                g.setColour (Finish::ink().withAlpha (0.8f));
+                g.drawText (db > 0.0f ? "+" + juce::String ((int) db) : juce::String ((int) db), juce::Rectangle<float> (x - 30.0f, y - 6.0f, 32.0f, 12.0f),
+                            juce::Justification::centredRight, false);
+            }
+        }
+        // The keys' names, OUTPUT's caption.
+        const auto kw = keysArea.getWidth() / 3;
+        auto names = keysArea.withTrimmedTop (28);
+        for (const auto* text : { "MUTE", "SOLO", "PHASE" })
+            ParagonLookAndFeel::drawStampedText (g, text, names.removeFromLeft (kw).toFloat(), juce::Justification::centred, Finish::ink());
+        g.setFont (juce::FontOptions (8.5f, juce::Font::bold));
+        ParagonLookAndFeel::drawStampedText (g, "OUTPUT", outputArea.withHeight (12).toFloat(), juce::Justification::centredLeft, Finish::ink());
+    }
+
+    MixerPage& page;
+    int strip;
+    PaintCache body;
+    juce::Image grain;
+    std::array<juce::TextButton, mixer::numFxSlots> fxOn;
+    std::array<Box, mixer::numFxSlots> fxBox;
+    std::array<juce::Slider, mixer::numSendSlots> sendLevel;
+    std::array<Box, mixer::numSendSlots> sendName, sendBox;
+    juce::Slider pan, bleed;
+    Box panName, panBox, bleedName, bleedBox, levelBox, output;
+    LevelFader fader;
+    juce::TextButton mute, solo, invert;
+    std::vector<std::unique_ptr<Attachment::SliderAttachment>> attachments;
+    std::vector<std::unique_ptr<Attachment::ButtonAttachment>> buttons;
+    juce::Rectangle<int> screenArea, effectsHead, sendsHead, levelHead, faderArea, meterArea, keysArea, outputArea;
+    float meter = 0.0f;
+    bool selected = false, used = true;
+};
+
+//==============================================================================
+// 0.78.0: PROPERTIES, now a panel over the strips (the strips have the page's width): the chosen strip's BLEED, EFFECTS
+// and SENDS, opened by an effect slot, a send's box or BLEED's name; X closes it.
+class MixerPage::Properties final : public juce::Component
+{
+public:
+    explicit Properties (MixerPage& p) : page (p)
+    {
+        DrumSeqPanel::style (close);
+        close.setButtonText ("X");
+        close.setTooltip ("Close the properties.");
+        close.onClick = [this] { page.closeProperties(); };
+        addAndMakeVisible (close);
+    }
+    void paint (juce::Graphics& g) override
+    {
+        g.setColour (juce::Colours::black.withAlpha (0.5f));
+        g.fillRect (getLocalBounds().removeFromLeft (10));
+        DockStyle::drawPanel (g, getLocalBounds().withTrimmedLeft (10).toFloat());
+        page.paintProperties (g);
+    }
+    void resized() override
+    {
+        close.setBounds (getLocalBounds().withTrimmedLeft (10).reduced (14, 0).withHeight (headerHeight).removeFromRight (30).withSizeKeepingCentre (30, 26));
+        page.layoutProperties();
+    }
+    void mouseDown (const juce::MouseEvent&) override {}   // (clicks don't fall through to the strips)
 
 private:
     MixerPage& page;
-    int strip;
-    juce::TextButton bleedOn, mute, solo, invert, output;
-    std::array<juce::TextButton, mixer::numSendSlots> sends;
-    std::array<juce::TextButton, mixer::numFxSlots> effects;
-    juce::Slider bleed, pan, fader;
-    std::vector<std::unique_ptr<Attachment::SliderAttachment>> attachments;
-    std::vector<std::unique_ptr<Attachment::ButtonAttachment>> buttons;
-    float meter = 0.0f;
-    bool selected = false, used = true;
+    juce::TextButton close;
 };
 
 //==============================================================================
@@ -1148,18 +1437,20 @@ MixerPage::MixerPage (ParagonX1AudioProcessor& p) : processor (p)
         strips.push_back (std::make_unique<Strip> (*this, s));
         holder.addAndMakeVisible (*strips.back());
     }
+    properties = std::make_unique<Properties> (*this);
+    addChildComponent (*properties);
     for (int pc = 0; pc < mixer::numPieces; ++pc)
     {
         rows.push_back (std::make_unique<PieceRow> (*this, pc));
-        addChildComponent (*rows.back());
+        properties->addChildComponent (*rows.back());
     }
     for (int k = 0; k < mixer::numSendSlots; ++k)
     {
         sendEditors.push_back (std::make_unique<SendEditor> (*this, k));
-        addChildComponent (*sendEditors.back());
+        properties->addChildComponent (*sendEditors.back());
     }
     effectEditor = std::make_unique<EffectEditor> (*this);
-    addChildComponent (*effectEditor);
+    properties->addChildComponent (*effectEditor);
     router = std::make_unique<MicRouter> (*this);
     addChildComponent (*router);
     micSimPanel = std::make_unique<MicSimPanel> (*this);
@@ -1176,7 +1467,7 @@ MixerPage::MixerPage (ParagonX1AudioProcessor& p) : processor (p)
     for (auto* s : { &offset, &release })
     {
         s->setTextBoxStyle (juce::Slider::TextBoxRight, false, 64, 18);
-        addChildComponent (*s);
+        properties->addChildComponent (*s);
     }
     offset.setTooltip ("TIME OFFSET: the channel later, up to 10 ms (to line overheads or room up with the close mics). On a "
                        "close mic it moves the hit off its beat.");
@@ -1202,9 +1493,16 @@ MixerPage::MixerPage (ParagonX1AudioProcessor& p) : processor (p)
     sendsTab.onClick = [this] { showTab (Tab::sends); };
     effectsTab.setTooltip ("The four effect slots: EQ, COMPRESSOR, GATE, TRANSIENT, DRIVE, LO-FI, MOD.");
     effectsTab.onClick = [this] { showTab (Tab::effects); };
-    for (auto* c : { (juce::Component*) &micsButton, (juce::Component*) &busesButton, (juce::Component*) &menuButton,
-                     (juce::Component*) &bleedTab, (juce::Component*) &sendsTab, (juce::Component*) &effectsTab })
+    for (auto* c : { (juce::Component*) &micsButton, (juce::Component*) &busesButton, (juce::Component*) &menuButton })
         addAndMakeVisible (c);
+    for (auto* c : { (juce::Component*) &bleedTab, (juce::Component*) &sendsTab, (juce::Component*) &effectsTab })
+        properties->addAndMakeVisible (c);
+    DrumSeqPanel::style (effectsButton);
+    effectsButton.setClickingTogglesState (false);
+    effectsButton.setTooltip ("Show or fold away every strip's EFFECTS slots (folded: longer faders and meters). Each strip's EFFECTS "
+                              "heading does the same.");
+    effectsButton.onClick = [this] { toggleEffectsShown(); };
+    addAndMakeVisible (effectsButton);
     selectStrip (selected);
     startTimerHz (30);
 }
@@ -1270,14 +1568,111 @@ void MixerPage::selectStrip (int strip)
     }
     refreshProperties();
     resized();
+    layoutProperties();
+    properties->repaint();
     repaint();
 }
 
 void MixerPage::showTab (Tab t)
 {
     tab = t;
+    // 0.78.0: PROPERTIES opens on it (closing the ROUTE MICS and SIM MICS panels, which share the space).
+    openRouter (false);
+    openMicSim (false);
+    properties->setVisible (true);
+    properties->toFront (false);
+    layoutProperties();
+    properties->repaint();
+}
+
+void MixerPage::closeProperties()
+{
+    properties->setVisible (false);
+}
+
+bool MixerPage::isPropertiesOpen() const { return properties->isVisible(); }
+
+void MixerPage::setEffectsShown (bool shown)
+{
+    effectsShown = shown;
+    for (auto& s : strips)
+        s->effectsShownChanged();
     resized();
     repaint();
+}
+
+juce::String MixerPage::effectsSummary (int strip) const
+{
+    int loaded = 0, on = 0;
+    for (int k = 0; k < mixer::numFxSlots; ++k)
+        if (const auto& fx = processor.getModMatrix().effect (strip, k); fx.isLoaded())
+        {
+            ++loaded;
+            on += fx.on ? 1 : 0;
+        }
+    return juce::String::fromUTF8 ("\xe2\x96\xb8 ") + (loaded == 0 ? juce::String ("NONE") : juce::String (loaded) + (on == loaded ? " ON" : " (" + juce::String (on) + " ON)"));
+}
+
+juce::String MixerPage::describeStrip (int strip) const
+{
+    if (isBus (strip))
+    {
+        int feeding = 0;
+        for (int s = 0; s < mixer::numStrips; ++s)
+            if (s != strip && isStripShown (s) && processor.getMixerRoute (s) == strip - mixer::numChannels + 1)
+                ++feeding;
+        return feeding == 0 ? juce::String ("NOTHING ROUTED HERE YET") : juce::String (feeding) + (feeding == 1 ? " CHANNEL INTO IT" : " CHANNELS INTO IT");
+    }
+    const auto channel = mixer::channelOfStrip (strip);
+    if (! inUse.contains (channel))
+        return "NOT IN USE BY THIS KIT";
+    if (isUser (strip))
+        return "YOUR CHANNEL (ROUTE MICS)";
+    return mixer::hearsWholeKit (channel) ? "WHOLE KIT MIC" : "CLOSE MIC";
+}
+
+void MixerPage::toggleEffect (int strip, int slot)
+{
+    strip = juce::jlimit (0, mixer::numStrips - 1, strip);
+    slot = juce::jlimit (0, mixer::numFxSlots - 1, slot);
+    auto m = processor.getModMatrix();
+    auto& fx = m.effect (strip, slot);
+    if (! fx.isLoaded())
+        return;
+    fx.on = ! fx.on;
+    processor.setModMatrix (m);
+    processor.modMatrixEditFinished();
+    strips[(size_t) strip]->refresh();
+    if (strip == selected)
+        refreshProperties();
+}
+
+void MixerPage::openEffect (int strip, int slot)
+{
+    selectStrip (strip);
+    chooseEffectSlot (slot);
+    showTab (Tab::effects);
+}
+
+void MixerPage::setStripSendLevel (int strip, int slot, float db, bool final)
+{
+    strip = juce::jlimit (0, mixer::numStrips - 1, strip);
+    slot = juce::jlimit (0, mixer::numSendSlots - 1, slot);
+    auto m = processor.getModMatrix();
+    auto& d = m.send (strip, slot);
+    if (! d.isOn())
+        return;
+    // As the SENDS editor's DIRECT level does (LINK: the BLEED's moves with it).
+    const auto change = juce::jlimit (-60.0f, 12.0f, db) - d.directDb;
+    d.directDb += change;
+    if (d.link)
+        d.bleedDb = juce::jlimit (-60.0f, 12.0f, d.bleedDb + change);
+    processor.setModMatrix (m);
+    if (final)
+        processor.modMatrixEditFinished();
+    strips[(size_t) strip]->refresh();
+    if (strip == selected)
+        refreshProperties();
 }
 
 void MixerPage::showGroups (bool mics, bool buses)
@@ -1396,7 +1791,6 @@ void MixerPage::showOutputMenu (int strip, juce::Component& from)
 void MixerPage::showSendMenu (int strip, int slot, juce::Component& from)
 {
     selectStrip (strip);
-    showTab (Tab::sends);
     const auto current = processor.getModMatrix().send (strip, slot).target;
     juce::PopupMenu menu;
     menu.addItem (1000, "Off", current != 0, current == 0);
@@ -1571,7 +1965,10 @@ void MixerPage::showEffectMenu (int strip, int slot, juce::Component& from)
 void MixerPage::openMicSim (bool open)
 {
     if (open)
+    {
         openRouter (false);
+        closeProperties();
+    }
     micSimPanel->setVisible (open);
     micSimButton.setToggleState (open, juce::dontSendNotification);
     if (open)
@@ -1606,6 +2003,8 @@ void MixerPage::openRouter (bool open)
 {
     if (open && micSimPanel != nullptr)
         openMicSim (false);
+    if (open && properties != nullptr)
+        closeProperties();
     router->setVisible (open);
     routeButton.setToggleState (open, juce::dontSendNotification);
     if (open)
@@ -1720,11 +2119,7 @@ void MixerPage::update()
 
 void MixerPage::resized()
 {
-    auto a = getLocalBounds();
-    propertiesArea = a.removeFromRight (propertiesWidth);
-    a.removeFromRight (12);
-    stripsArea = a;
-
+    stripsArea = getLocalBounds();
     auto header = stripsArea.reduced (18, 0).withHeight (headerHeight).withSizeKeepingCentre (stripsArea.getWidth() - 36, 26);
     menuButton.setBounds (header.removeFromRight (78));
     header.removeFromRight (8);
@@ -1732,19 +2127,23 @@ void MixerPage::resized()
     header.removeFromRight (4);
     micsButton.setBounds (header.removeFromRight (56));
     header.removeFromRight (8);
+    effectsButton.setBounds (header.removeFromRight (124));
+    header.removeFromRight (8);
     routeButton.setBounds (header.removeFromRight (110));
     header.removeFromRight (8);
     micSimButton.setBounds (header.removeFromRight (100));
+    hintArea = header.withLeft (stripsArea.getX() + 110);
     router->setBounds (stripsArea);
     micSimPanel->setBounds (stripsArea);
+    effectsButton.setButtonText (effectsShown ? "FOLD EFFECTS" : "SHOW EFFECTS");
 
+    // 0.78.0: five strips across the page, the rest by scrolling.
     viewport.setBounds (stripsArea.reduced (14, 0).withTrimmedTop (headerHeight).withTrimmedBottom (4));
     int shown = 0;
     for (auto& s : strips)
         shown += isStripShown (s->getStrip()) ? 1 : 0;
-    const auto fits = shown * stripWidth <= viewport.getWidth();
-    const auto w = fits && shown > 0 ? viewport.getWidth() / shown : stripWidth;
-    holder.setSize (juce::jmax (1, shown * w), viewport.getHeight() - (fits ? 0 : viewport.getScrollBarThickness() + 2));
+    const auto w = juce::jmax (1, viewport.getWidth() / stripsShown);
+    holder.setSize (juce::jmax (1, shown * w), viewport.getHeight() - (shown > stripsShown ? viewport.getScrollBarThickness() + 2 : 0));
     // Shown in order: the named channels, the user channels (after them, with the mics), the buses.
     std::vector<Strip*> order;
     for (auto& s : strips)
@@ -1763,12 +2162,17 @@ void MixerPage::resized()
         s->setVisible (visible);
         if (visible)
         {
-            s->setBounds (juce::Rectangle<int> (x, 0, w, holder.getHeight()).reduced (2, 0));
+            s->setBounds (juce::Rectangle<int> (x, 0, w, holder.getHeight()));
             x += w;
         }
     }
+    properties->setBounds (stripsArea.withTrimmedTop (headerHeight).removeFromRight (propertiesWidth + 10));
+}
 
-    // PROPERTIES: BLEED / SENDS tabs (a bus: its sends only).
+void MixerPage::layoutProperties()
+{
+    propertiesArea = properties->getLocalBounds().withTrimmedLeft (10);
+    // BLEED / EFFECTS / SENDS tabs (a bus: no BLEED).
     const auto bus = isBus (selected);
     if (bus && tab == Tab::bleed)
         tab = Tab::effects;
@@ -1838,8 +2242,22 @@ void MixerPage::resized()
 
 void MixerPage::paint (juce::Graphics& g)
 {
-    for (const auto& area : { stripsArea, propertiesArea })
-        DockStyle::drawPanel (g, area.toFloat());
+    DockStyle::drawPanel (g, stripsArea.toFloat());
+    g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
+    g.setGradientFill (ParagonLookAndFeel::menuHighlight (stripsArea.reduced (18, 0).withHeight (headerHeight).toFloat().withWidth (140.0f)));
+    g.drawText ("MIXER", stripsArea.reduced (18, 0).withHeight (headerHeight), juce::Justification::centredLeft, false);
+    g.setFont (juce::FontOptions (11.0f));
+    g.setColour (ParagonColours::textDim);
+    const auto hint = note.isNotEmpty() ? note
+                    : inUse.isEmpty() ? juce::String ("Load a multi-mic kit (DRUMS > LOAD...) to use the mixer, or SIM MICS... to hear the synth "
+                                                      "drums through simulated mics.")
+                                      : juce::String ("The mic channels, then your channels and the buses. An effect, a send's box or BLEED opens "
+                                                      "its PROPERTIES.");
+    g.drawFittedText (hint, hintArea, juce::Justification::centredLeft, 2);
+}
+
+void MixerPage::paintProperties (juce::Graphics& g)
+{
     const auto title = [&g] (const juce::String& text, juce::Rectangle<int> area, juce::Colour colour = {})
     {
         g.setFont (juce::FontOptions (15.0f, juce::Font::bold));
@@ -1849,16 +2267,6 @@ void MixerPage::paint (juce::Graphics& g)
             g.setColour (colour);
         g.drawText (text, area, juce::Justification::centredLeft, false);
     };
-    title ("MIXER", stripsArea.reduced (18, 0).withHeight (headerHeight));
-    g.setFont (juce::FontOptions (11.0f));
-    g.setColour (ParagonColours::textDim);
-    const auto hint = note.isNotEmpty() ? note
-                    : inUse.isEmpty() ? juce::String ("Load a multi-mic kit (DRUMS > LOAD...: an SFZ kit, or a folder with a folder per mic) to use "
-                                                      "the mixer, or SIM MICS... to hear the synth drums through simulated mics.")
-                                      : juce::String ("The mic channels (multi-mic drums, or SIM MICS' simulated ones), then the buses. Click a name for its properties.");
-    g.drawFittedText (hint, stripsArea.reduced (18, 0).withHeight (headerHeight).withTrimmedLeft (90).withTrimmedRight (340),
-                      juce::Justification::centredLeft, 2);
-
     const auto bus = isBus (selected);
     title ("PROPERTIES: " + stripName (processor, selected), propertiesArea.reduced (18, 0).withHeight (headerHeight), bus ? busColour : juce::Colour());
     auto p = propertiesBody;
