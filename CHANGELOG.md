@@ -2,6 +2,26 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.76.0
+
+**Sampled kits play with less work again** (you asked for another round of optimization). Measured as in 0.56.0, with a sample pack laid out like your Djent Drums: five mics on the kick, four on the snare, toms, hats, crash, china and ride, all streamed from disk. Mixer effects are on the kick, snare, toms, room and overheads, and the master compressor and LIMITER are on. The beat is 180 BPM with 16th-note double kicks.
+
+| That beat (time on the audio thread) | 0.75.0 | 0.76.0 |
+|---|---|---|
+| Session at 48 kHz | 6.7% of a core | 6.0% |
+| Session at 44.1 kHz | 7.3% | 6.8% |
+
+All the work together, the disk thread's included, fell by about a quarter at 48 kHz and a tenth at 44.1 kHz.
+
+**The sound is the same, sample for sample.** The beat rendered with 0.75.0 and with 0.76.0 gives the same result at every sample, at both rates.
+
+- **Hits playing at their recorded pitch take a shorter path.** With TUNE at 0 and the files at the session's rate, each mic of each hit now plays through runs of ready audio, without re-checking every sample for things that can't happen there (where the stream's ready audio ends, the file's end, a fraction between samples). This is where most of the work is: about 150 mics sound at once in that beat. Hit playback alone is about 40% lighter at 48 kHz. Files at another rate than the session (44.1 kHz files in a 48 kHz project, or the reverse) take the full path as before, so they gain less.
+- **The disk thread reads more lightly.** It now writes what it reads into its buffers in two plain stretches instead of one sample at a time, and clears only what it's about to read, not its whole buffer before every file. Its own work fell about ten times. It runs beside the audio, so this mostly frees the computer rather than the audio thread.
+- **The mixer's EQ skips its unused bands.** Each EQ has 24 bands, and it used to work through every one of them every few samples even when switched off. Now a band that's off and settled is skipped.
+- **The LIMITER and the compressors do less maths per sample.** The limiter works out a level in dB only when that level changes. A compressor no longer works out a level in dB when the sound is clearly below where it starts to compress (the answer, no compression, is the same either way).
+- **The mixer's channels** reuse their scratch lines without clearing them before every mic.
+- **Not changed:** the compressors' gain maths, sample by sample, while they compress (that's their sound), and reading the WAV files themselves.
+
 ## 0.75.0
 
 **Drums from another sample pack, onto the drums you choose.** For packs that keep every microphone in its own file (named like your Djent Drums kit: `JAD_PAISTE_CHINA_SPOT_V01_RR1.wav`), so you can bring in, say, a second library's china or crash and keep the rest of your kit as it is.

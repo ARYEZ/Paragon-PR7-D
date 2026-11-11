@@ -236,8 +236,11 @@ namespace synth::drums
                 for (int c = 0; c < 2; ++c)
                 {
                     auto* ring = s.ring.data() + ((size_t) o * 2 + (size_t) c) * ringFrames;
-                    for (int i = 0; i < frames; ++i)
-                        ring[(start + (size_t) i) & (ringFrames - 1)] = 0.0f;
+                    // (0.76.0) In the ring's two stretches (to its end, then from its start), not a sample at a time
+                    // through the wrap's mask: the same values, done as plain runs.
+                    const auto first = juce::jmin ((size_t) frames, (size_t) ringFrames - start);
+                    std::fill (ring + start, ring + start + first, 0.0f);
+                    std::fill (ring, ring + ((size_t) frames - first), 0.0f);
                 }
             const auto numFiles = juce::jmax (1, (int) source.files.size());
             auto anyRead = false;
@@ -252,17 +255,25 @@ namespace synth::drums
                 const auto channels = (int) reader->numChannels;
                 if (chunk.getNumChannels() < channels || chunk.getNumSamples() < chunkFrames)
                     chunk.setSize (juce::jmax (channels, chunk.getNumChannels()), chunkFrames, false, false, true);
-                chunk.clear();
-                if (written < reader->lengthInSamples)
-                    reader->read (&chunk, 0, (int) juce::jmin<juce::int64> (frames, reader->lengthInSamples - written), written, true, true);
+                // (0.76.0) Only what's read here is cleared first (its channels, this chunk's frames; past the
+                // file's end stays silence), not the whole buffer for every file.
+                const auto readable = written < reader->lengthInSamples ? (int) juce::jmin<juce::int64> (frames, reader->lengthInSamples - written) : 0;
+                for (int c = 0; c < channels; ++c)
+                    std::fill (chunk.getWritePointer (c, readable), chunk.getWritePointer (c) + frames, 0.0f);
+                if (readable > 0)
+                    reader->read (&chunk, 0, readable, written, true, true);
                 for (const auto& part : source.parts)
                 {
                     if (part.fileIndex != f || part.fileChannel < 0 || part.fileChannel >= channels || part.output < 0 || part.output >= maxOutputs)
                         continue;
                     const auto* from = chunk.getReadPointer (part.fileChannel);
                     auto* ring = s.ring.data() + ((size_t) part.output * 2 + (size_t) juce::jlimit (0, 1, part.channel)) * ringFrames;
-                    for (int i = 0; i < frames; ++i)
-                        ring[(start + (size_t) i) & (ringFrames - 1)] += from[i] * part.gain;
+                    const auto first = (int) juce::jmin ((size_t) frames, (size_t) ringFrames - start);
+                    const auto gain = part.gain;
+                    for (int i = 0; i < first; ++i)
+                        ring[start + (size_t) i] += from[i] * gain;
+                    for (int i = first; i < frames; ++i)
+                        ring[(size_t) (i - first)] += from[i] * gain;
                 }
             }
             if (! anyRead)

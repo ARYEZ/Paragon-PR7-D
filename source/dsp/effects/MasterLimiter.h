@@ -1,5 +1,7 @@
 #pragma once
 
+#include <limits>
+
 #include <array>
 #include <atomic>
 #include <memory>
@@ -120,6 +122,9 @@ namespace effects
                 float fast = 1.0f, slowDb = 0.0f, memory = 0.0f, meanSquare = 0.0f;
                 float sustainedDb = 0.0f, windowLeast = 1.0f;   // the usual reduction (see process)
                 float usualDb = 0.0f;                           // ...smoothed sample by sample (no steps each 20 ms)
+                // (PR7-D 0.76.0) -toDb (fast) for the last `fast` worked out: it's the same until `fast` moves (the
+                // same value as working it out again, without a logarithm each sample).
+                float fastSeen = std::numeric_limits<float>::quiet_NaN(), fastDbSeen = 0.0f;
                 int windowCount = 0;
                 TruePeakDetector detector;
             };

@@ -355,6 +355,20 @@ namespace eq
 
                 for (int band = 0; band < numBands; ++band)
                 {
+                    // (PR7-D 0.76.0) A band that's off and settled: updating it would change nothing and its filter
+                    // passes the sound as it is, so neither is done (most of the 24 are unused).
+                    {
+                        const auto& target = settings.bands[(size_t) band];
+                        const auto& idle = slots[(size_t) band];
+                        if (! scaleMoved && ! target.isActive() && ! target.isDynamic() && sameStructure (idle.applied, target)
+                            && idle.fade >= 1.0 && ! idle.detector.running && juce::exactlyEqual (idle.changeDb, 0.0)
+                            && idle.current.design.isIdentity() && ! idle.frequency.isSmoothing() && ! idle.q.isSmoothing()
+                            && ! idle.gain.isSmoothing()
+                            && juce::exactlyEqual (idle.frequency.getTargetValue(), (double) juce::jlimit (minFrequency, maxFrequency, target.frequency))
+                            && juce::exactlyEqual (idle.q.getTargetValue(), (double) juce::jlimit (minQ, maxQ, target.q))
+                            && juce::exactlyEqual (idle.gain.getTargetValue(), (double) target.gainDb))
+                            continue;
+                    }
                     updateBand (band, settings.bands[(size_t) band], scale, scaleMoved, dry.getReadPointer (0, start),
                                 numChannels > 1 ? dry.getReadPointer (1, start) : nullptr, count, numChannels);
                     auto& slot = slots[(size_t) band];
