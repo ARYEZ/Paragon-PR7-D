@@ -152,6 +152,12 @@ private:
     int slotForRow (int row, int fromSlot) const;        // a note moved onto that row: which slot it plays
     double snap (double beat) const;
     double barBeats() const;
+public:
+    // 0.80.0: a beat of the block (0 = its start) as the song's bar (1 = the first) and beat in that bar (1 = its
+    // first), through the song's time signature changes: what the ruler shows.
+    struct SongPosition { int bar = 1; double beat = 1.0; };
+    SongPosition songPositionOf (double beatInBlock) const;
+private:
     struct Key { int slot; double beat; };
     bool isSelected (const song::Hit&) const;
     int hitAt (juce::Point<float>) const;                // index in the block's hits (-1)

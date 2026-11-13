@@ -2284,3 +2284,76 @@ TEST_CASE ("SONG STRIP 0.68.0: G zooms out, H zooms in, about the middle; CTRL +
     CHECK (! track.keyPressed (juce::KeyPress ('g', juce::ModifierKeys::commandModifier, 'g')));
     CHECK (std::abs (track.getBarsShown() - (4.0)) < 1.0e-9);
 }
+
+TEST_CASE ("SONG STRIP 0.80.0: CTRL + C copies, CTRL + V pastes after the chosen block, CTRL + D duplicates", "[song][ui]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 1, { { 0.0, BD } }), 0.0);
+    s.place (block ("B", 2, { { 0.0, SD } }), 4.0);
+    s.place (block ("C", 1, { { 0.0, BD } }), 12.0);
+    t.p.setSong (s);
+    t.p.flushUndoStep();
+    SongTrack track (t.p);
+    track.setBounds (0, 0, 1400, 136);
+    track.resized();
+    const auto ctrl = [] (char c) { return juce::KeyPress (c, juce::ModifierKeys::commandModifier, 0); };
+    // Nothing chosen: nothing to copy or duplicate.
+    track.setSelection ({});
+    CHECK (! track.keyPressed (ctrl ('d')));
+    // C then V: B's copy right after B, C moved along.
+    track.setSelection ({ 1 });
+    CHECK (track.keyPressed (ctrl ('c')));
+    REQUIRE (t.p.getSongClipboard().has_value());
+    CHECK (t.p.getSongClipboard()->name == "B");
+    CHECK (track.keyPressed (ctrl ('v')));
+    t.p.flushUndoStep();
+    {
+        const auto& b = t.p.getSong().blocks;
+        REQUIRE (b.size() == 4);
+        CHECK (b[2].name == "B");
+        CHECK (b[2].start == 12.0);
+        CHECK (b[3].name == "C");
+        CHECK (b[3].start == 20.0);
+        CHECK (track.getSelection() == std::vector<int> { 2 });
+    }
+    // One undo step.
+    t.p.undo();
+    CHECK (t.p.getSong().blocks.size() == 3);
+    // D on one block: its copy right after it.
+    track.setSelection ({ 0 });
+    CHECK (track.keyPressed (ctrl ('d')));
+    t.p.flushUndoStep();
+    {
+        const auto& b = t.p.getSong().blocks;
+        REQUIRE (b.size() == 4);
+        CHECK (b[1].name == "A");
+        CHECK (b[1].start == 4.0);
+        CHECK (b[2].start == 8.0);
+        CHECK (track.getSelection() == std::vector<int> { 1 });
+    }
+    t.p.undo();
+    // D on several: the group again after the last of them, the copies chosen.
+    track.setSelection ({ 0, 1 });
+    CHECK (track.keyPressed (ctrl ('D')));
+    t.p.flushUndoStep();
+    {
+        const auto& b = t.p.getSong().blocks;
+        REQUIRE (b.size() == 5);
+        CHECK (b[2].name == "A");
+        CHECK (b[2].start == 12.0);
+        CHECK (b[3].name == "B");
+        CHECK (b[3].start == 16.0);
+        CHECK (b[4].name == "C");
+        CHECK (b[4].start == 24.0);
+        CHECK (track.getSelection() == std::vector<int> { 2, 3 });
+    }
+    // Nothing chosen: CTRL + V pastes at the song's end.
+    track.setSelection ({});
+    CHECK (track.keyPressed (ctrl ('v')));
+    CHECK (t.p.getSongClipboard()->name == "B");
+    CHECK (t.p.getSong().blocks.back().start == 28.0);
+    // C alone is still the CUT tool, not a copy.
+    CHECK (track.keyPressed (juce::KeyPress ('c', juce::ModifierKeys(), 'c')));
+    CHECK (track.isCutting());
+}

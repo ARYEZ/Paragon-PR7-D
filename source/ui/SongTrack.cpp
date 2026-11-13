@@ -953,6 +953,74 @@ void SongTrack::dragBlocksOut (std::vector<int> blocks)
     container->startDragging (juce::String (blocksPrefix) + ids.joinIntoString (","), this, juce::ScaledImage (tag), true);
 }
 
+bool SongTrack::copyChosen()
+{
+    auto blocks = getSelection();
+    if (blocks.empty())
+        return false;
+    // One block on the clipboard (as the menu's Copy): the first of those chosen.
+    processor.setSongClipboard (processor.getSong().blocks[(size_t) *std::min_element (blocks.begin(), blocks.end())]);
+    return true;
+}
+
+bool SongTrack::pasteClipboard()
+{
+    const auto& clip = processor.getSongClipboard();
+    if (! clip.has_value())
+        return false;
+    // After the chosen block (the last of those chosen), as the menu's Paste After; nothing chosen: at the song's end.
+    auto blocks = getSelection();
+    const auto& song = processor.getSong();
+    const auto at = blocks.empty() ? song.endBeat() : song.blocks[(size_t) *std::max_element (blocks.begin(), blocks.end())].end();
+    auto block = *clip;
+    also.clear();
+    edit ([&] (song::Song& s) { chosen = s.place (std::move (block), at); });
+    if (onSelectionChanged != nullptr)
+        onSelectionChanged();
+    return true;
+}
+
+bool SongTrack::duplicateChosen()
+{
+    auto blocks = getSelection();
+    if (blocks.empty())
+        return false;
+    std::sort (blocks.begin(), blocks.end());
+    // The chosen blocks again right after the last of them, gaps between them kept; the copies chosen.
+    std::vector<int> made;
+    edit ([&] (song::Song& s)
+    {
+        if (blocks.size() == 1)
+        {
+            made.push_back (s.duplicate (blocks.front()));
+            return;
+        }
+        const auto from = s.blocks[(size_t) blocks.front()].start;
+        auto to = from;
+        for (const auto b : blocks)
+            to = juce::jmax (to, s.blocks[(size_t) b].end());
+        std::vector<song::Block> copies;
+        for (const auto b : blocks)
+            copies.push_back (s.blocks[(size_t) b]);
+        std::vector<double> starts;
+        for (auto& copy : copies)
+        {
+            const auto at = to + (copy.start - from);
+            starts.push_back (at);
+            s.place (std::move (copy), at);
+        }
+        for (const auto at : starts)
+            for (int i = 0; i < (int) s.blocks.size(); ++i)
+                if (std::abs (s.blocks[(size_t) i].start - at) < 1.0e-9)
+                    made.push_back (i);
+    });
+    made.erase (std::remove (made.begin(), made.end(), -1), made.end());
+    setSelection (made);
+    if (onSelectionChanged != nullptr)
+        onSelectionChanged();
+    return true;
+}
+
 void SongTrack::removeChosen()
 {
     auto blocks = getSelection();
@@ -1091,6 +1159,17 @@ void SongTrack::togglePlay()
 
 bool SongTrack::keyPressed (const juce::KeyPress& key)
 {
+    // 0.80.0: CTRL (CMD on a Mac) + C copies, + V pastes, + D duplicates, as in the DAW.
+    if (const auto m = key.getModifiers(); m.isCommandDown() && ! m.isShiftDown() && ! m.isAltDown())
+    {
+        const auto c = juce::CharacterFunctions::toUpperCase ((juce::juce_wchar) key.getKeyCode());
+        if (c == 'C')
+            return copyChosen();
+        if (c == 'V')
+            return pasteClipboard();
+        if (c == 'D')
+            return duplicateChosen();
+    }
     // 0.63.0: C: the CUT tool on / off; ESCAPE: off.
     if (key == juce::KeyPress::escapeKey && cutting)
     {

@@ -352,6 +352,25 @@ int BlockEditor::slotForRow (int row, int fromSlot) const
 }
 
 //==============================================================================
+namespace
+{
+    // Which bar of the song a song beat is in (0 = the first) and where that bar starts, from the song's bar lines.
+    std::pair<int, double> barOfLines (const std::vector<double>& lines, double at)
+    {
+        const auto it = std::upper_bound (lines.begin(), lines.end(), at + 1.0e-6);
+        const auto i = (int) juce::jmax ((std::ptrdiff_t) 0, (it - lines.begin()) - 1);
+        return { i, lines.empty() ? 0.0 : lines[(size_t) i] };
+    }
+}
+
+BlockEditor::SongPosition BlockEditor::songPositionOf (double beatInBlock) const
+{
+    const auto* b = block();
+    const auto at = (b != nullptr ? b->start : 0.0) + beatInBlock;
+    const auto [bar, line] = barOfLines (processor.getSong().barLines (at + 1.0), at);
+    return { bar + 1, at - line + 1.0 };
+}
+
 double BlockEditor::barBeats() const
 {
     const auto* b = block();
@@ -1773,6 +1792,11 @@ void BlockEditor::paint (juce::Graphics& g)
     const auto times = b->length / b->loopLength;
     auto title = b->name + "   " + juce::String (bars, std::abs (bars - std::round (bars)) < 1.0e-6 ? 0 : 2)
                + (std::abs (bars - 1.0) < 1.0e-6 ? " bar" : " bars");
+    // 0.80.0: where it sits in the song.
+    {
+        const auto first = songPositionOf (0.0).bar, last = songPositionOf (juce::jmax (0.0, b->length - 0.001)).bar;
+        title << (first == last ? ", bar " + juce::String (first) : ", bars " + juce::String (first) + "-" + juce::String (last)) << " of the song";
+    }
     if (times > 1.0 + 1.0e-6)
         title << ", played " << juce::String (times, std::abs (times - std::round (times)) < 1.0e-6 ? 0 : 2) << " times in the song";
     title << "   " << (int) selection.size() << " of " << (int) b->hits.size() << " notes chosen";
@@ -1865,25 +1889,31 @@ void BlockEditor::paint (juce::Graphics& g)
                                      : std::initializer_list<double> { 1.0, 0.5, 0.25, 0.125 })
             if (d * pxPerBeat >= 12.0)
                 step = d;
+        // 0.80.0: bars and beats are the song's (the block's first beat is where it sits in the song, through the
+        // song's time signature changes), not counted from the block's own start.
+        const auto& song = processor.getSong();
+        const auto lines = song.barLines (b->start + b->loopLength + 1.0);
+        const auto barOf = [&lines] (double at) { return barOfLines (lines, at); };
         const auto firstBeat = std::floor (viewBeat / step) * step;
         for (auto beat = juce::jmax (0.0, firstBeat); beat < b->loopLength - 1.0e-9; beat += step)
         {
             const auto x = xOf (beat);
             if (x > (float) grid.getRight())
                 break;
-            const auto onBar = std::abs (std::remainder (beat, bar)) < 1.0e-6;
-            const auto onBeat = std::abs (std::remainder (beat, 1.0)) < 1.0e-6;
+            const auto at = b->start + beat;
+            const auto [barIndex, barLine] = barOf (at);
+            const auto onBar = std::abs (at - barLine) < 1.0e-6;
+            const auto onBeat = std::abs (std::remainder (at - barLine, 1.0)) < 1.0e-6;
             g.setColour (onBar ? ParagonColours::panelEdge.brighter (0.4f) : ParagonColours::panelEdge.withAlpha (onBeat ? 0.9f : 0.5f));
             g.fillRect (x, (float) grid.getY(), onBar ? 1.5f : 1.0f, (float) grid.getHeight());
             g.setColour (ParagonColours::panelEdge.withAlpha (onBar ? 0.8f : onBeat ? 0.4f : 0.15f));
             g.fillRect (x, (float) lane.getY(), 1.0f, (float) lane.getHeight());
             if (onBar || (onBeat && pxPerBeat > 36.0))
             {
-                const auto barNumber = (int) std::floor (beat / bar + 1.0e-6);
-                const auto inBar = (int) std::round (beat - barNumber * bar);
+                const auto inBar = (int) std::round (at - barLine);
                 g.setColour (onBar ? ParagonColours::text : ParagonColours::textDim);
                 g.setFont (juce::FontOptions (10.0f, onBar ? juce::Font::bold : juce::Font::plain));
-                g.drawText (onBar ? juce::String (barNumber + 1) : juce::String (barNumber + 1) + "." + juce::String (inBar + 1),
+                g.drawText (onBar ? juce::String (barIndex + 1) : juce::String (barIndex + 1) + "." + juce::String (inBar + 1),
                             juce::roundToInt (x) + 3, ruler.getY(), 40, ruler.getHeight(), juce::Justification::centredLeft, false);
             }
         }

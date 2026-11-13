@@ -2,6 +2,17 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.80.0
+
+**The GRID EDITOR counts the song's bars, and CTRL + C / V / D on the song track** (you asked for both).
+
+- **The GRID EDITOR's ruler shows where the block really is in the song.** It used to start every block at bar 1. A chorus that starts at bar 10 now shows 10, 10.2, 10.3, 10.4, 11 and so on, as the song track's ruler does, and time signature changes in the song are followed. The title also says where it sits: "4 bars, bars 10-13 of the song".
+- **Keys on the MIDI song track**, as in the DAW (CMD instead of CTRL on a Mac). Click a block on the track first so the track has the keyboard.
+  - **CTRL + C** copies the chosen block. With several chosen, the first of them is copied: the clipboard holds one block, as the menu's Copy does.
+  - **CTRL + V** pastes it right after the chosen block, the blocks after it moving along, as the menu's Paste After does. With nothing chosen, it goes at the end of the song.
+  - **CTRL + D** duplicates the chosen block right after it. With several chosen, the whole group is repeated after the last of them, gaps kept, and the copies are chosen, so CTRL + D again keeps going.
+  - Each is one undo step. C on its own is still the CUT tool.
+
 ## 0.79.0
 
 **Efficiency, round 5** (you asked for another round of optimization). Measured the same way as 0.76.0, with your setup: 44.1 kHz samples in a 44.1 kHz session, a streamed kit shaped like Djent Drums (5 mics on the kick, 4 on the snare, toms, hats, cymbals), mixer EQs, compressors and gates, the master compressor and LIMITER, a 180 BPM beat with 16th-note kicks. Old and new builds were run in turn, five times each.

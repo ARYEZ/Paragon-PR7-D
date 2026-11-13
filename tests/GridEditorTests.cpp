@@ -669,3 +669,40 @@ TEST_CASE ("GRID EDITOR 0.66.0: AUTO SCROLL lit while on, SPACE plays / stops th
     CHECK_FALSE (view->keyPressed (space));
     view->setGridEditorInOwnWindow (false);
 }
+
+TEST_CASE ("GRID EDITOR 0.80.0: the ruler counts the song's bars and beats, not the block's own", "[grideditor][ui]")
+{
+    Plugin t;
+    song::Song s;
+    song::Block a, b;
+    a.name = "Intro";
+    a.length = a.loopLength = 8.0;
+    a.hits = { { 0.0, BD, 1.0f } };
+    b = a;
+    b.name = "Verse";
+    s.place (a, 0.0);
+    s.place (b, 8.0);   // the third and fourth bars
+    t.p.setSong (s);
+    BlockEditor ed (t.p);
+    ed.setBounds (0, 0, 1476, 672);
+    ed.open (1);
+    CHECK (ed.songPositionOf (0.0).bar == 3);
+    CHECK (ed.songPositionOf (0.0).beat == 1.0);
+    CHECK (ed.songPositionOf (1.0).bar == 3);
+    CHECK (ed.songPositionOf (1.0).beat == 2.0);
+    CHECK (ed.songPositionOf (4.0).bar == 4);
+    CHECK (ed.songPositionOf (6.5).beat == 3.5);
+    // Its last beat is in bar 4, not the next one (the title's "bars 3-4").
+    CHECK (ed.songPositionOf (8.0 - 0.001).bar == 4);
+    // The first block still starts at bar 1.
+    ed.open (0);
+    CHECK (ed.songPositionOf (0.0).bar == 1);
+    // Through a time signature change: 3/4 from beat 4 makes the verse (beat 8 on) bars 3 (beats 7-10) and 4.
+    s.setMeter (4.0, 3, 4);
+    t.p.setSong (s);
+    ed.open (1);
+    CHECK (ed.songPositionOf (0.0).bar == 3);
+    CHECK (ed.songPositionOf (0.0).beat == 2.0);
+    CHECK (ed.songPositionOf (2.0).bar == 4);
+    CHECK (ed.songPositionOf (2.0).beat == 1.0);
+}

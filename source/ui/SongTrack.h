@@ -185,6 +185,12 @@ private:
     std::vector<int> lassoKept;
     void dragBlocksOut (std::vector<int> blocks);
     void removeChosen();
+public:
+    // 0.80.0: CTRL + C / V / D (also for tests): false when there was nothing to do.
+    bool copyChosen();
+    bool pasteClipboard();
+    bool duplicateChosen();
+private:
     double grabOffset = 0.0, dragBeat = 0.0;
     double dropBeat = -1.0;   // a groove or file over the lane: where it would go (-1: none)
     double shownPosition = -2.0;

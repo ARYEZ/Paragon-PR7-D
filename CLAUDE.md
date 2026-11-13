@@ -206,6 +206,12 @@ Seen in 0.1.0, for later (corrected in 0.2.0): a drum voice ends when its level 
 - **The bodies' cache was already right:** callgrind's big `PedalBody::paintUnit` share was its warm-up builds.
 - **Left:** the compressor's per-sample `powf` / `log10`, WAV reading, `TruePeakDetector`, and the page's full-size background gradient (caching it: 16 MB at 2x).
 
+**0.80.0: the GRID EDITOR in the song's bars, CTRL + C / V / D on the song track** (the owner: the grid editor "will always start the grid with the 1 position of the clip as opposed to the real position in the song"; "we need CTRL-D and CTRL-V to work").
+
+- **`BlockEditor`:** the ruler's lines and labels come from the song's bar lines at `block.start + beat` (`barOfLines` over `Song::barLines`, through meters). `songPositionOf (beatInBlock)` gives `SongPosition { bar, beat }`, both from 1 (tests). The title adds ", bars X-Y of the song".
+- **`SongTrack::keyPressed`:** CTRL / CMD + C / V / D (no SHIFT / ALT) call `copyChosen` (the first chosen block onto the processor's one-block clipboard), `pasteClipboard` (`place` after the last chosen block, else at `endBeat`) and `duplicateChosen` (one block: `duplicate`; several: copies placed from the last one's end, offsets kept, the copies chosen). Each is one `edit`, so one undo step.
+- **Tests:** `GridEditorTests` "GRID EDITOR 0.80.0", `SongTests` "SONG STRIP 0.80.0".
+
 ## Rules (from the owner and the family's CLAUDE.md files)
 
 - **Names:** our own designs, "inspired by"; no Toontrack, Superior Drummer, EZdrummer or Vengeance / Avenger names or branding on the plugin. Toontrack's grooves, sounds and tags are never shipped: the user's own MIDI packs (and, since 0.15.0, their `midiDB` groove databases) are read from their computer when loaded. Never get round copy protection.
