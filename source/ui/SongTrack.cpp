@@ -1525,6 +1525,13 @@ void SongTrack::timerCallback()
     }
     follow.setToggleState (processor.getSong().followDaw, juce::dontSendNotification);
     syncButtons();
+    // THE STUDIO LINK (0.83.0): a song laid out by PR7-S's composer just arrived.
+    if (const auto loads = processor.getStudioLoads(); loads != seenStudioLoads)
+    {
+        if (seenStudioLoads >= 0)
+            showNote ("The song from PR7-S's composer: edits here go back to PR7-S.", 6.0);
+        seenStudioLoads = loads;
+    }
     // RECORD: the notes played since, into the song (and REC as the processor has it).
     if (processor.isSongRecording() && processor.mergeRecordedNotes() > 0)
         updateStatus();

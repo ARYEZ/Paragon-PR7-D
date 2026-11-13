@@ -376,6 +376,8 @@ namespace song
             xml->setAttribute ("click", (int) click);
         if (! countIn)
             xml->setAttribute ("countIn", false);   // (0.45.0; on when it's not there)
+        if (studioLink.isNotEmpty())
+            xml->setAttribute ("studioLink", studioLink);   // (0.83.0)
         for (const auto& b : blocks)
         {
             auto* e = xml->createNewChildElement ("Block");
@@ -421,6 +423,7 @@ namespace song
         s.loopEnd = juce::jmax (s.loopStart, xml.getDoubleAttribute ("loopEnd", 0.0));
         s.click = (Click) juce::jlimit (0, 2, xml.getIntAttribute ("click", (int) Click::recording));
         s.countIn = xml.getBoolAttribute ("countIn", true);
+        s.studioLink = xml.getStringAttribute ("studioLink");   // (0.83.0)
         for (const auto* e : xml.getChildWithTagNameIterator ("Block"))
         {
             Block b;
