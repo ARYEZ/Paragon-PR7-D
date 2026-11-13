@@ -2357,3 +2357,98 @@ TEST_CASE ("SONG STRIP 0.80.0: CTRL + C copies, CTRL + V pastes after the chosen
     CHECK (track.keyPressed (juce::KeyPress ('c', juce::ModifierKeys(), 'c')));
     CHECK (track.isCutting());
 }
+
+TEST_CASE ("SONG 0.82.0: FOLLOW DAW: the playhead is the DAW's, stopped too; PLAY starts from it", "[song][ui]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 2, { { 0.0, BD } }), 0.0);
+    s.place (block ("B", 2, { { 0.0, SD } }), 8.0);
+    t.p.setSong (s);
+    REQUIRE (t.p.getSong().followDaw);   // (on by default)
+    SongTrack track (t.p);
+    track.setBounds (0, 0, 1400, 136);
+    track.resized();
+
+    // The DAW stopped with its playhead moved to beat 9.5: the song's playhead is there.
+    t.host.playing = false;
+    t.host.ppq = 9.5;
+    t.play (0.05);
+    CHECK (t.p.getSongPosition() < 0.0);     // (not playing)
+    CHECK (std::abs (t.p.getSongPlayhead() - (9.5)) < 1.0e-6);
+    // Playing: the DAW's position as it moves.
+    t.host.playing = true;
+    t.play (0.25);
+    CHECK (std::abs (t.p.getSongPlayhead() - t.host.ppq) < 0.01);
+    // Stopped again somewhere else.
+    t.host.playing = false;
+    t.host.ppq = 3.0;
+    t.play (0.05);
+    CHECK (std::abs (t.p.getSongPlayhead() - (3.0)) < 1.0e-6);
+    // PLAY in the plugin (the DAW stopped): from the DAW's playhead.
+    track.togglePlay();
+    CHECK (std::abs (track.getStartBeat() - (3.0)) < 1.0e-6);
+    t.play (0.05);
+    CHECK (t.p.getSongPosition() > 3.0);
+    CHECK (t.p.getSongPosition() < 3.5);
+    track.togglePlay();
+    t.play (0.05);
+
+    // FOLLOW DAW off: the DAW's stopped playhead isn't shown.
+    s.followDaw = false;
+    t.p.setSong (s);
+    t.play (0.05);
+    CHECK (t.p.getSongPlayhead() < 0.0);
+}
+
+TEST_CASE ("SONG STRIP 0.82.0: COPY DRUMS: one block's kick onto another, in place of its kick, the rest kept", "[song][ui]")
+{
+    Plugin t;
+    song::Song s;
+    // A: kicks on every beat (and a snare); B: kicks on 1 and 3 of each bar, snares on 2 and 4 (2 bars).
+    s.place (block ("A", 1, { { 0.0, BD }, { 1.0, BD }, { 2.0, BD }, { 3.0, BD }, { 1.0, SD } }), 0.0);
+    s.place (block ("B", 2, { { 0.0, BD }, { 2.0, BD }, { 4.0, BD }, { 6.0, BD }, { 1.0, SD }, { 3.0, SD }, { 5.0, SD }, { 7.0, SD } }), 4.0);
+    t.p.setSong (s);
+    t.p.flushUndoStep();
+    SongTrack track (t.p);
+    track.setBounds (0, 0, 1400, 136);
+    track.resized();
+    const auto beatsOf = [] (const song::Block& b, int slot)
+    {
+        std::vector<double> out;
+        for (const auto& h : b.hits)
+            if (h.slot == slot)
+                out.push_back (h.beat);
+        std::sort (out.begin(), out.end());
+        return out;
+    };
+
+    // COPY DRUMS > KICK on A: only its kicks on the clipboard, marked as the kick.
+    track.copyDrums (t.p.getSong().blocks[0], song::slotsOf (1u << 0));
+    REQUIRE (t.p.getSongClipboard().has_value());
+    CHECK (beatsOf (*t.p.getSongClipboard(), SD).empty());
+    CHECK (beatsOf (*t.p.getSongClipboard(), BD).size() == 4);
+    CHECK (t.p.getSongClipboardDrums() == song::slotsOf (1u << 0));
+
+    // CTRL + V with B chosen: B's kick is A's (its 1-bar pattern repeated over B's 2 bars), B's snares untouched,
+    // no block added; one undo step.
+    track.setSelection ({ 1 });
+    CHECK (track.keyPressed (juce::KeyPress ('v', juce::ModifierKeys::commandModifier, 0)));
+    t.p.flushUndoStep();
+    {
+        const auto& song = t.p.getSong();
+        REQUIRE (song.blocks.size() == 2);
+        CHECK ((beatsOf (song.blocks[1], BD) == std::vector<double> { 0, 1, 2, 3, 4, 5, 6, 7 }));
+        CHECK ((beatsOf (song.blocks[1], SD) == std::vector<double> { 1, 3, 5, 7 }));
+        CHECK ((beatsOf (song.blocks[0], SD) == std::vector<double> { 1 }));   // A as it was
+    }
+    t.p.undo();
+    CHECK ((beatsOf (t.p.getSong().blocks[1], BD) == std::vector<double> { 0, 2, 4, 6 }));
+
+    // A whole block copied: CTRL + V still places a copy after the chosen block.
+    track.setSelection ({ 0 });
+    CHECK (track.keyPressed (juce::KeyPress ('c', juce::ModifierKeys::commandModifier, 0)));
+    CHECK (t.p.getSongClipboardDrums() == song::allSlots);
+    CHECK (track.keyPressed (juce::KeyPress ('v', juce::ModifierKeys::commandModifier, 0)));
+    CHECK (t.p.getSong().blocks.size() == 3);
+}

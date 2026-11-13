@@ -188,7 +188,8 @@ private:
 public:
     // 0.80.0: CTRL + C / V / D (also for tests): false when there was nothing to do.
     bool copyChosen();
-    bool pasteClipboard();
+    bool pasteClipboard();     // (0.82.0: some drums copied: onto the chosen blocks, in place of theirs)
+    void copyDrums (const song::Block&, song::SlotMask drums);   // 0.82.0: COPY DRUMS > ...
     bool duplicateChosen();
 private:
     double grabOffset = 0.0, dragBeat = 0.0;

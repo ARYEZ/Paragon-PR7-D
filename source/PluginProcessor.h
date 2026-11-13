@@ -530,6 +530,10 @@ public:
     void stopSong();
     bool isSongPlaying() const noexcept { return songLocal.load(); }   // PLAY (with FOLLOW DAW off, also while the DAW plays)
     double getSongPosition() const noexcept { return songPosition.load(); }   // beats into the song (-1: not playing)
+    // 0.82.0: where the song's playhead is drawn: where it plays; else, with FOLLOW DAW on, wherever the DAW's own
+    // playhead is (stopped too, as the DAW reports it; -1: nowhere). Message thread.
+    double getSongPlayhead() const noexcept;
+    double getDawCursor() const noexcept { return dawCursor.load(); }   // the DAW's position, playing or not (-1: unknown)
     bool isCountingIn() const noexcept { return songCountingIn.load(); }       // 0.45.0: PLAY's count-in bar sounding
     // EXPORT MIDI: the whole song on the kit's notes (each drum's home note in the map), at the DAW's tempo.
     juce::MidiFile songToMidi() const;
@@ -594,7 +598,9 @@ public:
     // THE SONG's CLIPBOARD (0.9.0): a block (or some of its drums) copied, from the song or from a groove (its ticked
     // GROOVE PARTS), to paste as a block or onto blocks' drums. Message thread; not saved.
     const std::optional<song::Block>& getSongClipboard() const noexcept { return songClipboard; }
-    void setSongClipboard (std::optional<song::Block> b) { songClipboard = std::move (b); }
+    // 0.82.0: which drums the clipboard was copied with (all, or COPY DRUMS > KICK...): PASTE DRUMS replaces those.
+    void setSongClipboard (std::optional<song::Block> b, song::SlotMask drums = song::allSlots) { songClipboard = std::move (b); songClipboardDrums = drums; }
+    song::SlotMask getSongClipboardDrums() const noexcept { return songClipboardDrums; }
     void copyGrooveForSong (const grooves::Groove&, int folder, unsigned parts = grooves::allParts);
     // THE SONG CREATOR (0.10.0): the grooves around a source groove in columns by song part (from the linked folders'
     // index); a groove of them as a block; a whole song from a structure's sections, each its column's next groove (a
@@ -866,6 +872,7 @@ private:
     int collectSongHits (int numSamples, double ppq, double bpm, synth::drums::SlotHit* into, int room) noexcept;
     std::shared_ptr<const song::Song> songData = std::make_shared<const song::Song>();
     std::optional<song::Block> songClipboard;
+    song::SlotMask songClipboardDrums = song::allSlots;
     // RECORD: the notes on their way from the audio thread; where the song is in the piece being played (for their beats).
     struct RecordedNote { double beat = 0.0; int slot = 0; float velocity = 1.0f; };
     juce::AbstractFifo recordFifo { 2048 };
@@ -968,6 +975,7 @@ private:
     std::atomic<double> hostBpm { 120.0 };
     std::atomic<int> hostNumerator { 4 }, hostDenominator { 4 };
     double hostPpq = -1.0;   // the song position at this block's start (-1: stopped); audio thread
+    std::atomic<double> dawCursor { -1.0 };   // 0.82.0: the DAW's position whether it plays or not (-1: it gives none)
     // 0.65.0: the DAW's loop (cycle), and the sample of this block where it goes back to the loop's start (-1: it doesn't).
     // Some DAWs (PR7-S) give a block that runs past the loop's end one position for the whole block: the pieces stop at
     // that sample and those after it are placed from the loop's start, so the hits on the loop's first beat aren't lost.

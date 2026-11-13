@@ -227,6 +227,13 @@ Seen in 0.1.0, for later (corrected in 0.2.0): a drum voice ends when its level 
 - **Left:** a lasso or selection across several blocks (it's the edited block's); CTRL + V into another pass than the first.
 - **Tests:** `GridEditorTests` "GRID EDITOR 0.81.0" (two cases). Snapshot: `PARAGON_SNAPSHOT_PAGE=grooves PARAGON_SNAPSHOT_SONG=1 PARAGON_SNAPSHOT_GRID=3` (zoomed out over four blocks, the PENCIL on).
 
+**0.82.0: FOLLOW DAW follows the DAW's stopped playhead too, COPY DRUMS** (the owner: "when the FOLLOW DAW is selected the playhead should always sync with the playhead from the daw"; "right click on a groove block ... copy and paste just specific drums ... copy all the kick drum hits from a groove and paste them onto another groove thereby replacing that groove's kick pattern").
+
+- **The DAW's playhead:** `dawCursor` (the host's ppq, playing or not; -1 when it gives none), `getDawCursor`, `getSongPlayhead` (`songPosition` when playing, else the DAW's cursor while the song's `followDaw` is on). `SongTrack` draws the line from it and turns the page by it. Its timer moves `startBeat` to the cursor (FOLLOW DAW on, the song not playing). `togglePlay` starts from the cursor. `BlockEditor`'s playhead is from it.
+- **COPY DRUMS:** `setSongClipboard (block, drums)` / `getSongClipboardDrums` (`songClipboardDrums`; COPY / CTRL + C: `allSlots`; `copyGrooveForSong` the parts' slots). `SongTrack::copyDrums` (the block with the other drums removed). The block menu's COPY DRUMS > part (`partsMenu`). PASTE DRUMS ONTO IT's "all" item is the copied drums' mask (`partsMenu`'s `all` / `allName`), no longer `allSlots` (that cleared the target's other drums). `pasteClipboard`: a partial clipboard with blocks chosen goes `pasteDrums` onto each (one `edit`).
+- **Tests:** `SongTests` "SONG 0.82.0" (the playhead stopped and playing, PLAY from it, off) and "SONG STRIP 0.82.0" (kick copied and pasted, the snares kept, undo, whole copies as before).
+- **Not checked:** whether PR7-S reports its position while stopped.
+
 ## Rules (from the owner and the family's CLAUDE.md files)
 
 - **Names:** our own designs, "inspired by"; no Toontrack, Superior Drummer, EZdrummer or Vengeance / Avenger names or branding on the plugin. Toontrack's grooves, sounds and tags are never shipped: the user's own MIDI packs (and, since 0.15.0, their `midiDB` groove databases) are read from their computer when loaded. Never get round copy protection.

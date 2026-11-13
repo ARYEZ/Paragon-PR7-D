@@ -2,6 +2,17 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.82.0
+
+**FOLLOW DAW follows the DAW's playhead everywhere, and COPY DRUMS** (you asked for both).
+
+- **FOLLOW DAW on: the song's playhead is the DAW's.** It used to follow only while the DAW played, so when the DAW stopped, or you moved its playhead while stopped, the song track and the GRID EDITOR lost it. Now their playhead line sits wherever the DAW's is, playing or stopped. PLAY in the plugin starts from there too, and PLAY's start mark on the song track follows it. FOLLOW DAW off works as before. This needs the DAW to tell plugins where its playhead is while it's stopped. Most do, but I couldn't check yours from here.
+- **COPY DRUMS on a block's right-click menu:** copy just some of its drums (KICK, SNARE, HI-HAT, HI-HAT PEDAL, RIDE, TOMS, CRASH, PERCUSSION), each listed with how many hits it has there.
+  - **Paste them onto another block** with its right-click PASTE DRUMS ONTO IT, or CTRL + V with blocks chosen. Only those drums are replaced: copy groove A's kick, paste onto groove B, and B gets A's kick pattern with its own snare, hats and the rest kept. A shorter copy repeats to fill the block (a 1-bar kick over a 4-bar groove).
+  - With several blocks chosen, CTRL + V pastes onto each of them, as one undo step.
+  - COPY (the whole block) and CTRL + C work as before, and CTRL + V then places the whole block after the chosen one.
+- **Fix:** PASTE DRUMS ONTO IT > ALL used to clear every drum of the target first. After copying only some drums (also GROOVES' COPY FOR SONG with GROOVE PARTS ticked), that would have wiped the target's other drums. It now replaces only the drums that were copied.
+
 ## 0.81.0
 
 **THE GRID EDITOR shows the whole song, the PENCIL on 8, and no more lag** (you asked for all three).

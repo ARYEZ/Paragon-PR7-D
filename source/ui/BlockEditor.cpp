@@ -1354,7 +1354,7 @@ void BlockEditor::timerCallback()
         return;
     // The playhead, where the song is (0.81.0: anywhere in it, from the block's start). Only its old and new strips
     // are drawn again: the rest is the kept picture.
-    const auto at = processor.getSongPosition();
+    const auto at = processor.getSongPlayhead();   // (0.82.0: the DAW's while it's stopped, FOLLOW DAW on)
     const auto play = at >= 0.0 ? at - b->start : -1.0e9;
     if (std::abs (play - shownPlayhead) > 1.0e-4)
     {

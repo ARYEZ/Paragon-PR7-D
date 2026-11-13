@@ -553,7 +553,7 @@ void SongTrack::paint (juce::Graphics& g)
     juce::Path mark;
     mark.addTriangle (sx, (float) ruler.getBottom(), sx - 5.0f, (float) ruler.getY() + 3.0f, sx + 5.0f, (float) ruler.getY() + 3.0f);
     g.fillPath (mark);
-    if (const auto at = processor.getSongPosition(); at >= 0.0 && at <= shown)
+    if (const auto at = processor.getSongPlayhead(); at >= 0.0 && at <= shown)   // (0.82.0: the DAW's, FOLLOW DAW on)
     {
         g.setColour (ParagonColours::glow);
         g.fillRect (xOf (at) - 0.75f, (float) ruler.getY(), 1.5f, (float) (lane.getBottom() - ruler.getY()));
@@ -963,11 +963,31 @@ bool SongTrack::copyChosen()
     return true;
 }
 
+void SongTrack::copyDrums (const song::Block& from, song::SlotMask drums)
+{
+    auto copy = from;
+    song::removeDrums (copy, song::allSlots & ~drums);
+    processor.setSongClipboard (std::move (copy), drums);
+}
+
 bool SongTrack::pasteClipboard()
 {
     const auto& clip = processor.getSongClipboard();
     if (! clip.has_value())
         return false;
+    // 0.82.0: some drums copied (COPY DRUMS): onto every chosen block, in place of theirs (one undo step).
+    if (const auto drums = processor.getSongClipboardDrums(); drums != song::allSlots && ! getSelection().empty())
+    {
+        const auto blocks = getSelection();
+        const auto copied = *clip;
+        edit ([&] (song::Song& s)
+        {
+            for (const auto b : blocks)
+                if (b >= 0 && b < (int) s.blocks.size())
+                    song::pasteDrums (s.blocks[(size_t) b], copied, drums);
+        });
+        return true;
+    }
     // After the chosen block (the last of those chosen), as the menu's Paste After; nothing chosen: at the song's end.
     auto blocks = getSelection();
     const auto& song = processor.getSong();
@@ -1151,6 +1171,9 @@ void SongTrack::togglePlay()
         processor.stopSong();
     else
     {
+        // 0.82.0: FOLLOW DAW on: from where the DAW's playhead stands.
+        if (const auto cursor = processor.getDawCursor(); processor.getSong().followDaw && cursor >= 0.0 && processor.getSongPosition() < 0.0)
+            startBeat = cursor;
         processor.playSong (startBeat);
         if (processor.isSongRecording() && processor.getSong().countIn)
             showNote ("COUNT-IN: one bar of clicks, then the song plays and records.", 3.0);
@@ -1300,7 +1323,8 @@ juce::PopupMenu SongTrack::menuFor (int block, double atBeat)
     menu.addSubMenu ("Change Tempo", tempo);
 
     // EDITING INSIDE IT (0.9.0): its drums by GROOVE PARTS group (each with how many notes it has there).
-    const auto partsMenu = [] (const song::Block& of, const std::function<void (song::SlotMask slots)>& act, bool withAll)
+    const auto partsMenu = [] (const song::Block& of, const std::function<void (song::SlotMask slots)>& act, bool withAll,
+                               song::SlotMask all = song::allSlots, const juce::String& allName = "All Its Drums")
     {
         juce::PopupMenu m;
         std::array<int, grooves::numDrumParts> counts {};
@@ -1308,7 +1332,7 @@ juce::PopupMenu SongTrack::menuFor (int block, double atBeat)
             if (const auto part = grooves::drumPartOf (h.slot); part >= 0)
                 ++counts[(size_t) part];
         if (withAll)
-            m.addItem ("All Its Drums", ! of.hits.empty(), false, [act] { act (song::allSlots); });
+            m.addItem (allName, ! of.hits.empty(), false, [act, all] { act (all); });
         for (int k = 0; k < grooves::numDrumParts; ++k)
             if (counts[(size_t) k] > 0)
                 m.addItem (grooves::drumPartNames[k] + " (" + juce::String (counts[(size_t) k]) + ")", [act, k] { act (song::slotsOf (1u << k)); });
@@ -1329,6 +1353,8 @@ juce::PopupMenu SongTrack::menuFor (int block, double atBeat)
     menu.addItem ("Use with Song Creator", onUseWithCreator != nullptr && b.source.existsAsFile(), false,
                   [this, file = b.source] { onUseWithCreator (file); });
     menu.addItem ("Copy", [this, b] { processor.setSongClipboard (b); });
+    // 0.82.0: only some of its drums (its kick, say), to paste onto another block in place of that block's.
+    menu.addSubMenu ("Copy Drums", partsMenu (b, [this, b] (song::SlotMask slots) { copyDrums (b, slots); }, false), ! b.hits.empty());
     const auto& clip = processor.getSongClipboard();
     menu.addItem ("Paste After", clip.has_value(), false, [this, block]
     {
@@ -1340,7 +1366,8 @@ juce::PopupMenu SongTrack::menuFor (int block, double atBeat)
         {
             if (const auto& c = processor.getSongClipboard())
                 edit ([&] (song::Song& song) { song::pasteDrums (song.blocks[(size_t) block], *c, slots); });
-        }, true));
+        }, true, processor.getSongClipboardDrums(),
+           processor.getSongClipboardDrums() == song::allSlots ? juce::String ("All Its Drums") : juce::String ("All the Copied Drums")));
     else
         menu.addItem ("Paste Drums Onto It", false, false, nullptr);
     menu.addSubMenu ("Remove Drums", partsMenu (b, [this, block] (song::SlotMask slots)
@@ -1522,7 +1549,14 @@ void SongTrack::timerCallback()
         updateStatus();
     }
     play.setButtonText (processor.isSongPlaying() ? "STOP" : "PLAY");
-    if (const auto at = processor.getSongPosition(); at != shownPosition)
+    // 0.82.0: FOLLOW DAW on: PLAY's start is wherever the DAW's playhead stands (moved there in the DAW, stopped too).
+    if (const auto cursor = processor.getDawCursor(); processor.getSong().followDaw && cursor >= 0.0 && ! processor.isSongPlaying()
+                                                       && processor.getSongPosition() < 0.0 && std::abs (cursor - startBeat) > 1.0e-6)
+    {
+        startBeat = cursor;
+        repaint();
+    }
+    if (const auto at = processor.getSongPlayhead(); at != shownPosition)
     {
         // 0.43.0: playing past the lane's end (or before its start): the next page of the song.
         if (at >= 0.0 && (at < viewStart || at >= viewStart + beatsShown()) && drag == Drag::none)

@@ -691,6 +691,7 @@ void ParagonX1AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
                 hostBpm = *bpm;
             const auto ppq = position->getPpqPosition();
             hostPpq = position->getIsPlaying() && ppq.hasValue() ? *ppq : -1.0;
+            dawCursor = ppq.hasValue() ? juce::jmax (0.0, *ppq) : -1.0;
             hostLooping = position->getIsLooping();
             if (const auto points = position->getLoopPoints(); points.hasValue())
             {
@@ -4552,6 +4553,13 @@ int ParagonX1AudioProcessor::collectSongHits (int numSamples, double ppq, double
     return count;
 }
 
+double ParagonX1AudioProcessor::getSongPlayhead() const noexcept
+{
+    if (const auto at = songPosition.load(); at >= 0.0)
+        return at;
+    return songData != nullptr && songData->followDaw ? dawCursor.load() : -1.0;
+}
+
 double ParagonX1AudioProcessor::SongPlayback::barLengthAt (double beat) const noexcept
 {
     // The bar a beat is in: from the bar line at or before it to the next (past the lines worked out: the last bar's).
@@ -4684,8 +4692,9 @@ juce::File ParagonX1AudioProcessor::songBlocksDragFile (const std::vector<int>& 
 void ParagonX1AudioProcessor::copyGrooveForSong (const grooves::Groove& groove, int folder, unsigned parts)
 {
     auto block = songBlockFrom (groove, folder);
-    song::removeDrums (block, song::allSlots & ~song::slotsOf (parts));
-    songClipboard = std::move (block);
+    const auto drums = song::slotsOf (parts) == song::slotsOf (grooves::allParts) ? song::allSlots : song::slotsOf (parts);
+    song::removeDrums (block, song::allSlots & ~drums);
+    setSongClipboard (std::move (block), drums);
 }
 
 //==============================================================================
