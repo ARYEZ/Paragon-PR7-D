@@ -16,6 +16,10 @@
 //   VELOCITY, DYNAMICS, RANDOMIZE VELOCITY and SLOPE likewise change their velocities. SELECT: invert, exclude on / off
 //   beats, by note value, jump. OPTIONS: stretch notes, preview sounds. The time bar (right-click): straight or
 //   triplet lines. ZOOM (ALT + wheel; G out, H in), AUTO SCROLL with the song. Each change is one undo step.
+// 0.81.0: the grid is the whole song. Every block's notes are drawn where they play (a repeating block's loop at each
+// repeat; an edit in any repeat changes the loop, so all of them); a click, lasso or pencil in another block edits that
+// block from there on; the pencil in a stretch with no block makes a block of up to a bar there. Keys 1 and 8: POINTER
+// and PENCIL, as in the DAW. The drawing is kept as a picture and only the playhead is drawn over it as the song plays.
 #pragma once
 
 #include "PluginProcessor.h"
@@ -31,6 +35,7 @@ public:
 
     void open (int block);   // shows it, on that block
     int getBlock() const noexcept { return blockIndex; }
+    std::function<void (int block)> onBlockChanged;   // 0.81.0: another block clicked into (MainView chooses it on the strip)
     std::function<void()> onClose;
     std::function<void (int block)> onPlayStyle;   // 0.46.0: its EDIT PLAY STYLE tab
 
@@ -73,8 +78,11 @@ public:
     void setZoom (double pixelsPerBeat);
     void zoomBy (double factor);   // the middle of the view kept (G / H: 1 / 1.5, 1.5)
     double getZoom() const noexcept { return pxPerBeat; }
-    void setViewStart (double beat);
+    void setViewStart (double beat);   // beats from the edited block's start (earlier than it: negative)
     double getViewStart() const noexcept { return viewBeat; }
+    double getViewMin() const noexcept;   // 0.81.0: the song's start (and a little room before it)
+    double getViewMax() const noexcept;   // ... and its end, a little past it
+    int getRepaintsOfContent() const noexcept { return contentRenders; }   // tests: drawings made (not copies)
     void setAutoScroll (bool);
 
     std::vector<song::Hit> getSelection() const;          // the chosen notes, in time order
@@ -139,6 +147,16 @@ private:
     void timerCallback() override;
     void scrollBarMoved (juce::ScrollBar*, double) override;
     const song::Block* block() const noexcept;
+    double origin() const noexcept;
+    double minZoom() const noexcept;                         // the whole song in view
+    double maxZoom() const noexcept;                         // 32 x the block fitted                          // the edited block's start in the song
+    std::vector<double> repeatsOf (int block) const;         // where each pass of its loop starts, from origin()
+    int blockAtX (float x) const;                            // the block under that x (-1: none)
+    void switchTo (int block, double oldOrigin);             // edit another block, the view kept still
+    int makeBlockAt (double songBeat);                       // an empty block there (up to a bar); -1: no room
+    bool takeBlockUnder (const juce::MouseEvent&, bool makeOne);   // a press in another block or an empty stretch
+    void redraw();                                           // the picture drawn again, then shown
+    void paintContent (juce::Graphics&);
     void edit (const std::function<void (song::Block&)>&);   // the block changed as an undo step
     void refresh();
     void layoutRows();
@@ -160,7 +178,7 @@ public:
 private:
     struct Key { int slot; double beat; };
     bool isSelected (const song::Hit&) const;
-    int hitAt (juce::Point<float>) const;                // index in the block's hits (-1)
+    int hitAt (juce::Point<float>, double* offset = nullptr) const;   // index in the block's hits (-1), and which pass
     int velocityHitAt (juce::Point<float>) const;
     void previewSlot (int slot);
     void capture();                                       // the chosen notes as they are, for the sliders
@@ -197,6 +215,7 @@ private:
     bool dragCopy = false;
     double moveBeats = 0.0;
     int moveRows = 0, grabHit = -1, grabRow = -1;
+    double grabOffset = 0.0;                              // the pass of the loop the grabbed note was in
     std::vector<song::Hit> drawn;                         // the pencil's notes while drawing
     std::vector<std::pair<size_t, float>> velocityEdits;  // the lane's drawn velocities, by hit index
 
@@ -214,5 +233,9 @@ private:
     juce::Slider zoom { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     juce::Label zoomLabel { {}, "ZOOM" }, nudgeLabel { {}, "NUDGE" }, hint;
     juce::ScrollBar hScroll { false }, vScroll { true };
-    double shownPlayhead = -1.0;
+    double shownPlayhead = -1.0e9;                        // (from origin(); -1e9: none)
+    juce::Image content;                                  // 0.81.0: the drawing, at the screen's scale
+    bool contentValid = false;
+    float contentScale = 0.0f;
+    int contentRenders = 0;
 };

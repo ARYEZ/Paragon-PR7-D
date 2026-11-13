@@ -170,6 +170,7 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     blockEditor.onPlayStyle = [this] (int block) { if (gridWindow != nullptr) setGridEditorInOwnWindow (false); openPlayStyle (block); };
     blockEditor.onToggleWindow = [this] { setGridEditorInOwnWindow (gridWindow == nullptr); };
     blockEditor.onPlayStop = [this] { songTrack.togglePlay(); };
+    blockEditor.onBlockChanged = [this] (int block) { songTrack.choose (block); };   // 0.81.0: the strip follows
     blockEditor.onClose = [this]
     {
         // Closed (X, or its block gone) while in its own window: the window goes too.

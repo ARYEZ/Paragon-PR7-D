@@ -84,7 +84,7 @@ BlockEditor::BlockEditor (ParagonX1AudioProcessor& p) : processor (p)
     resolutionChoice.addItemList (resolutionNames, 1);
     resolutionChoice.setSelectedItemIndex (0, juce::dontSendNotification);
     resolutionChoice.setTooltip ("RESOLUTION for SNAP, QUANTIZE, SWING, RANDOMIZE and NUDGE. AUTO: the finest grid line drawn at this zoom.");
-    resolutionChoice.onChange = [this] { resolution = resolutionChoice.getSelectedItemIndex(); repaint(); };
+    resolutionChoice.onChange = [this] { resolution = resolutionChoice.getSelectedItemIndex(); redraw(); };
 
     for (int k = 0; k < (int) sliders.size(); ++k)
     {
@@ -144,9 +144,8 @@ BlockEditor::BlockEditor (ParagonX1AudioProcessor& p) : processor (p)
     {
         if (const auto* b = block(); b != nullptr && grid.getWidth() > 0)
         {
-            const auto fit = grid.getWidth() / juce::jmax (0.25, b->loopLength);
             const auto centre = beatAt ((float) grid.getCentreX());
-            pxPerBeat = fit * std::pow (32.0, zoom.getValue());
+            pxPerBeat = minZoom() * std::pow (maxZoom() / minZoom(), zoom.getValue());
             setViewStart (centre - grid.getWidth() / 2.0 / pxPerBeat);
         }
     };
@@ -160,7 +159,7 @@ BlockEditor::BlockEditor (ParagonX1AudioProcessor& p) : processor (p)
     hint.setColour (juce::Label::textColourId, ParagonColours::textDim);
     hint.setText ("Click a note to choose it (SHIFT: more), drag for a lasso, drag notes to move (ALT: copy); right-click a note: gone, "
                   "a row's name: SHOW NOTE LENGTH. PENCIL (or CTRL + ALT): draw. DELETE, ALT + arrows: nudge, arrows: next / previous, "
-                  "SHIFT + I: invert, CTRL + A / C / V.",
+                  "SHIFT + I: invert, CTRL + A / C / V. 1: POINTER, 8: PENCIL. The whole song is here: click another block's notes to edit them.",
                   juce::dontSendNotification);
     for (auto* bar : { &hScroll, &vScroll })
     {
@@ -188,6 +187,7 @@ BlockEditor::BlockEditor (ParagonX1AudioProcessor& p) : processor (p)
         c->setMouseClickGrabsKeyboardFocus (false);
     }
     processor.songBroadcaster.addChangeListener (this);
+    setOpaque (true);   // 0.81.0: it covers what's under it (that isn't drawn there at all)
 }
 
 BlockEditor::~BlockEditor()
@@ -211,6 +211,12 @@ void BlockEditor::open (int b)
         rowScroll = 0;
     }
     refresh();
+    if (fresh && pxPerBeat > 0.0)
+    {
+        // 0.81.0: from a hair before the block's start, so a note on its first beat shows whole.
+        viewBeat = -12.0 / pxPerBeat;
+        clampView();
+    }
     setVisible (true);
     toFront (true);
     startTimerHz (30);
@@ -220,6 +226,126 @@ const song::Block* BlockEditor::block() const noexcept
 {
     const auto& s = processor.getSong();
     return blockIndex >= 0 && blockIndex < (int) s.blocks.size() ? &s.blocks[(size_t) blockIndex] : nullptr;
+}
+
+double BlockEditor::origin() const noexcept
+{
+    const auto* b = block();
+    return b != nullptr ? b->start : 0.0;
+}
+
+std::vector<double> BlockEditor::repeatsOf (int index) const
+{
+    std::vector<double> out;
+    const auto& s = processor.getSong();
+    if (index < 0 || index >= (int) s.blocks.size())
+        return out;
+    const auto& b = s.blocks[(size_t) index];
+    const auto loop = juce::jmax (1.0e-3, b.loopLength);
+    const auto from = b.start - origin();
+    for (int k = 0; k * loop < b.length - 1.0e-9 && k < 4096; ++k)
+        out.push_back (from + k * loop);
+    return out;
+}
+
+int BlockEditor::blockAtX (float x) const
+{
+    return processor.getSong().blockAt (origin() + beatAt (x));
+}
+
+double BlockEditor::getViewMin() const noexcept
+{
+    // The song's start, with room for a note on it to show whole.
+    return -origin() - 12.0 / juce::jmax (1.0, pxPerBeat);
+}
+
+double BlockEditor::getViewMax() const noexcept
+{
+    // The song's end, with two bars after it to draw into.
+    const auto& s = processor.getSong();
+    return juce::jmax (s.endBeat(), origin() + 4.0) + 2.0 * s.beatsPerBarAt (s.endBeat()) - origin();
+}
+
+double BlockEditor::minZoom() const noexcept
+{
+    // Out to the whole song (never further out than the block fitted).
+    const auto& s = processor.getSong();
+    const auto span = juce::jmax (s.endBeat(), origin() + 4.0) + 2.0 * s.beatsPerBarAt (s.endBeat()) + 1.0;
+    return juce::jmin (maxZoom() / 32.0, grid.getWidth() / juce::jmax (1.0, span));
+}
+
+double BlockEditor::maxZoom() const noexcept
+{
+    const auto* b = block();
+    return 32.0 * grid.getWidth() / juce::jmax (0.25, b != nullptr ? b->loopLength : 4.0);
+}
+
+void BlockEditor::switchTo (int index, double oldOrigin)
+{
+    blockIndex = index;
+    const auto moved = oldOrigin - origin();
+    viewBeat += moved;
+    if (shownPlayhead > -1.0e8)
+        shownPlayhead += moved;
+    selection.clear();
+    baseBlock.reset();
+    lastMade.reset();
+    sliderValues = {};
+    refresh();
+    if (onBlockChanged != nullptr)
+        onBlockChanged (index);
+}
+
+int BlockEditor::makeBlockAt (double songBeat)
+{
+    // A bar from the bar line before it, cut short where the next block starts.
+    auto s = processor.getSong();
+    if (songBeat < 0.0 || s.blockAt (songBeat) >= 0)
+        return -1;
+    const auto lines = s.barLines (songBeat + 1.0);
+    auto barStart = 0.0;
+    for (const auto l : lines)
+        if (l <= songBeat + 1.0e-9)
+            barStart = l;
+    auto length = s.beatsPerBarAt (barStart);
+    for (const auto& b : s.blocks)
+        if (b.start > barStart + 1.0e-9)
+            length = juce::jmin (length, b.start - barStart);
+    if (length < 0.25 - 1.0e-9)
+        return -1;
+    song::Block made;
+    made.name = "Drawn";
+    made.length = made.loopLength = length;
+    const auto index = s.place (std::move (made), barStart);
+    processor.setSong (std::move (s));
+    return index;
+}
+
+bool BlockEditor::takeBlockUnder (const juce::MouseEvent& e, bool makeOne)
+{
+    // 0.81.0: a press on another block edits that block; in a stretch with no block, the pencil makes one there.
+    const auto under = blockAtX (e.position.x);
+    if (under == blockIndex)
+        return true;
+    const auto old = origin();
+    if (under >= 0)
+    {
+        switchTo (under, old);
+        return true;
+    }
+    if (! makeOne)
+        return true;
+    const auto made = makeBlockAt (old + beatAt (e.position.x));
+    if (made < 0)
+        return false;
+    switchTo (made, old);
+    return true;
+}
+
+void BlockEditor::redraw()
+{
+    contentValid = false;
+    repaint();
 }
 
 void BlockEditor::edit (const std::function<void (song::Block&)>& f)
@@ -242,7 +368,7 @@ void BlockEditor::scrollBarMoved (juce::ScrollBar* bar, double start)
         viewBeat = start;
     else
         rowScroll = juce::roundToInt (start);
-    repaint();
+    redraw();
 }
 
 void BlockEditor::changeListenerCallback (juce::ChangeBroadcaster*)
@@ -281,14 +407,16 @@ void BlockEditor::refresh()
                                || std::any_of (recallSoloed.begin(), recallSoloed.end(), [] (bool m) { return m; }));
     soloMuteButton.setButtonText (hasSoloMute() ? "CLEAR SOLO / MUTE" : "RECALL SOLO / MUTE");
     resized();
-    repaint();
+    redraw();
 }
 
 void BlockEditor::layoutRows()
 {
     rows.clear();
-    const auto* b = block();
-    const auto played = b != nullptr ? song::slotsIn (*b) : song::SlotMask (0);
+    // (0.81.0: the drums any block plays, so the rows stay put as other blocks are edited)
+    song::SlotMask played = 0;
+    for (const auto& blk : processor.getSong().blocks)
+        played |= song::slotsIn (blk);
     const auto kit = processor.getKitSettings();
     const auto shownSlot = [&] (int slot)
     {
@@ -400,7 +528,7 @@ void BlockEditor::setShowLength (int piece, bool on)
 {
     if (piece >= 0 && piece < synth::drums::numPieces)
         showLength[(size_t) piece] = on;
-    repaint();
+    redraw();
 }
 
 juce::Rectangle<float> BlockEditor::lengthHandleOf (int slot, double beat) const
@@ -537,22 +665,34 @@ bool BlockEditor::isSelected (const song::Hit& h) const
     return std::any_of (selection.begin(), selection.end(), [&h] (const Key& k) { return k.slot == h.slot && sameBeat (k.beat, h.beat); });
 }
 
-int BlockEditor::hitAt (juce::Point<float> at) const
+int BlockEditor::hitAt (juce::Point<float> at, double* offset) const
 {
     const auto* b = block();
     if (b == nullptr)
         return -1;
     auto best = -1;
     auto bestDistance = 1.0e9f;
-    for (size_t i = 0; i < b->hits.size(); ++i)
+    // 0.81.0: in whichever pass of the loop it's drawn (the passes past the block's end aren't).
+    for (const auto off : repeatsOf (blockIndex))
     {
-        const auto cell = cellOf (b->hits[i].slot, b->hits[i].beat);
-        if (cell.isEmpty() || ! cell.expanded (3.0f).contains (at))
+        // (the current block's passes start at 0: a note plays in a pass when it's before the block's end)
+        if (at.x < xOf (off) - 12.0f || at.x > xOf (off + b->loopLength) + 12.0f)
             continue;
-        if (const auto d = cell.getCentre().getDistanceFrom (at); d < bestDistance)
+        const auto shift = (float) (off * pxPerBeat);
+        for (size_t i = 0; i < b->hits.size(); ++i)
         {
-            best = (int) i;
-            bestDistance = d;
+            if (off + b->hits[i].beat >= b->length - 1.0e-9)
+                continue;
+            const auto cell = cellOf (b->hits[i].slot, b->hits[i].beat).translated (shift, 0.0f);
+            if (cell.isEmpty() || ! cell.expanded (3.0f).contains (at))
+                continue;
+            if (const auto d = cell.getCentre().getDistanceFrom (at); d < bestDistance)
+            {
+                best = (int) i;
+                bestDistance = d;
+                if (offset != nullptr)
+                    *offset = off;
+            }
         }
     }
     return best;
@@ -565,21 +705,23 @@ int BlockEditor::velocityHitAt (juce::Point<float> at) const
         return -1;
     auto best = -1;
     auto bestScore = 1.0e9f;
-    for (size_t i = 0; i < b->hits.size(); ++i)
-    {
-        const auto& h = b->hits[i];
-        if (rowOf (h.slot) < 0)
-            continue;
-        const auto x = xOf (h.beat);
-        if (std::abs (x - at.x) > 5.0f)
-            continue;
-        const auto score = velocityPointOf (h.slot, h.beat).getCentre().getDistanceFrom (at) - (isSelected (h) ? 50.0f : 0.0f);
-        if (score < bestScore)
+    for (const auto off : repeatsOf (blockIndex))
+        for (size_t i = 0; i < b->hits.size(); ++i)
         {
-            best = (int) i;
-            bestScore = score;
+            const auto& h = b->hits[i];
+            if (rowOf (h.slot) < 0 || off + h.beat >= b->length - 1.0e-9)
+                continue;
+            const auto x = xOf (off + h.beat);
+            if (std::abs (x - at.x) > 5.0f)
+                continue;
+            const auto score = velocityPointOf (h.slot, h.beat).translated ((float) (off * pxPerBeat), 0.0f).getCentre().getDistanceFrom (at)
+                             - (isSelected (h) ? 50.0f : 0.0f);
+            if (score < bestScore)
+            {
+                best = (int) i;
+                bestScore = score;
+            }
         }
-    }
     return best;
 }
 
@@ -616,7 +758,7 @@ void BlockEditor::select (int slot, double beat, bool add)
     lastMade.reset();
     sliderValues = {};
     syncSliderLabels();
-    repaint();
+    redraw();
 }
 
 void BlockEditor::selectRow (int row, bool add)
@@ -634,7 +776,7 @@ void BlockEditor::selectRow (int row, bool add)
     lastMade.reset();
     sliderValues = {};
     syncSliderLabels();
-    repaint();
+    redraw();
 }
 
 void BlockEditor::selectAll()
@@ -648,7 +790,7 @@ void BlockEditor::selectAll()
     lastMade.reset();
     sliderValues = {};
     syncSliderLabels();
-    repaint();
+    redraw();
 }
 
 void BlockEditor::selectNone()
@@ -658,7 +800,7 @@ void BlockEditor::selectNone()
     lastMade.reset();
     sliderValues = {};
     syncSliderLabels();
-    repaint();
+    redraw();
 }
 
 void BlockEditor::invertSelection()
@@ -673,7 +815,7 @@ void BlockEditor::invertSelection()
     lastMade.reset();
     sliderValues = {};
     syncSliderLabels();
-    repaint();
+    redraw();
 }
 
 void BlockEditor::exclude (bool onBeats)
@@ -700,7 +842,7 @@ void BlockEditor::exclude (bool onBeats)
     baseBlock.reset();
     lastMade.reset();
     sliderValues = {};
-    repaint();
+    redraw();
 }
 
 void BlockEditor::selectNoteValue (double beats)
@@ -716,7 +858,7 @@ void BlockEditor::selectNoteValue (double beats)
     baseBlock.reset();
     lastMade.reset();
     sliderValues = {};
-    repaint();
+    redraw();
 }
 
 void BlockEditor::jump (int direction)
@@ -783,7 +925,7 @@ void BlockEditor::nudge (int direction)
             moved.push_back ({ s.slot, s.beat });
     });
     selection = std::move (moved);
-    repaint();
+    redraw();
 }
 
 void BlockEditor::deleteSelected()
@@ -820,7 +962,7 @@ void BlockEditor::paste()
             }
     });
     selection = std::move (pasted);
-    repaint();
+    redraw();
 }
 
 void BlockEditor::stretch (grooves::TempoFactor factor)
@@ -864,7 +1006,7 @@ void BlockEditor::stretch (grooves::TempoFactor factor)
             moved.push_back ({ s.slot, s.beat });
     });
     selection = std::move (moved);
-    repaint();
+    redraw();
 }
 
 //==============================================================================
@@ -952,7 +1094,7 @@ void BlockEditor::applySliders (bool asUndoStep)
     }
     else
         processor.previewSong (std::move (s));
-    repaint();
+    redraw();
 }
 
 void BlockEditor::setSliderValue (Slider which, double percent, bool asUndoStep)
@@ -1003,7 +1145,7 @@ void BlockEditor::setResolution (int index)
 void BlockEditor::setTriplets (bool on)
 {
     triplets = on;
-    repaint();
+    redraw();
 }
 
 void BlockEditor::setZoom (double pixelsPerBeat)
@@ -1011,11 +1153,10 @@ void BlockEditor::setZoom (double pixelsPerBeat)
     const auto* b = block();
     if (b == nullptr || grid.getWidth() <= 0)
         return;
-    const auto fit = grid.getWidth() / juce::jmax (0.25, b->loopLength);
-    pxPerBeat = juce::jlimit (fit, fit * 32.0, pixelsPerBeat);
-    zoom.setValue (std::log (pxPerBeat / fit) / std::log (32.0), juce::dontSendNotification);
+    pxPerBeat = juce::jlimit (minZoom(), maxZoom(), pixelsPerBeat);
+    zoom.setValue (std::log (pxPerBeat / minZoom()) / std::log (maxZoom() / minZoom()), juce::dontSendNotification);
     clampView();
-    repaint();
+    redraw();
 }
 
 void BlockEditor::zoomBy (double factor)
@@ -1032,7 +1173,7 @@ void BlockEditor::setViewStart (double beat)
 {
     viewBeat = beat;
     clampView();
-    repaint();
+    redraw();
 }
 
 void BlockEditor::clampView()
@@ -1040,10 +1181,12 @@ void BlockEditor::clampView()
     const auto* b = block();
     if (b == nullptr || pxPerBeat <= 0.0)
         return;
+    // 0.81.0: anywhere in the song (and a little past it).
     const auto shown = grid.getWidth() / pxPerBeat;
-    viewBeat = juce::jlimit (0.0, juce::jmax (0.0, b->loopLength - shown), viewBeat);
-    hScroll.setRangeLimits (0.0, b->loopLength, juce::dontSendNotification);
-    hScroll.setCurrentRange (viewBeat, juce::jmin (shown, b->loopLength), juce::dontSendNotification);
+    const auto from = getViewMin(), to = juce::jmax (getViewMin() + shown, getViewMax());
+    viewBeat = juce::jlimit (from, to - shown, viewBeat);
+    hScroll.setRangeLimits (from, to, juce::dontSendNotification);
+    hScroll.setCurrentRange (viewBeat, shown, juce::dontSendNotification);
     const auto visibleRows = juce::jmax (1, (int) (grid.getHeight() / rowHeight()));
     rowScroll = juce::jlimit (0, juce::jmax (0, (int) rows.size() - visibleRows), rowScroll);
     vScroll.setRangeLimits (0.0, (double) juce::jmax (1, (int) rows.size()), juce::dontSendNotification);
@@ -1209,26 +1352,25 @@ void BlockEditor::timerCallback()
     const auto* b = block();
     if (b == nullptr)
         return;
-    // The playhead, where the song is in this block's groove (-1: not in it).
+    // The playhead, where the song is (0.81.0: anywhere in it, from the block's start). Only its old and new strips
+    // are drawn again: the rest is the kept picture.
     const auto at = processor.getSongPosition();
-    auto play = -1.0;
-    if (at >= b->start && at < b->end() && b->loopLength > 0.0)
-        play = std::fmod (at - b->start, b->loopLength);
+    const auto play = at >= 0.0 ? at - b->start : -1.0e9;
     if (std::abs (play - shownPlayhead) > 1.0e-4)
     {
         const auto old = shownPlayhead;
         shownPlayhead = play;
-        if (play >= 0.0 && autoScroll && pxPerBeat > 0.0)
+        if (play > -1.0e8 && autoScroll && pxPerBeat > 0.0)
         {
             const auto shown = grid.getWidth() / pxPerBeat;
             if (play < viewBeat || play > viewBeat + shown * 0.95)
             {
-                setViewStart (play);
+                setViewStart (play - shown * 0.02);
                 return;
             }
         }
         for (const auto beat : { old, play })
-            if (beat >= 0.0)
+            if (beat > -1.0e8)
                 repaint (juce::Rectangle<int> (juce::roundToInt (xOf (beat)) - 2, grid.getY() - rulerHeight, 5, lane.getBottom() - grid.getY() + rulerHeight));
     }
 }
@@ -1277,6 +1419,12 @@ bool BlockEditor::keyPressed (const juce::KeyPress& key)
     if (mods.isShiftDown() && ! mods.isCommandDown() && c == 'i')
     {
         invertSelection();
+        return true;
+    }
+    // 0.81.0: 1 the POINTER, 8 the PENCIL (as the DAW's tools).
+    if (! mods.isAnyModifierKeyDown() && (c == '1' || c == '8'))
+    {
+        setTool (c == '8' ? Tool::pencil : Tool::pointer);
         return true;
     }
     // G / H: zoom out / in (as DAWs' MIDI editors have it), the middle of the view kept where it is.
@@ -1348,9 +1496,12 @@ void BlockEditor::mouseDown (const juce::MouseEvent& e)
         grabRow = row;
         return;
     }
-    // The velocity lane.
+    // The velocity lane (0.81.0: under another block, that block's).
     if (lane.contains (e.getPosition()))
     {
+        takeBlockUnder (e, false);
+        if (block() == nullptr)
+            return;
         velocityEdits.clear();
         drag = Drag::velocity;
         grabHit = pencil ? -1 : velocityHitAt (e.position);
@@ -1361,17 +1512,26 @@ void BlockEditor::mouseDown (const juce::MouseEvent& e)
     }
     if (! grid.contains (e.getPosition()))
         return;
-    // 0.48.0: a shown note length's end: drag it.
+    // 0.81.0: in another block, that one is edited from here on; the pencil in a stretch with no block makes one.
+    if (! takeBlockUnder (e, pencil && ! e.mods.isPopupMenu()))
+        return;
+    b = block();
+    if (b == nullptr)
+        return;
+    // 0.48.0: a shown note length's end: drag it (in whichever pass of the loop).
     if (! e.mods.isPopupMenu())
-        for (size_t i = 0; i < b->hits.size(); ++i)
-            if (const auto handle = lengthHandleOf (b->hits[i].slot, b->hits[i].beat); ! handle.isEmpty() && handle.expanded (2.0f, 0.0f).contains (e.position))
-            {
-                drag = Drag::length;
-                grabHit = (int) i;
-                lengthTo = b->hits[i].length;
-                return;
-            }
-    const auto hit = hitAt (e.position);
+        for (const auto off : repeatsOf (blockIndex))
+            for (size_t i = 0; i < b->hits.size(); ++i)
+                if (const auto handle = lengthHandleOf (b->hits[i].slot, b->hits[i].beat).translated ((float) (off * pxPerBeat), 0.0f);
+                    ! handle.isEmpty() && off + b->hits[i].beat < b->length - 1.0e-9 && handle.expanded (2.0f, 0.0f).contains (e.position))
+                {
+                    drag = Drag::length;
+                    grabHit = (int) i;
+                    grabOffset = off;
+                    lengthTo = b->hits[i].length;
+                    return;
+                }
+    const auto hit = hitAt (e.position, &grabOffset);
     if (e.mods.isPopupMenu())
     {
         if (hit >= 0)
@@ -1442,7 +1602,7 @@ void BlockEditor::mouseDrag (const juce::MouseEvent& e)
     switch (drag)
     {
         case Drag::lasso:
-            repaint();
+            redraw();
             break;
         case Drag::move:
         {
@@ -1457,7 +1617,7 @@ void BlockEditor::mouseDrag (const juce::MouseEvent& e)
             if (! snapOn)
                 moveBeats = dx;
             moveRows = juce::roundToInt ((e.position.y - dragStart.y) / rowHeight());
-            repaint();
+            redraw();
             break;
         }
         case Drag::pencil:
@@ -1468,9 +1628,13 @@ void BlockEditor::mouseDrag (const juce::MouseEvent& e)
             const auto from = beatAt (dragStart.x), to = beatAt (e.position.x);
             const auto place = [&] (double beat)
             {
+                // (0.81.0: anywhere in the block, into its loop; outside the block: nothing)
                 beat = snapOn ? std::floor (beat / step + 1.0e-9) * step : beat;
-                if (beat < 0.0 || beat >= b->loopLength - 1.0e-9)
+                if (beat < 0.0 || beat >= b->length - 1.0e-9)
                     return;
+                beat = std::fmod (beat, b->loopLength);
+                if (beat > b->loopLength - 1.0e-6)
+                    beat = 0.0;
                 if (std::none_of (drawn.begin(), drawn.end(), [&] (const song::Hit& h) { return sameBeat (h.beat, beat); }))
                     drawn.push_back ({ beat, slot, 0.8f, isShowingLength (r.piece) ? juce::jmin (step, b->loopLength - beat) : 0.0 });
             };
@@ -1480,7 +1644,7 @@ void BlockEditor::mouseDrag (const juce::MouseEvent& e)
                     place (beat);
             else
                 place (to);
-            repaint();
+            redraw();
             break;
         }
         case Drag::velocity:
@@ -1502,14 +1666,16 @@ void BlockEditor::mouseDrag (const juce::MouseEvent& e)
             else
             {
                 // The pencil across the lane: every stalk it passes to its height.
-                for (size_t i = 0; i < b->hits.size(); ++i)
-                    if (rowOf (b->hits[i].slot) >= 0 && std::abs (xOf (b->hits[i].beat) - e.position.x) <= 4.0f)
-                    {
-                        std::erase_if (velocityEdits, [i] (const auto& v) { return v.first == i; });
-                        velocityEdits.push_back ({ i, level });
-                    }
+                for (const auto off : repeatsOf (blockIndex))
+                    for (size_t i = 0; i < b->hits.size(); ++i)
+                        if (rowOf (b->hits[i].slot) >= 0 && off + b->hits[i].beat < b->length - 1.0e-9
+                            && std::abs (xOf (off + b->hits[i].beat) - e.position.x) <= 4.0f)
+                        {
+                            std::erase_if (velocityEdits, [i] (const auto& v) { return v.first == i; });
+                            velocityEdits.push_back ({ i, level });
+                        }
             }
-            repaint();
+            redraw();
             break;
         }
         case Drag::length:
@@ -1517,11 +1683,11 @@ void BlockEditor::mouseDrag (const juce::MouseEvent& e)
             if (grabHit < 0 || grabHit >= (int) b->hits.size())
                 break;
             const auto& h = b->hits[(size_t) grabHit];
-            auto end = beatAt (e.position.x);
+            auto end = beatAt (e.position.x) - grabOffset;
             if (snapOn)
                 end = snap (end);
             lengthTo = juce::jlimit (0.0, b->loopLength - h.beat, end - h.beat);
-            repaint();
+            redraw();
             break;
         }
         case Drag::rowOrder:
@@ -1545,9 +1711,11 @@ void BlockEditor::mouseUp (const juce::MouseEvent& e)
             const auto box = juce::Rectangle<float> (dragStart, dragNow);
             if (box.getWidth() < 2.0f && box.getHeight() < 2.0f)
                 break;
-            for (const auto& h : b->hits)
-                if (const auto cell = cellOf (h.slot, h.beat); ! cell.isEmpty() && box.intersects (cell) && ! isSelected (h))
-                    selection.push_back ({ h.slot, h.beat });
+            for (const auto off : repeatsOf (blockIndex))
+                for (const auto& h : b->hits)
+                    if (const auto cell = cellOf (h.slot, h.beat).translated ((float) (off * pxPerBeat), 0.0f);
+                        ! cell.isEmpty() && off + h.beat < b->length - 1.0e-9 && box.intersects (cell) && ! isSelected (h))
+                        selection.push_back ({ h.slot, h.beat });
             baseBlock.reset();
             sliderValues = {};
             syncSliderLabels();
@@ -1660,20 +1828,26 @@ void BlockEditor::mouseUp (const juce::MouseEvent& e)
             break;
     }
     grabHit = -1;
-    repaint();
+    redraw();
 }
 
 void BlockEditor::mouseDoubleClick (const juce::MouseEvent& e)
 {
     // POINTER: a double-click on empty space adds a note there (on the resolution while SNAP is on).
-    const auto* b = block();
-    if (b == nullptr || ! grid.contains (e.getPosition()) || hitAt (e.position) >= 0 || tool != Tool::pointer)
+    if (block() == nullptr || ! grid.contains (e.getPosition()) || tool != Tool::pointer)
         return;
     const auto row = rowAt (e.position.y);
     if (row < 0 || rows[(size_t) row].heading)
         return;
+    // (0.81.0: in another block or a stretch with none, as the pencil)
+    if (! takeBlockUnder (e, true))
+        return;
+    const auto* b = block();
+    if (b == nullptr || hitAt (e.position) >= 0)
+        return;
     const auto slot = rows[(size_t) row].slot >= 0 ? rows[(size_t) row].slot : pieces[(size_t) rows[(size_t) row].piece].articulations[0].slot;
-    auto beat = snap (beatAt (e.position.x));
+    auto beat = juce::jlimit (0.0, juce::jmax (0.0, b->length - 1.0e-3), snap (beatAt (e.position.x)));
+    beat = std::fmod (beat, b->loopLength);
     if (beat >= b->loopLength - 1.0e-9)
         beat = snapOn ? std::floor ((b->loopLength - 1.0e-9) / resolutionBeats()) * resolutionBeats() : b->loopLength - 1.0e-3;
     beat = juce::jmax (0.0, beat);
@@ -1700,12 +1874,13 @@ void BlockEditor::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWh
     }
     rowScroll -= juce::roundToInt (wheel.deltaY * 8.0f);
     clampView();
-    repaint();
+    redraw();
 }
 
 //==============================================================================
 void BlockEditor::resized()
 {
+    contentValid = false;
     auto area = getLocalBounds().reduced (12, 8);
     auto top = area.removeFromTop (headerHeight);
     closeButton.setBounds (top.removeFromRight (36).reduced (0, 4));
@@ -1769,16 +1944,55 @@ void BlockEditor::resized()
     hScroll.setBounds (scrollRow.withTrimmedLeft (namesWidth).withTrimmedRight (scrollSize));
     if (const auto* b = block(); b != nullptr && grid.getWidth() > 0)
     {
+        // At first the block fitted; then as zoomed (out to the whole song).
         const auto fit = grid.getWidth() / juce::jmax (0.25, b->loopLength);
-        if (pxPerBeat < fit - 1.0e-9)
-            pxPerBeat = fit;
-        zoom.setValue (std::log (pxPerBeat / fit) / std::log (32.0), juce::dontSendNotification);
+        pxPerBeat = pxPerBeat <= 0.0 ? fit : juce::jlimit (minZoom(), maxZoom(), pxPerBeat);
+        zoom.setValue (std::log (pxPerBeat / minZoom()) / std::log (maxZoom() / minZoom()), juce::dontSendNotification);
     }
     clampView();
 }
 
 void BlockEditor::paint (juce::Graphics& g)
 {
+    // 0.81.0: the page drawn once into a picture (again only when something on it changes), copied for every repaint:
+    // the playhead's 30 strips a second used to draw it all, every row, note and label.
+    const auto scale = (float) g.getInternalContext().getPhysicalPixelScaleFactor();
+    const auto w = juce::roundToInt ((float) getWidth() * scale), h = juce::roundToInt ((float) getHeight() * scale);
+    if (w > 0 && h > 0)
+    {
+        if (! content.isValid() || content.getWidth() != w || content.getHeight() != h || ! juce::exactlyEqual (scale, contentScale))
+        {
+            content = juce::Image (juce::Image::RGB, w, h, false);
+            contentScale = scale;
+            contentValid = false;
+        }
+        if (! contentValid)
+        {
+            juce::Graphics ig (content);
+            ig.addTransform (juce::AffineTransform::scale (scale));
+            paintContent (ig);
+            contentValid = true;
+            ++contentRenders;
+        }
+        juce::Graphics::ScopedSaveState state (g);
+        g.setOpacity (1.0f);
+        g.drawImageTransformed (content, juce::AffineTransform::scale (1.0f / scale));
+    }
+    // The playhead.
+    if (shownPlayhead > -1.0e8)
+    {
+        const auto x = xOf (shownPlayhead);
+        if (x >= (float) grid.getX() && x <= (float) grid.getRight())
+        {
+            g.setColour (ParagonColours::glow);
+            g.fillRect (x - 0.5f, (float) ruler.getY(), 1.5f, (float) (lane.getBottom() - ruler.getY()));
+        }
+    }
+}
+
+void BlockEditor::paintContent (juce::Graphics& g)
+{
+    g.fillAll (ParagonColours::background);
     DockStyle::drawPanel (g, getLocalBounds().toFloat());
     const auto* b = block();
     if (b == nullptr)
@@ -1892,10 +2106,31 @@ void BlockEditor::paint (juce::Graphics& g)
         // 0.80.0: bars and beats are the song's (the block's first beat is where it sits in the song, through the
         // song's time signature changes), not counted from the block's own start.
         const auto& song = processor.getSong();
-        const auto lines = song.barLines (b->start + b->loopLength + 1.0);
+        const auto viewEnd = viewBeat + grid.getWidth() / juce::jmax (1.0e-6, pxPerBeat);
+        // 0.81.0: each block's stretch a shade lighter (the one being edited more), named at its start; no block: plain.
+        for (int i = 0; i < (int) song.blocks.size(); ++i)
+        {
+            const auto& blk = song.blocks[(size_t) i];
+            const auto from = blk.start - b->start, to = blk.end() - b->start;
+            if (to < viewBeat || from > viewEnd)
+                continue;
+            const auto band = juce::Rectangle<float>::leftTopRightBottom (juce::jmax ((float) grid.getX(), xOf (from)), (float) grid.getY(),
+                                                                           juce::jmin ((float) grid.getRight(), xOf (to)), (float) grid.getBottom());
+            g.setColour (juce::Colours::white.withAlpha (i == blockIndex ? 0.06f : 0.025f));
+            g.fillRect (band);
+            g.fillRect (band.withY ((float) lane.getY()).withHeight ((float) lane.getHeight()));
+            ParagonColours::setFill (g, i == blockIndex ? ParagonColours::accent : ParagonColours::accent.withAlpha (0.35f), getLocalBounds());
+            g.fillRect (xOf (from), (float) grid.getY(), 2.0f, (float) grid.getHeight());
+            g.setColour (i == blockIndex ? ParagonColours::text.withAlpha (0.8f) : ParagonColours::textDim.withAlpha (0.7f));
+            g.setFont (juce::FontOptions (10.0f, i == blockIndex ? juce::Font::bold : juce::Font::plain));
+            g.drawText (blk.name, juce::Rectangle<float> (juce::jmax (xOf (from), (float) grid.getX()) + 5.0f, (float) grid.getBottom() - 15.0f,
+                                                          juce::jmax (0.0f, band.getWidth() - 8.0f), 13.0f), juce::Justification::centredLeft, true);
+        }
+        const auto lines = song.barLines (b->start + viewEnd + 1.0);
         const auto barOf = [&lines] (double at) { return barOfLines (lines, at); };
-        const auto firstBeat = std::floor (viewBeat / step) * step;
-        for (auto beat = juce::jmax (0.0, firstBeat); beat < b->loopLength - 1.0e-9; beat += step)
+        const auto firstBeat = std::floor (juce::jmax (viewBeat, -b->start) / step) * step;
+        const auto lastBeat = juce::jmin (viewEnd, getViewMax());
+        for (auto beat = firstBeat; beat < lastBeat + 1.0e-9; beat += step)
         {
             const auto x = xOf (beat);
             if (x > (float) grid.getRight())
@@ -1946,45 +2181,84 @@ void BlockEditor::paint (juce::Graphics& g)
     };
     // 0.67.0: by how hard each is hit, in the family's three colours (soft orange, medium pink, hard red), as PR7-S's notes.
     const auto noteColour = [] (float v) { return ParagonColours::velocityColour (v).withMultipliedBrightness (0.55f + 0.45f * v).withAlpha (0.45f + 0.55f * v); };
+    // 0.81.0: every block's notes, at each pass of its loop that's in view; the edited block's chosen ones ringed, its
+    // moving ones' new places shown. Only what's in view is looked at.
+    const auto& song = processor.getSong();
+    const auto viewEnd = viewBeat + grid.getWidth() / juce::jmax (1.0e-6, pxPerBeat);
+    const auto margin = 12.0 / juce::jmax (1.0e-6, pxPerBeat);
+    std::vector<char> chosen (b->hits.size(), 0);
+    for (size_t i = 0; i < b->hits.size(); ++i)
+        chosen[i] = isSelected (b->hits[i]) ? 1 : 0;
+    // Each pass in view: (block, its offset from the edited block's start).
+    std::vector<std::pair<int, double>> passes;
+    for (int i = 0; i < (int) song.blocks.size(); ++i)
+    {
+        const auto& blk = song.blocks[(size_t) i];
+        if (blk.end() - b->start < viewBeat - margin || blk.start - b->start > viewEnd + margin)
+            continue;
+        const auto loop = juce::jmax (1.0e-3, blk.loopLength);
+        const auto first = juce::jmax (0, (int) std::floor ((viewBeat - margin - (blk.start - b->start)) / loop));
+        for (int k = first; k * loop < blk.length - 1.0e-9 && blk.start - b->start + k * loop < viewEnd + margin && k < 4096; ++k)
+            passes.push_back ({ i, blk.start - b->start + k * loop });
+    }
+    const auto playsIn = [&song] (int i, double off, double origin, const song::Hit& h)
+    {
+        const auto& blk = song.blocks[(size_t) i];
+        return off + h.beat < blk.end() - origin - 1.0e-9;
+    };
     {
         juce::Graphics::ScopedSaveState clip (g);
         g.reduceClipRegion (grid);
         // 0.48.0: the rows showing NOTE LENGTH: a bar from each note to its end, the end's handle.
-        for (size_t i = 0; i < b->hits.size(); ++i)
+        for (const auto& [i, off] : passes)
         {
-            const auto& h = b->hits[i];
-            const auto handle = lengthHandleOf (h.slot, h.beat);
-            if (handle.isEmpty())
-                continue;
-            const auto length = drag == Drag::length && (int) i == grabHit ? lengthTo : h.length;
-            const auto cell = cellOf (h.slot, h.beat);
-            const auto end = length > 0.0 ? xOf (h.beat + length) : cell.getRight() + 3.0f;
-            g.setColour (noteColour (h.velocity).withMultipliedAlpha (0.45f));
-            g.fillRect (juce::Rectangle<float>::leftTopRightBottom (cell.getCentreX(), cell.getCentreY() - 3.0f, end, cell.getCentreY() + 3.0f));
-            g.setColour (length > 0.0 ? ParagonColours::text.withAlpha (0.8f) : ParagonColours::textDim.withAlpha (0.6f));
-            g.fillRect (juce::Rectangle<float> (end - 1.5f, handle.getY(), 3.0f, handle.getHeight()));
-        }
-        for (size_t i = 0; i < b->hits.size(); ++i)
-        {
-            const auto& h = b->hits[i];
-            const auto cell = cellOf (h.slot, h.beat);
-            if (cell.isEmpty())
-                continue;
-            const auto chosen = isSelected (h);
-            const auto moving = drag == Drag::move && chosen;
-            diamond (cell, noteColour (h.velocity).withMultipliedAlpha (moving && ! dragCopy ? 0.35f : 1.0f), chosen);
-            if (moving)
+            const auto& blk = song.blocks[(size_t) i];
+            for (size_t n = 0; n < blk.hits.size(); ++n)
             {
-                auto beat = std::fmod (h.beat + moveBeats, b->loopLength);
-                if (beat < 0.0)
-                    beat += b->loopLength;
-                const auto toRow = juce::jlimit (0, (int) rows.size() - 1, rowOf (h.slot) + moveRows);
-                const auto c = juce::Point<float> (xOf (beat), rowTop (toRow) + rowHeight() * 0.5f);
-                diamond (cell.withCentre (c), ParagonColours::glow, true);
+                const auto& h = blk.hits[n];
+                const auto row = rowOf (h.slot);
+                if (row < 0 || ! isShowingLength (rows[(size_t) row].piece) || ! playsIn (i, off, b->start, h))
+                    continue;
+                const auto length = i == blockIndex && drag == Drag::length && (int) n == grabHit ? lengthTo : h.length;
+                const auto cell = cellOf (h.slot, h.beat).translated ((float) (off * pxPerBeat), 0.0f);
+                const auto end = length > 0.0 ? xOf (off + h.beat + length) : cell.getRight() + 3.0f;
+                g.setColour (noteColour (h.velocity).withMultipliedAlpha (0.45f));
+                g.fillRect (juce::Rectangle<float>::leftTopRightBottom (cell.getCentreX(), cell.getCentreY() - 3.0f, end, cell.getCentreY() + 3.0f));
+                g.setColour (length > 0.0 ? ParagonColours::text.withAlpha (0.8f) : ParagonColours::textDim.withAlpha (0.6f));
+                g.fillRect (juce::Rectangle<float> (end - 1.5f, rowTop (row) + 4.0f, 3.0f, rowHeight() - 8.0f));
             }
         }
-        for (const auto& h : drawn)
-            diamond (cellOf (h.slot, h.beat), ParagonColours::glow, true);
+        for (const auto& [i, off] : passes)
+        {
+            const auto& blk = song.blocks[(size_t) i];
+            const auto mine = i == blockIndex;
+            const auto shift = (float) (off * pxPerBeat);
+            for (size_t n = 0; n < blk.hits.size(); ++n)
+            {
+                const auto& h = blk.hits[n];
+                if (! playsIn (i, off, b->start, h))
+                    continue;
+                const auto cell = cellOf (h.slot, h.beat).translated (shift, 0.0f);
+                if (cell.isEmpty() || cell.getRight() < (float) grid.getX() || cell.getX() > (float) grid.getRight())
+                    continue;
+                const auto isChosen = mine && chosen[n] != 0;
+                const auto moving = drag == Drag::move && isChosen;
+                diamond (cell, noteColour (h.velocity).withMultipliedAlpha (moving && ! dragCopy ? 0.35f : blk.muted ? 0.3f : 1.0f), isChosen);
+                if (moving)
+                {
+                    auto beat = std::fmod (h.beat + moveBeats, blk.loopLength);
+                    if (beat < 0.0)
+                        beat += blk.loopLength;
+                    const auto toRow = juce::jlimit (0, (int) rows.size() - 1, rowOf (h.slot) + moveRows);
+                    const auto c = juce::Point<float> (xOf (off + beat), rowTop (toRow) + rowHeight() * 0.5f);
+                    diamond (cell.withCentre (c), ParagonColours::glow, true);
+                }
+            }
+            if (mine)
+                for (const auto& h : drawn)
+                    if (off + h.beat < b->length - 1.0e-9)
+                        diamond (cellOf (h.slot, h.beat).translated (shift, 0.0f), ParagonColours::glow, true);
+        }
         if (drag == Drag::lasso)
         {
             const auto box = juce::Rectangle<float> (dragStart, dragNow);
@@ -1999,38 +2273,36 @@ void BlockEditor::paint (juce::Graphics& g)
     {
         juce::Graphics::ScopedSaveState clip (g);
         g.reduceClipRegion (lane);
-        for (size_t i = 0; i < b->hits.size(); ++i)
+        for (const auto& [i, off] : passes)
         {
-            const auto& h = b->hits[i];
-            if (rowOf (h.slot) < 0)
-                continue;
-            auto v = h.velocity;
-            for (const auto& [k, nv] : velocityEdits)
-                if (k == i)
-                    v = nv;
-            const auto x = xOf (h.beat);
-            const auto y = (float) lane.getBottom() - 3.0f - (float) (lane.getHeight() - 8) * v;
-            const auto chosen = isSelected (h);
-            // (0.67.0: the note's own colour, by its velocity)
-            g.setColour (ParagonColours::velocityColour (v).withAlpha (chosen ? 1.0f : 0.35f));
-            g.fillRect (x - 1.0f, y, 2.0f, (float) lane.getBottom() - 3.0f - y);
-            g.fillEllipse (x - 3.5f, y - 3.5f, 7.0f, 7.0f);
+            const auto& blk = song.blocks[(size_t) i];
+            const auto mine = i == blockIndex;
+            for (size_t n = 0; n < blk.hits.size(); ++n)
+            {
+                const auto& h = blk.hits[n];
+                if (rowOf (h.slot) < 0 || ! playsIn (i, off, b->start, h))
+                    continue;
+                const auto x = xOf (off + h.beat);
+                if (x < (float) lane.getX() - 4.0f || x > (float) lane.getRight() + 4.0f)
+                    continue;
+                auto v = h.velocity;
+                if (mine)
+                    for (const auto& [k, nv] : velocityEdits)
+                        if (k == n)
+                            v = nv;
+                const auto y = (float) lane.getBottom() - 3.0f - (float) (lane.getHeight() - 8) * v;
+                const auto isChosen = mine && chosen[n] != 0;
+                // (0.67.0: the note's own colour, by its velocity)
+                g.setColour (ParagonColours::velocityColour (v).withAlpha (isChosen ? 1.0f : 0.35f));
+                g.fillRect (x - 1.0f, y, 2.0f, (float) lane.getBottom() - 3.0f - y);
+                g.fillEllipse (x - 3.5f, y - 3.5f, 7.0f, 7.0f);
+            }
         }
         g.setColour (ParagonColours::textDim.withAlpha (0.6f));
         g.setFont (juce::FontOptions (9.5f, juce::Font::bold));
         g.drawText ("VELOCITY", lane.reduced (6, 3), juce::Justification::topLeft, false);
     }
 
-    // The playhead.
-    if (shownPlayhead >= 0.0)
-    {
-        const auto x = xOf (shownPlayhead);
-        if (x >= (float) grid.getX() && x <= (float) grid.getRight())
-        {
-            g.setColour (ParagonColours::glow);
-            g.fillRect (x - 0.5f, (float) ruler.getY(), 1.5f, (float) (lane.getBottom() - ruler.getY()));
-        }
-    }
     g.setColour (ParagonColours::panelEdge);
     g.drawRect (grid);
     g.drawRect (lane);

@@ -886,6 +886,15 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 ed.setSliderValue (BlockEditor::Slider::swing, 60.0);
                 ed.setRowMute (0, true);
             }
+            // 0.81.0: the whole song in the grid, zoomed out over the chorus and the blocks around it.
+            if (env ("PARAGON_SNAPSHOT_GRID") == "3")
+            {
+                auto& ed = view->getBlockEditor();
+                ed.open (2);
+                ed.setZoom (ed.getGrid().getWidth() / 40.0);
+                ed.setViewStart (-14.0);
+                ed.setTool (BlockEditor::Tool::pencil);
+            }
             // 0.48.0: the snare's NOTE LENGTHS shown, each held half a beat (the first a beat).
             if (env ("PARAGON_SNAPSHOT_GRID") == "2")
             {

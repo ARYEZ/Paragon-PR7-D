@@ -2,6 +2,22 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.81.0
+
+**THE GRID EDITOR shows the whole song, the PENCIL on 8, and no more lag** (you asked for all three).
+
+- **The whole song in one grid.** Scroll back to the song's start and on past its end (the scroll bar under the grid, SHIFT + the wheel, or AUTO SCROLL as it plays). Every block's notes are drawn where they play, and a stretch with no block is just empty grid. Each block is shaded and named along the bottom, and the one you're editing is a little lighter.
+- **Every block can be edited.** Click a note in another block, drag a lasso in it, or draw in it, and that block is edited from there (the song track's chosen block follows). The view doesn't jump.
+- **Loops drawn at every repeat.** A 2-bar groove stretched to 8 bars shows all four passes. Editing a note in any pass changes the loop, so every pass changes with it, as it plays.
+- **The PENCIL in an empty stretch makes a block** there, a bar long from the bar line before where you clicked (shorter if the next block starts sooner), with your note in it. Lengthen it on the song track as usual. The POINTER in an empty stretch still draws a lasso.
+- **The first hit isn't cut off any more:** the view opens just before the block's first beat.
+- **Keys 1 and 8:** POINTER and PENCIL, as in the DAW.
+- **The lag:** the grid editor sat over the page under it (the kit view, with its lights and holograms moving on every hit) without saying it covered it, so each of those flashes also drew the page underneath and the whole grid editor again. It now covers what's under it, and its page is drawn once into a picture and copied, with only the playhead drawn over it as the song plays. Measured with a 64-bar song of busy hats:
+  - a kit light flashing under the grid editor: 0.29 ms -> 0.05 ms (100% screen), 0.82 -> 0.13 ms (200%)
+  - each playhead step: 0.17 -> 0.03 ms (100%), 0.19 -> 0.06 ms (200%)
+  - the whole window: 12.7 -> 5.3 ms (100%), 41 -> 17 ms (200%)
+  - The cost moved to editing: while you drag notes, each mouse move draws the picture again, about 6 ms (100%) / 20 ms (200%), a little more than before (5 / 12 ms).
+
 ## 0.80.0
 
 **The GRID EDITOR counts the song's bars, and CTRL + C / V / D on the song track** (you asked for both).

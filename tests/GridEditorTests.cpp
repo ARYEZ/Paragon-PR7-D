@@ -706,3 +706,122 @@ TEST_CASE ("GRID EDITOR 0.80.0: the ruler counts the song's bars and beats, not 
     CHECK (ed.songPositionOf (2.0).bar == 4);
     CHECK (ed.songPositionOf (2.0).beat == 1.0);
 }
+
+TEST_CASE ("GRID EDITOR 0.81.0: the whole song in the grid, every block's notes (each pass of a loop) editable, the pencil makes a block, 1 / 8",
+           "[grideditor][ui]")
+{
+    Plugin t;
+    song::Song s;
+    song::Block a, b;
+    a.name = "A";
+    a.length = a.loopLength = 8.0;
+    a.hits = { { 0.0, BD, 1.0f }, { 4.0, SD, 0.9f } };
+    b.name = "B";
+    b.loopLength = 4.0;
+    b.length = 8.0;   // its loop twice
+    b.hits = { { 0.0, BD, 0.8f }, { 2.0, SD, 0.7f } };
+    s.place (a, 0.0);
+    s.place (b, 8.0);
+    t.p.setSong (s);
+    t.p.flushUndoStep();
+    BlockEditor ed (t.p);
+    ed.setBounds (0, 0, 1476, 672);
+    ed.open (1);
+    ed.setResolution (3);   // 1/16
+    const auto px = [&ed] { return (float) ed.getZoom(); };
+    // A note's place on screen in the edited block's beats (0 = its start; earlier: negative).
+    const auto at = [&ed, &px] (int slot, double beat) { return ed.cellOf (slot, 0.0).getCentre().translated ((float) beat * px(), 0.0f); };
+    const auto mouse = [&ed] (juce::Point<float> p, juce::ModifierKeys mods)
+    {
+        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), p, mods, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                 &ed, &ed, juce::Time::getCurrentTime(), p, juce::Time::getCurrentTime(), 1, false);
+    };
+    const auto click = [&] (juce::Point<float> p)
+    {
+        ed.mouseDown (mouse (p, juce::ModifierKeys::leftButtonModifier));
+        ed.mouseUp (mouse (p, juce::ModifierKeys::leftButtonModifier));
+        t.p.flushUndoStep();
+    };
+
+    // Opened: the block's first hit shown whole (not cut off at the grid's edge), the view able to go back to the
+    // song's start (8 beats before) and on past its end.
+    CHECK (ed.cellOf (BD, 0.0).getX() >= (float) ed.getGrid().getX());
+    CHECK (ed.getViewStart() < 0.0);    // the view from just before the block (not the song's start)
+    CHECK (ed.getViewStart() > -0.5);
+    CHECK (ed.getViewMin() < -8.0);
+    CHECK (ed.getViewMax() > 8.0);
+    ed.setViewStart (-8.0);
+    CHECK (ed.getViewStart() == Catch::Approx (-8.0));
+
+    // The loop's second pass: its kick (beat 4 of the block) is the loop's beat 0, chosen by a click there.
+    ed.setZoom (60.0);
+    ed.setViewStart (-1.0);
+    click (at (BD, 4.0));
+    REQUIRE (ed.getSelection().size() == 1);
+    CHECK (ed.getSelection()[0].beat == 0.0);
+    CHECK (ed.getBlock() == 1);
+
+    // Block A's snare (4 beats into A = 4 beats before B): clicked, A is edited, the view still where it was.
+    ed.setViewStart (-6.0);
+    const auto onScreen = at (SD, -4.0);
+    click (onScreen);
+    CHECK (ed.getBlock() == 0);
+    REQUIRE (ed.getSelection().size() == 1);
+    CHECK (ed.getSelection()[0].slot == SD);
+    CHECK (ed.getSelection()[0].beat == 4.0);
+    CHECK (ed.getViewStart() == Catch::Approx (2.0));   // -6 from B's start = 2 from A's
+    CHECK (ed.cellOf (SD, 4.0).getCentre().getDistanceFrom (onScreen) < 0.5f);
+
+    // 8: the PENCIL; 1: the POINTER.
+    CHECK (ed.keyPressed (juce::KeyPress ('8', juce::ModifierKeys(), '8')));
+    CHECK (ed.getTool() == BlockEditor::Tool::pencil);
+    CHECK (ed.keyPressed (juce::KeyPress ('1', juce::ModifierKeys(), '1')));
+    CHECK (ed.getTool() == BlockEditor::Tool::pointer);
+
+    // The pencil in B's second pass: the note goes into its loop (beat 5 of the block = loop beat 1), both passes play it.
+    ed.open (1);
+    ed.setZoom (60.0);
+    ed.setViewStart (-1.0);
+    ed.setTool (BlockEditor::Tool::pencil);
+    click (at (SD, 5.0));
+    {
+        const auto& blk = t.p.getSong().blocks[1];
+        CHECK (std::count_if (blk.hits.begin(), blk.hits.end(), [] (const song::Hit& h) { return h.slot == SD && h.beat == 1.0; }) == 1);
+    }
+
+    // The pencil past the song's end (beat 17 of the song: 9 into B's beats): a new block of a bar from the bar line
+    // there (beat 16), the note in it, that block edited.
+    ed.setViewStart (6.0);
+    click (at (SD, 9.0));
+    {
+        const auto& song = t.p.getSong();
+        REQUIRE (song.blocks.size() == 3);
+        CHECK (song.blocks[2].start == 16.0);
+        CHECK (song.blocks[2].length == 4.0);
+        REQUIRE (song.blocks[2].hits.size() == 1);
+        CHECK (song.blocks[2].hits[0].slot == SD);
+        CHECK (song.blocks[2].hits[0].beat == 1.0);
+        CHECK (ed.getBlock() == 2);
+    }
+
+    // The pointer in an empty stretch makes nothing (a lasso).
+    ed.setTool (BlockEditor::Tool::pointer);
+    ed.setViewStart (2.0);
+    click (at (SD, 6.0));   // beat 22 of the song: past the drawn block (16-20)
+    CHECK (t.p.getSong().blocks.size() == 3);
+}
+
+TEST_CASE ("GRID EDITOR 0.81.0: the page is drawn once and copied; the playhead doesn't draw it again", "[grideditor][ui]")
+{
+    Editor e;
+    auto& ed = e.ed;
+    ed.createComponentSnapshot (ed.getLocalBounds());
+    const auto made = ed.getRepaintsOfContent();
+    for (int k = 0; k < 10; ++k)
+        ed.createComponentSnapshot (juce::Rectangle<int> (ed.getGrid().getX() + k * 20, ed.getGrid().getY(), 5, 200));
+    CHECK (ed.getRepaintsOfContent() == made);
+    // A change (a note chosen) draws it again, once.
+    ed.selectAll();
+    ed.createComponentSnapshot (ed.getLocalBounds());
+    CHECK (ed.getRepaintsOfContent() == made + 1);
+}
