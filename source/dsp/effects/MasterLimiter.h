@@ -163,6 +163,7 @@ namespace effects
 
         // How late process() makes the sound with these settings (0 when off or for BRICK, SOFT, AUTO).
         int getLatencySamples (const Settings&) const noexcept;
+        static const std::array<int, 3>& oversamplingLatency();   // each oversampling factor's filter delay
         double getSampleRate() const noexcept { return sampleRate; }
 
         // Meters (the last block; dB).

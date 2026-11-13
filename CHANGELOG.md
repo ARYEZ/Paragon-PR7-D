@@ -2,6 +2,17 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.82.1
+
+0.82.0 was never published: its Linux check crashed. This release carries 0.82.0's changes (below) and the fix.
+
+- **A rare crash fixed.** The plugin tells the DAW how much delay the LIMITER adds. It worked that out by reading the
+  LIMITER's oversampling filters, but the DAW can replace those filters on its own thread while the plugin is reading
+  them, and reading them while they're being replaced could crash. pluginval's test that changes parameters at
+  random caught it on 0.82.0's Linux build. Now each oversampling setting's delay is measured once and kept, and that
+  stored number is what gets read. The delay reported is exactly the same as before. PR7-O found and fixed this
+  first, in its 0.5.0.
+
 ## 0.82.0
 
 **FOLLOW DAW follows the DAW's playhead everywhere, and COPY DRUMS** (you asked for both).

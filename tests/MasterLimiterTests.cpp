@@ -333,6 +333,27 @@ TEST_CASE ("Limiter: below the ceiling it changes nothing but the delay it repor
     }
 }
 
+TEST_CASE ("Limiter 0.82.1: its delay can be asked before prepare and from any thread", "[limit]")
+{
+    // pluginval's parameter fuzzing crashed 0.82.0's Linux build: the delay was read from the oversamplers, which
+    // prepare() replaces on the host's thread while the message thread asks (and which don't exist before it).
+    // Now from their delays measured once: the same numbers, whatever the block size.
+    for (int oversampling = 1; oversampling <= 3; ++oversampling)
+    {
+        auto s = settings (Style::modern, 0.0f, -1.0f);
+        s.oversampling = oversampling;
+        MasterLimiter unprepared;
+        const auto before = unprepared.getLatencySamples (s);   // 0.82.0: a null oversampler
+        CHECK (before > 0);
+        for (int block : { 32, 512, 4096 })
+        {
+            MasterLimiter limiter;
+            limiter.prepare (sampleRate, block);
+            CHECK (limiter.getLatencySamples (s) == before);
+        }
+    }
+}
+
 TEST_CASE ("Limiter: the processor reports the LIMITER's delay to the DAW", "[limit]")
 {
     ParagonX1AudioProcessor processor;

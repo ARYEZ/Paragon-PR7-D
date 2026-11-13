@@ -234,6 +234,8 @@ Seen in 0.1.0, for later (corrected in 0.2.0): a drum voice ends when its level 
 - **Tests:** `SongTests` "SONG 0.82.0" (the playhead stopped and playing, PLAY from it, off) and "SONG STRIP 0.82.0" (kick copied and pasted, the snares kept, undo, whole copies as before).
 - **Not checked:** whether PR7-S reports its position while stopped.
 
+**0.82.1: the LIMITER's delay without its oversamplers** (0.82.0's Linux pluginval crashed in Fuzz parameters, before SUCCESS; 12 local runs clean; never published). PR7-O 0.5.0's fix ported: `MasterLimiter::getLatencySamples` read `oversamplers[...]`, which `prepare` replaces on the host's thread while the processor's timer asks on the message thread (and null before the first prepare); now `oversamplingLatency()` (each factor's filter delay, measured once). Test: `MasterLimiterTests` "Limiter 0.82.1".
+
 ## Rules (from the owner and the family's CLAUDE.md files)
 
 - **Names:** our own designs, "inspired by"; no Toontrack, Superior Drummer, EZdrummer or Vengeance / Avenger names or branding on the plugin. Toontrack's grooves, sounds and tags are never shipped: the user's own MIDI packs (and, since 0.15.0, their `midiDB` groove databases) are read from their computer when loaded. Never get round copy protection.
