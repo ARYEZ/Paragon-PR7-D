@@ -2,7 +2,7 @@
 
 Each version's notes appear on its GitHub Release page.
 
-## 0.83.0
+## 0.84.0
 
 - **THE MIXER looks as it did before 0.78.0.** 0.78.0 rebuilt the strips in the rack style, five wide strips across
   the page. That matched the rack units but was far too wide: a kit's channels didn't fit, so you had to scroll.
@@ -12,6 +12,22 @@ Each version's notes appear on its GitHub Release page.
 - What goes with the rack-style strips: the EFFECTS section that folded away, each strip's ON key per effect, and the
   send knob on the strip. The effects and sends are set as before, from the strip's FX / SEND buttons and from
   PROPERTIES.
+- Carries 0.83.0 (the studio link with PR7-S, below), released from another session first.
+
+## 0.83.0
+
+**The studio link: Paragon PR7-S's composer lays a song out in PR7-D's song track** (you asked PR7-S for "full integration" with PR7-D, now PR7-S's house drum kit).
+
+- **PR7-S sends the song, PR7-D plays it.** When PR7-S's composer builds drums on a track playing PR7-D, PR7-S writes the song (a block per section: the groove and its fills, on PR7-D's own drums) to a file and tells this PR7-D, on its track, to load it. The song track swaps to it at once. Your kit, samples and mixer aren't touched. FOLLOW DAW is on, so it plays with PR7-S's playhead.
+- **Edit it here.** The blocks are ordinary song track blocks: EDIT PLAY STYLE, the grid editor, FIND SIMILAR, moving and lengthening all work. Once your edits stop (under half a second), they're written back to the file and PR7-S picks them up, so its arrangement follows what you did here.
+- **The song track keeps its own settings.** A song from PR7-S keeps your loop, click and count-in as they were.
+- **A note on the song strip** tells you when a song has arrived from PR7-S.
+- **Pause and resume.** While PR7-S's composer plays a drum idea of its own through this kit, it asks PR7-D to keep its song quiet for that moment, so you don't hear two drum parts at once.
+- How it talks: a short SysEx message on the track, PR7-D's own (manufacturer number 7D, the one MIDI keeps for non-commercial use). PR7-D ignores any other SysEx as before. Nothing changes for PR7-D in other DAWs.
+
+Worth knowing:
+- A project saved with a linked song keeps the link: edits made later still go back to PR7-S's file.
+- I can't run PR7-D inside PR7-S here, so the link was tested with PR7-D's own test host: the message, the song loading and playing on its samples, pause and resume, and edits written back.
 
 ## 0.82.1
 

@@ -741,6 +741,22 @@ void ParagonX1AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
     for (const auto metadata : midi)
     {
         const auto message = metadata.getMessage();
+        // THE STUDIO LINK (0.83.0): PR7-S's messages (pause / resume at once; a load passed on to the timer).
+        if (message.isSysEx())
+        {
+            const auto* data = message.getSysExData();
+            const auto size = message.getSysExDataSize();
+            if (size >= 6 && data[0] == 0x7D && data[1] == 'P' && data[2] == 'R' && data[3] == '7' && data[4] == 'S')
+            {
+                if (data[5] == (juce::uint8) song::link::Command::pause)
+                    studioPaused = true;
+                else if (data[5] == (juce::uint8) song::link::Command::resume)
+                    studioPaused = false;
+                else if (data[5] == (juce::uint8) song::link::Command::load)
+                    studioMailbox.offer (data, size);
+            }
+            continue;
+        }
         if (! message.isController())
             continue;
         const auto cc = message.getControllerNumber();
@@ -1022,6 +1038,56 @@ void ParagonX1AudioProcessor::timerCallback()
     rack->eqMatch.update (rack->eqInputTap);   // EQ Match listens with its window closed too
     recordCheckpointIfReady();
     applyDefaultRigIfPending();
+    applyStudioLink();   // (0.83.0)
+    writeStudioLinkIfDue (juce::Time::getMillisecondCounterHiRes());
+}
+
+//==============================================================================
+// THE STUDIO LINK (0.83.0): song/StudioLink.h.
+bool ParagonX1AudioProcessor::applyStudioLink()
+{
+    const auto message = studioMailbox.take();
+    if (! message.has_value() || message->command != song::link::Command::load)
+        return false;
+    const juce::File file (message->path);
+    const auto xml = juce::XmlDocument::parse (file);
+    if (xml == nullptr || ! xml->hasTagName ("Song"))
+        return false;
+    auto loaded = song::Song::fromXml (*xml);
+    loaded.studioLink = file.getFullPathName();
+    loaded.followDaw = true;   // (it plays with the studio's playhead)
+    // The song track's own settings stay as they were here (the loop, the click, the count-in).
+    loaded.loopOn = songData->loopOn;
+    loaded.loopStart = songData->loopStart;
+    loaded.loopEnd = songData->loopEnd;
+    loaded.click = songData->click;
+    loaded.countIn = songData->countIn;
+    setSong (std::move (loaded));
+    studioWritten = studioSeen = songData;   // (what the file holds: not written back)
+    ++studioLoads;
+    return true;
+}
+
+bool ParagonX1AudioProcessor::writeStudioLinkIfDue (double nowMs)
+{
+    const auto current = songData;
+    if (current == nullptr || current->studioLink.isEmpty() || current == studioWritten
+        || (studioWritten != nullptr && *current == *studioWritten))
+        return false;
+    if (current != studioSeen)
+    {
+        studioSeen = current;   // (changing: wait until the edits stop)
+        studioSeenAt = nowMs;
+        return false;
+    }
+    if (nowMs - studioSeenAt < studioWriteDelayMs || songRecording.load())
+        return false;
+    const juce::File file (current->studioLink);
+    juce::TemporaryFile temp (file);
+    if (! current->toXml()->writeTo (temp.getFile()) || ! temp.overwriteTargetFileWithTemporary())
+        return false;
+    studioWritten = current;
+    return true;
 }
 
 //==============================================================================
@@ -3650,6 +3716,7 @@ void ParagonX1AudioProcessor::setStateInformation (const void* data, int sizeInB
         state.removeChild (saved, nullptr);
     }
     installSong (std::move (newSong));
+    studioWritten = studioSeen = songData;   // (0.83.0: a project's song isn't written back to its link file as an edit)
     // Before 0.17.0: the articulations it added start off, so the project sounds as it did (0.33.0's drums likewise).
     juce::StringArray startOff;
     if ((int) state.getProperty (parameterVersionKey, 1) < 2)
@@ -4398,8 +4465,8 @@ int ParagonX1AudioProcessor::collectSongHits (int numSamples, double ppq, double
     // The song's hits from `from` to `to` (a stretch of `n` samples starting `offset` samples into the piece).
     const auto collect = [&] (double from, double to, double samplesFrom, bool local, int offset, int n)
     {
-        if (s == nullptr || n <= 0)
-            return;
+        if (s == nullptr || n <= 0 || studioPaused.load (std::memory_order_relaxed))
+            return;   // (0.83.0: PR7-S playing a drum idea of its own through the kit for a moment)
         // Each hit's sample worked out first, then played in the piece that sample is in: a hit right on the line between
         // two pieces (where the DAW's position, rounded, can land a hair either side) is played once, on its own sample,
         // never squeezed onto the last sample of the piece before. So the search starts half a sample early.

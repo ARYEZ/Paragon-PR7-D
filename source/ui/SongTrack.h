@@ -164,6 +164,7 @@ private:
     std::optional<std::pair<double, double>> loopDraft;   // ... and the loop it would set
     juce::String note;          // a few seconds' note in the status line
     double noteUntil = 0.0;
+    int seenStudioLoads = -1;   // (0.83.0) PR7-S's songs noted so far
     void showNote (const juce::String&, double seconds);
     struct BounceThread;
     std::unique_ptr<BounceThread> bounceThread;

@@ -16,6 +16,7 @@
 #include "dsp/synth/NoteMap.h"
 #include "grooves/GrooveLibrary.h"
 #include "song/Song.h"
+#include "song/StudioLink.h"
 #include "song/Creator.h"
 #include "rigs/RigLibrary.h"
 #include "rigs/UndoHistory.h"
@@ -513,6 +514,15 @@ public:
     // plays, from PLAY's place while it's stopped. Kept in the project (not in presets); edits are undo steps.
     const song::Song& getSong() const noexcept { return *songData; }
     void setSong (song::Song);   // an edit: played from the next block, an undo step
+    // THE STUDIO LINK (0.83.0, song/StudioLink.h): PR7-S's "load this song" (the audio thread passes it on, the timer
+    // loads it: applyStudioLink, true when it did), its pause / resume (at once, on the audio thread), and edits made here
+    // written back to the song's file once they've stopped for `studioWriteDelayMs` (writeStudioLinkIfDue: true when it
+    // wrote). Both called by the timer; public for the tests.
+    bool applyStudioLink();
+    bool writeStudioLinkIfDue (double nowMs);
+    bool isStudioPaused() const noexcept { return studioPaused.load(); }
+    int getStudioLoads() const noexcept { return studioLoads; }   // songs PR7-S has sent (the song strip notes a new one)
+    static constexpr double studioWriteDelayMs = 400.0;
     // EDIT PLAY STYLE (0.46.0): the song as it would be while a knob turns, heard at once but not yet an undo step (the
     // setSong when the knob is let go makes it one); and SOLO SELECTED: only these drums of the song heard (0: all).
     void previewSong (song::Song);
@@ -871,6 +881,13 @@ private:
     std::optional<song::SlotMask> songHeard;
     int collectSongHits (int numSamples, double ppq, double bpm, synth::drums::SlotHit* into, int room) noexcept;
     std::shared_ptr<const song::Song> songData = std::make_shared<const song::Song>();
+    // THE STUDIO LINK (0.83.0): PR7-S's load message on its way, pause, the song last written to (or loaded from) the
+    // link file, and the song seen changing (for the write-back's wait).
+    song::link::Mailbox studioMailbox;
+    std::atomic<bool> studioPaused { false };
+    std::shared_ptr<const song::Song> studioWritten, studioSeen;
+    double studioSeenAt = 0.0;
+    int studioLoads = 0;
     std::optional<song::Block> songClipboard;
     song::SlotMask songClipboardDrums = song::allSlots;
     // RECORD: the notes on their way from the audio thread; where the song is in the piece being played (for their beats).

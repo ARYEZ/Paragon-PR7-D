@@ -39,6 +39,7 @@ add_executable(ParagonX1Tests
     GrooveCatalogueTests.cpp
     RhythmTests.cpp
     SongTests.cpp
+    StudioLinkTests.cpp
     PlayStyleTests.cpp
     AmountModelTests.cpp
     GridEditorTests.cpp

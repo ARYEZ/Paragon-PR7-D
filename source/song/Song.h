@@ -101,6 +101,9 @@ namespace song
         Click click = Click::recording;
         // 0.45.0: THE COUNT-IN: PLAY pressed with REC armed waits a bar (the click counting it in) before the song starts.
         bool countIn = true;
+        // THE STUDIO LINK (0.83.0): the file PR7-S, the family's studio, laid this song out in (song/StudioLink.h);
+        // edits here are written back to it. Empty: not linked.
+        juce::String studioLink;
         bool hasLoop() const noexcept { return loopOn && loopEnd > loopStart + 1.0e-9; }
 
         double beatsPerBar() const noexcept { return numerator * 4.0 / juce::jmax (1, denominator); }   // the first bars'
@@ -110,7 +113,7 @@ namespace song
         {
             return numerator == o.numerator && denominator == o.denominator && blocks == o.blocks && meters == o.meters
                 && tempos == o.tempos && followDaw == o.followDaw && loopOn == o.loopOn && loopStart == o.loopStart
-                && loopEnd == o.loopEnd && click == o.click && countIn == o.countIn;
+                && loopEnd == o.loopEnd && click == o.click && countIn == o.countIn && studioLink == o.studioLink;
         }
 
         // BARS (0.11.0), with the time signature changes: the time signature at a beat; every bar line from the start

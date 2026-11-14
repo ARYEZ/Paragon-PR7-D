@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.24)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "macOS architectures")
 
-project(ParagonX1 VERSION 0.83.0 LANGUAGES C CXX)
+project(ParagonX1 VERSION 0.84.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -94,6 +94,7 @@ target_sources(ParagonX1
         source/grooves/SqliteReader.cpp
         source/grooves/GrooveDatabase.cpp
         source/song/Song.cpp
+        source/song/StudioLink.cpp
         source/song/PlayStyle.cpp
         source/song/AmountModel.cpp
         source/song/Creator.cpp
