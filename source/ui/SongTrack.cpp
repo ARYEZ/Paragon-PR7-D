@@ -142,6 +142,14 @@ SongTrack::SongTrack (ParagonX1AudioProcessor& p) : processor (p)
     scroll.setColour (juce::ScrollBar::thumbColourId, ParagonColours::accent.withAlpha (0.6f));
     scroll.setColour (juce::ScrollBar::trackColourId, juce::Colour (0xff0d0a0e));
     addAndMakeVisible (scroll);   // (shown only while there's more song than the lane shows: auto-hide)
+    // 0.85.0: no key or scroll bar here takes the keyboard (a JUCE button with it takes SPACE as its own click: FOLLOW
+    // DAW or LOOP flipped instead of the DAW starting). SPACE isn't the strip's either: it goes on to the DAW, so it
+    // starts and stops the DAW's transport (a host that passes a plug-in's unused keys on, as PR7-S does).
+    for (auto* c : getChildren())
+    {
+        c->setWantsKeyboardFocus (false);
+        c->setMouseClickGrabsKeyboardFocus (false);
+    }
     syncScroll();
     startTimerHz (30);
 }
@@ -165,10 +173,19 @@ double SongTrack::totalBeats() const noexcept
     return want;
 }
 
+double SongTrack::scrollEnd() const noexcept
+{
+    // 0.85.0: as far as the lane scrolls, like a DAW's timeline: past the song whatever its length (at least 1,000
+    // bars, and always another 256 bars past what's shown, so the wheel keeps going).
+    const auto bar = processor.getSong().beatsPerBar();
+    return juce::jmax (totalBeats(), 1000.0 * bar, viewStart + beatsShown() + 256.0 * bar);
+}
+
 double SongTrack::beatsShown() const noexcept
 {
-    // 0.43.0: what the lane shows: the whole song while it fits in `barsShown` bars (as before), else that many bars.
-    return juce::jmin (totalBeats(), barsShown * processor.getSong().beatsPerBar());
+    // 0.43.0: what the lane shows: `barsShown` bars (0.85.0: always, as a DAW's zoom; a short song no longer stretched
+    // across the lane, the bars after it shown empty).
+    return barsShown * processor.getSong().beatsPerBar();
 }
 
 double SongTrack::beatAt (float x) const noexcept
@@ -183,7 +200,7 @@ float SongTrack::xOf (double beat) const noexcept
 
 void SongTrack::setViewStart (double beat)
 {
-    const auto most = juce::jmax (0.0, totalBeats() - beatsShown());
+    const auto most = juce::jmax (0.0, scrollEnd() - beatsShown());
     beat = juce::jlimit (0.0, most, beat);
     if (std::abs (beat - viewStart) < 1.0e-9)
         return;
@@ -206,7 +223,7 @@ void SongTrack::setBarsShown (double bars)
 void SongTrack::syncScroll()
 {
     // The song's length changes with every edit (and undo): the bar's range follows, and the view stays inside it.
-    const auto total = totalBeats(), span = beatsShown();
+    const auto total = scrollEnd(), span = beatsShown();
     viewStart = juce::jlimit (0.0, juce::jmax (0.0, total - span), viewStart);
     scroll.setRangeLimits (0.0, total, juce::dontSendNotification);
     scroll.setCurrentRange (viewStart, span, juce::dontSendNotification);
@@ -228,7 +245,7 @@ void SongTrack::mouseWheelMove (const juce::MouseEvent& e, const juce::MouseWhee
         return;
     }
     const auto amount = std::abs (wheel.deltaX) > std::abs (wheel.deltaY) ? wheel.deltaX : wheel.deltaY;
-    if (beatsShown() < totalBeats() - 1.0e-9)
+    if (beatsShown() < scrollEnd() - 1.0e-9)
         setViewStart (viewStart - (double) amount * (wheel.isReversed ? -1.0 : 1.0) * 0.5 * beatsShown());
     else
         Component::mouseWheelMove (e, wheel);
@@ -325,7 +342,7 @@ void SongTrack::paint (juce::Graphics& g)
 {
     const auto& s = processor.getSong();
     const auto bar = s.beatsPerBar();
-    const auto shown = totalBeats();   // (0.43.0: the whole song; the lane shows a part of it, clipped)
+    const auto shown = scrollEnd();   // (0.85.0: the whole timeline; the lane shows a part of it, clipped)
     const auto pxPerBar = (float) lane.getWidth() * (float) (bar / beatsShown());
 
     g.setColour (ParagonColours::text);
@@ -341,7 +358,7 @@ void SongTrack::paint (juce::Graphics& g)
     g.fillRoundedRectangle (lane.toFloat(), 4.0f);
     const auto every = pxPerBar < 14.0f ? 4 : pxPerBar < 28.0f ? 2 : 1;
     g.setFont (juce::FontOptions (10.0f));
-    const auto lines = s.barLines (shown);
+    const auto lines = s.barLines (juce::jmin (shown, lastShown));   // (only as far as the lane shows)
     for (int b = 0; b < (int) lines.size() && lines[(size_t) b] < shown + 1.0e-9; ++b)
     {
         const auto at = lines[(size_t) b];

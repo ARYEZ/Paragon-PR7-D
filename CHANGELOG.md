@@ -2,6 +2,22 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.85.0
+
+- **The song track scrolls as far right as you like,** like your DAW's timeline. Before, it stopped two bars after
+  the last groove, so getting further meant putting more grooves down. Now there are at least 1,000 bars to scroll
+  through, and the wheel keeps going past that. Empty bars after the song are just empty lane. Scrolling adds nothing
+  to the song itself.
+- **The zoom stays put.** A short song used to be stretched across the whole lane. Now the lane always shows the
+  number of bars you zoomed to (32 at first; Ctrl + the wheel, or G / H, zooms), with the empty bars after the song
+  shown. The scroll bar under the lane is always there now.
+- **SPACE starts and stops your DAW from the song track.** The song track never used SPACE, but once you'd clicked
+  one of its keys (PLAY, FOLLOW DAW, LOOP...), that key kept the keyboard and SPACE "clicked" it again. Now none of the
+  strip's keys take the keyboard, so SPACE goes on to the DAW: PR7-S passes a plug-in's unused keys to its
+  transport. The GRID EDITOR's SPACE still plays PR7-D's song, as in 0.66.0.
+- Not checked here: SPACE inside PR7-S on Windows (this machine can't run PR7-D inside it). If it still doesn't reach
+  the transport, tell me: the next thing to look at is PR7-S's side.
+
 ## 0.84.0
 
 - **THE MIXER looks as it did before 0.78.0.** 0.78.0 rebuilt the strips in the rack style, five wide strips across

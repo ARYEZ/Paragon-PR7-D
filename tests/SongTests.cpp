@@ -1700,10 +1700,10 @@ TEST_CASE ("SONG STRIP 0.43.0: a song longer than 32 bars scrolls; the wheel and
     SongTrack track (t.p);
     track.setBounds (0, 0, 1400, 136);
     const auto lane = track.getLane();
-    // 20 bars: all of it shown (22 with the two after it), no scroll bar, as before.
+    // 20 bars: 32 shown (0.85.0: the zoom no longer stretches a short song across the lane), the scroll bar there.
     CHECK (track.totalBeats() == 88.0);
-    CHECK (track.beatAt ((float) lane.getRight()) == 88.0);
-    CHECK_FALSE (track.getScrollBar().isVisible());
+    CHECK (track.beatAt ((float) lane.getRight()) == 128.0);
+    CHECK (track.getScrollBar().isVisible());
 
     // 40 bars: 32 shown, the bar shows; a bar's x and beat agree after scrolling.
     s.place (block ("B", 20, { { 0.0, BD } }), 80.0);
@@ -1717,9 +1717,10 @@ TEST_CASE ("SONG STRIP 0.43.0: a song longer than 32 bars scrolls; the wheel and
     CHECK (std::abs (track.beatAt ((float) lane.getX()) - 40.0) < 1.0e-6);
     CHECK (std::abs (track.xOf (100.0) - track.xOf (40.0) - (float) lane.getWidth() * 60.0f / 128.0f) < 1.0e-3f);
     CHECK (track.getScrollBar().getCurrentRangeStart() == 40.0);
-    // No further than the end.
+    // 0.85.0: on past the song's end, as a DAW's timeline.
     track.setViewStart (1000.0);
-    CHECK (track.getViewStart() == 40.0);
+    CHECK (track.getViewStart() == 1000.0);
+    track.setViewStart (40.0);
     // The wheel: back towards the start.
     juce::MouseWheelDetails wheel {};
     wheel.deltaY = 0.5f;
@@ -2451,4 +2452,76 @@ TEST_CASE ("SONG STRIP 0.82.0: COPY DRUMS: one block's kick onto another, in pla
     CHECK (t.p.getSongClipboardDrums() == song::allSlots);
     CHECK (track.keyPressed (juce::KeyPress ('v', juce::ModifierKeys::commandModifier, 0)));
     CHECK (t.p.getSong().blocks.size() == 3);
+}
+
+//==============================================================================
+// 0.85.0: THE SONG TRACK SCROLLS ON PAST THE SONG, AS A DAW'S TIMELINE.
+TEST_CASE ("SONG STRIP 0.85.0: the lane scrolls as far right as you like, whatever the song's length; bar lines and numbers out there", "[song][ui]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 4, { { 0.0, BD } }), 0.0);   // a song of 4 bars
+    t.p.setSong (s);
+    SongTrack track (t.p);
+    track.setBounds (0, 0, 1400, 136);
+    const auto lane = track.getLane();
+
+    // At least 1,000 bars to scroll through, the scroll bar there although the song is short.
+    CHECK (track.scrollEnd() >= 4000.0);
+    CHECK (track.getScrollBar().isVisible());
+    CHECK (track.getScrollBar().getMaximumRangeLimit() >= 4000.0);
+
+    // Bar 55 and well beyond: the view goes there, a bar's x and beat agree.
+    track.setViewStart (54.0 * 4.0);
+    CHECK (track.getViewStart() == 216.0);
+    CHECK (std::abs (track.beatAt ((float) lane.getX()) - 216.0) < 1.0e-6);
+    track.setViewStart (900.0 * 4.0);
+    CHECK (track.getViewStart() == 3600.0);
+
+    // The wheel keeps going right, past 1,000 bars too (the timeline grows ahead of the view).
+    juce::MouseWheelDetails wheel {};
+    wheel.deltaY = -1.0f;
+    const auto mouse = juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), lane.getCentre().toFloat(), juce::ModifierKeys(),
+                                         1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &track, &track, juce::Time::getCurrentTime(),
+                                         lane.getCentre().toFloat(), juce::Time::getCurrentTime(), 1, false);
+    auto before = track.getViewStart();
+    for (int i = 0; i < 40; ++i)
+        track.mouseWheelMove (mouse, wheel);
+    CHECK (track.getViewStart() > before);
+    CHECK (track.getViewStart() > 4000.0);
+    CHECK (track.scrollEnd() > track.getViewStart() + 32.0 * 4.0);
+
+    // The song's own length is unchanged: scrolling adds nothing to it.
+    CHECK (t.p.getSong().endBeat() == 16.0);
+    // The lane draws out there without trouble.
+    juce::Image image (juce::Image::RGB, 1400, 136, true);
+    juce::Graphics g (image);
+    track.paintEntireComponent (g, false);
+}
+
+TEST_CASE ("SONG STRIP 0.85.0: SPACE goes on to the DAW: no key on the strip takes it, the strip and the window leave it", "[song][ui]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 4, { { 0.0, BD } }), 0.0);
+    t.p.setSong (s);
+    MainView view (t.p);
+    view.setSize (MainView::width, MainView::height);
+    view.showPage (MainView::Page::grooves);
+    auto& track = view.getSongTrack();
+
+    // No button or scroll bar on the strip takes the keyboard (a focused JUCE button would take SPACE as its click).
+    for (auto* c : track.getChildren())
+    {
+        INFO (c->getName());
+        CHECK_FALSE (c->getWantsKeyboardFocus());
+        CHECK_FALSE (c->getMouseClickGrabsKeyboardFocus());
+    }
+    // SPACE isn't used: not by the strip, not by the window (the GRID EDITOR closed), so the plugin hands it back.
+    const auto followBefore = t.p.getSong().followDaw;
+    const juce::KeyPress space (juce::KeyPress::spaceKey);
+    CHECK_FALSE (track.keyPressed (space));
+    CHECK_FALSE (view.keyPressed (space));
+    CHECK_FALSE (t.p.isSongPlaying());
+    CHECK (t.p.getSong().followDaw == followBefore);
 }

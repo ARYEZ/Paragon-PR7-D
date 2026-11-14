@@ -131,6 +131,7 @@ public:
     // 0.43.0: a long song scrolls. The lane shows up to `barsShown` bars (32 at first; Ctrl / Cmd + the wheel zooms,
     // 4 to 256); the scroll bar under it, or the wheel, moves along; while the song plays the view follows it.
     double totalBeats() const noexcept;   // the song and two bars after it, at least 16 bars, to a bar line
+    double scrollEnd() const noexcept;    // 0.85.0: how far the lane scrolls (past the song, as a DAW's timeline)
     double getViewStart() const noexcept { return viewStart; }
     void setViewStart (double beat);
     void setBarsShown (double bars);
