@@ -2,6 +2,17 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.83.0
+
+- **THE MIXER looks as it did before 0.78.0.** 0.78.0 rebuilt the strips in the rack style, five wide strips across
+  the page. That matched the rack units but was far too wide: a kit's channels didn't fit, so you had to scroll.
+  The narrow strips are back, about 13 across, with PROPERTIES (BLEED / EFFECTS / SENDS) always open on the right.
+  Everything else stays as it was: the family colours and white lettering, the drum buses and their names, and
+  0.79.0's faster sound engine.
+- What goes with the rack-style strips: the EFFECTS section that folded away, each strip's ON key per effect, and the
+  send knob on the strip. The effects and sends are set as before, from the strip's FX / SEND buttons and from
+  PROPERTIES.
+
 ## 0.82.1
 
 0.82.0 was never published: its Linux check crashed. This release carries 0.82.0's changes (below) and the fix.
