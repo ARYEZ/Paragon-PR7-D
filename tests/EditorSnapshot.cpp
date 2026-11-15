@@ -21,7 +21,7 @@
 //                                    PARAGON_SNAPSHOT_DRUMS=1: a beat just played, its rows lit; =2 a file of nine kicks, the 4th chosen;
 //                                    PARAGON_SNAPSHOT_DRUMSEQ=1: the SEQUENCER view, a beat playing with the song;
 //                                    PARAGON_SNAPSHOT_MACHINE=1: THE DRUM MACHINE playing Room Beat (=2: drums 19-36, REC;
-//                                    PARAGON_SNAPSHOT_MACHINEFINISH=0|1|2: in that finish);
+//                                    PARAGON_SNAPSHOT_MACHINEFINISH=aurora: in Aurora, else Obsidian);
 //                                    PARAGON_SNAPSHOT_DRUMEDIT=1: the clap with an envelope, an anchor, GAIN and LP, =2 with DRUMS=2 a fade;
 //                                    PARAGON_SNAPSHOT_DRUMCHOSEN=1: the hats and cymbal chosen together, the tom's playhead;
 //                                    any of these shows the DRUM view; with none, the KIT VIEW (0.14.0), the page's first:
@@ -150,9 +150,13 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             processor.processBlock (buffer, midi);
     }
 
-    // 0.53.0: PARAGON_SNAPSHOT_FINISH=0|1|2: the plugin's finish (pearl white, pearl black, pearl white + neon; not saved).
-    if (const auto f = env ("PARAGON_SNAPSHOT_FINISH"); f.isNotEmpty())
-        Finish::set ((Finish::Type) juce::jlimit (0, 2, f.getIntValue()), false);
+    // 0.87.0: PARAGON_SNAPSHOT_FINISH=aurora (or neon, white, 2: the old White + Neon's number): the plugin in Aurora;
+    // otherwise Obsidian, the default (not saved as the preference). PARAGON_SNAPSHOT_MACHINEFINISH the same for THE DRUM MACHINE.
+    const auto finishFrom = [] (const juce::String& f)
+    {
+        return f == "aurora" || f == "neon" || f == "white" || f == "2" ? Finish::Type::aurora : Finish::Type::obsidian;
+    };
+    Finish::set (finishFrom (env ("PARAGON_SNAPSHOT_FINISH")), false);
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
     auto* view = dynamic_cast<MainView*> (editor->getChildComponent (0));
     REQUIRE (view != nullptr);
@@ -666,9 +670,8 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             drums.select (2);
             drums.showView (DrumPage::View::machine);
             auto& machine = view->getMachine();
-            // 0.43.0: PARAGON_SNAPSHOT_MACHINEFINISH=0|1|2: in that finish (pearl white, pearl black, pearl white + neon).
-            if (const auto f = env ("PARAGON_SNAPSHOT_MACHINEFINISH"); f.isNotEmpty())
-                machine.setFinish ((Finish::Type) juce::jlimit (0, 2, f.getIntValue()), false);
+            // 0.43.0: PARAGON_SNAPSHOT_MACHINEFINISH=aurora (or neon, white, 2): in Aurora; otherwise Obsidian (0.87.0).
+            machine.setFinish (finishFrom (env ("PARAGON_SNAPSHOT_MACHINEFINISH")), false);
             machine.play();
             if (env ("PARAGON_SNAPSHOT_MACHINE") == "2")
             {

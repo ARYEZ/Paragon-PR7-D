@@ -57,16 +57,11 @@ public:
         const auto slot = juce::Rectangle<float> (15.0f * s, 14.0f * s, 36.0f * s, (float) getHeight() - 28.0f * s);
         g.setColour (juce::Colours::black.withAlpha (0.55f));
         g.fillRoundedRectangle (slot.translated (0.0f, 2.0f), 7.0f * s);
-        // The slot's lip: chrome, or (pearl black, white + neon) the neon, lit along the top like chrome (0.53.0).
-        if (Finish::neonRings())
-        {
-            g.setGradientFill (Finish::neonGradient (slot.getX(), slot.getRight()));
-            g.fillRoundedRectangle (slot, 7.0f * s);
-            g.setGradientFill (juce::ColourGradient (juce::Colours::white.withAlpha (0.4f), slot.getX(), slot.getY(),
-                                                     juce::Colours::black.withAlpha (0.45f), slot.getX(), slot.getBottom(), false));
-        }
-        else
-            g.setGradientFill (juce::ColourGradient (juce::Colour (0xffe9dde3), slot.getX(), slot.getY(), juce::Colour (0xff3e3238), slot.getX(), slot.getBottom(), false));
+        // The slot's lip: the neon, lit along the top like polished metal (0.53.0; 0.87.0: on both finishes).
+        g.setGradientFill (Finish::neonGradient (slot.getX(), slot.getRight()));
+        g.fillRoundedRectangle (slot, 7.0f * s);
+        g.setGradientFill (juce::ColourGradient (juce::Colours::white.withAlpha (0.4f), slot.getX(), slot.getY(),
+                                                 juce::Colours::black.withAlpha (0.45f), slot.getX(), slot.getBottom(), false));
         g.fillRoundedRectangle (slot, 7.0f * s);
         const auto well = slot.reduced (3.0f * s);
         g.setColour (juce::Colour (0xff050405));
@@ -133,7 +128,7 @@ private:
 };
 
 //==============================================================================
-// A drum's pad: a big black key in a bezel (chrome, or the neon on pearl black and white + neon). Clicked, it chooses the drum and plays it; it lights up as the drum
+// A drum's pad: a big black key in a neon bezel. Clicked, it chooses the drum and plays it; it lights up as the drum
 // sounds (from anything: the beat, the DAW, a groove), and its stripe is lit while it's the chosen drum.
 class MachineView::Pad final : public juce::Component, public juce::SettableTooltipClient
 {
@@ -316,7 +311,7 @@ MachineView::MachineView (ParagonX1AudioProcessor& p) : processor (p)
     on (K::fill, [this] { fillChosen(); }, "FILL: the chosen drum on every step shown");
     on (K::pagePrev, [this] { setStepPage (stepPage - 1); }, "The pattern's steps before these");
     on (K::pageNext, [this] { setStepPage (stepPage + 1); }, "The pattern's steps after these");
-    on (K::finish, [this] { showFinishMenu(); }, "FINISH: the machine's own finish (pearl black or pearl white + neon: black keys and knobs in neon pink-to-orange rings; pearl white: chrome rings)");
+    on (K::finish, [this] { showFinishMenu(); }, "FINISH: the machine's own finish, OBSIDIAN (pearl black) or AURORA (pearl white), both with black keys and knobs in neon pink-to-orange rings");
 
     for (int s = 0; s < numSteps; ++s)
     {
@@ -394,8 +389,8 @@ juce::String MachineView::nameOf (int slot)
 void MachineView::showFinishMenu()
 {
     juce::PopupMenu menu;
-    for (int t = 0; t < Finish::names.size(); ++t)
-        menu.addItem (t + 1, Finish::names[t].toUpperCase(), true, (int) Finish::getMachine() == t);
+    for (const auto type : Finish::choices)   // (0.87.0: OBSIDIAN and AURORA; Pearl White retired)
+        menu.addItem ((int) type + 1, Finish::nameOf (type), true, Finish::getMachine() == type);
     menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (keys[(size_t) K::finish].get()),
                         [safe = juce::Component::SafePointer<MachineView> (this)] (int id)
                         {
@@ -885,7 +880,7 @@ void MachineView::paintFace (juce::Graphics& g)
 
 void MachineView::paint (juce::Graphics& g)
 {
-    // Its own finish (pearl black by default: black keys and knobs in neon rings), whatever finish the rest of the plugin is in (the face and every
+    // Its own finish (Obsidian by default: black keys and knobs in neon rings), whatever finish the rest of the plugin is in (the face and every
     // control on it: cleared again in paintOverChildren, after they've drawn).
     Finish::paintAs (Finish::getMachine());   // (0.43.0: its own finish, chosen with FINISH)
     if (shownFinish != Finish::getMachine())

@@ -412,7 +412,7 @@ TEST_CASE ("THE PROGRESS BOX: a kit loading for over half a second, then gone; a
     folder.deleteRecursively();
 }
 
-TEST_CASE ("THE DRUM MACHINE 0.43.0: FINISH gives the face its own finish (pearl white, black, white + neon), the plugin's untouched", "[machine][ui]")
+TEST_CASE ("THE DRUM MACHINE 0.43.0: FINISH gives the face its own finish (0.87.0: OBSIDIAN or AURORA), the plugin's untouched", "[machine][ui]")
 {
     ParagonX1AudioProcessor p;
     p.setPlayConfigDetails (0, 2, sampleRate, blockSize);
@@ -441,25 +441,26 @@ TEST_CASE ("THE DRUM MACHINE 0.43.0: FINISH gives the face its own finish (pearl
             }
         return total / (float) count;
     };
-    machine.setFinish (Finish::Type::pearlBlack, false);
+    machine.setFinish (Finish::Type::obsidian, false);
     const auto black = chassisBrightness();
-    machine.setFinish (Finish::Type::pearlWhite, false);
+    machine.setFinish (Finish::Type::aurora, false);
     const auto white = chassisBrightness();
-    machine.setFinish (Finish::Type::pearlWhiteNeon, false);
-    const auto neon = chassisBrightness();
-    INFO ("black " << black << ", white " << white << ", neon " << neon);
+    INFO ("obsidian " << black << ", aurora " << white);
     CHECK (black < 0.3f);
     CHECK (white > 0.6f);
-    CHECK (neon > 0.6f);
-    CHECK (Finish::getMachine() == Finish::Type::pearlWhiteNeon);
+    CHECK (Finish::getMachine() == Finish::Type::aurora);
     CHECK (Finish::get() == plugin);   // the rest of the plugin as it was
+    // The retired Pearl White (an old saved number) is never shown: it comes up as Obsidian.
+    machine.setFinish (Finish::Type::retiredPearlWhite, false);
+    CHECK (Finish::getMachine() == Finish::Type::obsidian);
+    CHECK (chassisBrightness() == black);
     machine.setFinish (was, false);
 }
 
-TEST_CASE ("FINISH 0.53.0: black keys and knobs on every finish; the neon finishes' colour is in the rings round them", "[machine][ui]")
+TEST_CASE ("FINISH 0.53.0: black keys and knobs on every finish; the neon is in the rings round them", "[machine][ui]")
 {
-    // A pad (bezel + key) and a knob drawn in each finish: the key's face and the knob's top black in all three; the
-    // bezel's rim the neon (saturated) on pearl black and pearl white + neon, chrome (grey) on pearl white.
+    // A pad (bezel + key) and a knob drawn in each finish: the key's face and the knob's top black on both; the
+    // bezel's rim the neon (saturated) on both (0.87.0: Pearl White's chrome rings retired with it).
     struct Look { float keyBrightness, rimSaturation, knobTopBrightness, ringSaturation; };
     const auto draw = [] (Finish::Type type)
     {
@@ -486,21 +487,14 @@ TEST_CASE ("FINISH 0.53.0: black keys and knobs on every finish; the neon finish
         look.ringSaturation = best;
         return look;
     };
-    for (const auto type : { Finish::Type::pearlWhite, Finish::Type::pearlBlack, Finish::Type::pearlWhiteNeon })
+    for (const auto type : Finish::choices)
     {
-        Finish::paintAs (type);
-        const auto rings = Finish::neonRings();
-        Finish::paintAs (std::nullopt);
-        CHECK (rings == (type != Finish::Type::pearlWhite));
         const auto look = draw (type);
         INFO ("finish " << (int) type << ": key " << look.keyBrightness << ", rim saturation " << look.rimSaturation << ", knob top "
                         << look.knobTopBrightness << ", ring saturation " << look.ringSaturation);
         CHECK (look.keyBrightness < 0.25f);          // black keys everywhere
         CHECK (look.knobTopBrightness < 0.6f);       // the knob's top dark metal everywhere
-        if (rings)
-            CHECK (look.rimSaturation > 0.3f);       // the neon rim
-        else
-            CHECK (look.rimSaturation < 0.1f);       // chrome
+        CHECK (look.rimSaturation > 0.3f);           // the neon rim
         CHECK (look.ringSaturation > 0.3f);          // the knob's ring a coloured light on every finish
     }
 }

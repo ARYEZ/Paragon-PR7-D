@@ -2,6 +2,26 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.87.0
+
+- **Two finishes, OBSIDIAN and AURORA**, as on PR7-G and PR7-B, your choice in the new **SETTINGS > FINISH** (beside
+  PRESETS). Before, PR7-D had no finish setting of its own: only THE DRUM MACHINE's FINISH menu.
+  - **OBSIDIAN** is the pearl black unit (Pearl Black renamed), and the default.
+  - **AURORA** is the pearl white unit with neon rings (Pearl White + Neon renamed).
+  - On both, the keys, pads and knobs are black in neon pink-to-orange rings.
+  - **Pearl White, with chrome rings, is gone.** If you were on it (it was where PR7-D started if you never chose),
+    PR7-D now opens in Obsidian. If you had Pearl Black, it's Obsidian. If you had White + Neon, it's Aurora.
+  - **THE DRUM MACHINE's FINISH** menu offers the same two, and follows the same rules: a machine set to Pearl White
+    opens in Obsidian. It still has its own finish, separate from the rest of the plugin.
+  - What the finish changes outside the machine: the rings round the keys and knobs (now neon on both, where Pearl
+    White had chrome), and the lettering printed beside them, for example under the rack units' names on the FX page.
+    With the old Pearl White default that lettering was a dim grey on the dark rack; on Obsidian it's white.
+- **AURORA is 10% softer than full white**, as you chose for PR7-B: the pearl of THE DRUM MACHINE's face (its rim,
+  face plate, sheen and highlights) is drawn at 90% of its old brightness, so pure white becomes 230 out of 255. It
+  still reads clearly as a white unit, without the glare.
+  - The lettering, the PARAGON badge, the neon, the keys, the knobs and the screens keep their own colours.
+  - OBSIDIAN is unchanged, pixel for pixel.
+
 ## 0.86.0
 
 - **GROOVES responds faster on a big library.** Measured on a generated library the size of yours: 100,100 grooves,
