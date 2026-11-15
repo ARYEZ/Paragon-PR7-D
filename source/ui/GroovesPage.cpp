@@ -545,7 +545,7 @@ GroovesPage::GroovesPage (ParagonX1AudioProcessor& p) : processor (p), library (
     // FOLDERS FOR CHANGES, on a button: since 0.70.1 an opened folder is only looked through once).
     rerack.setTooltip ("Check every linked folder again for new, changed and removed grooves (grooves copied in while "
                        "the page is open come in with this).");
-    rerack.onClick = [this] { foldersChecked.clear(); library.scan(); };
+    rerack.onClick = [this] { foldersChecked.clear(); diskCache.clear(); library.scan(); };
     for (auto* l : { &tempoLabel, &velocityLabel })
     {
         l->setFont (juce::FontOptions (10.5f, juce::Font::bold));
@@ -701,8 +701,11 @@ void GroovesPage::visibilityChanged()
 
 void GroovesPage::refresh()
 {
-    // The folders on disk may have changed: read again when asked.
-    childCache.clear();
+    // The folders on disk may have changed: read again when asked. 0.86.0: not while a scan is still listing
+    // grooves (it publishes twice a second, and each time every browser column read its folders from the disk again:
+    // 10-140 ms, a hitch twice a second); once it's done, and on RERACK / a folder added or removed.
+    if (! library.isScanning())
+        diskCache.clear();
     rowCache.clear();
     // Every value each filter column has anywhere in the library (those none of the grooves here have show greyed):
     // the catalogue's (0.62.0: worked out when it was listed).
@@ -721,17 +724,21 @@ void GroovesPage::refresh()
 std::vector<juce::File> GroovesPage::childrenOf (const juce::File& folder) const
 {
     const auto key = folder.getFullPathName();
-    if (const auto known = childCache.find (key); known != childCache.end())
-        return known->second;
-    std::vector<juce::File> kids;
-    if (folder.isDirectory())
+    auto known = diskCache.find (key);
+    if (known == diskCache.end())
     {
-        auto real = folder.findChildFiles (juce::File::findDirectories, false);
-        real.sort();
-        for (const auto& f : real)
-            if (! f.isHidden())
-                kids.push_back (f);
+        std::vector<juce::File> real;
+        if (folder.isDirectory())
+        {
+            auto found = folder.findChildFiles (juce::File::findDirectories, false);
+            found.sort();
+            for (const auto& f : found)
+                if (! f.isHidden())
+                    real.push_back (f);
+        }
+        known = diskCache.emplace (key, std::move (real)).first;
     }
+    auto kids = known->second;
     // A groove database's folders (0.62.0: from the catalogue: the database isn't opened to list them).
     const auto all = library.getCatalogue();
     if (const auto inside = all->databaseFolders.find (key); inside != all->databaseFolders.end())
@@ -741,7 +748,6 @@ std::vector<juce::File> GroovesPage::childrenOf (const juce::File& folder) const
     {
         return a.getFileName().compareNatural (b.getFileName()) < 0;
     });
-    childCache[key] = kids;
     return kids;
 }
 
@@ -1001,7 +1007,7 @@ void GroovesPage::showFolderMenu (const juce::File& folder)
     }
     if (f >= 0)
         menu.addItem (inUser && userNeedsSync ? juce::String ("SYNC FILE CHANGES  (changed on disk)") : juce::String ("SYNC FILE CHANGES"),
-                      [this] { foldersChecked.clear(); library.scan(); });
+                      [this] { foldersChecked.clear(); diskCache.clear(); library.scan(); });
     if (isRoot && ! folders[(size_t) f].user)
     {
         menu.addSeparator();
@@ -1010,6 +1016,7 @@ void GroovesPage::showFolderMenu (const juce::File& folder)
             library.removeFolder (f);
             history.clear();
             future.clear();
+            diskCache.clear();
             browseTo ({}, false);
             refresh();
         });
@@ -1035,10 +1042,13 @@ void GroovesPage::showMenu()
             chooser->launchAsync (juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories, [this] (const juce::FileChooser& c)
             {
                 if (c.getResult().isDirectory() && library.addFolder (c.getResult()))
+                {
+                    diskCache.clear();
                     refresh();
+                }
             });
         });
-        folders.addItem ("CHECK ALL FOLDERS FOR CHANGES", [this] { foldersChecked.clear(); library.scan(); });
+        folders.addItem ("CHECK ALL FOLDERS FOR CHANGES", [this] { foldersChecked.clear(); diskCache.clear(); library.scan(); });
         menu.addSubMenu ("FOLDERS", folders);
     }
     {
@@ -1199,12 +1209,12 @@ void GroovesPage::requery()
     const auto& all = *shown;
     results.clear();
     results.reserve (scope.rows.size());
-    const auto filtering = ! filters.isEmpty();
+    const grooves::FilterIds filterIds (all, filters);   // (0.86.0: by the values' numbers, not their text)
     for (size_t k = 0; k < scope.rows.size(); ++k)
     {
-        const auto& e = all.entries[(size_t) scope.rows[k]];
-        if (! filtering || filters.passes (e))
-            results.push_back ({ &e, scope.match.empty() ? -1.0f : scope.match[k] });
+        const auto row = (size_t) scope.rows[k];
+        if (filterIds.passes (all, row))
+            results.push_back ({ &all.entries[row], scope.match.empty() ? -1.0f : scope.match[k] });
     }
     for (int c = 0; c < grooves::numColumns; ++c)
     {

@@ -2,6 +2,33 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.86.0
+
+- **GROOVES responds faster on a big library.** Measured on a generated library the size of yours: 100,100 grooves,
+  70,000 MIDI files in 140 packs plus 43 groove databases. Times are on the message thread, the one the window waits on:
+
+  | What you do | Before | Now |
+  |---|---|---|
+  | Open a pack | 99 ms | 29 ms (the first time; the disk listing is most of it) |
+  | Open a song folder | 39 ms | 8 ms |
+  | Each letter typed in SEARCH | 20-24 ms | 3-6 ms |
+  | A filter (TYPE, TEMPO...) | 34-36 ms | 4 ms |
+  | CLEAR | 17 ms | 3 ms |
+
+- **What was slow:**
+  - Every click sorted all 100,000 grooves again. The sorted order is now kept and only re-sorted when the sort,
+    the song's tempo or the library changes. That sort happens on the background thread that reads the library.
+  - Filters compared every groove's values as text. They now compare numbers.
+  - Search and "is it in this folder" walked text a letter at a time. They now use plain byte copies made once per
+    library change.
+  - The folder browser listed a folder from the disk again after every library change, including twice a second
+    while a scan ran. It now keeps the disk listing until RERACK, CHECK ALL FOLDERS FOR CHANGES or a folder added
+    or removed.
+- **One small visible change:** grooves with exactly the same name and the same sort values used to come out in no
+  fixed order. They now always come out in the same order.
+- **Left as it is:** the first click on a groove inside a groove database opens that database, about 40 ms for one
+  with 700 grooves. After that it's kept, and the next click is instant.
+
 ## 0.85.0
 
 - **The song track scrolls as far right as you like,** like your DAW's timeline. Before, it stopped two bars after

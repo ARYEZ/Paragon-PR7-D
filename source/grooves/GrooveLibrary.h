@@ -122,6 +122,10 @@ namespace grooves
     {
         std::vector<Entry> entries;
         std::vector<juce::String> paths;   // each groove's full path
+        // 0.86.0: the same paths and each groove's search text as plain bytes (paths case-folded on Windows, where
+        // paths compare without case; the text lower case), so a click's folder and search checks over 100,000
+        // grooves compare bytes, not juce::Strings (whose UTF-8 is walked a character at a time: ~20 ms a click).
+        std::vector<std::string> pathKeys, searchText;
         // Every value each filter column has among them, in the column's order (sortedValues), and each groove's
         // values as numbers into it: entry i's in column c are ids[c][first[c][i]] up to ids[c][first[c][i + 1]].
         std::array<juce::StringArray, numColumns> values;
@@ -150,6 +154,20 @@ namespace grooves
     // in it.
     bool pathIsIn (const juce::String& path, const juce::String& folder);
     bool pathIsDirectlyIn (const juce::String& path, const juce::String& folder);
+    // 0.86.0: the same on Catalogue::pathKeys: `folderKey` from pathKey (folder's full path).
+    std::string pathKey (const juce::String& path);
+    bool keyIsIn (const std::string& path, const std::string& folderKey) noexcept;
+    bool keyIsDirectlyIn (const std::string& path, const std::string& folderKey) noexcept;
+    // 0.86.0: a set of Filters as the catalogue's value numbers, for a quick check of many grooves.
+    struct FilterIds
+    {
+        FilterIds (const Catalogue&, const Filters&);
+        bool active = false;
+        bool passes (const Catalogue&, size_t entry) const;
+    private:
+        std::array<std::vector<int>, numColumns> include, exclude;
+        std::array<bool, numColumns> impossible {};   // TYPE asks for a value the library hasn't: nothing passes
+    };
 
     struct LinkedFolder
     {
@@ -308,6 +326,23 @@ namespace grooves
         // 0.31.0: each groove's match for the last tap search (filters and folders clicked during one ask again).
         mutable juce::String matchKey;
         mutable std::map<juce::String, float> matchScores;
+        // 0.86.0: the whole catalogue in find's order (no tap search), kept for the catalogue and sort it was made
+        // for: a click picks its rows from it instead of sorting them (100,000 grooves: 12 ms a click).
+        struct Order
+        {
+            // (watched, not held: holding it would free 100,000 old grooves on the window's thread when replaced)
+            std::weak_ptr<const Catalogue> catalogue;
+            SortOrder sortOrder;
+            double songBpm = 0.0;                        // (0 / 0 / 0 unless its sort uses them)
+            int songNumerator = 0, songDenominator = 0;
+            double lastSongBpm = 120.0;                  // the song's when it was made (publish makes the next with them)
+            int lastSongNumerator = 4, lastSongDenominator = 4;
+            std::vector<int> rows;
+            bool fits (const std::shared_ptr<const Catalogue>&, SortOrder, double, int, int) const;
+        };
+        static Order makeOrder (const std::shared_ptr<const Catalogue>&, SortOrder, double songBpm, int songNumerator,
+                                int songDenominator);
+        mutable Order order;   // guarded by `lock`
         std::atomic<bool> scanning { false };
         std::atomic<int> scanned { 0 }, looked { 0 };
         mutable std::mutex focusLock;
