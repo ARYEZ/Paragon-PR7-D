@@ -28,6 +28,7 @@
 //                                    PARAGON_SNAPSHOT_KIT=1: the kick, snare, crash and china just hit, glowing, the ride's bell chosen;
 //                                    PARAGON_SNAPSHOT_KIT=2: THE PADS 2 and 4 just hit, pad 2 chosen (0.71.0);
 //                                    PARAGON_SNAPSHOT_KIT=4: CRASH 4 and CRASH 5 just hit, crash 4 chosen (0.88.0);
+//                                    PARAGON_SNAPSHOT_KIT=5: CRASH 6 and the splash just hit, crash 6 chosen (0.89.0);
 //                                    PARAGON_SNAPSHOT_ARTIC=1: the hi-hat's articulations, OPEN 3 off, the pedal half open;
 //                                    PARAGON_SNAPSHOT_VELOCITY=1: the snare's VELOCITY curve and gate;
 //                                    PARAGON_SNAPSHOT_LAYERS=1: the snare's LAYERS (one aligned, one multi-mic);
@@ -367,6 +368,20 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             processor.previewDrum (synth::drums::notemap::C4);
             processor.processBlock (buffer, midi);
             processor.previewDrum (synth::drums::notemap::C5);
+            for (int b = 0; b < 4; ++b)
+                processor.processBlock (buffer, midi);
+            drums.updateLights();
+        }
+        // 0.89.0: PARAGON_SNAPSHOT_KIT=5: CRASH 6 (top centre) and the splash (by tom 1) just hit, CRASH 6 chosen.
+        if (env ("PARAGON_SNAPSHOT_KIT") == "5")
+        {
+            drums.showView (DrumPage::View::kit);
+            drums.select (synth::drums::notemap::C6);
+            juce::AudioBuffer<float> buffer (2, 512);
+            juce::MidiBuffer midi;
+            processor.previewDrum (synth::drums::notemap::C6);
+            processor.processBlock (buffer, midi);
+            processor.previewDrum (synth::drums::notemap::SPL);
             for (int b = 0; b < 4; ++b)
                 processor.processBlock (buffer, midi);
             drums.updateLights();

@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.24)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "macOS architectures")
 
-project(ParagonX1 VERSION 0.88.0 LANGUAGES C CXX)
+project(ParagonX1 VERSION 0.89.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -67,6 +67,7 @@ juce_add_binary_data(ParagonX1Kit
         resources/kit/litcrash3.png
         resources/kit/litcrash4.png
         resources/kit/litcrash5.png
+        resources/kit/litcrash6.png
         resources/kit/litpad1.png
         resources/kit/litpad2.png
         resources/kit/litpad3.png

@@ -2,6 +2,26 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.89.0
+
+- **The cymbals placed closer to the reference kit**, as you chose from the mock-ups:
+  - **Higher:** every cymbal sits higher, with clear air between the toms and the cymbals. The top row is a few
+    centimetres lower than in the first mock-up, so it doesn't touch the top of the picture.
+  - **One arc:** crashes 4 and 5 moved in, so they overlap crash 2 and crash 3. The top now reads as one continuous
+    fan from left to right.
+  - **The two sides match:** crash 4 and crash 5 now mirror each other exactly, each sitting a few centimetres above
+    the crash beside it. Before, the left one sat level with its neighbour and the right one lower.
+  - **Tipped towards you:** each cymbal is angled about 4 degrees more towards the drummer (the half tilt), so you see
+    a bit more of its top and its cone.
+  - **The splash moved** down beside tom 1.
+  - **CRASH 6** (15") is new, in the middle of the top row: five cymbals across. Click it to choose it and hear it; it
+    glows when it plays. It's the crash 6 drum slot that was already there (note 32 in GROOVE LIBRARY, its mute hit
+    107). If that slot is switched off, it plays crash 2 instead, and crash 2 glows.
+- **The cymbal stands' arms glow** like their lower tubes now: a neon strip along the top of each boom arm, on every
+  cymbal stand (crashes, ride, china, splash). Most arms sit under their cymbal from this angle, so it shows most on
+  the outer stands.
+- The whole kit was rendered again; the drums didn't move.
+
 ## 0.88.0
 
 - **Two more crashes on the KIT VIEW, one each side**, laid out with you over four mock-ups:
