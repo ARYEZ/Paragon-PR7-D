@@ -21,12 +21,13 @@
 //                                    PARAGON_SNAPSHOT_DRUMS=1: a beat just played, its rows lit; =2 a file of nine kicks, the 4th chosen;
 //                                    PARAGON_SNAPSHOT_DRUMSEQ=1: the SEQUENCER view, a beat playing with the song;
 //                                    PARAGON_SNAPSHOT_MACHINE=1: THE DRUM MACHINE playing Room Beat (=2: drums 19-36, REC;
-//                                    PARAGON_SNAPSHOT_MACHINEFINISH=0|1|2: in that finish);
+//                                    PARAGON_SNAPSHOT_MACHINEFINISH=aurora: in Aurora, else Obsidian);
 //                                    PARAGON_SNAPSHOT_DRUMEDIT=1: the clap with an envelope, an anchor, GAIN and LP, =2 with DRUMS=2 a fade;
 //                                    PARAGON_SNAPSHOT_DRUMCHOSEN=1: the hats and cymbal chosen together, the tom's playhead;
 //                                    any of these shows the DRUM view; with none, the KIT VIEW (0.14.0), the page's first:
 //                                    PARAGON_SNAPSHOT_KIT=1: the kick, snare, crash and china just hit, glowing, the ride's bell chosen;
 //                                    PARAGON_SNAPSHOT_KIT=2: THE PADS 2 and 4 just hit, pad 2 chosen (0.71.0);
+//                                    PARAGON_SNAPSHOT_KIT=4: CRASH 4 and CRASH 5 just hit, crash 4 chosen (0.88.0);
 //                                    PARAGON_SNAPSHOT_ARTIC=1: the hi-hat's articulations, OPEN 3 off, the pedal half open;
 //                                    PARAGON_SNAPSHOT_VELOCITY=1: the snare's VELOCITY curve and gate;
 //                                    PARAGON_SNAPSHOT_LAYERS=1: the snare's LAYERS (one aligned, one multi-mic);
@@ -35,7 +36,6 @@
 //   PARAGON_SNAPSHOT_PAGE=mixer      THE MIXER (0.20.0) with a multi-mic kit, a hit just played
 //                                    (PARAGON_SNAPSHOT_MIXERBUS=1: buses and sends, the snare top's SENDS; =2 the buses;
 //                                    PARAGON_SNAPSHOT_MIXERFX=1: effects on the snare top, its EFFECTS tab (=3: SATURATION);
-//                                    PARAGON_SNAPSHOT_MIXERSHOWFX=1: every strip's EFFECTS shown (0.78.0);
 //                                    PARAGON_SNAPSHOT_MIXERROUTE=1: ROUTE MICS on the snare, =2 the user channels;
 //                                    PARAGON_SNAPSHOT_MICSIM=1: the Djent Kit through SIMULATED MICS, their panel open,
 //                                    =2 its strips after a kick and snare)
@@ -151,9 +151,13 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             processor.processBlock (buffer, midi);
     }
 
-    // 0.53.0: PARAGON_SNAPSHOT_FINISH=0|1|2: the plugin's finish (pearl white, pearl black, pearl white + neon; not saved).
-    if (const auto f = env ("PARAGON_SNAPSHOT_FINISH"); f.isNotEmpty())
-        Finish::set ((Finish::Type) juce::jlimit (0, 2, f.getIntValue()), false);
+    // 0.87.0: PARAGON_SNAPSHOT_FINISH=aurora (or neon, white, 2: the old White + Neon's number): the plugin in Aurora;
+    // otherwise Obsidian, the default (not saved as the preference). PARAGON_SNAPSHOT_MACHINEFINISH the same for THE DRUM MACHINE.
+    const auto finishFrom = [] (const juce::String& f)
+    {
+        return f == "aurora" || f == "neon" || f == "white" || f == "2" ? Finish::Type::aurora : Finish::Type::obsidian;
+    };
+    Finish::set (finishFrom (env ("PARAGON_SNAPSHOT_FINISH")), false);
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
     auto* view = dynamic_cast<MainView*> (editor->getChildComponent (0));
     REQUIRE (view != nullptr);
@@ -348,6 +352,21 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             processor.previewDrum (synth::drums::notemap::C3);
             processor.processBlock (buffer, midi);
             processor.previewDrum (synth::drums::notemap::SPL);
+            for (int b = 0; b < 4; ++b)
+                processor.processBlock (buffer, midi);
+            drums.updateLights();
+        }
+        // 0.88.0: PARAGON_SNAPSHOT_KIT=4: CRASH 4 (left, above crash 1) and CRASH 5 (right, above the ride) just hit,
+        // CRASH 4 chosen.
+        if (env ("PARAGON_SNAPSHOT_KIT") == "4")
+        {
+            drums.showView (DrumPage::View::kit);
+            drums.select (synth::drums::notemap::C4);
+            juce::AudioBuffer<float> buffer (2, 512);
+            juce::MidiBuffer midi;
+            processor.previewDrum (synth::drums::notemap::C4);
+            processor.processBlock (buffer, midi);
+            processor.previewDrum (synth::drums::notemap::C5);
             for (int b = 0; b < 4; ++b)
                 processor.processBlock (buffer, midi);
             drums.updateLights();
@@ -667,9 +686,8 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             drums.select (2);
             drums.showView (DrumPage::View::machine);
             auto& machine = view->getMachine();
-            // 0.43.0: PARAGON_SNAPSHOT_MACHINEFINISH=0|1|2: in that finish (pearl white, pearl black, pearl white + neon).
-            if (const auto f = env ("PARAGON_SNAPSHOT_MACHINEFINISH"); f.isNotEmpty())
-                machine.setFinish ((Finish::Type) juce::jlimit (0, 2, f.getIntValue()), false);
+            // 0.43.0: PARAGON_SNAPSHOT_MACHINEFINISH=aurora (or neon, white, 2): in Aurora; otherwise Obsidian (0.87.0).
+            machine.setFinish (finishFrom (env ("PARAGON_SNAPSHOT_MACHINEFINISH")), false);
             machine.play();
             if (env ("PARAGON_SNAPSHOT_MACHINE") == "2")
             {
@@ -886,6 +904,15 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 ed.setSliderValue (BlockEditor::Slider::swing, 60.0);
                 ed.setRowMute (0, true);
             }
+            // 0.81.0: the whole song in the grid, zoomed out over the chorus and the blocks around it.
+            if (env ("PARAGON_SNAPSHOT_GRID") == "3")
+            {
+                auto& ed = view->getBlockEditor();
+                ed.open (2);
+                ed.setZoom (ed.getGrid().getWidth() / 40.0);
+                ed.setViewStart (-14.0);
+                ed.setTool (BlockEditor::Tool::pencil);
+            }
             // 0.48.0: the snare's NOTE LENGTHS shown, each held half a beat (the first a beat).
             if (env ("PARAGON_SNAPSHOT_GRID") == "2")
             {
@@ -1064,9 +1091,6 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         processor.setModMatrix (matrix);
         view->showPage (MainView::Page::mixer);
         view->getMixerPage().selectChannel (synth::mixer::snareTop);
-        // 0.78.0: PARAGON_SNAPSHOT_MIXERSHOWFX=1 every strip's EFFECTS shown (folded away at first).
-        if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_MIXERSHOWFX", {}) == "1")
-            view->getMixerPage().setEffectsShown (true);
         // 0.21.0: PARAGON_SNAPSHOT_MIXERBUS=1 the snare's mics into BUS 1, sends to BUS 2 and the DELAY, BUS 1 to the
         // REVERB, the snare top's SENDS shown; =2 scrolled to the buses, BUS 1 chosen.
         if (const auto bus = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_MIXERBUS", {}).getIntValue(); bus > 0)

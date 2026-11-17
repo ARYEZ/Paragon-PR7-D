@@ -91,6 +91,18 @@ jobs:
             # after SUCCESS. So: that crash (exit 139 / 134) after pluginval has
             # printed SUCCESS gets up to 3 more tries; any other failure, a
             # crash before SUCCESS, or 4 crashes in a row fail the build.
+            # November 2026 (0.85.0, the owner agreed): pluginval's own JUCE
+            # (8.0.3) has a race in MessageManager::Lock (its test thread
+            # signals a lock message the main thread has already freed),
+            # which crashes now and then inside "Fuzz parameters" (about 1
+            # run in 40 here; under ThreadSanitizer, 20 fuzz passes found
+            # races only in pluginval's code, none in the plugin's). A crash
+            # while that test is running gets one more try; a second one, or
+            # a crash in any other test, still fails the build. (It's
+            # pluginval's last test, so a crash while it lets go of the plugin
+            # afterwards, before SUCCESS, also gets that try: PR7-O saw that
+            # crash in pluginval's own code too.)
+            fuzzRetried=0
             for attempt in 1 2 3 4; do
               set +e
               xvfb-run -a $RUN "$PLUGIN" 2>&1 | tee pluginval.log
@@ -101,6 +113,12 @@ jobs:
               fi
               if { [ $status -eq 139 ] || [ $status -eq 134 ]; } && grep -q "^SUCCESS" pluginval.log && [ $attempt -lt 4 ]; then
                 echo "pluginval crashed after SUCCESS (exit $status, its known Linux shutdown crash): try $((attempt + 1)) of 4"
+                continue
+              fi
+              if { [ $status -eq 139 ] || [ $status -eq 134 ]; } && [ $fuzzRetried -eq 0 ] && [ $attempt -lt 4 ] \
+                 && grep "^Starting tests in: " pluginval.log | tail -1 | grep -q "/ Fuzz parameters\.\.\.$"; then
+                fuzzRetried=1
+                echo "pluginval crashed inside Fuzz parameters (exit $status, its own MessageManager::Lock race): try $((attempt + 1)) of 4"
                 continue
               fi
               exit $status

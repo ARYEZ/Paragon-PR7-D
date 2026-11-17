@@ -2,6 +2,7 @@
 #include "NoteNames.h"
 
 #include "Parameters.h"
+#include "ui/Finish.h"
 #include "ui/ParagonLookAndFeel.h"
 
 namespace DockStyle
@@ -204,7 +205,14 @@ SettingsPage::SettingsPage (ParagonX1AudioProcessor& p)
         processor.getRigLibrary().getFolder().startAsProcess();
     };
 
-    for (auto* component : std::initializer_list<juce::Component*> { &openFolder })
+    obsidian.setTooltip ("OBSIDIAN: a pearl black unit, with black keys and knobs in neon pink-to-orange rings");
+    aurora.setTooltip ("AURORA: a pearl white unit, with black keys and knobs in neon pink-to-orange rings");
+    obsidian.onClick = [] { Finish::set (Finish::Type::obsidian); };
+    aurora.onClick = [] { Finish::set (Finish::Type::aurora); };
+    Finish::changes().addChangeListener (this);
+    showFinish();
+
+    for (auto* component : std::initializer_list<juce::Component*> { &openFolder, &obsidian, &aurora })
         addAndMakeVisible (component);
     processor.rigBroadcaster.addChangeListener (this);
 
@@ -344,7 +352,20 @@ void SettingsPage::rebuildLinks()
 SettingsPage::~SettingsPage()
 {
     stopTimer();
+    Finish::changes().removeChangeListener (this);
     processor.rigBroadcaster.removeChangeListener (this);
+}
+
+void SettingsPage::showFinish()
+{
+    // The chosen finish is lit: on, with the family gradient's bar along its foot.
+    for (auto [button, type] : { std::pair { &obsidian, Finish::Type::obsidian }, { &aurora, Finish::Type::aurora } })
+    {
+        styleButton (*button, Finish::get() == type);
+        button->setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
+        button->setToggleState (Finish::get() == type, juce::dontSendNotification);
+    }
+    repaint();
 }
 
 void SettingsPage::paint (juce::Graphics& g)
@@ -369,6 +390,9 @@ void SettingsPage::paint (juce::Graphics& g)
                                                   "number to edit it on the right. Grooves and the song aren't changed by any of this.");
     section (rigsArea, "PRESETS", "Your presets are files in this folder, so you can back them up or share them:\n"
                                   + processor.getRigLibrary().getFolder().getFullPathName());
+    section (finishArea, "FINISH",
+             "The unit's colour: OBSIDIAN (pearl black) or AURORA (pearl white), both with black keys and knobs in neon pink-to-orange rings. "
+             "Saved on this computer, so every Paragon PR7-D you open uses it.");
     section (midiArea, "MIDI LINKS", shownLinks.isEmpty()
                  ? juce::String ("None yet. Right-click a knob and choose MIDI learn, then move a knob or fader on your controller.")
                  : juce::String ("Your controller's knobs and faders, and the knobs they turn. Kept with the project; "
@@ -391,6 +415,8 @@ void SettingsPage::resized()
     keysArea = area.removeFromLeft (area.getWidth() / 2 - 6);
     area.removeFromLeft (12);
     rigsArea = area.removeFromTop (170);
+    finishArea = rigsArea.removeFromRight (rigsArea.getWidth() / 2 - 6);   // (0.87.0) beside PRESETS
+    rigsArea.removeFromRight (12);
     area.removeFromTop (12);
     aboutArea = area.removeFromBottom (150);
     area.removeFromBottom (12);
@@ -429,5 +455,9 @@ void SettingsPage::resized()
     for (size_t i = 0; i < linkRows.size(); ++i)
         linkRows[i]->setBounds (0, (int) i * 26, linkList.getWidth(), 24);
 
-    openFolder.setBounds (rigsArea.reduced (24, 18).withTrimmedTop (98).removeFromTop (32).withWidth (220));
+    openFolder.setBounds (rigsArea.reduced (24, 18).withTrimmedTop (98).removeFromTop (32).withWidth (juce::jmin (220, rigsArea.getWidth() - 48)));
+    auto finishButtons = finishArea.reduced (24, 18).withTrimmedTop (98).removeFromTop (32);
+    const auto buttonWidth = juce::jmin (150, (finishButtons.getWidth() - 12) / 2);
+    obsidian.setBounds (finishButtons.removeFromLeft (buttonWidth));
+    aurora.setBounds (finishButtons.withTrimmedLeft (12).removeFromLeft (buttonWidth));
 }

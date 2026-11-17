@@ -488,6 +488,10 @@ boom_cymbal("CRASH 2", 0.406, (-0.45, 0.54, 1.68), tilt=(-0.05, -0.05, 0), drop=
 # 0.74.0: the splash in the middle, over the gap between toms 2 and 3; crash 3 where the splash was, CRASH 2's twin.
 boom_cymbal("SPLASH", 0.305, (0.03, 0.22, 1.3), tilt=(-0.1, 0.0, 0), drop=0.45, base=(0.03, -0.62))
 boom_cymbal("CRASH 3", 0.406, (0.45, 0.54, 1.68), tilt=(-0.05, 0.05, 0), drop=0.75, base=(0.45, -0.30))
+# 0.87.0: crashes 4 and 5, one each side (the owner's choice after four mock-ups): crash 4 above crash 1, crash 5 above the
+# ride, both level with each other and a few cm clear of the cymbal under them; crash 5's stand kept off the hologram.
+boom_cymbal("CRASH 4", 0.406, (-0.875, 0.56, 1.55), tilt=(-0.05, -0.12, 0), drop=0.6, base=(-1.2, 0.05))
+boom_cymbal("CRASH 5", 0.406, (0.83, 0.56, 1.5), tilt=(-0.05, 0.12, 0), drop=0.6, base=(1.1, -0.15))
 boom_cymbal("RIDE", 0.52, (0.582, 0.61, 1.2), tilt=(-0.05, 0.08, 0), base=(0.95, 0.25))
 boom_cymbal("CHINA", 0.43, (0.792, 1.176, 1.3), tilt=(-0.05, 0.1, 0), china=True, base=(1.0, 1.15))
 
@@ -657,6 +661,7 @@ torus("KICK logo ring", 0.205, 0.003, (0, front_y, 0.29), rot=(math.pi / 2, 0, 0
 PIECES = ["kick:KICK", "kick:LOGO", "snare:SNARE", "tom1:TOM 1", "tom2:TOM 2", "tom3:TOM 3", "floor:FLOOR",
           "hihat:HI-HAT", "crash:CRASH", "crash2:CRASH 2", "ride:RIDE", "china:CHINA",
           "splash:SPLASH", "crash3:CRASH 3",   # (0.43.0: the 12 pieces the owner's sample pack records)
+          "crash4:CRASH 4", "crash5:CRASH 5",   # (0.87.0)
           "pad1:PADS pad 1", "pad2:PADS pad 2", "pad3:PADS pad 3", "pad4:PADS pad 4", "pad5:PADS pad 5",
           "pad6:PADS pad 6"]   # (0.71.0: THE PADS, each its own piece: each glows when it plays; the unit's body none)
 PIECES.sort(key=lambda e: -len(e.split(":")[1]))
@@ -690,7 +695,7 @@ def zone_of(name):
     if piece.startswith("pad"):
         return 35 + int(piece[3:])                    # 0.71.0: PAD 1-6 are slots 36-41
     return {"kick": 0, "tom1": 9, "tom2": 7, "tom3": 5, "floor": 23, "crash": 11, "crash2": 14, "china": 15,
-            "splash": 16, "crash3": 29}[piece]
+            "splash": 16, "crash3": 29, "crash4": 30, "crash5": 31}[piece]
 
 def flat_emission(name, value, ride_split=False):
     m = bpy.data.materials.new(name)

@@ -131,6 +131,7 @@ public:
     // 0.43.0: a long song scrolls. The lane shows up to `barsShown` bars (32 at first; Ctrl / Cmd + the wheel zooms,
     // 4 to 256); the scroll bar under it, or the wheel, moves along; while the song plays the view follows it.
     double totalBeats() const noexcept;   // the song and two bars after it, at least 16 bars, to a bar line
+    double scrollEnd() const noexcept;    // 0.85.0: how far the lane scrolls (past the song, as a DAW's timeline)
     double getViewStart() const noexcept { return viewStart; }
     void setViewStart (double beat);
     void setBarsShown (double bars);
@@ -164,6 +165,7 @@ private:
     std::optional<std::pair<double, double>> loopDraft;   // ... and the loop it would set
     juce::String note;          // a few seconds' note in the status line
     double noteUntil = 0.0;
+    int seenStudioLoads = -1;   // (0.83.0) PR7-S's songs noted so far
     void showNote (const juce::String&, double seconds);
     struct BounceThread;
     std::unique_ptr<BounceThread> bounceThread;
@@ -185,6 +187,13 @@ private:
     std::vector<int> lassoKept;
     void dragBlocksOut (std::vector<int> blocks);
     void removeChosen();
+public:
+    // 0.80.0: CTRL + C / V / D (also for tests): false when there was nothing to do.
+    bool copyChosen();
+    bool pasteClipboard();     // (0.82.0: some drums copied: onto the chosen blocks, in place of theirs)
+    void copyDrums (const song::Block&, song::SlotMask drums);   // 0.82.0: COPY DRUMS > ...
+    bool duplicateChosen();
+private:
     double grabOffset = 0.0, dragBeat = 0.0;
     double dropBeat = -1.0;   // a groove or file over the lane: where it would go (-1: none)
     double shownPosition = -2.0;

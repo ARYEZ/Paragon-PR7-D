@@ -5,7 +5,7 @@ cmake_minimum_required(VERSION 3.24)
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version")
 set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "macOS architectures")
 
-project(ParagonX1 VERSION 0.79.0 LANGUAGES C CXX)
+project(ParagonX1 VERSION 0.88.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -65,6 +65,8 @@ juce_add_binary_data(ParagonX1Kit
         resources/kit/litchina.png
         resources/kit/litsplash.png
         resources/kit/litcrash3.png
+        resources/kit/litcrash4.png
+        resources/kit/litcrash5.png
         resources/kit/litpad1.png
         resources/kit/litpad2.png
         resources/kit/litpad3.png
@@ -94,6 +96,7 @@ target_sources(ParagonX1
         source/grooves/SqliteReader.cpp
         source/grooves/GrooveDatabase.cpp
         source/song/Song.cpp
+        source/song/StudioLink.cpp
         source/song/PlayStyle.cpp
         source/song/AmountModel.cpp
         source/song/Creator.cpp

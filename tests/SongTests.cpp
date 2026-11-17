@@ -1700,10 +1700,10 @@ TEST_CASE ("SONG STRIP 0.43.0: a song longer than 32 bars scrolls; the wheel and
     SongTrack track (t.p);
     track.setBounds (0, 0, 1400, 136);
     const auto lane = track.getLane();
-    // 20 bars: all of it shown (22 with the two after it), no scroll bar, as before.
+    // 20 bars: 32 shown (0.85.0: the zoom no longer stretches a short song across the lane), the scroll bar there.
     CHECK (track.totalBeats() == 88.0);
-    CHECK (track.beatAt ((float) lane.getRight()) == 88.0);
-    CHECK_FALSE (track.getScrollBar().isVisible());
+    CHECK (track.beatAt ((float) lane.getRight()) == 128.0);
+    CHECK (track.getScrollBar().isVisible());
 
     // 40 bars: 32 shown, the bar shows; a bar's x and beat agree after scrolling.
     s.place (block ("B", 20, { { 0.0, BD } }), 80.0);
@@ -1717,9 +1717,10 @@ TEST_CASE ("SONG STRIP 0.43.0: a song longer than 32 bars scrolls; the wheel and
     CHECK (std::abs (track.beatAt ((float) lane.getX()) - 40.0) < 1.0e-6);
     CHECK (std::abs (track.xOf (100.0) - track.xOf (40.0) - (float) lane.getWidth() * 60.0f / 128.0f) < 1.0e-3f);
     CHECK (track.getScrollBar().getCurrentRangeStart() == 40.0);
-    // No further than the end.
+    // 0.85.0: on past the song's end, as a DAW's timeline.
     track.setViewStart (1000.0);
-    CHECK (track.getViewStart() == 40.0);
+    CHECK (track.getViewStart() == 1000.0);
+    track.setViewStart (40.0);
     // The wheel: back towards the start.
     juce::MouseWheelDetails wheel {};
     wheel.deltaY = 0.5f;
@@ -2283,4 +2284,244 @@ TEST_CASE ("SONG STRIP 0.68.0: G zooms out, H zooms in, about the middle; CTRL +
     CHECK (std::abs (track.getBarsShown() - (4.0)) < 1.0e-9);
     CHECK (! track.keyPressed (juce::KeyPress ('g', juce::ModifierKeys::commandModifier, 'g')));
     CHECK (std::abs (track.getBarsShown() - (4.0)) < 1.0e-9);
+}
+
+TEST_CASE ("SONG STRIP 0.80.0: CTRL + C copies, CTRL + V pastes after the chosen block, CTRL + D duplicates", "[song][ui]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 1, { { 0.0, BD } }), 0.0);
+    s.place (block ("B", 2, { { 0.0, SD } }), 4.0);
+    s.place (block ("C", 1, { { 0.0, BD } }), 12.0);
+    t.p.setSong (s);
+    t.p.flushUndoStep();
+    SongTrack track (t.p);
+    track.setBounds (0, 0, 1400, 136);
+    track.resized();
+    const auto ctrl = [] (char c) { return juce::KeyPress (c, juce::ModifierKeys::commandModifier, 0); };
+    // Nothing chosen: nothing to copy or duplicate.
+    track.setSelection ({});
+    CHECK (! track.keyPressed (ctrl ('d')));
+    // C then V: B's copy right after B, C moved along.
+    track.setSelection ({ 1 });
+    CHECK (track.keyPressed (ctrl ('c')));
+    REQUIRE (t.p.getSongClipboard().has_value());
+    CHECK (t.p.getSongClipboard()->name == "B");
+    CHECK (track.keyPressed (ctrl ('v')));
+    t.p.flushUndoStep();
+    {
+        const auto& b = t.p.getSong().blocks;
+        REQUIRE (b.size() == 4);
+        CHECK (b[2].name == "B");
+        CHECK (b[2].start == 12.0);
+        CHECK (b[3].name == "C");
+        CHECK (b[3].start == 20.0);
+        CHECK (track.getSelection() == std::vector<int> { 2 });
+    }
+    // One undo step.
+    t.p.undo();
+    CHECK (t.p.getSong().blocks.size() == 3);
+    // D on one block: its copy right after it.
+    track.setSelection ({ 0 });
+    CHECK (track.keyPressed (ctrl ('d')));
+    t.p.flushUndoStep();
+    {
+        const auto& b = t.p.getSong().blocks;
+        REQUIRE (b.size() == 4);
+        CHECK (b[1].name == "A");
+        CHECK (b[1].start == 4.0);
+        CHECK (b[2].start == 8.0);
+        CHECK (track.getSelection() == std::vector<int> { 1 });
+    }
+    t.p.undo();
+    // D on several: the group again after the last of them, the copies chosen.
+    track.setSelection ({ 0, 1 });
+    CHECK (track.keyPressed (ctrl ('D')));
+    t.p.flushUndoStep();
+    {
+        const auto& b = t.p.getSong().blocks;
+        REQUIRE (b.size() == 5);
+        CHECK (b[2].name == "A");
+        CHECK (b[2].start == 12.0);
+        CHECK (b[3].name == "B");
+        CHECK (b[3].start == 16.0);
+        CHECK (b[4].name == "C");
+        CHECK (b[4].start == 24.0);
+        CHECK (track.getSelection() == std::vector<int> { 2, 3 });
+    }
+    // Nothing chosen: CTRL + V pastes at the song's end.
+    track.setSelection ({});
+    CHECK (track.keyPressed (ctrl ('v')));
+    CHECK (t.p.getSongClipboard()->name == "B");
+    CHECK (t.p.getSong().blocks.back().start == 28.0);
+    // C alone is still the CUT tool, not a copy.
+    CHECK (track.keyPressed (juce::KeyPress ('c', juce::ModifierKeys(), 'c')));
+    CHECK (track.isCutting());
+}
+
+TEST_CASE ("SONG 0.82.0: FOLLOW DAW: the playhead is the DAW's, stopped too; PLAY starts from it", "[song][ui]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 2, { { 0.0, BD } }), 0.0);
+    s.place (block ("B", 2, { { 0.0, SD } }), 8.0);
+    t.p.setSong (s);
+    REQUIRE (t.p.getSong().followDaw);   // (on by default)
+    SongTrack track (t.p);
+    track.setBounds (0, 0, 1400, 136);
+    track.resized();
+
+    // The DAW stopped with its playhead moved to beat 9.5: the song's playhead is there.
+    t.host.playing = false;
+    t.host.ppq = 9.5;
+    t.play (0.05);
+    CHECK (t.p.getSongPosition() < 0.0);     // (not playing)
+    CHECK (std::abs (t.p.getSongPlayhead() - (9.5)) < 1.0e-6);
+    // Playing: the DAW's position as it moves.
+    t.host.playing = true;
+    t.play (0.25);
+    CHECK (std::abs (t.p.getSongPlayhead() - t.host.ppq) < 0.01);
+    // Stopped again somewhere else.
+    t.host.playing = false;
+    t.host.ppq = 3.0;
+    t.play (0.05);
+    CHECK (std::abs (t.p.getSongPlayhead() - (3.0)) < 1.0e-6);
+    // PLAY in the plugin (the DAW stopped): from the DAW's playhead.
+    track.togglePlay();
+    CHECK (std::abs (track.getStartBeat() - (3.0)) < 1.0e-6);
+    t.play (0.05);
+    CHECK (t.p.getSongPosition() > 3.0);
+    CHECK (t.p.getSongPosition() < 3.5);
+    track.togglePlay();
+    t.play (0.05);
+
+    // FOLLOW DAW off: the DAW's stopped playhead isn't shown.
+    s.followDaw = false;
+    t.p.setSong (s);
+    t.play (0.05);
+    CHECK (t.p.getSongPlayhead() < 0.0);
+}
+
+TEST_CASE ("SONG STRIP 0.82.0: COPY DRUMS: one block's kick onto another, in place of its kick, the rest kept", "[song][ui]")
+{
+    Plugin t;
+    song::Song s;
+    // A: kicks on every beat (and a snare); B: kicks on 1 and 3 of each bar, snares on 2 and 4 (2 bars).
+    s.place (block ("A", 1, { { 0.0, BD }, { 1.0, BD }, { 2.0, BD }, { 3.0, BD }, { 1.0, SD } }), 0.0);
+    s.place (block ("B", 2, { { 0.0, BD }, { 2.0, BD }, { 4.0, BD }, { 6.0, BD }, { 1.0, SD }, { 3.0, SD }, { 5.0, SD }, { 7.0, SD } }), 4.0);
+    t.p.setSong (s);
+    t.p.flushUndoStep();
+    SongTrack track (t.p);
+    track.setBounds (0, 0, 1400, 136);
+    track.resized();
+    const auto beatsOf = [] (const song::Block& b, int slot)
+    {
+        std::vector<double> out;
+        for (const auto& h : b.hits)
+            if (h.slot == slot)
+                out.push_back (h.beat);
+        std::sort (out.begin(), out.end());
+        return out;
+    };
+
+    // COPY DRUMS > KICK on A: only its kicks on the clipboard, marked as the kick.
+    track.copyDrums (t.p.getSong().blocks[0], song::slotsOf (1u << 0));
+    REQUIRE (t.p.getSongClipboard().has_value());
+    CHECK (beatsOf (*t.p.getSongClipboard(), SD).empty());
+    CHECK (beatsOf (*t.p.getSongClipboard(), BD).size() == 4);
+    CHECK (t.p.getSongClipboardDrums() == song::slotsOf (1u << 0));
+
+    // CTRL + V with B chosen: B's kick is A's (its 1-bar pattern repeated over B's 2 bars), B's snares untouched,
+    // no block added; one undo step.
+    track.setSelection ({ 1 });
+    CHECK (track.keyPressed (juce::KeyPress ('v', juce::ModifierKeys::commandModifier, 0)));
+    t.p.flushUndoStep();
+    {
+        const auto& song = t.p.getSong();
+        REQUIRE (song.blocks.size() == 2);
+        CHECK ((beatsOf (song.blocks[1], BD) == std::vector<double> { 0, 1, 2, 3, 4, 5, 6, 7 }));
+        CHECK ((beatsOf (song.blocks[1], SD) == std::vector<double> { 1, 3, 5, 7 }));
+        CHECK ((beatsOf (song.blocks[0], SD) == std::vector<double> { 1 }));   // A as it was
+    }
+    t.p.undo();
+    CHECK ((beatsOf (t.p.getSong().blocks[1], BD) == std::vector<double> { 0, 2, 4, 6 }));
+
+    // A whole block copied: CTRL + V still places a copy after the chosen block.
+    track.setSelection ({ 0 });
+    CHECK (track.keyPressed (juce::KeyPress ('c', juce::ModifierKeys::commandModifier, 0)));
+    CHECK (t.p.getSongClipboardDrums() == song::allSlots);
+    CHECK (track.keyPressed (juce::KeyPress ('v', juce::ModifierKeys::commandModifier, 0)));
+    CHECK (t.p.getSong().blocks.size() == 3);
+}
+
+//==============================================================================
+// 0.85.0: THE SONG TRACK SCROLLS ON PAST THE SONG, AS A DAW'S TIMELINE.
+TEST_CASE ("SONG STRIP 0.85.0: the lane scrolls as far right as you like, whatever the song's length; bar lines and numbers out there", "[song][ui]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 4, { { 0.0, BD } }), 0.0);   // a song of 4 bars
+    t.p.setSong (s);
+    SongTrack track (t.p);
+    track.setBounds (0, 0, 1400, 136);
+    const auto lane = track.getLane();
+
+    // At least 1,000 bars to scroll through, the scroll bar there although the song is short.
+    CHECK (track.scrollEnd() >= 4000.0);
+    CHECK (track.getScrollBar().isVisible());
+    CHECK (track.getScrollBar().getMaximumRangeLimit() >= 4000.0);
+
+    // Bar 55 and well beyond: the view goes there, a bar's x and beat agree.
+    track.setViewStart (54.0 * 4.0);
+    CHECK (track.getViewStart() == 216.0);
+    CHECK (std::abs (track.beatAt ((float) lane.getX()) - 216.0) < 1.0e-6);
+    track.setViewStart (900.0 * 4.0);
+    CHECK (track.getViewStart() == 3600.0);
+
+    // The wheel keeps going right, past 1,000 bars too (the timeline grows ahead of the view).
+    juce::MouseWheelDetails wheel {};
+    wheel.deltaY = -1.0f;
+    const auto mouse = juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), lane.getCentre().toFloat(), juce::ModifierKeys(),
+                                         1.0f, 0.0f, 0.0f, 0.0f, 0.0f, &track, &track, juce::Time::getCurrentTime(),
+                                         lane.getCentre().toFloat(), juce::Time::getCurrentTime(), 1, false);
+    auto before = track.getViewStart();
+    for (int i = 0; i < 40; ++i)
+        track.mouseWheelMove (mouse, wheel);
+    CHECK (track.getViewStart() > before);
+    CHECK (track.getViewStart() > 4000.0);
+    CHECK (track.scrollEnd() > track.getViewStart() + 32.0 * 4.0);
+
+    // The song's own length is unchanged: scrolling adds nothing to it.
+    CHECK (t.p.getSong().endBeat() == 16.0);
+    // The lane draws out there without trouble.
+    juce::Image image (juce::Image::RGB, 1400, 136, true);
+    juce::Graphics g (image);
+    track.paintEntireComponent (g, false);
+}
+
+TEST_CASE ("SONG STRIP 0.85.0: SPACE goes on to the DAW: no key on the strip takes it, the strip and the window leave it", "[song][ui]")
+{
+    Plugin t;
+    song::Song s;
+    s.place (block ("A", 4, { { 0.0, BD } }), 0.0);
+    t.p.setSong (s);
+    MainView view (t.p);
+    view.setSize (MainView::width, MainView::height);
+    view.showPage (MainView::Page::grooves);
+    auto& track = view.getSongTrack();
+
+    // No button or scroll bar on the strip takes the keyboard (a focused JUCE button would take SPACE as its click).
+    for (auto* c : track.getChildren())
+    {
+        INFO (c->getName());
+        CHECK_FALSE (c->getWantsKeyboardFocus());
+        CHECK_FALSE (c->getMouseClickGrabsKeyboardFocus());
+    }
+    // SPACE isn't used: not by the strip, not by the window (the GRID EDITOR closed), so the plugin hands it back.
+    const auto followBefore = t.p.getSong().followDaw;
+    const juce::KeyPress space (juce::KeyPress::spaceKey);
+    CHECK_FALSE (track.keyPressed (space));
+    CHECK_FALSE (view.keyPressed (space));
+    CHECK_FALSE (t.p.isSongPlaying());
+    CHECK (t.p.getSong().followDaw == followBefore);
 }

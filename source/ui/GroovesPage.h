@@ -157,7 +157,9 @@ private:
     std::vector<juce::File> childrenOf (const juce::File&) const;
     // 0.30.0: each folder's subfolders, read from the disk once until the library changes or RERACK (the browser asks
     // for them many times a click).
-    mutable std::map<juce::String, std::vector<juce::File>> childCache;
+    // A folder's subfolders on the disk (0.86.0: kept while a scan lists grooves; the groove databases' folders come
+    // from the catalogue each time).
+    mutable std::map<juce::String, std::vector<juce::File>> diskCache;
     mutable std::map<juce::String, std::vector<BrowserRow>> rowCache;
 
     class BrowserColumn;

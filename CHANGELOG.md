@@ -2,6 +2,161 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.88.0
+
+- **Two more crashes on the KIT VIEW, one each side**, laid out with you over four mock-ups:
+  - **CRASH 4** on the left, just above crash 1.
+  - **CRASH 5** on the right, just above the ride.
+  - Both sit at the same height, a few centimetres clear of the cymbal under them, so the kit stays symmetrical.
+  - Crash 5's stand stands just behind its cymbal, out of the way of the orange 7D hologram.
+- **They work like every other piece:** click one to choose it and hear it, and it glows when it plays (from a groove,
+  the song track, the sequencer or your MIDI). Its articulations show in the panel at the bottom left.
+- **They play the drum slots that were already there,** crash 4 and crash 5. In GROOVE LIBRARY, crash 4 is note 31
+  (and its mute hit 106), crash 5 note 57 (and 58).
+  - Give them sounds as with any drum: DRUMS > LOAD... on that drum, or a sample pack's crashes onto them.
+  - If a slot is switched off in its articulations, a click plays its stand-in (crash 2 for crash 4, crash 1 for
+    crash 5), and that cymbal glows instead. Switch it on to hear its own sound.
+- The whole kit was rendered again for the new picture; nothing else on it moved.
+
+## 0.87.0
+
+- **Two finishes, OBSIDIAN and AURORA**, as on PR7-G and PR7-B, your choice in the new **SETTINGS > FINISH** (beside
+  PRESETS). Before, PR7-D had no finish setting of its own: only THE DRUM MACHINE's FINISH menu.
+  - **OBSIDIAN** is the pearl black unit (Pearl Black renamed), and the default.
+  - **AURORA** is the pearl white unit with neon rings (Pearl White + Neon renamed).
+  - On both, the keys, pads and knobs are black in neon pink-to-orange rings.
+  - **Pearl White, with chrome rings, is gone.** If you were on it (it was where PR7-D started if you never chose),
+    PR7-D now opens in Obsidian. If you had Pearl Black, it's Obsidian. If you had White + Neon, it's Aurora.
+  - **THE DRUM MACHINE's FINISH** menu offers the same two, and follows the same rules: a machine set to Pearl White
+    opens in Obsidian. It still has its own finish, separate from the rest of the plugin.
+  - What the finish changes outside the machine: the rings round the keys and knobs (now neon on both, where Pearl
+    White had chrome), and the lettering printed beside them, for example under the rack units' names on the FX page.
+    With the old Pearl White default that lettering was a dim grey on the dark rack; on Obsidian it's white.
+- **AURORA is 10% softer than full white**, as you chose for PR7-B: the pearl of THE DRUM MACHINE's face (its rim,
+  face plate, sheen and highlights) is drawn at 90% of its old brightness, so pure white becomes 230 out of 255. It
+  still reads clearly as a white unit, without the glare.
+  - The lettering, the PARAGON badge, the neon, the keys, the knobs and the screens keep their own colours.
+  - OBSIDIAN is unchanged, pixel for pixel.
+
+## 0.86.0
+
+- **GROOVES responds faster on a big library.** Measured on a generated library the size of yours: 100,100 grooves,
+  70,000 MIDI files in 140 packs plus 43 groove databases. Times are on the message thread, the one the window waits on:
+
+  | What you do | Before | Now |
+  |---|---|---|
+  | Open a pack | 99 ms | 29 ms (the first time; the disk listing is most of it) |
+  | Open a song folder | 39 ms | 8 ms |
+  | Each letter typed in SEARCH | 20-24 ms | 3-6 ms |
+  | A filter (TYPE, TEMPO...) | 34-36 ms | 4 ms |
+  | CLEAR | 17 ms | 3 ms |
+
+- **What was slow:**
+  - Every click sorted all 100,000 grooves again. The sorted order is now kept and only re-sorted when the sort,
+    the song's tempo or the library changes. That sort happens on the background thread that reads the library.
+  - Filters compared every groove's values as text. They now compare numbers.
+  - Search and "is it in this folder" walked text a letter at a time. They now use plain byte copies made once per
+    library change.
+  - The folder browser listed a folder from the disk again after every library change, including twice a second
+    while a scan ran. It now keeps the disk listing until RERACK, CHECK ALL FOLDERS FOR CHANGES or a folder added
+    or removed.
+- **One small visible change:** grooves with exactly the same name and the same sort values used to come out in no
+  fixed order. They now always come out in the same order.
+- **Left as it is:** the first click on a groove inside a groove database opens that database, about 40 ms for one
+  with 700 grooves. After that it's kept, and the next click is instant.
+
+## 0.85.0
+
+- **The song track scrolls as far right as you like,** like your DAW's timeline. Before, it stopped two bars after
+  the last groove, so getting further meant putting more grooves down. Now there are at least 1,000 bars to scroll
+  through, and the wheel keeps going past that. Empty bars after the song are just empty lane. Scrolling adds nothing
+  to the song itself.
+- **The zoom stays put.** A short song used to be stretched across the whole lane. Now the lane always shows the
+  number of bars you zoomed to (32 at first; Ctrl + the wheel, or G / H, zooms), with the empty bars after the song
+  shown. The scroll bar under the lane is always there now.
+- **SPACE starts and stops your DAW from the song track.** The song track never used SPACE, but once you'd clicked
+  one of its keys (PLAY, FOLLOW DAW, LOOP...), that key kept the keyboard and SPACE "clicked" it again. Now none of the
+  strip's keys take the keyboard, so SPACE goes on to the DAW: PR7-S passes a plug-in's unused keys to its
+  transport. The GRID EDITOR's SPACE still plays PR7-D's song, as in 0.66.0.
+- Not checked here: SPACE inside PR7-S on Windows (this machine can't run PR7-D inside it). If it still doesn't reach
+  the transport, tell me: the next thing to look at is PR7-S's side.
+
+## 0.84.0
+
+- **THE MIXER looks as it did before 0.78.0.** 0.78.0 rebuilt the strips in the rack style, five wide strips across
+  the page. That matched the rack units but was far too wide: a kit's channels didn't fit, so you had to scroll.
+  The narrow strips are back, about 13 across, with PROPERTIES (BLEED / EFFECTS / SENDS) always open on the right.
+  Everything else stays as it was: the family colours and white lettering, the drum buses and their names, and
+  0.79.0's faster sound engine.
+- What goes with the rack-style strips: the EFFECTS section that folded away, each strip's ON key per effect, and the
+  send knob on the strip. The effects and sends are set as before, from the strip's FX / SEND buttons and from
+  PROPERTIES.
+- Carries 0.83.0 (the studio link with PR7-S, below), released from another session first.
+
+## 0.83.0
+
+**The studio link: Paragon PR7-S's composer lays a song out in PR7-D's song track** (you asked PR7-S for "full integration" with PR7-D, now PR7-S's house drum kit).
+
+- **PR7-S sends the song, PR7-D plays it.** When PR7-S's composer builds drums on a track playing PR7-D, PR7-S writes the song (a block per section: the groove and its fills, on PR7-D's own drums) to a file and tells this PR7-D, on its track, to load it. The song track swaps to it at once. Your kit, samples and mixer aren't touched. FOLLOW DAW is on, so it plays with PR7-S's playhead.
+- **Edit it here.** The blocks are ordinary song track blocks: EDIT PLAY STYLE, the grid editor, FIND SIMILAR, moving and lengthening all work. Once your edits stop (under half a second), they're written back to the file and PR7-S picks them up, so its arrangement follows what you did here.
+- **The song track keeps its own settings.** A song from PR7-S keeps your loop, click and count-in as they were.
+- **A note on the song strip** tells you when a song has arrived from PR7-S.
+- **Pause and resume.** While PR7-S's composer plays a drum idea of its own through this kit, it asks PR7-D to keep its song quiet for that moment, so you don't hear two drum parts at once.
+- How it talks: a short SysEx message on the track, PR7-D's own (manufacturer number 7D, the one MIDI keeps for non-commercial use). PR7-D ignores any other SysEx as before. Nothing changes for PR7-D in other DAWs.
+
+Worth knowing:
+- A project saved with a linked song keeps the link: edits made later still go back to PR7-S's file.
+- I can't run PR7-D inside PR7-S here, so the link was tested with PR7-D's own test host: the message, the song loading and playing on its samples, pause and resume, and edits written back.
+
+## 0.82.1
+
+0.82.0 was never published: its Linux check crashed. This release carries 0.82.0's changes (below) and the fix.
+
+- **A rare crash fixed.** The plugin tells the DAW how much delay the LIMITER adds. It worked that out by reading the
+  LIMITER's oversampling filters, but the DAW can replace those filters on its own thread while the plugin is reading
+  them, and reading them while they're being replaced could crash. pluginval's test that changes parameters at
+  random caught it on 0.82.0's Linux build. Now each oversampling setting's delay is measured once and kept, and that
+  stored number is what gets read. The delay reported is exactly the same as before. PR7-O found and fixed this
+  first, in its 0.5.0.
+
+## 0.82.0
+
+**FOLLOW DAW follows the DAW's playhead everywhere, and COPY DRUMS** (you asked for both).
+
+- **FOLLOW DAW on: the song's playhead is the DAW's.** It used to follow only while the DAW played, so when the DAW stopped, or you moved its playhead while stopped, the song track and the GRID EDITOR lost it. Now their playhead line sits wherever the DAW's is, playing or stopped. PLAY in the plugin starts from there too, and PLAY's start mark on the song track follows it. FOLLOW DAW off works as before. This needs the DAW to tell plugins where its playhead is while it's stopped. Most do, but I couldn't check yours from here.
+- **COPY DRUMS on a block's right-click menu:** copy just some of its drums (KICK, SNARE, HI-HAT, HI-HAT PEDAL, RIDE, TOMS, CRASH, PERCUSSION), each listed with how many hits it has there.
+  - **Paste them onto another block** with its right-click PASTE DRUMS ONTO IT, or CTRL + V with blocks chosen. Only those drums are replaced: copy groove A's kick, paste onto groove B, and B gets A's kick pattern with its own snare, hats and the rest kept. A shorter copy repeats to fill the block (a 1-bar kick over a 4-bar groove).
+  - With several blocks chosen, CTRL + V pastes onto each of them, as one undo step.
+  - COPY (the whole block) and CTRL + C work as before, and CTRL + V then places the whole block after the chosen one.
+- **Fix:** PASTE DRUMS ONTO IT > ALL used to clear every drum of the target first. After copying only some drums (also GROOVES' COPY FOR SONG with GROOVE PARTS ticked), that would have wiped the target's other drums. It now replaces only the drums that were copied.
+
+## 0.81.0
+
+**THE GRID EDITOR shows the whole song, the PENCIL on 8, and no more lag** (you asked for all three).
+
+- **The whole song in one grid.** Scroll back to the song's start and on past its end (the scroll bar under the grid, SHIFT + the wheel, or AUTO SCROLL as it plays). Every block's notes are drawn where they play, and a stretch with no block is just empty grid. Each block is shaded and named along the bottom, and the one you're editing is a little lighter.
+- **Every block can be edited.** Click a note in another block, drag a lasso in it, or draw in it, and that block is edited from there (the song track's chosen block follows). The view doesn't jump.
+- **Loops drawn at every repeat.** A 2-bar groove stretched to 8 bars shows all four passes. Editing a note in any pass changes the loop, so every pass changes with it, as it plays.
+- **The PENCIL in an empty stretch makes a block** there, a bar long from the bar line before where you clicked (shorter if the next block starts sooner), with your note in it. Lengthen it on the song track as usual. The POINTER in an empty stretch still draws a lasso.
+- **The first hit isn't cut off any more:** the view opens just before the block's first beat.
+- **Keys 1 and 8:** POINTER and PENCIL, as in the DAW.
+- **The lag:** the grid editor sat over the page under it (the kit view, with its lights and holograms moving on every hit) without saying it covered it, so each of those flashes also drew the page underneath and the whole grid editor again. It now covers what's under it, and its page is drawn once into a picture and copied, with only the playhead drawn over it as the song plays. Measured with a 64-bar song of busy hats:
+  - a kit light flashing under the grid editor: 0.29 ms -> 0.05 ms (100% screen), 0.82 -> 0.13 ms (200%)
+  - each playhead step: 0.17 -> 0.03 ms (100%), 0.19 -> 0.06 ms (200%)
+  - the whole window: 12.7 -> 5.3 ms (100%), 41 -> 17 ms (200%)
+  - The cost moved to editing: while you drag notes, each mouse move draws the picture again, about 6 ms (100%) / 20 ms (200%), a little more than before (5 / 12 ms).
+
+## 0.80.0
+
+**The GRID EDITOR counts the song's bars, and CTRL + C / V / D on the song track** (you asked for both).
+
+- **The GRID EDITOR's ruler shows where the block really is in the song.** It used to start every block at bar 1. A chorus that starts at bar 10 now shows 10, 10.2, 10.3, 10.4, 11 and so on, as the song track's ruler does, and time signature changes in the song are followed. The title also says where it sits: "4 bars, bars 10-13 of the song".
+- **Keys on the MIDI song track**, as in the DAW (CMD instead of CTRL on a Mac). Click a block on the track first so the track has the keyboard.
+  - **CTRL + C** copies the chosen block. With several chosen, the first of them is copied: the clipboard holds one block, as the menu's Copy does.
+  - **CTRL + V** pastes it right after the chosen block, the blocks after it moving along, as the menu's Paste After does. With nothing chosen, it goes at the end of the song.
+  - **CTRL + D** duplicates the chosen block right after it. With several chosen, the whole group is repeated after the last of them, gaps kept, and the copies are chosen, so CTRL + D again keeps going.
+  - Each is one undo step. C on its own is still the CUT tool.
+
 ## 0.79.0
 
 **Efficiency, round 5** (you asked for another round of optimization). Measured the same way as 0.76.0, with your setup: 44.1 kHz samples in a 44.1 kHz session, a streamed kit shaped like Djent Drums (5 mics on the kick, 4 on the snare, toms, hats, cymbals), mixer EQs, compressors and gates, the master compressor and LIMITER, a 180 BPM beat with 16th-note kicks. Old and new builds were run in turn, five times each.

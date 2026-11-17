@@ -690,10 +690,10 @@ namespace grooves
             const auto now = getCatalogue();
             if ((int) now->entries.size() >= maxFiles)
                 return false;   // (the library is full: nothing more would be listed)
-            const auto folderPath = folder.getFullPathName();
-            for (const auto& path : now->paths)
-                if (pathIsIn (path, folderPath))
-                    listed.insert (path);
+            const auto folderKey = pathKey (folder.getFullPathName());   // (0.86.0: on bytes)
+            for (size_t i = 0; i < now->paths.size(); ++i)
+                if (keyIsIn (now->pathKeys[i], folderKey))
+                    listed.insert (now->paths[i]);
         }
         auto count = 0;
         for (const auto& item : juce::RangedDirectoryIterator (folder, true, "*.mid;*.midi", juce::File::findFiles))
@@ -721,9 +721,20 @@ namespace grooves
     void Library::publish (std::vector<Entry>&& list)
     {
         auto made = makeCatalogue (std::move (list));
+        // 0.86.0: its order for the page's sort worked out here (the scanner's thread), not on the next click.
+        Order last;
+        {
+            std::lock_guard<std::mutex> guard (lock);
+            last.sortOrder = order.sortOrder;
+            last.lastSongBpm = order.lastSongBpm;
+            last.lastSongNumerator = order.lastSongNumerator;
+            last.lastSongDenominator = order.lastSongDenominator;
+        }
+        auto ordered = makeOrder (made, last.sortOrder, last.lastSongBpm, last.lastSongNumerator, last.lastSongDenominator);
         {
             std::lock_guard<std::mutex> guard (lock);
             std::swap (catalogue, made);
+            order = std::move (ordered);
             ++generation;
             matchScores.clear();
         }
@@ -770,14 +781,105 @@ namespace grooves
         return ! rest.containsAnyOf ("/\\");
     }
 
+    std::string pathKey (const juce::String& path)
+    {
+       #if JUCE_WINDOWS
+        return path.toLowerCase().toStdString();
+       #else
+        return path.toStdString();
+       #endif
+    }
+
+    bool keyIsIn (const std::string& path, const std::string& folder) noexcept
+    {
+        // As pathIsIn, on bytes.
+        if (folder.empty() || path.size() < folder.size() || path.compare (0, folder.size(), folder) != 0)
+            return false;
+        if (path.size() == folder.size())
+            return true;
+        const auto next = path[folder.size()];
+        const auto last = folder.back();
+        return next == '/' || next == '\\' || last == '/' || last == '\\';
+    }
+
+    bool keyIsDirectlyIn (const std::string& path, const std::string& folder) noexcept
+    {
+        if (! keyIsIn (path, folder) || path.size() == folder.size())
+            return false;
+        const auto last = folder.back();
+        const auto from = folder.size() + (last == '/' || last == '\\' ? 0 : 1);
+        return path.find_first_of ("/\\", from) == std::string::npos;
+    }
+
+    FilterIds::FilterIds (const Catalogue& all, const Filters& filters)
+    {
+        active = ! filters.isEmpty();
+        for (int c = 0; c < numColumns; ++c)
+        {
+            const auto& known = all.values[(size_t) c];
+            for (const auto& v : filters.include[(size_t) c])
+            {
+                const auto at = known.indexOf (v);
+                if (at >= 0)
+                    include[(size_t) c].push_back (at);
+                else if (c == (int) Column::type)
+                    impossible[(size_t) c] = true;   // (every TYPE chosen must be there: one no groove has passes none)
+            }
+            for (const auto& v : filters.exclude[(size_t) c])
+                if (const auto at = known.indexOf (v); at >= 0)
+                    exclude[(size_t) c].push_back (at);
+            // An include of only values the library hasn't (any-of columns): none passes either.
+            if (c != (int) Column::type && include[(size_t) c].empty() && ! filters.include[(size_t) c].isEmpty())
+                impossible[(size_t) c] = true;
+        }
+    }
+
+    bool FilterIds::passes (const Catalogue& all, size_t entry) const
+    {
+        // As Filters::passes, by the catalogue's numbers.
+        if (! active)
+            return true;
+        for (int c = 0; c < numColumns; ++c)
+        {
+            if (impossible[(size_t) c])
+                return false;
+            const auto& in = include[(size_t) c];
+            const auto& out = exclude[(size_t) c];
+            if (in.empty() && out.empty())
+                continue;
+            const auto& f = all.first[(size_t) c];
+            const auto* idsFrom = all.ids[(size_t) c].data() + f[entry];
+            const auto* idsTo = all.ids[(size_t) c].data() + f[entry + 1];
+            const auto has = [idsFrom, idsTo] (int id) { return std::find (idsFrom, idsTo, id) != idsTo; };
+            if (c == (int) Column::type)
+            {
+                if (! std::all_of (in.begin(), in.end(), has))
+                    return false;
+            }
+            else if (! in.empty() && ! std::any_of (in.begin(), in.end(), has))
+                return false;
+            if (std::any_of (out.begin(), out.end(), has))
+                return false;
+        }
+        return true;
+    }
+
     std::shared_ptr<const Catalogue> makeCatalogue (std::vector<Entry>&& list)
     {
         auto made = std::make_shared<Catalogue>();
         made->entries = std::move (list);
         const auto n = made->entries.size();
         made->paths.reserve (n);
+        made->pathKeys.reserve (n);
+        made->searchText.reserve (n);
         for (const auto& e : made->entries)
+        {
             made->paths.push_back (e.file.getFullPathName());
+            made->pathKeys.push_back (pathKey (made->paths.back()));
+            made->searchText.push_back ((e.cached != nullptr ? e.cached->haystack
+                : (e.name + " " + e.family + " " + e.file.getParentDirectory().getParentDirectory().getFileName()).toLowerCase())
+                                            .toStdString());
+        }
 
         // The filter columns' values, and each groove's as numbers.
         juce::StringArray scratch;
@@ -990,48 +1092,116 @@ namespace grooves
         return result;
     }
 
+    bool Library::Order::fits (const std::shared_ptr<const Catalogue>& c, SortOrder sort, double bpm, int numerator,
+                               int denominator) const
+    {
+        return catalogue.lock() == c && sortOrder == sort
+            && songBpm == (sort.songTempo ? bpm : 0.0)
+            && songNumerator == (sort.songSignature ? numerator : 0)
+            && songDenominator == (sort.songSignature ? denominator : 0);
+    }
+
+    Library::Order Library::makeOrder (const std::shared_ptr<const Catalogue>& c, SortOrder sort, double songBpm,
+                                       int songNumerator, int songDenominator)
+    {
+        Order made;
+        made.catalogue = c;
+        made.sortOrder = sort;
+        made.songBpm = sort.songTempo ? songBpm : 0.0;
+        made.songNumerator = sort.songSignature ? songNumerator : 0;
+        made.songDenominator = sort.songSignature ? songDenominator : 0;
+        made.lastSongBpm = songBpm;
+        made.lastSongNumerator = songNumerator;
+        made.lastSongDenominator = songDenominator;
+        if (c == nullptr)
+            return made;
+        const auto& all = *c;
+        made.rows.resize (all.entries.size());
+        for (size_t i = 0; i < made.rows.size(); ++i)
+            made.rows[i] = (int) i;
+        const auto byName = [] (const Entry& a, const Entry& b)
+        {
+            if (a.cached != nullptr && b.cached != nullptr)
+                return a.nameRank < b.nameRank;
+            if (const auto k = a.family.compareNatural (b.family); k != 0)
+                return k < 0;
+            return a.name.compareNatural (b.name) < 0;
+        };
+        std::sort (made.rows.begin(), made.rows.end(), [&] (int ra, int rb)
+        {
+            const auto& a = all.entries[(size_t) ra];
+            const auto& b = all.entries[(size_t) rb];
+            if (sort.songSignature)
+            {
+                const auto ma = a.numerator == songNumerator && a.denominator == songDenominator;
+                const auto mb = b.numerator == songNumerator && b.denominator == songDenominator;
+                if (ma != mb)
+                    return ma;
+            }
+            if (sort.songTempo)
+            {
+                const auto da = std::abs (a.bpm - songBpm), db = std::abs (b.bpm - songBpm);
+                if (std::abs (da - db) > 1.0e-6)
+                    return da < db;
+            }
+            if (sort.priority)
+            {
+                if (a.priority != b.priority)
+                    return a.priority < b.priority;
+                if (std::abs (a.intensity - b.intensity) > 1.0e-6f)
+                    return a.intensity < b.intensity;   // the gentler groove first (our own measure)
+            }
+            if (byName (a, b))
+                return true;
+            if (byName (b, a))
+                return false;
+            return ra < rb;   // (ties in a fixed order: the same rows always list alike)
+        });
+        return made;
+    }
+
     Library::Found Library::find (const juce::File& within, const juce::String& text, bool favouritesOnly, SortOrder sort,
                                   double songBpm, int songNumerator, int songDenominator, const Filters& filters,
                                   const TapSearch* tap) const
     {
-        juce::StringArray words;
-        words.addTokens (text.toLowerCase(), " ", "\"");
-        words.removeEmptyStrings();
+        juce::StringArray wordList;
+        wordList.addTokens (text.toLowerCase(), " ", "\"");
+        wordList.removeEmptyStrings();
+        std::vector<std::string> words;
+        for (const auto& w : wordList)
+            words.push_back (w.toStdString());
         Found out;
         out.catalogue = getCatalogue();
         const auto& all = *out.catalogue;
-        const auto withinPath = within.getFullPathName();
+        // 0.86.0: the checks on bytes (Catalogue::pathKeys / searchText), the rows taken in the catalogue's kept order.
+        const auto withinKey = within == juce::File() ? std::string() : pathKey (within.getFullPathName());
         // Folders left out of searches (0.16.0): only when browsing inside them.
-        juce::StringArray leftOut;
+        std::vector<std::string> leftOut;
         for (const auto& f : folders)
             if (f.excluded && ! (within == f.folder || within.isAChildOf (f.folder)))
-                leftOut.add (f.folder.getFullPathName());
+                leftOut.push_back (pathKey (f.folder.getFullPathName()));
         std::set<juce::String> favouriteSet;
         if (favouritesOnly)
             for (const auto& f : favourites)
                 favouriteSet.insert (f);
-        const auto filtering = ! filters.isEmpty();
-        for (size_t i = 0; i < all.entries.size(); ++i)
+        const FilterIds filterIds (all, filters);
+        const auto passes = [&] (size_t i)
         {
-            const auto& e = all.entries[i];
-            const auto& path = all.paths[i];
-            if (within != juce::File() && ! (subfolders ? pathIsIn (path, withinPath) : pathIsDirectlyIn (path, withinPath)))
-                continue;
-            if (favouritesOnly && favouriteSet.count (path) == 0)
-                continue;
-            if (! leftOut.isEmpty() && std::any_of (leftOut.begin(), leftOut.end(), [&path] (const juce::String& f) { return pathIsIn (path, f); }))
-                continue;
-            if (! words.isEmpty())
+            const auto& key = all.pathKeys[i];
+            if (! withinKey.empty() && ! (subfolders ? keyIsIn (key, withinKey) : keyIsDirectlyIn (key, withinKey)))
+                return false;
+            if (favouritesOnly && favouriteSet.count (all.paths[i]) == 0)
+                return false;
+            if (! leftOut.empty() && std::any_of (leftOut.begin(), leftOut.end(), [&key] (const std::string& f) { return keyIsIn (key, f); }))
+                return false;
+            if (! words.empty())
             {
-                const auto haystack = e.cached != nullptr ? e.cached->haystack
-                    : (e.name + " " + e.family + " " + e.file.getParentDirectory().getParentDirectory().getFileName()).toLowerCase();
-                if (! std::all_of (words.begin(), words.end(), [&] (const juce::String& w) { return haystack.contains (w); }))
-                    continue;
+                const auto& haystack = all.searchText[i];
+                if (! std::all_of (words.begin(), words.end(), [&haystack] (const std::string& w) { return haystack.find (w) != std::string::npos; }))
+                    return false;
             }
-            if (filtering && ! filters.passes (e))
-                continue;
-            out.rows.push_back ((int) i);
-        }
+            return ! filterIds.active || filterIds.passes (all, i);
+        };
         const auto byName = [] (const Entry& a, const Entry& b)
         {
             if (a.cached != nullptr && b.cached != nullptr)
@@ -1042,6 +1212,9 @@ namespace grooves
         };
         if (tap != nullptr)
         {
+            for (size_t i = 0; i < all.entries.size(); ++i)
+                if (passes (i))
+                    out.rows.push_back ((int) i);
             // Each groove's match, kept for the same search (filters and folders clicked during one ask again).
             std::vector<float> score (all.entries.size(), 0.0f);
             {
@@ -1073,32 +1246,20 @@ namespace grooves
                 out.match.push_back (score[(size_t) r]);
             return out;
         }
-        std::sort (out.rows.begin(), out.rows.end(), [&] (int ra, int rb)
+
+        // The whole catalogue in order, worked out once for this catalogue and sort (the song's tempo and signature
+        // only count while their sorts are on; publish works it out ahead, in the scanner's thread).
+        std::vector<int> ordered;
         {
-            const auto& a = all.entries[(size_t) ra];
-            const auto& b = all.entries[(size_t) rb];
-            if (sort.songSignature)
-            {
-                const auto ma = a.numerator == songNumerator && a.denominator == songDenominator;
-                const auto mb = b.numerator == songNumerator && b.denominator == songDenominator;
-                if (ma != mb)
-                    return ma;
-            }
-            if (sort.songTempo)
-            {
-                const auto da = std::abs (a.bpm - songBpm), db = std::abs (b.bpm - songBpm);
-                if (std::abs (da - db) > 1.0e-6)
-                    return da < db;
-            }
-            if (sort.priority)
-            {
-                if (a.priority != b.priority)
-                    return a.priority < b.priority;
-                if (std::abs (a.intensity - b.intensity) > 1.0e-6f)
-                    return a.intensity < b.intensity;   // the gentler groove first (our own measure)
-            }
-            return byName (a, b);
-        });
+            std::lock_guard<std::mutex> guard (lock);
+            if (! order.fits (out.catalogue, sort, songBpm, songNumerator, songDenominator))
+                order = makeOrder (out.catalogue, sort, songBpm, songNumerator, songDenominator);
+            ordered = order.rows;   // (copied while held: a quarter of a millisecond for 100,000)
+        }
+        out.rows.reserve (ordered.size());
+        for (const auto r : ordered)
+            if (passes ((size_t) r))
+                out.rows.push_back (r);
         return out;
     }
 

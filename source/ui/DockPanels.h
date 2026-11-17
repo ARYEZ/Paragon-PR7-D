@@ -90,7 +90,10 @@ private:
 
     ParagonX1AudioProcessor& processor;
     juce::TextButton openFolder { "OPEN PRESETS FOLDER" };
-    juce::Rectangle<int> keysArea, rigsArea, aboutArea;
+    // 0.87.0: FINISH, OBSIDIAN or AURORA (Finish.h), the chosen one lit.
+    juce::TextButton obsidian { "OBSIDIAN" }, aurora { "AURORA" };
+    void showFinish();
+    juce::Rectangle<int> keysArea, rigsArea, finishArea, aboutArea;
     ParamControl mapChoice, channelChoice, namesChoice;
     juce::TextButton saveMap { "SAVE AS DEFAULT" }, presetButton;
     NoteMapList mapList;
@@ -106,5 +109,5 @@ public:
 
 private:
 
-    void changeListenerCallback (juce::ChangeBroadcaster*) override { repaint(); }
+    void changeListenerCallback (juce::ChangeBroadcaster*) override { showFinish(); }   // (a preset loaded, or the finish changed)
 };
