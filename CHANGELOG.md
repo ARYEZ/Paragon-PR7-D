@@ -2,6 +2,22 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.88.0
+
+- **Two more crashes on the KIT VIEW, one each side**, laid out with you over four mock-ups:
+  - **CRASH 4** on the left, just above crash 1.
+  - **CRASH 5** on the right, just above the ride.
+  - Both sit at the same height, a few centimetres clear of the cymbal under them, so the kit stays symmetrical.
+  - Crash 5's stand stands just behind its cymbal, out of the way of the orange 7D hologram.
+- **They work like every other piece:** click one to choose it and hear it, and it glows when it plays (from a groove,
+  the song track, the sequencer or your MIDI). Its articulations show in the panel at the bottom left.
+- **They play the drum slots that were already there,** crash 4 and crash 5. In GROOVE LIBRARY, crash 4 is note 31
+  (and its mute hit 106), crash 5 note 57 (and 58).
+  - Give them sounds as with any drum: DRUMS > LOAD... on that drum, or a sample pack's crashes onto them.
+  - If a slot is switched off in its articulations, a click plays its stand-in (crash 2 for crash 4, crash 1 for
+    crash 5), and that cymbal glows instead. Switch it on to hear its own sound.
+- The whole kit was rendered again for the new picture; nothing else on it moved.
+
 ## 0.87.0
 
 - **Two finishes, OBSIDIAN and AURORA**, as on PR7-G and PR7-B, your choice in the new **SETTINGS > FINISH** (beside

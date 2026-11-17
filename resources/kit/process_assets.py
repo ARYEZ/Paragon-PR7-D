@@ -12,7 +12,8 @@ RAW, OUT = sys.argv[1], sys.argv[2]
 PIECES = ["kick", "snare", "tom1", "tom2", "tom3", "floor", "hihat", "crash", "crash2", "ride", "china",
           "splash",   # (0.43.0: the 12 pieces of the owner's sample pack)
           "pad1", "pad2", "pad3", "pad4", "pad5", "pad6",   # (0.71.0: THE PADS)
-          "crash3"]   # (0.74.0: crash 3 where the splash was, the splash in the middle)
+          "crash3",   # (0.74.0: crash 3 where the splash was, the splash in the middle)
+          "crash4", "crash5"]   # (0.87.0: one each side, above crash 1 and the ride)
 LOW, HIGH = 330.0, 30.0     # the hues kept (degrees, through 0), inside the family's 318-42: JPEG drifts a few degrees
 
 def family_hues(rgb):
