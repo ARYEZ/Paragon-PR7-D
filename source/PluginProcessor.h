@@ -366,6 +366,10 @@ public:
     // 0.39.0: a bus's name (its own, else BUS n), and renaming it (empty: BUS n again). One undo step.
     juce::String getMixerBusName (int bus) const;
     void renameBus (int bus, const juce::String& name);
+    // 0.91.0: THE MIXER's strips in your order (ModMatrix::stripOrder; an undo step each, saved with the mix).
+    std::vector<int> getStripOrder() const { return matrix.orderedStrips(); }
+    void moveStrip (int strip, int before);   // put `strip` just before `before` (-1: at the end)
+    void resetStripOrder();
     // THE DRUM MACHINE's pads (0.39.0): which drum each of its 36 places (2 banks x 18 columns) plays, all 36 drums in some
     // order (setting one swaps it with the place that had that drum). Kept in the project, not in presets.
     int getMachinePad (int place) const noexcept;

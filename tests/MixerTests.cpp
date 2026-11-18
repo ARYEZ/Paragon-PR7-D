@@ -1311,3 +1311,85 @@ TEST_CASE ("THE DRUM MACHINE 0.39.0: a pad takes another drum (swapped with its 
     q.resetMachinePads();
     CHECK (q.getMachinePad (0) == 0);
 }
+
+TEST_CASE ("THE MIXER 0.91.0: strips moved into your own order, saved and undone", "[mixer][striporder]")
+{
+    namespace mixer = synth::mixer;
+    auto processor = std::make_unique<ParagonX1AudioProcessor>();
+    auto& p = *processor;
+    const auto usual = ModMatrix::usualStripOrder();
+    CHECK (p.getStripOrder() == usual);
+    CHECK ((int) usual.size() == mixer::numStrips);
+
+    // OVERHEADS put just before CYMBALS, ROOM at the end.
+    p.moveStrip (mixer::overheads, mixer::cymbals);
+    auto order = p.getStripOrder();
+    const auto at = [&order] (int s) { return (int) (std::find (order.begin(), order.end(), s) - order.begin()); };
+    CHECK (at (mixer::overheads) + 1 == at (mixer::cymbals));
+    CHECK (at (mixer::tom3) + 1 == at (mixer::overheads));
+    p.moveStrip (mixer::room, -1);
+    order = p.getStripOrder();
+    CHECK (order.back() == mixer::room);
+    CHECK ((int) order.size() == mixer::numStrips);
+
+    // Saved with the mix: a preset / the project's matrix round trip keeps it.
+    auto xml = p.getModMatrix().toXml();
+    const auto back = ModMatrix::fromXml (*xml);
+    CHECK (back.orderedStrips() == order);
+
+    // An older (shorter) or broken list: its valid strips first, the rest in the usual order.
+    ModMatrix m;
+    m.stripOrder = { mixer::cymbals, 999, -3, mixer::cymbals, mixer::kickIn };
+    const auto fixedUp = m.orderedStrips();
+    CHECK ((int) fixedUp.size() == mixer::numStrips);
+    CHECK (fixedUp[0] == mixer::cymbals);
+    CHECK (fixedUp[1] == mixer::kickIn);
+
+    // Back to the usual order: nothing saved.
+    p.resetStripOrder();
+    CHECK (p.getStripOrder() == usual);
+    CHECK (p.getModMatrix().stripOrder.empty());
+    p.moveStrip (mixer::kickIn, -1);
+    p.moveStrip (mixer::kickIn, usual[1]);   // back where it was
+    CHECK (p.getModMatrix().stripOrder.empty());
+}
+
+TEST_CASE ("THE MIXER 0.91.0: the page shows them in that order; Move Left / Right and a drag", "[mixer][striporder]")
+{
+    namespace mixer = synth::mixer;
+    auto processor = std::make_unique<ParagonX1AudioProcessor>();
+    MixerPage page (*processor);
+    page.setSize (1470, 690);
+    page.update();
+    const auto shown0 = page.getShownStrips();
+    REQUIRE (shown0.size() >= 4);
+
+    // Move Left: CYMBALS passes the one before it.
+    const auto cymbalsAt = (int) (std::find (shown0.begin(), shown0.end(), mixer::cymbals) - shown0.begin());
+    REQUIRE (cymbalsAt > 0);
+    page.moveStripBy (mixer::cymbals, -1);
+    page.update();
+    auto shown = page.getShownStrips();
+    CHECK (shown[(size_t) cymbalsAt - 1] == mixer::cymbals);
+    CHECK (shown[(size_t) cymbalsAt] == shown0[(size_t) cymbalsAt - 1]);
+    // Move Right puts it back.
+    page.moveStripBy (mixer::cymbals, 1);
+    page.update();
+    CHECK (page.getShownStrips() == shown0);
+
+    // Undo: the move is one step.
+    page.moveStripBy (mixer::kickIn, 2);
+    page.update();
+    CHECK (page.getShownStrips() != shown0);
+    processor->flushUndoStep();
+    processor->undo();
+    page.update();
+    CHECK (page.getShownStrips() == shown0);
+
+    // A drag to the left edge: first. The line shows while dragging, goes on drop.
+    page.dragStrip (mixer::cymbals, 1.0f);
+    CHECK (page.isDropLineShown());
+    page.dropStrip (mixer::cymbals, 1.0f);
+    CHECK (! page.isDropLineShown());
+    CHECK (page.getShownStrips().front() == mixer::cymbals);
+}

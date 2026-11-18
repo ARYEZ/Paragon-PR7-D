@@ -2578,6 +2578,32 @@ void ParagonX1AudioProcessor::renameBus (int bus, const juce::String& name)
     requestCheckpoint();
 }
 
+void ParagonX1AudioProcessor::moveStrip (int strip, int before)
+{
+    if (strip < 0 || strip >= synth::mixer::numStrips || strip == before)
+        return;
+    auto order = matrix.orderedStrips();
+    order.erase (std::remove (order.begin(), order.end(), strip), order.end());
+    const auto at = std::find (order.begin(), order.end(), before);
+    order.insert (at, strip);
+    auto m = matrix;
+    m.stripOrder = order == ModMatrix::usualStripOrder() ? std::vector<int>() : order;
+    if (m.stripOrder == matrix.stripOrder)
+        return;
+    setModMatrix (m);
+    requestCheckpoint();
+}
+
+void ParagonX1AudioProcessor::resetStripOrder()
+{
+    if (matrix.stripOrder.empty())
+        return;
+    auto m = matrix;
+    m.stripOrder.clear();
+    setModMatrix (m);
+    requestCheckpoint();
+}
+
 int ParagonX1AudioProcessor::getMachinePad (int place) const noexcept
 {
     return place >= 0 && place < ParamIDs::numDrums ? machinePads[(size_t) place] : 0;

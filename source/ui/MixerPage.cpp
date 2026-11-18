@@ -259,33 +259,81 @@ public:
         g.fillRect (m.withTop (m.getBottom() - h));
     }
 
+    bool onName (const juce::MouseEvent& e) const { return e.y > getHeight() - 30 || (isBus (strip) && e.y < 66); }
+
     void mouseDown (const juce::MouseEvent& e) override
     {
-        if (e.y > getHeight() - 30 || (isBus (strip) && e.y < 66))
+        dragging = false;
+        if (onName (e))
             page.selectStrip (strip);
-        // A user channel's or (0.39.0) a bus's name: right-click to rename it (0.23.0).
-        if ((isUser (strip) || isBus (strip)) && e.y > getHeight() - 30 && e.mods.isPopupMenu())
+        // Right-click the name (0.91.0): move the strip, put them all back, and (a user channel's or a bus's) rename it.
+        if (onName (e) && e.mods.isPopupMenu())
         {
-            const auto bus = isBus (strip);
-            auto* window = new juce::AlertWindow (bus ? "RENAME BUS" : "RENAME CHANNEL", bus ? "A name for this bus (empty: its number):"
-                                                                                            : "A name for this channel:",
-                                                  juce::MessageBoxIconType::NoIcon);
-            window->addTextEditor ("name", stripName (page.processor, strip));
-            window->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
-            window->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
-            juce::Component::SafePointer<Strip> safe (this);
-            window->enterModalState (true, juce::ModalCallbackFunction::create ([safe, window] (int result)
+            juce::PopupMenu menu;
+            menu.addSectionHeader (stripName (page.processor, strip));
+            menu.addItem (1, "Move Left");
+            menu.addItem (2, "Move Right");
+            menu.addItem (3, "Every Strip Back In The Usual Order", page.processor.getModMatrix().stripOrder.size() > 0);
+            if (isUser (strip) || isBus (strip))
             {
-                if (safe != nullptr && result == 1)
-                {
-                    if (isBus (safe->strip))
-                        safe->page.processor.renameBus (safe->strip - mixer::numChannels, window->getTextEditorContents ("name"));
-                    else
-                        safe->page.processor.renameUserChannel (mixer::channelOfStrip (safe->strip), window->getTextEditorContents ("name"));
-                    safe->repaint();
-                }
-            }), true);
+                menu.addSeparator();
+                menu.addItem (4, isBus (strip) ? "Rename Bus..." : "Rename Channel...");
+            }
+            juce::Component::SafePointer<Strip> safe (this);
+            menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea ({ e.getScreenX(), e.getScreenY(), 1, 1 }), [safe] (int item)
+            {
+                if (safe == nullptr || item == 0)
+                    return;
+                if (item == 1 || item == 2)
+                    safe->page.moveStripBy (safe->strip, item == 1 ? -1 : 1);
+                else if (item == 3)
+                    safe->page.processor.resetStripOrder();
+                else if (item == 4)
+                    safe->rename();
+            });
         }
+    }
+
+    // Drag a strip by its name to move it among the others (0.91.0).
+    void mouseDrag (const juce::MouseEvent& e) override
+    {
+        if (e.mods.isPopupMenu() || ! onName (e.withNewPosition (e.mouseDownPosition)))
+            return;
+        if (! dragging && e.getDistanceFromDragStart() < 6)
+            return;
+        dragging = true;
+        page.dragStrip (strip, e.getEventRelativeTo (getParentComponent()).position.x);
+    }
+
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (! dragging)
+            return;
+        dragging = false;
+        page.dropStrip (strip, e.getEventRelativeTo (getParentComponent()).position.x);
+    }
+
+    void rename()
+    {
+        const auto bus = isBus (strip);
+        auto* window = new juce::AlertWindow (bus ? "RENAME BUS" : "RENAME CHANNEL", bus ? "A name for this bus (empty: its number):"
+                                                                                        : "A name for this channel:",
+                                              juce::MessageBoxIconType::NoIcon);
+        window->addTextEditor ("name", stripName (page.processor, strip));
+        window->addButton ("OK", 1, juce::KeyPress (juce::KeyPress::returnKey));
+        window->addButton ("CANCEL", 0, juce::KeyPress (juce::KeyPress::escapeKey));
+        juce::Component::SafePointer<Strip> safe (this);
+        window->enterModalState (true, juce::ModalCallbackFunction::create ([safe, window] (int result)
+        {
+            if (safe != nullptr && result == 1)
+            {
+                if (isBus (safe->strip))
+                    safe->page.processor.renameBus (safe->strip - mixer::numChannels, window->getTextEditorContents ("name"));
+                else
+                    safe->page.processor.renameUserChannel (mixer::channelOfStrip (safe->strip), window->getTextEditorContents ("name"));
+                safe->repaint();
+            }
+        }), true);
     }
 
     int getStrip() const noexcept { return strip; }
@@ -293,6 +341,7 @@ public:
 private:
     MixerPage& page;
     int strip;
+    bool dragging = false;
     juce::TextButton bleedOn, mute, solo, invert, output;
     std::array<juce::TextButton, mixer::numSendSlots> sends;
     std::array<juce::TextButton, mixer::numFxSlots> effects;
@@ -1146,6 +1195,8 @@ MixerPage::MixerPage (ParagonX1AudioProcessor& p) : processor (p)
     viewport.setViewedComponent (&holder, false);
     viewport.setScrollBarsShown (false, true);
     viewport.setScrollBarThickness (8);
+    holder.addChildComponent (dropMarker);
+    dropMarker.setInterceptsMouseClicks (false, false);
     for (int s = 0; s < mixer::numStrips; ++s)
     {
         strips.push_back (std::make_unique<Strip> (*this, s));
@@ -1695,8 +1746,10 @@ void MixerPage::update()
     }
     // The user channels in use and their names (routes changed by undo, a preset, the panel).
     if (const auto users = processor.getUserChannelsInUse(); users != shownUsers || processor.getModMatrix().userChannelNames != shownUserNames
-                                                              || processor.getModMatrix().busNames != shownBusNames)
+                                                              || processor.getModMatrix().busNames != shownBusNames
+                                                              || processor.getModMatrix().stripOrder != shownOrder)
     {
+        shownOrder = processor.getModMatrix().stripOrder;   // 0.91.0
         shownUsers = users;
         shownUserNames = processor.getModMatrix().userChannelNames;
         shownBusNames = processor.getModMatrix().busNames;   // 0.39.0
@@ -1748,17 +1801,10 @@ void MixerPage::resized()
     const auto fits = shown * stripWidth <= viewport.getWidth();
     const auto w = fits && shown > 0 ? viewport.getWidth() / shown : stripWidth;
     holder.setSize (juce::jmax (1, shown * w), viewport.getHeight() - (fits ? 0 : viewport.getScrollBarThickness() + 2));
-    // Shown in order: the named channels, the user channels (after them, with the mics), the buses.
+    // Shown in the mix's order (0.91.0: yours; usually the named channels, the user channels, then the buses).
     std::vector<Strip*> order;
-    for (auto& s : strips)
-        if (s->getStrip() < mixer::numChannels)
-            order.push_back (s.get());
-    for (auto& s : strips)
-        if (isUser (s->getStrip()))
-            order.push_back (s.get());
-    for (auto& s : strips)
-        if (isBus (s->getStrip()))
-            order.push_back (s.get());
+    for (const auto st : processor.getStripOrder())
+        order.push_back (strips[(size_t) st].get());
     int x = 0;
     for (auto* s : order)
     {
@@ -1906,4 +1952,70 @@ void MixerPage::paint (juce::Graphics& g)
     g.drawText ("TIME OFFSET", p.removeFromTop (24), juce::Justification::centredLeft, false);
     p.removeFromTop (6);
     g.drawText ("RELEASE", p.removeFromTop (24), juce::Justification::centredLeft, false);
+}
+
+//==============================================================================
+// 0.91.0: THE MIXER's strips in your order.
+std::vector<int> MixerPage::getShownStrips() const
+{
+    std::vector<int> shown;
+    for (const auto st : processor.getStripOrder())
+        if (isStripShown (st))
+            shown.push_back (st);
+    return shown;
+}
+
+void MixerPage::moveStripBy (int strip, int steps)
+{
+    const auto shown = getShownStrips();
+    const auto at = (int) (std::find (shown.begin(), shown.end(), strip) - shown.begin());
+    if (at >= (int) shown.size() || steps == 0)
+        return;
+    const auto to = juce::jlimit (0, (int) shown.size() - 1, at + steps);
+    if (to == at)
+        return;
+    if (to < at)
+        processor.moveStrip (strip, shown[(size_t) to]);   // before the one it passes
+    else
+    {
+        // After the one it passes: before whatever follows that one in the whole order.
+        const auto order = processor.getStripOrder();
+        const auto past = std::find (order.begin(), order.end(), shown[(size_t) to]);
+        processor.moveStrip (strip, past + 1 != order.end() ? *(past + 1) : -1);
+    }
+}
+
+int MixerPage::dropPlace (int strip, float x) const
+{
+    // The shown strip the drop goes before (by their middles), else after the last one shown.
+    const auto shown = getShownStrips();
+    for (const auto st : shown)
+        if (st != strip && x < (float) strips[(size_t) st]->getBounds().getCentreX())
+            return st;
+    if (shown.empty())
+        return -1;
+    const auto order = processor.getStripOrder();
+    const auto last = std::find (order.begin(), order.end(), shown.back());
+    return last + 1 != order.end() ? *(last + 1) : -1;
+}
+
+void MixerPage::dragStrip (int strip, float x)
+{
+    // The line where it would go, over the strips.
+    const auto before = dropPlace (strip, x);
+    int lineX = 0;
+    if (before >= 0 && isStripShown (before))
+        lineX = strips[(size_t) before]->getX() - 2;
+    else if (const auto shown = getShownStrips(); ! shown.empty())
+        lineX = strips[(size_t) shown.back()]->getRight();
+    dropMarker.setBounds (juce::jlimit (0, juce::jmax (0, holder.getWidth() - 4), lineX - 1), 0, 4, holder.getHeight());
+    dropMarker.setVisible (true);
+    dropMarker.toFront (false);
+}
+
+void MixerPage::dropStrip (int strip, float x)
+{
+    dropMarker.setVisible (false);
+    processor.moveStrip (strip, dropPlace (strip, x));
+    update();
 }
