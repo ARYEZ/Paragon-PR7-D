@@ -242,6 +242,7 @@ public:
     {
         std::vector<std::pair<int, juce::String>> slots;   // slot, the folder its sounds came from
         std::map<int, int> channels;                        // slot -> its spot mic's USER channel
+        std::map<int, juce::String> mics;                   // 0.90.1: slot -> what plays where ("spot mic on CRASH 6, overheads in OVERHEADS")
         juce::Array<int> turnedOff;
         juce::StringArray problems;                         // (no USER channel left, a folder with no drum...)
     };

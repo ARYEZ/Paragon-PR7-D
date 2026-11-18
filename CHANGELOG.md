@@ -2,6 +2,19 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.90.1
+
+- **A cymbal with no spot mic now gets its own channel too.** Your SL Around The Fur CRASH 1 folder has only OH and
+  ROOM mics: no SPOT. Bringing a drum in this way puts its spot mic on its own channel, its overheads in OVERHEADS and
+  leaves its room mics out. With no spot mic, nothing went onto its own channel: it played only in OVERHEADS, unlike
+  every other cymbal.
+  - **Now, when a drum has no spot mic, its overheads go onto its own channel** (CRASH 6 for crash 6), into the same
+    bus and output as OVERHEADS. It gets its own fader, effects and sends like the others. Its room mics stay out, as
+    before (another room's sound).
+  - **The import's summary now says what really went where**, for example "no spot mic in the pack: its overheads play
+    on CRASH 6 (its own fader)". Before, it said "spot mic: CRASH 6" even when there was no spot mic.
+- Bring the crash onto CRASH 6 again to get it.
+
 ## 0.90.0
 
 - **CRASH 6 has a channel of its own in the MIXER.** Since it's a permanent part of the kit, it now gets a fixed spot,

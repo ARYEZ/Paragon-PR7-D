@@ -740,3 +740,55 @@ TEST_CASE ("SAMPLE PACK 0.90.0: CRASH 6 has a spot channel of its own, whatever 
     CHECK (again.channels.at (C6) == spot);
     CHECK (again.problems.isEmpty());
 }
+
+TEST_CASE ("SAMPLE PACK 0.90.1: a cymbal with no spot mic gets its overheads on its own channel", "[samplepack][onto][mixer]")
+{
+    using namespace synth::mixer;
+    Plugin p;
+    p.processor->importSamplePack (makePack (p.temp.folder));
+    REQUIRE (p.processor->waitForInstruments());
+
+    // Laid out as the owner's CRASH 1 folder: only OH and ROOM mics (no SPOT), the hit and its choke.
+    const auto second = p.temp.folder.getChildFile ("JUST ADD DRUMS - SL AROUND THE FUR");
+    const auto crash = second.getChildFile ("WAV & ONE-SHOTS/INDIVIDUAL MICS/- CYMBALS/CRASH 1");
+    for (const auto& [mic, hz] : std::vector<std::pair<juce::String, double>> { { "OH", 1300.0 }, { "ROOM", 700.0 } })
+        for (const juce::String choke : { "", "CHOKE_" })
+            for (int v = 1; v <= 2; ++v)
+                writeHit (crash.getChildFile ("JAD_ZILDJIAN_CRASH1_" + choke + mic + "_V0" + juce::String (v) + "_RR1.wav"), hz, 0.1f * (float) v, 0.5);
+
+    const auto result = p.processor->importSamplePackOnto (second, { { crash, synth::drums::pieceOfSlot (C6) } });
+    REQUIRE (p.processor->waitForInstruments());
+    REQUIRE (result.channels.count (C6) == 1);
+    const auto own = result.channels.at (C6);
+    CHECK (own == firstSpotChannel + 3);
+    CHECK (result.mics.at (C6).contains ("no spot mic"));
+    CHECK (p.processor->getUserChannelsInUse().contains (own));   // its strip shows in the MIXER
+    CHECK (p.processor->getMixerRoute (own) == p.processor->getMixerRoute (overheads));
+    CHECK (p.processor->getMixerOutput (own) == p.processor->getMixerOutput (overheads));
+
+    // Its overheads on CRASH 6 (its own fader), not in OVERHEADS; its room left out.
+    p.soloOnly (own);
+    auto out = p.play (C6, 127, 0.3);
+    const auto at0 = levelAt (out, 1300.0, 0, 4800);
+    CHECK (at0 > 0.02);
+    CHECK (levelAt (out, 700.0, 0, 4800) < 0.001);
+    testkit::set (*p.processor, ParamIDs::mix (own, "Level"), -6.0f);
+    CHECK (juce::Decibels::gainToDecibels (levelAt (p.play (C6, 127, 0.3), 1300.0, 0, 4800) / at0) == Catch::Approx (-6.0).margin (0.3));
+    p.soloOnly (overheads);
+    CHECK (levelAt (p.play (C6, 127, 0.3), 1300.0, 0, 4800) < 0.001);
+
+    // A folder with a spot mic still works as before: spot on the channel, overheads in OVERHEADS.
+    const auto spotted = second.getChildFile ("WAV & ONE-SHOTS/INDIVIDUAL MICS/- CYMBALS/CRASH 2");
+    for (const auto& [mic, hz] : std::vector<std::pair<juce::String, double>> { { "OH", 1300.0 }, { "SPOT", 400.0 } })
+        for (int v = 1; v <= 2; ++v)
+            writeHit (spotted.getChildFile ("JAD_ZILDJIAN_CRASH2_" + mic + "_V0" + juce::String (v) + "_RR1.wav"), hz, 0.1f * (float) v, 0.5);
+    const auto again = p.processor->importSamplePackOnto (second, { { spotted, synth::drums::pieceOfSlot (C6) } });
+    REQUIRE (p.processor->waitForInstruments());
+    CHECK (again.mics.at (C6).startsWith ("spot mic on CRASH 6"));
+    p.soloOnly (own);
+    out = p.play (C6, 127, 0.3);
+    CHECK (levelAt (out, 400.0, 0, 4800) > 0.01);
+    CHECK (levelAt (out, 1300.0, 0, 4800) < 0.001);
+    p.soloOnly (overheads);
+    CHECK (levelAt (p.play (C6, 127, 0.3), 1300.0, 0, 4800) > 0.02);
+}
