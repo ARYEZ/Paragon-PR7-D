@@ -86,17 +86,33 @@ SongTrack::SongTrack (ParagonX1AudioProcessor& p) : processor (p)
     addAndMakeVisible (record);
     follow.setClickingTogglesState (true);
     follow.setToggleState (processor.getSong().followDaw, juce::dontSendNotification);
+    synced.setToggleState (processor.getSong().syncedToDaw, juce::dontSendNotification);
     follow.setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
     follow.setTooltip ("On: the song plays with your DAW (bar 1 is your DAW's bar 1). Off: only with PLAY, your DAW playing or not. "
                        "Turn it off when the song's MIDI is on a DAW track (EXPORT MIDI dragged in), or every hit plays twice.");
     follow.onClick = [this]
     {
         const auto on = follow.getToggleState();
-        edit ([on] (song::Song& s) { s.followDaw = on; });
+        edit ([on] (song::Song& s) { s.followDaw = on; s.syncedToDaw = s.syncedToDaw && on; });   // (0.92.0: SYNCED needs it)
         if (! on)
             showNote ("FOLLOW DAW off: the song plays only with PLAY.", 5.0);
     };
     addAndMakeVisible (follow);
+    // 0.92.0: SYNCED TO DAW: SPACE (here and in the GRID EDITOR, in the plugin or its own window) is the DAW's play / stop.
+    synced.setClickingTogglesState (true);
+    synced.setToggleState (processor.getSong().syncedToDaw, juce::dontSendNotification);
+    synced.setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
+    synced.setTooltip ("On: the space bar on this strip and in the GRID EDITOR (in the plugin or its own window) starts and stops "
+                       "your DAW, and the song plays with it (FOLLOW DAW comes on with it). Off: SPACE in the GRID EDITOR plays "
+                       "the song track on its own.");
+    synced.onClick = [this]
+    {
+        const auto on = synced.getToggleState();
+        edit ([on] (song::Song& s) { s.syncedToDaw = on; s.followDaw = s.followDaw || on; });
+        if (on)
+            showNote ("SYNCED TO DAW: SPACE starts and stops your DAW; the song plays with it.", 5.0);
+    };
+    addAndMakeVisible (synced);
     // THE LOOP AREA and THE CLICK (0.44.0).
     loop.setClickingTogglesState (false);
     loop.setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
@@ -267,6 +283,7 @@ void SongTrack::resized()
     timeView.setBounds (top.removeFromLeft (56).reduced (2, 2));
     top.removeFromLeft (8);
     follow.setBounds (top.removeFromLeft (98).reduced (2, 2));
+    synced.setBounds (top.removeFromLeft (118).reduced (2, 2));
     loop.setBounds (top.removeFromLeft (58).reduced (2, 2));    // 0.44.0
     click.setBounds (top.removeFromLeft (92).reduced (2, 2));
     top.removeFromLeft (8);
@@ -1541,6 +1558,7 @@ void SongTrack::timerCallback()
         updateStatus();
     }
     follow.setToggleState (processor.getSong().followDaw, juce::dontSendNotification);
+    synced.setToggleState (processor.getSong().syncedToDaw, juce::dontSendNotification);
     syncButtons();
     // THE STUDIO LINK (0.83.0): a song laid out by PR7-S's composer just arrived.
     if (const auto loads = processor.getStudioLoads(); loads != seenStudioLoads)

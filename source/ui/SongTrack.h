@@ -157,7 +157,7 @@ private:
     int dragTempo = -1;                       // a tempo change being dragged
     std::optional<song::Song> tempoDraft;     // ... the song as it would be (drawn while dragging)
     std::unique_ptr<juce::FileChooser> chooser;
-    juce::TextButton record { "REC" }, follow { "FOLLOW DAW" }, loop { "LOOP" }, click { "CLICK..." };
+    juce::TextButton record { "REC" }, follow { "FOLLOW DAW" }, synced { "SYNCED TO DAW" }, loop { "LOOP" }, click { "CLICK..." };
     juce::TextButton cutTool { "CUT" };   // 0.63.0
     bool cutting = false;
     double cutHover = -1.0;   // the cut a click would make where the mouse is (-1: none)

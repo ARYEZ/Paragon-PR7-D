@@ -931,6 +931,19 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 ed.setViewStart (-14.0);
                 ed.setTool (BlockEditor::Tool::pencil);
             }
+            // 0.92.0: notes chosen across blocks (a lasso over two blocks' kicks and snares), SYNCED TO DAW on.
+            if (env ("PARAGON_SNAPSHOT_GRID") == "4")
+            {
+                auto& ed = view->getBlockEditor();
+                ed.open (2);
+                ed.setZoom (ed.getGrid().getWidth() / 24.0);
+                ed.setViewStart (-10.0);
+                const auto start = processor.getSong().blocks[2].start;
+                ed.lassoBeats (start - 6.0, start + 5.0, ed.rowOf (0), ed.rowOf (2), false);
+                auto synced = processor.getSong();
+                synced.syncedToDaw = true;
+                processor.setSong (synced);
+            }
             // 0.48.0: the snare's NOTE LENGTHS shown, each held half a beat (the first a beat).
             if (env ("PARAGON_SNAPSHOT_GRID") == "2")
             {

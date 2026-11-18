@@ -213,6 +213,7 @@ void BlockEditor::open (int b)
     const auto fresh = b != blockIndex;
     blockIndex = b;
     selection.clear();
+    elsewhere.clear();
     baseBlock.reset();
     lastMade.reset();
     sliderValues = {};
@@ -234,9 +235,14 @@ void BlockEditor::open (int b)
     startTimerHz (30);
 }
 
+const song::Song& BlockEditor::songNow() const
+{
+    return batch.has_value() ? *batch : processor.getSong();
+}
+
 const song::Block* BlockEditor::block() const noexcept
 {
-    const auto& s = processor.getSong();
+    const auto& s = songNow();
     return blockIndex >= 0 && blockIndex < (int) s.blocks.size() ? &s.blocks[(size_t) blockIndex] : nullptr;
 }
 
@@ -249,7 +255,7 @@ double BlockEditor::origin() const noexcept
 std::vector<double> BlockEditor::repeatsOf (int index) const
 {
     std::vector<double> out;
-    const auto& s = processor.getSong();
+    const auto& s = songNow();
     if (index < 0 || index >= (int) s.blocks.size())
         return out;
     const auto& b = s.blocks[(size_t) index];
@@ -300,6 +306,7 @@ void BlockEditor::switchTo (int index, double oldOrigin)
     if (shownPlayhead > -1.0e8)
         shownPlayhead += moved;
     selection.clear();
+    elsewhere.clear();
     baseBlock.reset();
     lastMade.reset();
     sliderValues = {};
@@ -364,6 +371,12 @@ void BlockEditor::edit (const std::function<void (song::Block&)>& f)
 {
     if (block() == nullptr)
         return;
+    if (batch.has_value())
+    {
+        // 0.92.0: inside acrossBlocks: into its song (one undo step when it's done).
+        f (batch->blocks[(size_t) blockIndex]);
+        return;
+    }
     auto s = processor.getSong();
     f (s.blocks[(size_t) blockIndex]);
     if (! (s == processor.getSong()))
@@ -413,6 +426,22 @@ void BlockEditor::refresh()
         {
             return std::none_of (b->hits.begin(), b->hits.end(), [&k] (const song::Hit& h) { return h.slot == k.slot && sameBeat (h.beat, k.beat); });
         });
+    // 0.92.0: and those in other blocks (a block gone or moved: its choice dropped).
+    for (auto it = elsewhere.begin(); it != elsewhere.end();)
+    {
+        const auto& song = processor.getSong();
+        if (it->first == blockIndex || it->first < 0 || it->first >= (int) song.blocks.size())
+        {
+            it = elsewhere.erase (it);
+            continue;
+        }
+        const auto& blk = song.blocks[(size_t) it->first];
+        std::erase_if (it->second, [&blk] (const Key& k)
+        {
+            return std::none_of (blk.hits.begin(), blk.hits.end(), [&k] (const song::Hit& h) { return h.slot == k.slot && sameBeat (h.beat, k.beat); });
+        });
+        it = it->second.empty() ? elsewhere.erase (it) : std::next (it);
+    }
     layoutRows();
     syncSliderLabels();
     soloMuteButton.setVisible (hasSoloMute() || std::any_of (recallMuted.begin(), recallMuted.end(), [] (bool m) { return m; })
@@ -680,23 +709,225 @@ bool BlockEditor::isSelected (const song::Hit& h) const
     return std::any_of (selection.begin(), selection.end(), [&h] (const Key& k) { return k.slot == h.slot && sameBeat (k.beat, h.beat); });
 }
 
+bool BlockEditor::isSelectedIn (int index, const song::Hit& h) const
+{
+    if (index == blockIndex)
+        return isSelected (h);
+    const auto it = elsewhere.find (index);
+    return it != elsewhere.end()
+        && std::any_of (it->second.begin(), it->second.end(), [&h] (const Key& k) { return k.slot == h.slot && sameBeat (k.beat, h.beat); });
+}
+
+void BlockEditor::acrossBlocks (const std::function<void()>& op)
+{
+    // 0.92.0: the operation once per block with chosen notes (each its own `selection` while it runs), all into one
+    // song, set once: one undo step. With none chosen elsewhere: just the edited block, as before.
+    if (elsewhere.empty() || batch.has_value())
+    {
+        op();
+        return;
+    }
+    const auto home = blockIndex;
+    auto all = elsewhere;
+    all[home] = selection;
+    batch.emplace (processor.getSong());
+    std::map<int, std::vector<Key>> after;
+    for (auto& [index, keys] : all)
+    {
+        if (index < 0 || index >= (int) batch->blocks.size())
+            continue;
+        blockIndex = index;
+        selection = keys;
+        op();
+        after[index] = selection;
+    }
+    blockIndex = home;
+    auto made = std::move (*batch);
+    batch.reset();
+    selection = after[home];
+    after.erase (home);
+    elsewhere.clear();
+    for (auto& [index, keys] : after)
+        if (! keys.empty())
+            elsewhere[index] = std::move (keys);
+    if (! (made == processor.getSong()))
+        processor.setSong (std::move (made));
+    baseBlock.reset();
+    lastMade.reset();
+    sliderValues = {};
+    refresh();
+}
+
+bool BlockEditor::unroll (int index)
+{
+    // 0.92.0: EACH REPEAT: a repeating block's repeats written out (the same sound), so an edit lands in one repeat.
+    // Not an undo step of its own: the edit that follows is (undo goes back to before both).
+    if (! eachRepeat || batch.has_value())
+        return false;
+    auto s = processor.getSong();
+    if (index < 0 || index >= (int) s.blocks.size())
+        return false;
+    auto& blk = s.blocks[(size_t) index];
+    const auto loop = blk.loopLength;
+    if (loop <= 0.0 || loop >= blk.length - 1.0e-9)
+        return false;
+    const auto length = blk.length;
+    song::flatten (blk);
+    processor.previewSong (std::move (s));
+    // A note chosen in the loop was chosen in every repeat: so it is in each one written out.
+    const auto spread = [loop, length] (std::vector<Key>& keys)
+    {
+        std::vector<Key> out;
+        for (const auto& k : keys)
+            for (auto at = k.beat; at < length - 1.0e-9; at += loop)
+                out.push_back ({ k.slot, at });
+        keys = std::move (out);
+    };
+    if (index == blockIndex)
+        spread (selection);
+    else if (const auto it = elsewhere.find (index); it != elsewhere.end())
+        spread (it->second);
+    baseBlock.reset();
+    lastMade.reset();
+    sliderValues = {};
+    layoutRows();
+    redraw();
+    return true;
+}
+
+void BlockEditor::keepElsewhereAndSwitch (int index)
+{
+    // Another block becomes the edited one; every chosen note stays chosen (a drag then takes them all).
+    const auto keptHere = selection;
+    const auto old = origin();
+    auto taken = elsewhere[index];
+    elsewhere.erase (index);
+    if (! keptHere.empty())
+        elsewhere[blockIndex] = keptHere;
+    blockIndex = index;
+    const auto moved = old - origin();
+    viewBeat += moved;
+    if (shownPlayhead > -1.0e8)
+        shownPlayhead += moved;
+    selection = std::move (taken);
+    baseBlock.reset();
+    lastMade.reset();
+    sliderValues = {};
+    syncSliderLabels();
+    redraw();
+    if (onBlockChanged != nullptr)
+        onBlockChanged (index);
+}
+
+std::vector<song::Hit> BlockEditor::getSelectionIn (int index) const
+{
+    std::vector<song::Hit> out;
+    const auto& song = songNow();
+    if (index >= 0 && index < (int) song.blocks.size())
+        for (const auto& h : song.blocks[(size_t) index].hits)
+            if (isSelectedIn (index, h))
+                out.push_back (h);
+    std::sort (out.begin(), out.end(), [] (const song::Hit& a, const song::Hit& b) { return a.beat < b.beat; });
+    return out;
+}
+
+int BlockEditor::getChosenCount() const
+{
+    auto n = (int) selection.size();
+    for (const auto& [index, keys] : elsewhere)
+        n += (int) keys.size();
+    return n;
+}
+
+void BlockEditor::selectIn (int index, int slot, double beat, bool add)
+{
+    if (index == blockIndex)
+    {
+        select (slot, beat, add);
+        return;
+    }
+    if (! add)
+    {
+        selection.clear();
+        elsewhere.clear();
+    }
+    auto& keys = elsewhere[index];
+    const auto it = std::find_if (keys.begin(), keys.end(), [&] (const Key& k) { return k.slot == slot && sameBeat (k.beat, beat); });
+    if (it != keys.end())
+        keys.erase (it);
+    else
+        keys.push_back ({ slot, beat });
+    if (keys.empty())
+        elsewhere.erase (index);
+    baseBlock.reset();
+    lastMade.reset();
+    sliderValues = {};
+    syncSliderLabels();
+    redraw();
+}
+
+void BlockEditor::lassoBeats (double fromSongBeat, double toSongBeat, int fromRow, int toRow, bool add)
+{
+    // As a lasso from (from, fromRow) to (to, toRow): every note in it, in every block it crosses.
+    if (! add)
+    {
+        selection.clear();
+        elsewhere.clear();
+    }
+    const auto lo = juce::jmin (fromSongBeat, toSongBeat), hi = juce::jmax (fromSongBeat, toSongBeat);
+    const auto r0 = juce::jmin (fromRow, toRow), r1 = juce::jmax (fromRow, toRow);
+    for (int i = 0; i < (int) processor.getSong().blocks.size(); ++i)
+        if (const auto& blk = processor.getSong().blocks[(size_t) i]; blk.start < hi && blk.end() > lo)
+            unroll (i);
+    const auto& song = processor.getSong();
+    for (int i = 0; i < (int) song.blocks.size(); ++i)
+    {
+        const auto& blk = song.blocks[(size_t) i];
+        if (blk.start >= hi || blk.end() <= lo)
+            continue;
+        const auto loop = juce::jmax (1.0e-3, blk.loopLength);
+        for (auto off = blk.start; off < blk.end() - 1.0e-9; off += loop)
+            for (const auto& h : blk.hits)
+            {
+                const auto at = off + h.beat;
+                const auto row = rowOf (h.slot);
+                if (at >= blk.end() - 1.0e-9 || at < lo || at > hi || row < r0 || row > r1 || isSelectedIn (i, h))
+                    continue;
+                if (i == blockIndex)
+                    selection.push_back ({ h.slot, h.beat });
+                else
+                    elsewhere[i].push_back ({ h.slot, h.beat });
+            }
+    }
+    baseBlock.reset();
+    sliderValues = {};
+    syncSliderLabels();
+    redraw();
+}
+
 int BlockEditor::hitAt (juce::Point<float> at, double* offset) const
 {
-    const auto* b = block();
-    if (b == nullptr)
+    return hitIn (blockIndex, at, offset);
+}
+
+int BlockEditor::hitIn (int index, juce::Point<float> at, double* offset) const
+{
+    const auto& song = songNow();
+    if (index < 0 || index >= (int) song.blocks.size() || block() == nullptr)
         return -1;
+    const auto* b = &song.blocks[(size_t) index];
+    const auto end = b->start - origin() + b->length;   // where it ends, from the edited block's start
     auto best = -1;
     auto bestDistance = 1.0e9f;
     // 0.81.0: in whichever pass of the loop it's drawn (the passes past the block's end aren't).
-    for (const auto off : repeatsOf (blockIndex))
+    for (const auto off : repeatsOf (index))
     {
-        // (the current block's passes start at 0: a note plays in a pass when it's before the block's end)
         if (at.x < xOf (off) - 12.0f || at.x > xOf (off + b->loopLength) + 12.0f)
             continue;
         const auto shift = (float) (off * pxPerBeat);
         for (size_t i = 0; i < b->hits.size(); ++i)
         {
-            if (off + b->hits[i].beat >= b->length - 1.0e-9)
+            if (off + b->hits[i].beat >= end - 1.0e-9)
                 continue;
             const auto cell = cellOf (b->hits[i].slot, b->hits[i].beat).translated (shift, 0.0f);
             if (cell.isEmpty() || ! cell.expanded (3.0f).contains (at))
@@ -760,7 +991,10 @@ std::vector<song::Hit> BlockEditor::getSelection() const
 void BlockEditor::select (int slot, double beat, bool add)
 {
     if (! add)
+    {
         selection.clear();
+        elsewhere.clear();
+    }
     const auto it = std::find_if (selection.begin(), selection.end(), [&] (const Key& k) { return k.slot == slot && sameBeat (k.beat, beat); });
     if (it != selection.end())
     {
@@ -779,7 +1013,10 @@ void BlockEditor::select (int slot, double beat, bool add)
 void BlockEditor::selectRow (int row, bool add)
 {
     if (! add)
+    {
         selection.clear();
+        elsewhere.clear();
+    }
     auto mask = slotsOfRow (row);
     if (row >= 0 && row < (int) rows.size() && rows[(size_t) row].heading)
         mask = song::playstyle::slotsOfPiece (rows[(size_t) row].piece);
@@ -797,6 +1034,7 @@ void BlockEditor::selectRow (int row, bool add)
 void BlockEditor::selectAll()
 {
     selection.clear();
+    elsewhere.clear();
     if (const auto* b = block())
         for (const auto& h : b->hits)
             if (rowOf (h.slot) >= 0)
@@ -811,6 +1049,7 @@ void BlockEditor::selectAll()
 void BlockEditor::selectNone()
 {
     selection.clear();
+    elsewhere.clear();
     baseBlock.reset();
     lastMade.reset();
     sliderValues = {};
@@ -909,75 +1148,116 @@ void BlockEditor::jump (int direction)
 
 void BlockEditor::nudge (int direction)
 {
-    const auto* b = block();
-    if (b == nullptr || selection.empty())
+    // 0.92.0: in every block with chosen notes.
+    if (getChosenCount() == 0)
         return;
-    const auto by = nudgeBeats() * direction;
-    const auto loop = b->loopLength;
-    std::vector<Key> moved;
-    edit ([&] (song::Block& blk)
+    acrossBlocks ([this, direction]
     {
-        std::vector<song::Hit> kept, shifted;
-        for (const auto& h : blk.hits)
-            if (isSelected (h))
-            {
-                auto beat = std::fmod (h.beat + by, loop);
-                if (beat < 0.0)
-                    beat += loop;
-                if (beat > loop - 1.0e-6)
-                    beat = 0.0;
-                shifted.push_back ({ beat, h.slot, h.velocity, h.length });
-            }
-            else
-                kept.push_back (h);
-        // Moved onto others: theirs replaced.
-        for (const auto& s : shifted)
-            std::erase_if (kept, [&s] (const song::Hit& h) { return h.slot == s.slot && sameBeat (h.beat, s.beat); });
-        kept.insert (kept.end(), shifted.begin(), shifted.end());
-        blk.hits = std::move (kept);
-        song::tidyHits (blk);
-        for (const auto& s : shifted)
-            moved.push_back ({ s.slot, s.beat });
+        const auto* b = block();
+        if (b == nullptr || selection.empty())
+            return;
+        const auto by = nudgeBeats() * direction;
+        const auto loop = b->loopLength;
+        std::vector<Key> moved;
+        edit ([&] (song::Block& blk)
+        {
+            std::vector<song::Hit> kept, shifted;
+            for (const auto& h : blk.hits)
+                if (isSelected (h))
+                {
+                    auto beat = std::fmod (h.beat + by, loop);
+                    if (beat < 0.0)
+                        beat += loop;
+                    if (beat > loop - 1.0e-6)
+                        beat = 0.0;
+                    shifted.push_back ({ beat, h.slot, h.velocity, h.length });
+                }
+                else
+                    kept.push_back (h);
+            // Moved onto others: theirs replaced.
+            for (const auto& s : shifted)
+                std::erase_if (kept, [&s] (const song::Hit& h) { return h.slot == s.slot && sameBeat (h.beat, s.beat); });
+            kept.insert (kept.end(), shifted.begin(), shifted.end());
+            blk.hits = std::move (kept);
+            song::tidyHits (blk);
+            for (const auto& s : shifted)
+                moved.push_back ({ s.slot, s.beat });
+        });
+        selection = std::move (moved);
+        redraw();
     });
-    selection = std::move (moved);
-    redraw();
 }
 
 void BlockEditor::deleteSelected()
 {
-    if (selection.empty())
+    if (getChosenCount() == 0)
         return;
-    edit ([this] (song::Block& blk) { std::erase_if (blk.hits, [this] (const song::Hit& h) { return isSelected (h); }); });
-    selection.clear();
+    acrossBlocks ([this]   // 0.92.0: in every block with chosen notes
+    {
+        if (selection.empty())
+            return;
+        edit ([this] (song::Block& blk) { std::erase_if (blk.hits, [this] (const song::Hit& h) { return isSelected (h); }); });
+        selection.clear();
+    });
 }
 
 void BlockEditor::copySelected()
 {
-    const auto* b = block();
-    if (b == nullptr || selection.empty())
+    // 0.92.0: from every block with chosen notes, each kept at its distance from the first such block's start.
+    if (block() == nullptr || getChosenCount() == 0)
         return;
-    song::Block clip = *b;
-    clip.hits = getSelection();
-    clipboard = clip;
+    const auto& song = processor.getSong();
+    auto first = 1.0e12;
+    for (int i = 0; i < (int) song.blocks.size(); ++i)
+        if (! getSelectionIn (i).empty())
+            first = juce::jmin (first, song.blocks[(size_t) i].start);
+    clipNotes.clear();
+    for (int i = 0; i < (int) song.blocks.size(); ++i)
+        for (const auto& h : getSelectionIn (i))
+            clipNotes.push_back ({ song.blocks[(size_t) i].start - first + h.beat, h });
+    clipboard = *block();
+    clipboard->hits = getSelection();
 }
 
 void BlockEditor::paste()
 {
-    if (! clipboard.has_value() || block() == nullptr)
+    // Into the edited block at the beats the copy came from (0.92.0: a copy across blocks lands across blocks the
+    // same distance apart: a note past this block's end goes into the block where it falls, none there: left out).
+    if (clipNotes.empty() || block() == nullptr)
         return;
-    const auto clip = *clipboard;
-    std::vector<Key> pasted;
-    edit ([&] (song::Block& blk)
+    const auto notes = clipNotes;
+    const auto from = origin();
+    // EACH REPEAT: the blocks it lands in written out first (so it lands in that one repeat).
+    for (const auto& [offset, h] : notes)
+        if (const auto at = processor.getSong().blockAt (from + offset); at >= 0)
+            unroll (at);
+    auto s = processor.getSong();
+    std::map<int, std::vector<Key>> pasted;
+    for (const auto& [offset, h] : notes)
     {
-        for (const auto& h : clip.hits)
-            if (h.beat < blk.loopLength - 1.0e-9)
-            {
-                song::addHit (blk, h);
-                pasted.push_back ({ h.slot, h.beat });
-            }
-    });
-    selection = std::move (pasted);
-    redraw();
+        const auto at = s.blockAt (from + offset);
+        if (at < 0)
+            continue;
+        auto& blk = s.blocks[(size_t) at];
+        auto beat = from + offset - blk.start;
+        if (blk.loopLength > 0.0)
+            beat = std::fmod (beat, blk.loopLength);
+        if (beat > blk.loopLength - 1.0e-6)
+            beat = 0.0;
+        auto hit = h;
+        hit.beat = beat;
+        song::addHit (blk, hit);
+        pasted[at].push_back ({ hit.slot, beat });
+    }
+    if (! (s == processor.getSong()))
+        processor.setSong (std::move (s));
+    selection = pasted[blockIndex];
+    pasted.erase (blockIndex);
+    elsewhere = std::move (pasted);
+    baseBlock.reset();
+    lastMade.reset();
+    sliderValues = {};
+    refresh();
 }
 
 void BlockEditor::stretch (grooves::TempoFactor factor)
@@ -1338,6 +1618,8 @@ juce::PopupMenu BlockEditor::optionsMenu()
         stretchMenu.addItem (grooves::tempoFactorNames[(int) f], [this, f] { stretch (f); });
     m.addSubMenu (selection.empty() ? "Stretch Notes (the whole block)" : "Stretch Notes (the chosen)", stretchMenu);
     m.addItem ("Preview Sounds", true, previewSounds, [this] { previewSounds = ! previewSounds; });
+    // 0.92.0: EACH REPEAT: an edit in one repeat of a repeating block changes only that repeat.
+    m.addItem ("Edit Each Repeat On Its Own", true, eachRepeat, [this] { eachRepeat = ! eachRepeat; });
     juce::PopupMenu snapTo;
     snapTo.addItem ("Grid", true, snapMode == SnapMode::grid, [this] { setSnapMode (SnapMode::grid); });
     snapTo.addItem ("Relative Grid (keeps the notes' feel)", true, snapMode == SnapMode::relative, [this] { setSnapMode (SnapMode::relative); });
@@ -1515,9 +1797,11 @@ void BlockEditor::mouseDown (const juce::MouseEvent& e)
     if (lane.contains (e.getPosition()))
     {
         takeBlockUnder (e, false);
+        unroll (blockIndex);   // 0.92.0: EACH REPEAT
         if (block() == nullptr)
             return;
         velocityEdits.clear();
+        velocityDelta = 0.0f;
         drag = Drag::velocity;
         grabHit = pencil ? -1 : velocityHitAt (e.position);
         if (! pencil && grabHit < 0)
@@ -1527,9 +1811,28 @@ void BlockEditor::mouseDown (const juce::MouseEvent& e)
     }
     if (! grid.contains (e.getPosition()))
         return;
+    // 0.92.0: a note in another block: SHIFT-click chooses it with the notes chosen here; a click on one already chosen
+    // there keeps every chosen note (so a drag takes them all).
+    if (const auto under = blockAtX (e.position.x); ! pencil && ! e.mods.isPopupMenu() && under >= 0 && under != blockIndex)
+    {
+        if (e.mods.isShiftDown())
+        {
+            unroll (under);
+            if (const auto hit = hitIn (under, e.position); hit >= 0)
+            {
+                const auto h = processor.getSong().blocks[(size_t) under].hits[(size_t) hit];
+                selectIn (under, h.slot, h.beat, true);
+                previewSlot (h.slot);
+                return;
+            }
+        }
+        else if (const auto hit = hitIn (under, e.position); hit >= 0 && isSelectedIn (under, processor.getSong().blocks[(size_t) under].hits[(size_t) hit]))
+            keepElsewhereAndSwitch (under);
+    }
     // 0.81.0: in another block, that one is edited from here on; the pencil in a stretch with no block makes one.
     if (! takeBlockUnder (e, pencil && ! e.mods.isPopupMenu()))
         return;
+    unroll (blockIndex);   // 0.92.0: EACH REPEAT
     b = block();
     if (b == nullptr)
         return;
@@ -1559,10 +1862,10 @@ void BlockEditor::mouseDown (const juce::MouseEvent& e)
             return;
         }
         juce::PopupMenu m;
-        m.addItem ("Cut", ! selection.empty(), false, [this] { copySelected(); deleteSelected(); });
-        m.addItem ("Copy", ! selection.empty(), false, [this] { copySelected(); });
-        m.addItem ("Paste", clipboard.has_value(), false, [this] { paste(); });
-        m.addItem ("Delete", ! selection.empty(), false, [this] { deleteSelected(); });
+        m.addItem ("Cut", getChosenCount() > 0, false, [this] { copySelected(); deleteSelected(); });
+        m.addItem ("Copy", getChosenCount() > 0, false, [this] { copySelected(); });
+        m.addItem ("Paste", ! clipNotes.empty(), false, [this] { paste(); });
+        m.addItem ("Delete", getChosenCount() > 0, false, [this] { deleteSelected(); });
         m.addSeparator();
         m.addItem ("Select All", [this] { selectAll(); });
         m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (this).withMousePosition());
@@ -1670,6 +1973,7 @@ void BlockEditor::mouseDrag (const juce::MouseEvent& e)
                 // A stalk dragged: it (and the other chosen ones by as much) to that height.
                 const auto& g = b->hits[(size_t) grabHit];
                 const auto delta = level - g.velocity;
+                velocityDelta = isSelected (g) ? delta : 0.0f;   // 0.92.0: the other blocks' chosen notes by as much
                 velocityEdits.clear();
                 const auto withOthers = isSelected (g) && selection.size() > 1;
                 for (size_t i = 0; i < b->hits.size(); ++i)
@@ -1726,11 +2030,29 @@ void BlockEditor::mouseUp (const juce::MouseEvent& e)
             const auto box = juce::Rectangle<float> (dragStart, dragNow);
             if (box.getWidth() < 2.0f && box.getHeight() < 2.0f)
                 break;
-            for (const auto off : repeatsOf (blockIndex))
-                for (const auto& h : b->hits)
-                    if (const auto cell = cellOf (h.slot, h.beat).translated ((float) (off * pxPerBeat), 0.0f);
-                        ! cell.isEmpty() && off + h.beat < b->length - 1.0e-9 && box.intersects (cell) && ! isSelected (h))
-                        selection.push_back ({ h.slot, h.beat });
+            // 0.92.0: in every block the box crosses (EACH REPEAT: their repeats written out first).
+            for (int i = 0; i < (int) processor.getSong().blocks.size(); ++i)
+                if (const auto& blk = processor.getSong().blocks[(size_t) i];
+                    xOf (blk.start - origin()) < box.getRight() && xOf (blk.end() - origin()) > box.getX())
+                    unroll (i);
+            const auto& song = processor.getSong();
+            for (int i = 0; i < (int) song.blocks.size(); ++i)
+            {
+                const auto& blk = song.blocks[(size_t) i];
+                if (xOf (blk.start - origin()) >= box.getRight() + 12.0f || xOf (blk.end() - origin()) <= box.getX() - 12.0f)
+                    continue;
+                const auto end = blk.start - origin() + blk.length;
+                for (const auto off : repeatsOf (i))
+                    for (const auto& h : blk.hits)
+                        if (const auto cell = cellOf (h.slot, h.beat).translated ((float) (off * pxPerBeat), 0.0f);
+                            ! cell.isEmpty() && off + h.beat < end - 1.0e-9 && box.intersects (cell) && ! isSelectedIn (i, h))
+                        {
+                            if (i == blockIndex)
+                                selection.push_back ({ h.slot, h.beat });
+                            else
+                                elsewhere[i].push_back ({ h.slot, h.beat });
+                        }
+            }
             baseBlock.reset();
             sliderValues = {};
             syncSliderLabels();
@@ -1743,42 +2065,45 @@ void BlockEditor::mouseUp (const juce::MouseEvent& e)
             const auto by = moveBeats;
             const auto rowsBy = moveRows;
             const auto copy = dragCopy;
-            std::vector<Key> moved;
-            edit ([&] (song::Block& blk)
+            acrossBlocks ([&]   // 0.92.0: the chosen notes in every block
             {
-                std::vector<song::Hit> kept, shifted;
-                for (const auto& h : blk.hits)
+                std::vector<Key> moved;
+                edit ([&] (song::Block& blk)
                 {
-                    if (! isSelected (h))
+                    std::vector<song::Hit> kept, shifted;
+                    for (const auto& h : blk.hits)
                     {
-                        kept.push_back (h);
-                        continue;
+                        if (! isSelected (h))
+                        {
+                            kept.push_back (h);
+                            continue;
+                        }
+                        if (copy)
+                            kept.push_back (h);
+                        auto beat = std::fmod (h.beat + by, blk.loopLength);
+                        if (beat < 0.0)
+                            beat += blk.loopLength;
+                        if (beat > blk.loopLength - 1.0e-6)
+                            beat = 0.0;
+                        auto slot = h.slot;
+                        if (rowsBy != 0)
+                        {
+                            const auto to = juce::jlimit (0, (int) rows.size() - 1, rowOf (h.slot) + rowsBy);
+                            if (const auto s = slotForRow (to, h.slot); s >= 0)
+                                slot = s;
+                        }
+                        shifted.push_back ({ beat, slot, h.velocity, h.length });
                     }
-                    if (copy)
-                        kept.push_back (h);
-                    auto beat = std::fmod (h.beat + by, blk.loopLength);
-                    if (beat < 0.0)
-                        beat += blk.loopLength;
-                    if (beat > blk.loopLength - 1.0e-6)
-                        beat = 0.0;
-                    auto slot = h.slot;
-                    if (rowsBy != 0)
-                    {
-                        const auto to = juce::jlimit (0, (int) rows.size() - 1, rowOf (h.slot) + rowsBy);
-                        if (const auto s = slotForRow (to, h.slot); s >= 0)
-                            slot = s;
-                    }
-                    shifted.push_back ({ beat, slot, h.velocity, h.length });
-                }
-                for (const auto& s : shifted)
-                    std::erase_if (kept, [&s] (const song::Hit& h) { return h.slot == s.slot && sameBeat (h.beat, s.beat); });
-                kept.insert (kept.end(), shifted.begin(), shifted.end());
-                blk.hits = std::move (kept);
-                song::tidyHits (blk);
-                for (const auto& s : shifted)
-                    moved.push_back ({ s.slot, s.beat });
+                    for (const auto& s : shifted)
+                        std::erase_if (kept, [&s] (const song::Hit& h) { return h.slot == s.slot && sameBeat (h.beat, s.beat); });
+                    kept.insert (kept.end(), shifted.begin(), shifted.end());
+                    blk.hits = std::move (kept);
+                    song::tidyHits (blk);
+                    for (const auto& s : shifted)
+                        moved.push_back ({ s.slot, s.beat });
+                });
+                selection = std::move (moved);
             });
-            selection = std::move (moved);
             break;
         }
         case Drag::pencil:
@@ -1803,11 +2128,25 @@ void BlockEditor::mouseUp (const juce::MouseEvent& e)
             velocityEdits.clear();
             if (changes.empty())
                 break;
-            edit ([&changes] (song::Block& blk)
+            const auto home = blockIndex;
+            const auto delta = velocityDelta;
+            velocityDelta = 0.0f;
+            acrossBlocks ([&]   // 0.92.0: a dragged chosen stalk: the other blocks' chosen notes by as much
             {
-                for (const auto& [i, v] : changes)
-                    if (i < blk.hits.size())
-                        blk.hits[i].velocity = v;
+                if (blockIndex == home)
+                    edit ([&changes] (song::Block& blk)
+                    {
+                        for (const auto& [i, v] : changes)
+                            if (i < blk.hits.size())
+                                blk.hits[i].velocity = v;
+                    });
+                else if (delta != 0.0f)
+                    edit ([this, delta] (song::Block& blk)
+                    {
+                        for (auto& h : blk.hits)
+                            if (isSelected (h))
+                                h.velocity = juce::jlimit (1.0f / 127.0f, 1.0f, h.velocity + delta);
+                    });
             });
             break;
         }
@@ -2035,6 +2374,8 @@ void BlockEditor::paintContent (juce::Graphics& g)
     if (times > 1.0 + 1.0e-6)
         title << ", played " << juce::String (times, std::abs (times - std::round (times)) < 1.0e-6 ? 0 : 2) << " times in the song";
     title << "   " << (int) selection.size() << " of " << (int) b->hits.size() << " notes chosen";
+    if (const auto others = getChosenCount() - (int) selection.size(); others > 0)
+        title << " (+ " << others << " in other blocks)";
     g.drawText (title, gridTab.getRight() + 16, 8, selectButton.getX() - gridTab.getRight() - 24, headerHeight, juce::Justification::centredLeft, true);
 
     // The workspace and the lane.
@@ -2262,7 +2603,7 @@ void BlockEditor::paintContent (juce::Graphics& g)
                 const auto cell = cellOf (h.slot, h.beat).translated (shift, 0.0f);
                 if (cell.isEmpty() || cell.getRight() < (float) grid.getX() || cell.getX() > (float) grid.getRight())
                     continue;
-                const auto isChosen = mine && chosen[n] != 0;
+                const auto isChosen = mine ? chosen[n] != 0 : (! elsewhere.empty() && isSelectedIn (i, h));   // (0.92.0: other blocks' too)
                 const auto moving = drag == Drag::move && isChosen;
                 diamond (cell, noteColour (h.velocity).withMultipliedAlpha (moving && ! dragCopy ? 0.35f : blk.muted ? 0.3f : 1.0f), isChosen);
                 if (moving)

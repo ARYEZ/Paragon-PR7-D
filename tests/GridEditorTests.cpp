@@ -726,6 +726,7 @@ TEST_CASE ("GRID EDITOR 0.81.0: the whole song in the grid, every block's notes 
     t.p.flushUndoStep();
     BlockEditor ed (t.p);
     ed.setBounds (0, 0, 1476, 672);
+    ed.setEachRepeat (false);   // (0.92.0: an edit in a repeat changes the loop, as 0.81.0 had it)
     ed.open (1);
     ed.setResolution (3);   // 1/16
     const auto px = [&ed] { return (float) ed.getZoom(); };
@@ -884,4 +885,219 @@ TEST_CASE ("UNDO 0.91.1: CTRL + Z / Y in the GRID EDITOR's and GROOVES' own wind
     CHECK (grooves->keyPressed (redoKey));
     CHECK_FALSE (t.p.getSong() == before);
     view->setGroovesInOwnWindow (false);
+}
+
+namespace
+{
+    // A: 8 beats (kick 0, snare 4); B: a 4-beat loop played twice (kick 0, snare 2), after it.
+    song::Song twoBlocks()
+    {
+        song::Song s;
+        song::Block a, b;
+        a.name = "A";
+        a.length = a.loopLength = 8.0;
+        a.hits = { { 0.0, BD, 1.0f }, { 4.0, SD, 0.9f } };
+        b.name = "B";
+        b.loopLength = 4.0;
+        b.length = 8.0;
+        b.hits = { { 0.0, BD, 0.8f }, { 2.0, SD, 0.7f } };
+        s.place (a, 0.0);
+        s.place (b, 8.0);
+        return s;
+    }
+    int countAt (const song::Block& blk, int slot, double beat)
+    {
+        return (int) std::count_if (blk.hits.begin(), blk.hits.end(), [&] (const song::Hit& h) { return h.slot == slot && std::abs (h.beat - beat) < 1.0e-6; });
+    }
+}
+
+TEST_CASE ("GRID EDITOR 0.92.0: EACH REPEAT: an edit in one repeat changes only that repeat, undone as one step", "[grideditor][ui]")
+{
+    Plugin t;
+    t.p.setSong (twoBlocks());
+    t.p.flushUndoStep();
+    BlockEditor ed (t.p);
+    ed.setBounds (0, 0, 1476, 672);
+    CHECK (ed.isEachRepeat());   // on by default
+    ed.open (1);
+    ed.setResolution (3);   // 1/16
+    ed.setZoom (60.0);
+    ed.setViewStart (-1.0);
+    const auto px = [&ed] { return (float) ed.getZoom(); };
+    const auto at = [&ed, &px] (int slot, double beat) { return ed.cellOf (slot, 0.0).getCentre().translated ((float) beat * px(), 0.0f); };
+    const auto mouse = [&ed] (juce::Point<float> p, juce::ModifierKeys mods)
+    {
+        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), p, mods, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                 &ed, &ed, juce::Time::getCurrentTime(), p, juce::Time::getCurrentTime(), 1, false);
+    };
+    const auto click = [&] (juce::Point<float> p)
+    {
+        ed.mouseDown (mouse (p, juce::ModifierKeys::leftButtonModifier));
+        ed.mouseUp (mouse (p, juce::ModifierKeys::leftButtonModifier));
+        t.p.flushUndoStep();
+    };
+    const auto before = t.p.getSong();
+
+    // The second repeat's kick (beat 4 of B): chosen there; B's repeats written out (it sounds the same).
+    click (at (BD, 4.0));
+    REQUIRE (ed.getSelection().size() == 1);
+    CHECK (ed.getSelection()[0].beat == 4.0);
+    {
+        const auto& blk = t.p.getSong().blocks[1];
+        CHECK (blk.loopLength == 8.0);
+        CHECK (blk.hits.size() == 4);
+        CHECK (song::unrolled (blk).size() == song::unrolled (before.blocks[1]).size());
+    }
+    // Nudged: only that repeat's kick moves; the first repeat's stays.
+    ed.nudge (1);
+    t.p.flushUndoStep();
+    {
+        const auto& blk = t.p.getSong().blocks[1];
+        CHECK (countAt (blk, BD, 0.0) == 1);
+        CHECK (countAt (blk, BD, 4.0) == 0);
+        CHECK (countAt (blk, BD, 4.25) == 1);
+    }
+    // One undo: back to the block as it was (its loop played twice).
+    t.p.undo();
+    CHECK (t.p.getSong() == before);
+
+    // The pencil in the second repeat: the note in that repeat only.
+    ed.open (1);
+    ed.setZoom (60.0);
+    ed.setViewStart (-1.0);
+    ed.setTool (BlockEditor::Tool::pencil);
+    click (at (SD, 5.0));
+    {
+        const auto& blk = t.p.getSong().blocks[1];
+        CHECK (countAt (blk, SD, 5.0) == 1);
+        CHECK (countAt (blk, SD, 1.0) == 0);
+    }
+    t.p.undo();
+    CHECK (t.p.getSong() == before);
+
+    // Off (OPTIONS): as before, the loop (both repeats).
+    ed.setEachRepeat (false);
+    ed.open (1);
+    ed.setZoom (60.0);
+    ed.setViewStart (-1.0);
+    click (at (SD, 5.0));
+    CHECK (t.p.getSong().blocks[1].loopLength == 4.0);
+    CHECK (countAt (t.p.getSong().blocks[1], SD, 1.0) == 1);
+}
+
+TEST_CASE ("GRID EDITOR 0.92.0: notes chosen across blocks: moved, nudged, deleted, copied and pasted together", "[grideditor][ui]")
+{
+    Plugin t;
+    t.p.setSong (twoBlocks());
+    t.p.flushUndoStep();
+    BlockEditor ed (t.p);
+    ed.setBounds (0, 0, 1476, 672);
+    ed.open (1);
+    ed.setResolution (3);
+    ed.setZoom (40.0);
+    ed.setViewStart (-9.0);   // both blocks in view
+    const auto before = t.p.getSong();
+    const auto px = [&ed] { return (float) ed.getZoom(); };
+    const auto at = [&ed, &px] (int slot, double beat) { return ed.cellOf (slot, 0.0).getCentre().translated ((float) beat * px(), 0.0f); };
+    const auto mouse = [&ed] (juce::Point<float> p, juce::ModifierKeys mods)
+    {
+        return juce::MouseEvent (juce::Desktop::getInstance().getMainMouseSource(), p, mods, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                                 &ed, &ed, juce::Time::getCurrentTime(), p, juce::Time::getCurrentTime(), 1, false);
+    };
+
+    // B's snare clicked, then A's snare (4 beats into A = 4 beats before B) SHIFT-clicked: both chosen, B still edited.
+    ed.mouseDown (mouse (at (SD, 2.0), juce::ModifierKeys::leftButtonModifier));
+    ed.mouseUp (mouse (at (SD, 2.0), juce::ModifierKeys::leftButtonModifier));
+    ed.mouseDown (mouse (at (SD, -4.0), juce::ModifierKeys (juce::ModifierKeys::leftButtonModifier | juce::ModifierKeys::shiftModifier)));
+    ed.mouseUp (mouse (at (SD, -4.0), juce::ModifierKeys (juce::ModifierKeys::leftButtonModifier | juce::ModifierKeys::shiftModifier)));
+    CHECK (ed.getBlock() == 1);
+    CHECK (ed.getChosenCount() == 2);
+    REQUIRE (ed.getSelectionIn (0).size() == 1);
+    CHECK (ed.getSelectionIn (0)[0].beat == 4.0);
+
+    // Dragged a beat later: both move (each in its own block), one undo step.
+    const auto from = at (SD, 2.0);
+    ed.mouseDown (mouse (from, juce::ModifierKeys::leftButtonModifier));
+    ed.mouseDrag (mouse (from.translated (px(), 0.0f), juce::ModifierKeys::leftButtonModifier));
+    ed.mouseUp (mouse (from.translated (px(), 0.0f), juce::ModifierKeys::leftButtonModifier));
+    t.p.flushUndoStep();
+    CHECK (countAt (t.p.getSong().blocks[0], SD, 5.0) == 1);
+    CHECK (countAt (t.p.getSong().blocks[0], SD, 4.0) == 0);
+    CHECK (countAt (t.p.getSong().blocks[1], SD, 3.0) == 1);
+    CHECK (ed.getChosenCount() == 2);
+    // Nudged: both again.
+    ed.nudge (-1);
+    t.p.flushUndoStep();
+    CHECK (countAt (t.p.getSong().blocks[0], SD, 4.75) == 1);
+    CHECK (countAt (t.p.getSong().blocks[1], SD, 2.75) == 1);
+    t.p.undo();
+    t.p.undo();
+    CHECK (t.p.getSong() == before);
+
+    // A lasso over beats 2 to 12 of the song (kick and snare rows): A's snare, B's two kicks and its first snare.
+    ed.open (1);
+    ed.lassoBeats (2.0, 12.0, ed.rowOf (BD), ed.rowOf (SD), false);
+    CHECK (ed.getChosenCount() == 4);
+    // Copied, then pasted into B: A's snare lands 4 beats into B... and B's notes past its end (none there) left out.
+    ed.copySelected();
+    ed.deleteSelected();
+    t.p.flushUndoStep();
+    CHECK (t.p.getSong().blocks[0].hits.size() == 1);   // A's kick only
+    CHECK (countAt (t.p.getSong().blocks[1], SD, 6.0) == 1);   // B's second snare (beat 14 of the song) wasn't in it
+    CHECK (t.p.getSong().blocks[1].hits.size() == 1);
+    t.p.undo();
+    CHECK (t.p.getSong() == before);
+    ed.open (1);
+    ed.selectIn (0, SD, 4.0, false);
+    CHECK (ed.getChosenCount() == 1);
+    ed.copySelected();
+    ed.paste();   // from B's start: A's snare's 4 beats in -> B's beat 4
+    t.p.flushUndoStep();
+    CHECK (countAt (t.p.getSong().blocks[1], SD, 4.0) == 1);
+    CHECK (countAt (t.p.getSong().blocks[1], SD, 0.0) == 0);   // only that repeat (EACH REPEAT)
+}
+
+TEST_CASE ("SONG 0.92.0: SYNCED TO DAW: SPACE in the GRID EDITOR goes to the DAW, saved with the song", "[grideditor][ui][song]")
+{
+    Plugin t;
+    t.p.setSong (oneBar());
+    MainView::groovesWindowOnDesktop = false;
+    std::unique_ptr<juce::AudioProcessorEditor> editor (t.p.createEditor());
+    editor->setSize (1600, 900);
+    auto* view = dynamic_cast<MainView*> (editor->getChildComponent (0));
+    REQUIRE (view != nullptr);
+    auto& ed = view->getBlockEditor();
+    view->openGridEditor (0);
+    const juce::KeyPress space (juce::KeyPress::spaceKey);
+
+    // Off: SPACE plays the song track on its own (as before).
+    CHECK_FALSE (t.p.getSong().syncedToDaw);
+    CHECK (ed.keyPressed (space));
+    CHECK (t.p.isSongPlaying());
+    CHECK (ed.keyPressed (space));
+    CHECK_FALSE (t.p.isSongPlaying());
+    CHECK (view->getSpacesSentToDaw() == 0);
+
+    // On: SPACE goes to the DAW (the song track doesn't start itself), in the plugin and in the editor's own window.
+    auto s = t.p.getSong();
+    s.syncedToDaw = true;
+    t.p.setSong (s);
+    CHECK (ed.keyPressed (space));
+    CHECK_FALSE (t.p.isSongPlaying());
+    CHECK (view->getSpacesSentToDaw() == 1);
+    CHECK_FALSE (view->keyPressed (space));   // the plugin's window leaves it to the DAW
+    view->setGridEditorInOwnWindow (true);
+    CHECK (ed.keyPressed (space));
+    CHECK (view->getSpacesSentToDaw() == 2);
+    CHECK (view->getGridEditorWindow()->keyPressed (space));
+    CHECK (view->getSpacesSentToDaw() == 3);
+    CHECK_FALSE (t.p.isSongPlaying());
+    view->setGridEditorInOwnWindow (false);
+
+    // Saved with the song; FOLLOW DAW off takes it off.
+    const auto xml = t.p.getSong().toXml();
+    CHECK (song::Song::fromXml (*xml).syncedToDaw);
+    auto off = t.p.getSong();
+    off.followDaw = false;
+    CHECK_FALSE (song::Song::fromXml (*off.toXml()).syncedToDaw);
 }
