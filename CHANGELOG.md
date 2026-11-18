@@ -2,6 +2,71 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.90.1
+
+- **A cymbal with no spot mic now gets its own channel too.** Your SL Around The Fur CRASH 1 folder has only OH and
+  ROOM mics: no SPOT. Bringing a drum in this way puts its spot mic on its own channel, its overheads in OVERHEADS and
+  leaves its room mics out. With no spot mic, nothing went onto its own channel: it played only in OVERHEADS, unlike
+  every other cymbal.
+  - **Now, when a drum has no spot mic, its overheads go onto its own channel** (CRASH 6 for crash 6), into the same
+    bus and output as OVERHEADS. It gets its own fader, effects and sends like the others. Its room mics stay out, as
+    before (another room's sound).
+  - **The import's summary now says what really went where**, for example "no spot mic in the pack: its overheads play
+    on CRASH 6 (its own fader)". Before, it said "spot mic: CRASH 6" even when there was no spot mic.
+- Bring the crash onto CRASH 6 again to get it.
+
+## 0.90.0
+
+- **CRASH 6 has a channel of its own in the MIXER.** Since it's a permanent part of the kit, it now gets a fixed spot,
+  as you asked, instead of competing for the 16 USER channels. The same goes for the other drums added since 0.33.0
+  that had no named channel: CRASH 3, CRASH 4, CRASH 5, CRASH 6, FX CRASH, CHINA 2, TOM 4 and TOM 5 each have one.
+  - **That's 8 new channels** after USER 16, named after their drum. Each has everything a channel has: fader, pan,
+    mute, solo, polarity, effects, sends, bus and output. Like USER channels, they show in the MIXER only once
+    something plays into them.
+  - **A pack's drum brought onto one of those drums** (Drums from a sample pack with separate mics...) always plays its
+    spot mic in that drum's channel, however full the mixer is. Its overheads still go to OVERHEADS. Bring your stack
+    onto CRASH 6 again and its spot mic lands in the CRASH 6 channel.
+  - **The 16 USER channels are given out as before** (ROUTE MICS, layers, a pack's extra mics). The spots are never
+    handed to anything else.
+- **Left as it was:** a whole sample pack import (the Djent kit) still puts TOM 4's own mic on a USER channel, so
+  projects you've already made keep their channel settings. If you want it moved onto the TOM 4 spot (freeing a USER
+  channel), say so: new imports could do it.
+
+## 0.89.1
+
+- **A drum brought in from a sample pack no longer loses its spot mic when the MIXER is full.** You saw "no USER channel
+  left for its close mic (only its overheads come in)" when you brought a stack onto CRASH 6. Bringing a drum in this way
+  gives its spot mic a USER channel of its own, and all 16 were already in use (the Djent kit's extra mics, the
+  cymbals' own spot mics, earlier imports and layers). With none free, the spot mic was simply left out, so the stack
+  came in with its overheads only.
+  - **The channels of the drum being replaced count as free again.** Bringing something onto CRASH 6 twice reuses the
+    channel the first one had, instead of taking another (or failing).
+  - **When there's truly no USER channel left, the spot mic plays in the drum's own channel** (CYMBALS for a crash),
+    with its overheads in OVERHEADS as before, and the summary says so. You'll hear the whole drum; it just shares
+    its fader with the kit's other cymbals' spot mics.
+- To give it its own fader again later, free a USER channel in the MIXER (for example a layer or an earlier import you
+  no longer use) and bring the drum in again.
+
+## 0.89.0
+
+- **The cymbals placed closer to the reference kit**, as you chose from the mock-ups:
+  - **Higher:** every cymbal sits higher, with clear air between the toms and the cymbals. The top row is a few
+    centimetres lower than in the first mock-up, so it doesn't touch the top of the picture.
+  - **One arc:** crashes 4 and 5 moved in, so they overlap crash 2 and crash 3. The top now reads as one continuous
+    fan from left to right.
+  - **The two sides match:** crash 4 and crash 5 now mirror each other exactly, each sitting a few centimetres above
+    the crash beside it. Before, the left one sat level with its neighbour and the right one lower.
+  - **Tipped towards you:** each cymbal is angled about 4 degrees more towards the drummer (the half tilt), so you see
+    a bit more of its top and its cone.
+  - **The splash moved** down beside tom 1.
+  - **CRASH 6** (15") is new, in the middle of the top row: five cymbals across. Click it to choose it and hear it; it
+    glows when it plays. It's the crash 6 drum slot that was already there (note 32 in GROOVE LIBRARY, its mute hit
+    107). If that slot is switched off, it plays crash 2 instead, and crash 2 glows.
+- **The cymbal stands' arms glow** like their lower tubes now: a neon strip along the top of each boom arm, on every
+  cymbal stand (crashes, ride, china, splash). Most arms sit under their cymbal from this angle, so it shows most on
+  the outer stands.
+- The whole kit was rendered again; the drums didn't move.
+
 ## 0.88.0
 
 - **Two more crashes on the KIT VIEW, one each side**, laid out with you over four mock-ups:

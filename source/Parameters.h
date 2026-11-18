@@ -84,7 +84,8 @@ namespace ParamIDs
                                                    "Tom 1", "Tom 2", "Tom 3", "Cymbals", "Overheads", "Room", "Ambience", "Other",
                                                    "User 1", "User 2", "User 3", "User 4", "User 5", "User 6", "User 7", "User 8",
                                                    "User 9", "User 10", "User 11", "User 12", "User 13", "User 14", "User 15",
-                                                   "User 16" };
+                                                   "User 16", "Crash 3 Spot", "Crash 4 Spot", "Crash 5 Spot",
+                                                   "Crash 6 Spot", "FX Crash Spot", "China 2 Spot", "Tom 4 Spot", "Tom 5 Spot" };   // (0.90.0: the spot channels)
     // 0.70.0: a drum's MIXER CHANNEL (its "MixOut"): 0 its own way (VOLUME, PAN, INSERT, OUTPUT, as always), else a mic
     // channel + 1, as layerOutNames (only append).
     inline const juce::StringArray mixOutNames = []
@@ -352,7 +353,7 @@ namespace ParamIDs
         ids.addArray (drumsPedalSteps);
         ids.add (drumsMidiChannel);
         ids.add (noteNames);
-        for (int c = 0; c < 29; ++c)   // the mic channels (0.23.0: USER 1-8 too; 0.34.0: USER 9-16)
+        for (int c = 0; c < 37; ++c)   // the mic channels (0.23.0: USER 1-8 too; 0.34.0: USER 9-16; 0.90.0: the 8 spots)
             ids.add (mix (c, "Output"));
         for (int b = 0; b < 8; ++b)
             ids.add (mixBus (b, "Output"));

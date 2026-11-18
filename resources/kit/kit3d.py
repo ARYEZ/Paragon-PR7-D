@@ -478,22 +478,29 @@ def boom_cymbal(name, diameter, centre, tilt=(0.25, 0, 0), china=False, base=(0.
     box(name + " tilter", (0.024, 0.03, 0.035), (cx, cy, cz - 0.035), mat=SATIN)
     wing_nut(name + " tilter nut", (cx + 0.022, cy, cz - 0.035))
     rod(name + " stand boom", (bx, by, top), (cx, cy, cz - 0.05), r=0.0085)
+    lift = Vector((0, 0, 0.0085 + 0.002))   # the neon strip along the boom's top, as up the stand's tubes
+    rod(name + " stand boom strip", Vector((bx, by, top + 0.03)) + lift, Vector((cx, cy, cz - 0.07)) + lift, r=0.0015, mat=NEON_SOFT)
     collar(name + " stand boom", (bx, by, top), 0.0095)
     rod(name + " stand boom counterweight", (bx, by, top), (bx + 0.08 * out.x, by + 0.08 * out.y, top - 0.03), r=0.012)
 
 # Left of the hi-hat, low to high: the FX crash (holes), crash 1, crash 3; the splash over tom 1; crash 4 high behind;
 # crash 2 in the middle over the toms; crash 5 and 6 to the right; the china, the ride over the floor toms, china 2.
-boom_cymbal("CRASH", 0.406, (-0.741, 0.728, 1.35), tilt=(-0.05, -0.1, 0), base=(-0.95, 0.62))
-boom_cymbal("CRASH 2", 0.406, (-0.45, 0.54, 1.68), tilt=(-0.05, -0.05, 0), drop=0.45, base=(-0.6, 0.3))
+boom_cymbal("CRASH", 0.406, (-0.741, 0.728, 1.46), tilt=(0.025, -0.1, 0), base=(-0.95, 0.62))
+boom_cymbal("CRASH 2", 0.406, (-0.45, 0.54, 1.6), tilt=(0.025, -0.05, 0), drop=0.45, base=(-0.6, 0.3))
 # 0.74.0: the splash in the middle, over the gap between toms 2 and 3; crash 3 where the splash was, CRASH 2's twin.
-boom_cymbal("SPLASH", 0.305, (0.03, 0.22, 1.3), tilt=(-0.1, 0.0, 0), drop=0.45, base=(0.03, -0.62))
-boom_cymbal("CRASH 3", 0.406, (0.45, 0.54, 1.68), tilt=(-0.05, 0.05, 0), drop=0.75, base=(0.45, -0.30))
+# 0.89.0 (the owner, after comparing with the reference picture): every cymbal a little higher and tipped about 4 degrees
+# more towards the drummer, crashes 4 / 5 in so the top reads as one arc, the splash by tom 1, a 15" crash 6 top centre,
+# the top row 4 cm lower than first drawn (room at the picture's top); crashes 4 / 5 mirror each other, each 6 cm
+# above the crash beside it (a lower outer crash would sit on crash 1).
+boom_cymbal("SPLASH", 0.305, (-0.31, 0.25, 1.24), tilt=(0.025, -0.05, 0), drop=0.4, base=(-0.3, -0.62))
+boom_cymbal("CRASH 6", 0.38, (0.0, 0.3, 1.5), tilt=(0.025, 0.0, 0), drop=0.75, base=(0.05, -0.62))
+boom_cymbal("CRASH 3", 0.406, (0.45, 0.54, 1.6), tilt=(0.025, 0.05, 0), drop=0.75, base=(0.45, -0.30))
 # 0.87.0: crashes 4 and 5, one each side (the owner's choice after four mock-ups): crash 4 above crash 1, crash 5 above the
 # ride, both level with each other and a few cm clear of the cymbal under them; crash 5's stand kept off the hologram.
-boom_cymbal("CRASH 4", 0.406, (-0.875, 0.56, 1.55), tilt=(-0.05, -0.12, 0), drop=0.6, base=(-1.2, 0.05))
-boom_cymbal("CRASH 5", 0.406, (0.83, 0.56, 1.5), tilt=(-0.05, 0.12, 0), drop=0.6, base=(1.1, -0.15))
-boom_cymbal("RIDE", 0.52, (0.582, 0.61, 1.2), tilt=(-0.05, 0.08, 0), base=(0.95, 0.25))
-boom_cymbal("CHINA", 0.43, (0.792, 1.176, 1.3), tilt=(-0.05, 0.1, 0), china=True, base=(1.0, 1.15))
+boom_cymbal("CRASH 4", 0.406, (-0.82, 0.52, 1.66), tilt=(0.025, -0.12, 0), drop=0.6, base=(-1.2, 0.05))
+boom_cymbal("CRASH 5", 0.406, (0.82, 0.52, 1.66), tilt=(0.025, 0.12, 0), drop=0.6, base=(1.1, -0.15))
+boom_cymbal("RIDE", 0.52, (0.582, 0.61, 1.3), tilt=(0.025, 0.08, 0), base=(0.95, 0.25))
+boom_cymbal("CHINA", 0.43, (0.792, 1.176, 1.38), tilt=(0.025, 0.1, 0), china=True, base=(1.0, 1.15))
 
 # 0.71.0: THE PADS: an electronic pad unit of 6 pads (3 across, 2 deep) behind the floor tom, on its own stand, tipped
 # towards the drummer and turned to face the seat (the owner's idea, from a picture of another program's e-kit: our own
@@ -661,7 +668,7 @@ torus("KICK logo ring", 0.205, 0.003, (0, front_y, 0.29), rot=(math.pi / 2, 0, 0
 PIECES = ["kick:KICK", "kick:LOGO", "snare:SNARE", "tom1:TOM 1", "tom2:TOM 2", "tom3:TOM 3", "floor:FLOOR",
           "hihat:HI-HAT", "crash:CRASH", "crash2:CRASH 2", "ride:RIDE", "china:CHINA",
           "splash:SPLASH", "crash3:CRASH 3",   # (0.43.0: the 12 pieces the owner's sample pack records)
-          "crash4:CRASH 4", "crash5:CRASH 5",   # (0.87.0)
+          "crash4:CRASH 4", "crash5:CRASH 5", "crash6:CRASH 6",   # (0.88.0, 0.89.0)
           "pad1:PADS pad 1", "pad2:PADS pad 2", "pad3:PADS pad 3", "pad4:PADS pad 4", "pad5:PADS pad 5",
           "pad6:PADS pad 6"]   # (0.71.0: THE PADS, each its own piece: each glows when it plays; the unit's body none)
 PIECES.sort(key=lambda e: -len(e.split(":")[1]))
@@ -695,7 +702,7 @@ def zone_of(name):
     if piece.startswith("pad"):
         return 35 + int(piece[3:])                    # 0.71.0: PAD 1-6 are slots 36-41
     return {"kick": 0, "tom1": 9, "tom2": 7, "tom3": 5, "floor": 23, "crash": 11, "crash2": 14, "china": 15,
-            "splash": 16, "crash3": 29, "crash4": 30, "crash5": 31}[piece]
+            "splash": 16, "crash3": 29, "crash4": 30, "crash5": 31, "crash6": 32}[piece]
 
 def flat_emission(name, value, ride_split=False):
     m = bpy.data.materials.new(name)

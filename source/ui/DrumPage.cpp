@@ -1507,8 +1507,9 @@ void DrumPage::importSamplePackOnto()
         }
         auto window = std::make_shared<juce::AlertWindow> ("Drums from: " + folder.getFileName(),
                                                            "Choose which of its drums replace which of this kit's (the rest stay as they are). "
-                                                           "Each brings its close (spot) mic onto a new mixer channel of its own and its "
-                                                           "overheads into OVERHEADS; its room mics are left out (another room). Its choke "
+                                                           "Each brings its close (spot) mic onto a mixer channel of its own and its "
+                                                           "overheads into OVERHEADS (one with no spot mic: its overheads on its own channel); "
+                                                           "its room mics are left out (another room). Its choke "
                                                            "comes with it where this kit's drum has one.",
                                                            juce::MessageBoxIconType::NoIcon, this);
         for (size_t r = 0; r < rows.size(); ++r)
@@ -1536,8 +1537,8 @@ void DrumPage::importSamplePackOnto()
             for (const auto& [slot, from] : result.slots)
             {
                 text << slotDefaults[(size_t) slot].key << " " << articulationName (slot) << ": " << from;
-                if (const auto it = result.channels.find (slot); it != result.channels.end())
-                    text << "  (spot mic: " << processor.getMixerChannelName (it->second) << ")";
+                if (const auto it = result.mics.find (slot); it != result.mics.end())
+                    text << "  (" << it->second << ")";
                 text << "\n";
             }
             if (! result.turnedOff.isEmpty())
@@ -1549,8 +1550,7 @@ void DrumPage::importSamplePackOnto()
             }
             if (! result.problems.isEmpty())
                 text << "\n" << result.problems.joinIntoString ("\n") << "\n";
-            text << "\nIts overheads play in OVERHEADS with this kit's; set its spot mic's level on its own channel in the MIXER. "
-                    "Save it as a preset to keep it.";
+            text << "\nSet each one's level on its own channel in the MIXER. Save it as a preset to keep it.";
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::NoIcon, "Drums from: " + folder.getFileName(),
                                                    result.slots.empty() ? "None of them could go onto those drums." : text);
         }));

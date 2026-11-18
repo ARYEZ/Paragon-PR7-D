@@ -37,6 +37,8 @@ namespace
     constexpr int pr7d0500 = 40; // PR7-D 0.50.0: LAYERS 2 and 3
     constexpr int pr7d0700 = 41; // PR7-D 0.70.0: a drum's MIXER CHANNEL
     constexpr int pr7d0710 = 42; // PR7-D 0.71.0: drums 37 to 42, THE PADS (every setting of theirs)
+    constexpr int pr7d0900 = 43; // PR7-D 0.90.0: the mixer's spot channels (USER 17 to 24)
+    static_assert (synth::mixer::numMicChannels == 37, "notInRigs (Parameters.h) lists every mic channel's Output");
 
     const ToText asDb = [] (float value, int) { return juce::String (value, 1) + " dB"; };
     const ToText asPercent = [] (float value, int) { return juce::String (juce::roundToInt (value * 100.0f)) + "%"; };
@@ -194,7 +196,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         {
             // 0.23.0: USER 1-8 after the named channels (their own version hint).
             const auto user = synth::mixer::isUserChannel (c);
-            const auto userHint = c - synth::mixer::numChannels >= 8 ? pr7d0340 : pr7d0230;   // (0.34.0: USER 9-16)
+            const auto userHint = synth::mixer::isSpotChannel (c) ? pr7d0900 : c - synth::mixer::numChannels >= 8 ? pr7d0340 : pr7d0230;   // (0.34.0: USER 9-16)
             const auto hint020 = user ? userHint : pr7d0200, hint021 = user ? userHint : pr7d0210;
             const auto name = "Mix " + (user ? "user " + juce::String (c - synth::mixer::numChannels + 1) : synth::mixer::channelNames[c].toLowerCase()) + " ";
             const ToText asFader = [] (float v, int) { return v <= -59.95f ? juce::String ("-inf") : juce::String (v, 1) + " dB"; };

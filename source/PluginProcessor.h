@@ -1,4 +1,5 @@
 #pragma once
+#include <set>
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_utils/juce_audio_utils.h>
@@ -241,6 +242,7 @@ public:
     {
         std::vector<std::pair<int, juce::String>> slots;   // slot, the folder its sounds came from
         std::map<int, int> channels;                        // slot -> its spot mic's USER channel
+        std::map<int, juce::String> mics;                   // 0.90.1: slot -> what plays where ("spot mic on CRASH 6, overheads in OVERHEADS")
         juce::Array<int> turnedOff;
         juce::StringArray problems;                         // (no USER channel left, a folder with no drum...)
     };
@@ -357,6 +359,8 @@ public:
     void setMicRoute (int piece, int mic, int to);
     int createUserChannel (int piece, int mic);
     juce::Array<int> getUserChannelsInUse() const;
+    // 0.89.1: the same, leaving out what these drums use (their sounds, layers and MIXER CHANNEL: about to be replaced).
+    juce::Array<int> getUserChannelsInUse (const std::set<int>& ignoringSlots) const;
     juce::String getMixerChannelName (int channel) const;
     void renameUserChannel (int channel, const juce::String& name);
     // 0.39.0: a bus's name (its own, else BUS n), and renaming it (empty: BUS n again). One undo step.

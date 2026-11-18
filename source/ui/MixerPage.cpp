@@ -1016,7 +1016,10 @@ private:
             box.addItem (page.processor.getMixerChannelName (c) + " (yours)", channelId + c);
         box.addSeparator();
         box.addItem ("Create New Channel", createId);
-        box.setItemEnabled (createId, users.size() < mixer::numUserChannels);
+        auto free = 0;
+        for (const auto c : users)
+            free += mixer::isSpotChannel (c) ? 0 : 1;
+        box.setItemEnabled (createId, free < mixer::numFreeUserChannels);
         const auto to = page.processor.getMicRoute (piece, mic);
         box.setSelectedId (to == mixer::routeAuto ? autoId : to == mixer::routeNone ? noneId : channelId + to, juce::dontSendNotification);
         refreshing = false;

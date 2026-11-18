@@ -1318,6 +1318,7 @@ void ParagonX1AudioProcessor::startLoading (std::vector<std::pair<int, juce::Str
                 // mics onto that channel, its overheads kept, its room mics left out.
                 const auto args = juce::StringArray::fromTokens (parts[1], ",", {});
                 const auto from = args[0].getIntValue(), spot = args[1].getIntValue();
+                const auto overheadsOwn = args[2] == "1";   // 0.90.1: a drum with no spot mic: its overheads on its own channel
                 const auto key = source.getFullPathName() + "#on";
                 auto it = packs.find (key);
                 if (it == packs.end())
@@ -1329,7 +1330,7 @@ void ParagonX1AudioProcessor::startLoading (std::vector<std::pair<int, juce::Str
                     {
                         const auto mic = f.mic.toUpperCase();
                         if (mic.startsWith ("OH") || mic.startsWith ("OVERHEAD"))
-                            f.channel = synth::mixer::overheads;
+                            f.channel = overheadsOwn && spot >= 0 ? spot : (int) synth::mixer::overheads;
                         else if (mic.startsWith ("RM") || mic.startsWith ("ROOM") || mic.startsWith ("AMB") || spot < 0)
                             continue;
                         else
@@ -1759,6 +1760,23 @@ int ParagonX1AudioProcessor::getDrumMixChannel (int slot) const
     return channel >= 0 && channel < synth::mixer::numMicChannels ? channel : -1;
 }
 
+namespace
+{
+    // A mixer channel's name as a matrix not yet installed would give it (the import names channels as it goes).
+    juce::String getMixerChannelNameFor (const ModMatrix& m, int channel)
+    {
+        if (channel >= 0 && channel < synth::mixer::numChannels)
+            return synth::mixer::channelNames[channel];
+        if (! synth::mixer::isUserChannel (channel))
+            return {};
+        if (const auto& name = m.userChannelNames[(size_t) (channel - synth::mixer::numChannels)]; name.isNotEmpty())
+            return name;
+        if (synth::mixer::isSpotChannel (channel))
+            return synth::mixer::spotNames[channel - synth::mixer::firstSpotChannel];
+        return "USER " + juce::String (channel - synth::mixer::numChannels + 1);
+    }
+}
+
 ParagonX1AudioProcessor::SamplePackOntoImport ParagonX1AudioProcessor::importSamplePackOnto (const juce::File& packFolder,
                                                                                          const std::vector<std::pair<juce::File, int>>& onto)
 {
@@ -1766,7 +1784,14 @@ ParagonX1AudioProcessor::SamplePackOntoImport ParagonX1AudioProcessor::importSam
     SamplePackOntoImport result;
     std::vector<std::pair<int, juce::String>> refs;
     std::set<int> targeted, piecesHit;
-    auto taken = getUserChannelsInUse();
+    // 0.89.1: the USER channels only the drums being replaced use are free again (importing onto the same drum twice
+    // used to take a second channel, and a full mixer dropped the close mic).
+    std::set<int> replaced;
+    for (const auto& [folder, toPiece] : onto)
+        if (toPiece >= 0 && toPiece < numPieces)
+            for (int a = 0; a < pieces[(size_t) toPiece].count; ++a)
+                replaced.insert (pieces[(size_t) toPiece].articulations[(size_t) a].slot);
+    auto taken = getUserChannelsInUse (replaced);
     auto m = matrix;
     for (const auto& [folder, toPiece] : onto)
     {
@@ -1778,14 +1803,37 @@ ParagonX1AudioProcessor::SamplePackOntoImport ParagonX1AudioProcessor::importSam
             result.problems.add (folder.getFileName() + ": no drum could be read in it");
             continue;
         }
+        // 0.90.1: which mics it has (a folder may have no spot mic: overheads and rooms only).
+        auto hasClose = false, hasOverheads = false;
+        for (const auto& [slot, files] : info.slots)
+            if (mixPackSlotOnto (slot, toPiece) >= 0)
+                for (const auto& f : files)
+                {
+                    const auto mic = f.mic.toUpperCase();
+                    if (mic.startsWith ("OH") || mic.startsWith ("OVERHEAD"))
+                        hasOverheads = true;
+                    else if (! (mic.startsWith ("RM") || mic.startsWith ("ROOM") || mic.startsWith ("AMB")))
+                        hasClose = true;
+                }
+        // No spot mic: its overheads go onto its own channel instead (its own fader, as every other cymbal has),
+        // into the bus / output OVERHEADS goes to.
+        const auto overheadsOwn = ! hasClose && hasOverheads;
         // Its close mics' channel: a USER channel of its own, settings new, named, into the bus / output of the
         // piece's own channel.
-        auto spot = -1;
-        for (int u = 0; u < synth::mixer::numUserChannels && spot < 0; ++u)
+        // 0.90.0: a drum with a spot channel of its own (CRASH 6...) always gets that one.
+        auto spot = synth::mixer::spotChannelFor (pieces[(size_t) toPiece].name);
+        const auto ownSpot = spot >= 0;
+        for (int u = 0; u < synth::mixer::numFreeUserChannels && spot < 0; ++u)
             if (const auto channel = synth::mixer::numChannels + u; ! taken.contains (channel))
                 spot = channel;
         if (spot < 0)
-            result.problems.add (folder.getFileName() + ": no USER channel left for its close mic (only its overheads come in)");
+        {
+            // 0.89.1: no USER channel free: its close mic plays in the drum's own channel (CYMBALS for a crash), not lost.
+            spot = overheadsOwn ? (int) synth::mixer::overheads : homeChannel (pieces[(size_t) toPiece].articulations[0].slot);
+            result.problems.add (folder.getFileName() + (overheadsOwn ? juce::String (": every USER channel is in use, so its overheads play in OVERHEADS")
+                                                                    : ": every USER channel is in use, so its close mic plays in "
+                                                                      + juce::String (synth::mixer::channelNames[spot]) + " with its overheads in OVERHEADS"));
+        }
         else
         {
             taken.add (spot);
@@ -1797,13 +1845,20 @@ ParagonX1AudioProcessor::SamplePackOntoImport ParagonX1AudioProcessor::importSam
                     parameter->endChangeGesture();
                 }
             m.userChannelNames[(size_t) (spot - synth::mixer::numChannels)]
-                = (juce::String (pieces[(size_t) toPiece].name) + " " + folder.getFileName().toUpperCase()).substring (0, 24);
-            if (const auto home = homeChannel (pieces[(size_t) toPiece].articulations[0].slot); home >= 0 && home < synth::mixer::numChannels)
+                = ownSpot ? juce::String (pieces[(size_t) toPiece].name)
+                          : (juce::String (pieces[(size_t) toPiece].name) + " " + folder.getFileName().toUpperCase()).substring (0, 24);
+            if (const auto home = overheadsOwn ? (int) synth::mixer::overheads : homeChannel (pieces[(size_t) toPiece].articulations[0].slot);
+                home >= 0 && home < synth::mixer::numChannels)
             {
                 setParameterNow (ParamIDs::mix (spot, "Output"), (float) getMixerOutput (home));
                 setParameterNow (ParamIDs::mix (spot, "Route"), (float) getMixerRoute (home));
             }
         }
+        const auto spotName = getMixerChannelNameFor (m, spot);
+        const auto described = overheadsOwn ? "no spot mic in the pack: its overheads play on " + spotName + " (its own fader)"
+                             : ! hasClose ? juce::String ("no spot or overhead mics in the pack (its room mics are left out)")
+                             : hasOverheads ? "spot mic on " + spotName + ", overheads in OVERHEADS"
+                                            : "spot mic on " + spotName;
         const auto relative = folder.getRelativePathFrom (packFolder).replaceCharacter ('\\', '/');
         for (const auto& [slot, files] : info.slots)
         {
@@ -1813,8 +1868,9 @@ ParagonX1AudioProcessor::SamplePackOntoImport ParagonX1AudioProcessor::importSam
             targeted.insert (to);
             piecesHit.insert (toPiece);
             result.slots.emplace_back (to, folder.getFileName());
-            if (spot >= 0)
+            if (spot >= 0 && (hasClose || overheadsOwn))
                 result.channels[to] = spot;
+            result.mics[to] = described;
             setDrumSample (to, nullptr);
             makeSlotPlaySample (to);
             setParameterNow (ParamIDs::drum (to, "On"), 1.0f);
@@ -1827,7 +1883,7 @@ ParagonX1AudioProcessor::SamplePackOntoImport ParagonX1AudioProcessor::importSam
                 setDrumInstrument (layerOf (to, n), nullptr);
                 forgetLoad ((int) layerOf (to, n));
             }
-            refs.emplace_back (to, "packon|" + juce::String (slot) + "," + juce::String (spot) + "|{kit:" + packFolder.getFileName() + "}/" + relative);
+            refs.emplace_back (to, "packon|" + juce::String (slot) + "," + juce::String (spot) + (overheadsOwn ? ",1" : "") + "|{kit:" + packFolder.getFileName() + "}/" + relative);
         }
     }
     if (refs.empty())
@@ -2253,7 +2309,7 @@ int ParagonX1AudioProcessor::createLayerChannel (int slot, int n)
     n = juce::jlimit (0, ParamIDs::numLayers - 1, n);
     // The first USER channel no mic route and no other layer uses: settings back to new, named, the layer into it.
     auto used = getUserChannelsInUse();
-    for (int u = 0; u < synth::mixer::numUserChannels; ++u)
+    for (int u = 0; u < synth::mixer::numFreeUserChannels; ++u)
     {
         const auto channel = synth::mixer::numChannels + u;
         if (used.contains (channel))
@@ -2422,23 +2478,28 @@ void ParagonX1AudioProcessor::setMicRoute (int piece, int mic, int to)
 
 juce::Array<int> ParagonX1AudioProcessor::getUserChannelsInUse() const
 {
+    return getUserChannelsInUse (std::set<int> {});
+}
+
+juce::Array<int> ParagonX1AudioProcessor::getUserChannelsInUse (const std::set<int>& ignoringSlots) const
+{
     juce::Array<int> used;
     for (const auto to : matrix.micRoutes)
         if (synth::mixer::isUserChannel (to))
             used.addIfNotAlreadyThere (to);
     // 0.33.0: and the USER channels a drum's own sounds use (a sample pack's extra mics).
     for (int k = 0; k < ParamIDs::numDrums; ++k)
-        if (const auto& instrument = drumInstruments[(size_t) k]; instrument != nullptr)
+        if (const auto& instrument = drumInstruments[(size_t) k]; instrument != nullptr && ignoringSlots.count (k) == 0)
             for (const auto c : instrument->micChannels())
                 if (synth::mixer::isUserChannel (c))
                     used.addIfNotAlreadyThere (c);
     // 0.70.0: and the drums' MIXER CHANNELs.
     for (int k = 0; k < ParamIDs::numDrums; ++k)
-        if (const auto channel = getDrumMixChannel (k); synth::mixer::isUserChannel (channel))
+        if (const auto channel = getDrumMixChannel (k); synth::mixer::isUserChannel (channel) && ignoringSlots.count (k) == 0)
             used.addIfNotAlreadyThere (channel);
     // 0.29.0: and the drums' layers' channels (and a multi-mic layer's own USER mics).
     for (int k = 0; k < ParamIDs::numDrums; ++k)
-        for (int n = 0; n < ParamIDs::numLayers; ++n)
+        for (int n = 0; n < ParamIDs::numLayers && ignoringSlots.count (k) == 0; ++n)
         {
             if (auto* out = parameters.getRawParameterValue (ParamIDs::drum (k, ParamIDs::layerOut (n))))
                 if (const auto channel = juce::roundToInt (out->load()) - 1; synth::mixer::isUserChannel (channel))
@@ -2457,7 +2518,7 @@ int ParagonX1AudioProcessor::createUserChannel (int piece, int mic)
     if (piece < 0 || piece >= synth::mixer::numPieces || mic < 0 || mic >= synth::mixer::numChannels)
         return -1;
     const auto used = getUserChannelsInUse();
-    for (int u = 0; u < synth::mixer::numUserChannels; ++u)
+    for (int u = 0; u < synth::mixer::numFreeUserChannels; ++u)
     {
         const auto channel = synth::mixer::numChannels + u;
         if (used.contains (channel))
@@ -2490,7 +2551,11 @@ juce::String ParagonX1AudioProcessor::getMixerChannelName (int channel) const
     if (synth::mixer::isUserChannel (channel))
     {
         const auto& name = matrix.userChannelNames[(size_t) (channel - synth::mixer::numChannels)];
-        return name.isNotEmpty() ? name : "USER " + juce::String (channel - synth::mixer::numChannels + 1);
+        if (name.isNotEmpty())
+            return name;
+        if (synth::mixer::isSpotChannel (channel))
+            return synth::mixer::spotNames[channel - synth::mixer::firstSpotChannel];
+        return "USER " + juce::String (channel - synth::mixer::numChannels + 1);
     }
     return {};
 }
