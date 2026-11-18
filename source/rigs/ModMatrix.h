@@ -140,13 +140,44 @@ struct ModMatrix
     // 0.39.0: the buses' names (empty: BUS n). A fresh mixer's are the drum buses' (KICK, SNARE, TOMS); every save writes
     // all eight (XML "BusName" index / name), so one saved before 0.39.0 (none written) reads as unnamed.
     std::vector<juce::String> busNames = [] { std::vector<juce::String> n; for (const auto& b : synth::mixer::defaultBusNames) n.push_back (b); return n; }();
+    // 0.91.0: the MIXER's strips in the order they're shown (strip numbers; empty: the usual order: the named channels,
+    // the user channels, the buses). XML "StripOrder" order="..." (written only when set). `orderedStrips` gives the
+    // whole order: the saved one's valid strips, then any it lacks in the usual order (strips added later, a broken list).
+    std::vector<int> stripOrder;
+    static std::vector<int> usualStripOrder()
+    {
+        std::vector<int> o;
+        for (int s = 0; s < synth::mixer::numChannels; ++s)
+            o.push_back (s);
+        for (int s = synth::mixer::firstUserStrip; s < synth::mixer::numStrips; ++s)
+            o.push_back (s);
+        for (int s = synth::mixer::numChannels; s < synth::mixer::firstUserStrip; ++s)
+            o.push_back (s);
+        return o;
+    }
+    std::vector<int> orderedStrips() const
+    {
+        std::vector<int> o;
+        std::vector<bool> seen ((size_t) synth::mixer::numStrips, false);
+        for (const auto s : stripOrder)
+            if (s >= 0 && s < synth::mixer::numStrips && ! seen[(size_t) s])
+            {
+                seen[(size_t) s] = true;
+                o.push_back (s);
+            }
+        for (const auto s : usualStripOrder())
+            if (! seen[(size_t) s])
+                o.push_back (s);
+        return o;
+    }
 
     bool operator== (const ModMatrix& o) const noexcept
     {
         return drumPatterns == o.drumPatterns && drumEnvelopes == o.drumEnvelopes && drumVelocityCurves == o.drumVelocityCurves
             && drumLayers == o.drumLayers
             && mixerBleed == o.mixerBleed && mixerSends == o.mixerSends && mixerEffects == o.mixerEffects
-            && micRoutes == o.micRoutes && userChannelNames == o.userChannelNames && busNames == o.busNames;
+            && micRoutes == o.micRoutes && userChannelNames == o.userChannelNames && busNames == o.busNames
+            && stripOrder == o.stripOrder;
     }
     bool isEmpty() const noexcept { return *this == ModMatrix {}; }
 
@@ -266,6 +297,13 @@ struct ModMatrix
             e->setAttribute ("index", b + 1);
             e->setAttribute ("name", busNames[(size_t) b]);
         }
+        if (! stripOrder.empty())
+        {
+            juce::StringArray order;
+            for (const auto st : stripOrder)
+                order.add (juce::String (st));
+            xml->createNewChildElement ("StripOrder")->setAttribute ("order", order.joinIntoString (","));
+        }
         for (int u = 0; u < synth::mixer::numUserChannels; ++u)
             if (userChannelNames[(size_t) u].isNotEmpty())
             {
@@ -343,6 +381,10 @@ struct ModMatrix
         for (const auto* e : xml.getChildWithTagNameIterator ("BusName"))
             if (const auto b = e->getIntAttribute ("index") - 1; b >= 0 && b < synth::mixer::numBuses)
                 m.busNames[(size_t) b] = e->getStringAttribute ("name").substring (0, 24);
+        if (const auto* e = xml.getChildByName ("StripOrder"))
+            for (const auto& t : juce::StringArray::fromTokens (e->getStringAttribute ("order"), ",", {}))
+                if (const auto st = t.trim().getIntValue(); t.trim().containsOnly ("0123456789") && t.trim().isNotEmpty() && st < synth::mixer::numStrips)
+                    m.stripOrder.push_back (st);
         for (const auto* e : xml.getChildWithTagNameIterator ("UserChannel"))
             if (const auto u = e->getIntAttribute ("index") - 1; u >= 0 && u < synth::mixer::numUserChannels)
                 m.userChannelNames[(size_t) u] = e->getStringAttribute ("name").substring (0, 24);

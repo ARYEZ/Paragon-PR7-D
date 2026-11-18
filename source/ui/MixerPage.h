@@ -3,6 +3,7 @@
 #include "PluginProcessor.h"
 #include "dsp/synth/Mixer.h"
 #include "dsp/synth/MicSim.h"
+#include "ui/ParagonLookAndFeel.h"
 
 // THE MIXER page (PR7-D 0.20.0, buses and sends 0.21.0): a multi-mic kit's mic channels and the mixer's buses, as a
 // sampled drum kit's mixer has them (inspired by the reference's mixer chapter; our own look and words). A strip per
@@ -70,6 +71,13 @@ public:
     enum MenuItem { preSend = 1, postSend, stereoReverse, stereoOutputs, multichannelOutputs };
     juce::String getNote() const { return note; }
     void update();   // the meters, the buttons' words, which channels are in use (the timer; snapshots)
+    // 0.91.0: moving strips: the shown strips in their order, a strip moved past `steps` shown ones (Move Left /
+    // Right), a drag by its name over the strips (x in the strips' own space: the line where it would go) and its drop.
+    std::vector<int> getShownStrips() const;
+    void moveStripBy (int strip, int steps);
+    void dragStrip (int strip, float x);
+    void dropStrip (int strip, float x);
+    bool isDropLineShown() const { return dropMarker.isVisible(); }
 
     void paint (juce::Graphics&) override;
     void resized() override;
@@ -102,6 +110,17 @@ private:
     ParagonX1AudioProcessor& processor;
     juce::Viewport viewport;
     juce::Component holder;   // the strips, in the viewport
+    // Where a dragged strip would go (0.91.0).
+    struct DropMarker final : juce::Component
+    {
+        void paint (juce::Graphics& g) override
+        {
+            g.setGradientFill (ParagonColours::familyGradient (getLocalBounds().toFloat(), ParagonColours::litBrightness, true));
+            g.fillRect (getLocalBounds());
+        }
+    } dropMarker;
+    int dropPlace (int strip, float x) const;
+    std::vector<int> shownOrder;
     std::vector<std::unique_ptr<Strip>> strips;
     std::vector<std::unique_ptr<PieceRow>> rows;
     std::vector<std::unique_ptr<SendEditor>> sendEditors;

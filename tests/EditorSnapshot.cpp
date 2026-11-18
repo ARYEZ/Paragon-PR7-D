@@ -1106,6 +1106,20 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         processor.setModMatrix (matrix);
         view->showPage (MainView::Page::mixer);
         view->getMixerPage().selectChannel (synth::mixer::snareTop);
+        // 0.91.0: PARAGON_SNAPSHOT_STRIPORDER=1 the strips moved (OVERHEADS beside CYMBALS, ROOM and AMBIENCE first),
+        // KICK IN being dragged, its drop line shown.
+        if (juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_STRIPORDER", {}).getIntValue() > 0)
+        {
+            using namespace synth::mixer;
+            processor.moveStrip (overheads, cymbals);
+            processor.moveStrip (ambience, kickIn);
+            processor.moveStrip (room, ambience);
+            auto& mixerPage = view->getMixerPage();
+            mixerPage.selectChannel (cymbals);
+            mixerPage.update();
+            view->resized();
+            mixerPage.dragStrip (kickIn, 400.0f);
+        }
         // 0.21.0: PARAGON_SNAPSHOT_MIXERBUS=1 the snare's mics into BUS 1, sends to BUS 2 and the DELAY, BUS 1 to the
         // REVERB, the snare top's SENDS shown; =2 scrolled to the buses, BUS 1 chosen.
         if (const auto bus = juce::SystemStats::getEnvironmentVariable ("PARAGON_SNAPSHOT_MIXERBUS", {}).getIntValue(); bus > 0)

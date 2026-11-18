@@ -2,6 +2,18 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.91.0
+
+- **Put the MIXER's strips in your own order.** To keep all the cymbal channels side by side, for example:
+  - **Drag a strip by its name** (the label at its foot; a bus's name at its top too) left or right. A gradient line
+    shows where it will land; let go and it moves there.
+  - **Or right-click its name:** Move Left, Move Right, or Every Strip Back In The Usual Order. Renaming a user
+    channel or a bus is in the same menu now.
+- **The order is part of the mix:** it's saved with the project and in presets, and each move is one undo step. A
+  preset or project from before 0.91.0 opens in the usual order (named channels, user channels, buses).
+- Strips hidden at the moment (unused user channels, or the buses while BUSES is off) keep their place among the
+  rest.
+
 ## 0.90.1
 
 - **A cymbal with no spot mic now gets its own channel too.** Your SL Around The Fur CRASH 1 folder has only OH and
