@@ -238,7 +238,7 @@ namespace synth::drums::samplepack
         for (const auto* names : { &extra, &cymbals })
             for (const auto& name : *names)
             {
-                if (info.userChannels.size() < mixer::numUserChannels)
+                if (info.userChannels.size() < mixer::numFreeUserChannels)
                     info.userChannels.add (name);
                 else
                     info.unused.addIfNotAlreadyThere (name + " (no USER channel left)");

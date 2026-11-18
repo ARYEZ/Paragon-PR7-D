@@ -310,8 +310,9 @@ TEST_CASE ("SAMPLE PACK 0.34.0: a 0.33.0 import (\"pack|\") still plays its cymb
 
 TEST_CASE ("THE MIXER 0.34.0: 16 USER channels, each with its fader, effects, sends and output", "[samplepack][mixer]")
 {
-    CHECK (synth::mixer::numUserChannels == 16);
-    CHECK (synth::mixer::numMicChannels == 29);
+    CHECK (synth::mixer::numFreeUserChannels == 16);
+    CHECK (synth::mixer::numUserChannels == 24);   // (0.90.0: + the 8 spot channels)
+    CHECK (synth::mixer::numMicChannels == 37);
     CHECK (ParamIDs::layerOutNames.size() == 1 + synth::mixer::numMicChannels);
     for (int c = 0; c < synth::mixer::numMicChannels; ++c)
         CHECK (ParamIDs::notInRigs.contains (ParamIDs::mix (c, "Output")));
@@ -322,7 +323,7 @@ TEST_CASE ("THE MIXER 0.34.0: 16 USER channels, each with its fader, effects, se
     const auto top = makePack (p.temp.folder);
     p.processor->importSamplePack (top);
     REQUIRE (p.processor->waitForInstruments());
-    const auto user16 = synth::mixer::numMicChannels - 1;
+    const auto user16 = synth::mixer::numChannels + 15;
     // The kick's KICK IN mic (its 400 Hz) routed to USER 16.
     p.processor->setMicRoute (synth::drums::pieceOfSlot (BD), synth::mixer::kickIn, user16);
     p.soloOnly (user16);
@@ -595,7 +596,7 @@ TEST_CASE ("SAMPLE PACK 0.75.0: a second pack's china onto this kit's drums: its
     CHECK (result.problems.isEmpty());
     const auto spot = result.channels.at (CH2);
     CHECK (spot >= synth::mixer::numChannels);
-    CHECK (p.processor->getMixerChannelName (spot) == "CHINA 2 PAISTE CHINA");
+    CHECK (p.processor->getMixerChannelName (spot) == "CHINA 2"   /* 0.90.0: its own spot channel */);
     CHECK (p.processor->getInstrumentRef (CH2).startsWith ("packon|"));
     CHECK (p.processor->getInstrumentRef (CY) == crashRef);
     CHECK (p.processor->getInstrumentRef (CHN) == chinaRef);
@@ -644,39 +645,98 @@ TEST_CASE ("SAMPLE PACK 0.89.1: onto a drum with every USER channel taken, and a
     for (const auto& [mic, hz] : std::vector<std::pair<juce::String, double>> { { "OH", 1300.0 }, { "SPOT", 400.0 } })
         for (int v = 1; v <= 2; ++v)
             writeHit (stack.getChildFile ("JAD_STACK_CRASH1_" + mic + "_V0" + juce::String (v) + "_RR1.wav"), hz, 0.1f * (float) v, 0.5);
-    const auto crash6 = synth::drums::pieceOfSlot (C6);
+    // (0.90.0: onto the SPLASH, which has no spot channel of its own: CRASH 6 now has one.)
+    const auto splash = synth::drums::pieceOfSlot (SPL);
 
     // Again onto the same drum: the channel the first import took is free again (it doesn't take a second one).
-    auto first = p.processor->importSamplePackOnto (second, { { stack, crash6 } });
+    auto first = p.processor->importSamplePackOnto (second, { { stack, splash } });
     REQUIRE (p.processor->waitForInstruments());
-    REQUIRE (first.channels.count (C6) == 1);
-    const auto channel = first.channels.at (C6);
+    REQUIRE (first.channels.count (SPL) == 1);
+    const auto channel = first.channels.at (SPL);
     CHECK (channel >= synth::mixer::numChannels);
-    auto again = p.processor->importSamplePackOnto (second, { { stack, crash6 } });
+    auto again = p.processor->importSamplePackOnto (second, { { stack, splash } });
     REQUIRE (p.processor->waitForInstruments());
     CHECK (again.problems.isEmpty());
-    CHECK (again.channels.at (C6) == channel);
+    CHECK (again.channels.at (SPL) == channel);
 
     // Every other USER channel taken (routed to): the replaced drum's channel is still free, so it's used again.
-    for (int u = 0; u < synth::mixer::numUserChannels; ++u)
+    for (int u = 0; u < synth::mixer::numFreeUserChannels; ++u)
         if (const auto c = synth::mixer::numChannels + u; c != channel && ! p.processor->getUserChannelsInUse().contains (c))
             p.processor->setMicRoute (u % synth::mixer::numPieces, synth::mixer::room, c);
-    again = p.processor->importSamplePackOnto (second, { { stack, crash6 } });
+    again = p.processor->importSamplePackOnto (second, { { stack, splash } });
     REQUIRE (p.processor->waitForInstruments());
-    CHECK (again.channels.at (C6) == channel);
+    CHECK (again.channels.at (SPL) == channel);
 
     // And taken too: no USER channel at all. The spot mic isn't lost: it plays in CYMBALS (the crash's own channel).
     p.processor->setMicRoute (synth::drums::pieceOfSlot (SD), synth::mixer::room, channel);
-    again = p.processor->importSamplePackOnto (second, { { stack, crash6 } });
+    again = p.processor->importSamplePackOnto (second, { { stack, splash } });
     REQUIRE (p.processor->waitForInstruments());
-    REQUIRE (again.channels.count (C6) == 1);
-    CHECK (again.channels.at (C6) == synth::mixer::cymbals);
+    REQUIRE (again.channels.count (SPL) == 1);
+    CHECK (again.channels.at (SPL) == synth::mixer::cymbals);
     CHECK (again.problems.size() == 1);
     p.soloOnly (synth::mixer::cymbals);
-    auto out = p.play (C6, 127, 0.3);
+    auto out = p.play (SPL, 127, 0.3);
     CHECK (levelAt (out, 400.0, 0, 4800) > 0.02);
     CHECK (levelAt (out, 1300.0, 0, 4800) < 0.001);
     p.soloOnly (synth::mixer::overheads);
-    out = p.play (C6, 127, 0.3);
+    out = p.play (SPL, 127, 0.3);
     CHECK (levelAt (out, 1300.0, 0, 4800) > 0.02);
+}
+
+TEST_CASE ("SAMPLE PACK 0.90.0: CRASH 6 has a spot channel of its own, whatever else the mixer holds", "[samplepack][onto][mixer]")
+{
+    using namespace synth::mixer;
+    CHECK (spotChannelFor ("CRASH 6") == firstSpotChannel + 3);
+    CHECK (spotChannelFor ("SPLASH") == -1);
+    for (int i = 0; i < numSpotChannels; ++i)
+    {
+        // Each spot names a real piece, and its strip is a user strip after USER 16's.
+        auto found = false;
+        for (const auto& piece : synth::drums::pieces)
+            found = found || juce::String (piece.name) == spotNames[i];
+        CHECK (found);
+        CHECK (stripOfChannel (firstSpotChannel + i) == firstUserStrip + numFreeUserChannels + i);
+        CHECK (channelOfStrip (stripOfChannel (firstSpotChannel + i)) == firstSpotChannel + i);
+    }
+
+    Plugin p;
+    p.processor->importSamplePack (makePack (p.temp.folder));
+    REQUIRE (p.processor->waitForInstruments());
+    CHECK (p.processor->getMixerChannelName (firstSpotChannel + 3) == "CRASH 6");
+    // Every free USER channel taken.
+    for (int u = 0; u < numFreeUserChannels; ++u)
+        if (const auto c = numChannels + u; ! p.processor->getUserChannelsInUse().contains (c))
+            p.processor->setMicRoute (u % numPieces, room, c);
+    // Nor can a new channel be made in a spot (ROUTE MICS, a layer).
+    CHECK (p.processor->createUserChannel (synth::drums::pieceOfSlot (BD), kickIn) == -1);
+
+    const auto second = p.temp.folder.getChildFile ("SECOND PACK");
+    const auto stack = second.getChildFile ("WAV & ONE-SHOTS/INDIVIDUAL MICS/CRASH 1");
+    for (const auto& [mic, hz] : std::vector<std::pair<juce::String, double>> { { "OH", 1300.0 }, { "SPOT", 400.0 } })
+        for (int v = 1; v <= 2; ++v)
+            writeHit (stack.getChildFile ("JAD_STACK_CRASH1_" + mic + "_V0" + juce::String (v) + "_RR1.wav"), hz, 0.1f * (float) v, 0.5);
+    const auto result = p.processor->importSamplePackOnto (second, { { stack, synth::drums::pieceOfSlot (C6) } });
+    REQUIRE (p.processor->waitForInstruments());
+    CHECK (result.problems.isEmpty());
+    REQUIRE (result.channels.count (C6) == 1);
+    const auto spot = result.channels.at (C6);
+    CHECK (spot == firstSpotChannel + 3);
+    CHECK (p.processor->getMixerChannelName (spot) == "CRASH 6");
+    CHECK (p.processor->getUserChannelsInUse().contains (spot));
+    // Its spot mic plays there, through its own fader; its overheads in OVERHEADS.
+    p.soloOnly (spot);
+    auto out = p.play (C6, 127, 0.3);
+    const auto at0 = levelAt (out, 400.0, 0, 4800);
+    CHECK (at0 > 0.02);
+    CHECK (levelAt (out, 1300.0, 0, 4800) < 0.001);
+    testkit::set (*p.processor, ParamIDs::mix (spot, "Level"), -6.0f);
+    out = p.play (C6, 127, 0.3);
+    CHECK (juce::Decibels::gainToDecibels (levelAt (out, 400.0, 0, 4800) / at0) == Catch::Approx (-6.0).margin (0.3));
+    p.soloOnly (overheads);
+    CHECK (levelAt (p.play (C6, 127, 0.3), 1300.0, 0, 4800) > 0.02);
+    // Again onto it: the same spot, no problem.
+    const auto again = p.processor->importSamplePackOnto (second, { { stack, synth::drums::pieceOfSlot (C6) } });
+    REQUIRE (p.processor->waitForInstruments());
+    CHECK (again.channels.at (C6) == spot);
+    CHECK (again.problems.isEmpty());
 }

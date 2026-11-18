@@ -2,6 +2,23 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.90.0
+
+- **CRASH 6 has a channel of its own in the MIXER.** Since it's a permanent part of the kit, it now gets a fixed spot,
+  as you asked, instead of competing for the 16 USER channels. The same goes for the other drums added since 0.33.0
+  that had no named channel: CRASH 3, CRASH 4, CRASH 5, CRASH 6, FX CRASH, CHINA 2, TOM 4 and TOM 5 each have one.
+  - **That's 8 new channels** after USER 16, named after their drum. Each has everything a channel has: fader, pan,
+    mute, solo, polarity, effects, sends, bus and output. Like USER channels, they show in the MIXER only once
+    something plays into them.
+  - **A pack's drum brought onto one of those drums** (Drums from a sample pack with separate mics...) always plays its
+    spot mic in that drum's channel, however full the mixer is. Its overheads still go to OVERHEADS. Bring your stack
+    onto CRASH 6 again and its spot mic lands in the CRASH 6 channel.
+  - **The 16 USER channels are given out as before** (ROUTE MICS, layers, a pack's extra mics). The spots are never
+    handed to anything else.
+- **Left as it was:** a whole sample pack import (the Djent kit) still puts TOM 4's own mic on a USER channel, so
+  projects you've already made keep their channel settings. If you want it moved onto the TOM 4 spot (freeing a USER
+  channel), say so: new imports could do it.
+
 ## 0.89.1
 
 - **A drum brought in from a sample pack no longer loses its spot mic when the MIXER is full.** You saw "no USER channel

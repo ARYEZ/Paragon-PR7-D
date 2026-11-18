@@ -160,7 +160,22 @@ namespace synth::mixer
     // 0.23.0, USER CHANNELS: 8 more mic channels, made by ROUTE INSTRUMENT MICROPHONES (a mic of a piece given a
     // channel of its own). A MIC CHANNEL is 0-12 (the named ones) or 13-20 (USER 1-8). As strips they come after the
     // buses, so the buses' strips (and presets' sends and effects on them) keep their numbers.
-    inline constexpr int numUserChannels = 16, numMicChannels = numChannels + numUserChannels;
+    // 0.90.0, SPOT CHANNELS: USER 17-24 belong to the drums that have no named channel of their own (CRASH 3 to 6, FX
+    // CRASH, CHINA 2, TOM 4, TOM 5): a pack's drum brought onto one of them plays its spot mic there, so a full mixer
+    // never leaves it without one. The first `numFreeUserChannels` are given out as before.
+    inline constexpr int numFreeUserChannels = 16, numSpotChannels = 8;
+    inline constexpr int numUserChannels = numFreeUserChannels + numSpotChannels, numMicChannels = numChannels + numUserChannels;
+    inline constexpr const char* spotNames[numSpotChannels] = { "CRASH 3", "CRASH 4", "CRASH 5", "CRASH 6", "FX CRASH", "CHINA 2", "TOM 4", "TOM 5" };
+    inline constexpr int firstSpotChannel = numChannels + numFreeUserChannels;
+    inline constexpr bool isSpotChannel (int channel) noexcept { return channel >= firstSpotChannel && channel < firstSpotChannel + numSpotChannels; }
+    // A piece's spot channel by its name (drums::pieces' names), -1: none.
+    inline int spotChannelFor (const juce::String& pieceName) noexcept
+    {
+        for (int i = 0; i < numSpotChannels; ++i)
+            if (pieceName == spotNames[i])
+                return firstSpotChannel + i;
+        return -1;
+    }
     inline constexpr int firstUserStrip = numChannels + numBuses;
     inline constexpr int numStrips = numChannels + numBuses + numUserChannels;   // the channels, the buses, the user channels
     inline constexpr bool isUserChannel (int channel) noexcept { return channel >= numChannels && channel < numMicChannels; }
