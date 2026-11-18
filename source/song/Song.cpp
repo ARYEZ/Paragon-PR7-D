@@ -366,6 +366,8 @@ namespace song
             xml->setAttribute ("meters", m.joinIntoString (" "));
         if (! followDaw)
             xml->setAttribute ("followDaw", false);   // (0.12.0; on when it's not there)
+        if (syncedToDaw)
+            xml->setAttribute ("syncedToDaw", true);   // (0.92.0; off when it's not there)
         if (loopEnd > loopStart)   // (0.44.0)
         {
             xml->setAttribute ("loopOn", loopOn);
@@ -418,6 +420,7 @@ namespace song
                 s.meters.push_back ({ f[0].getDoubleValue(), f[1].getIntValue(), f[2].getIntValue() });
         s.tidyMeters();
         s.followDaw = xml.getBoolAttribute ("followDaw", true);
+        s.syncedToDaw = s.followDaw && xml.getBoolAttribute ("syncedToDaw", false);
         s.loopOn = xml.getBoolAttribute ("loopOn", false);
         s.loopStart = juce::jmax (0.0, xml.getDoubleAttribute ("loopStart", 0.0));
         s.loopEnd = juce::jmax (s.loopStart, xml.getDoubleAttribute ("loopEnd", 0.0));

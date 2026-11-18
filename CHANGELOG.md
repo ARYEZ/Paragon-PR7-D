@@ -2,6 +2,42 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.92.0
+
+- **THE GRID EDITOR: notes chosen across blocks.** SHIFT-click notes in other blocks, or drag a lasso over several
+  blocks, and they're all chosen together (the title counts the ones in other blocks). Then:
+  - **Drag, nudge, delete, cut and copy** take them all at once, as one undo step. Each note stays in its own block.
+  - **A dragged velocity stalk** moves the other chosen notes' velocities by as much.
+  - **Paste** keeps their spacing: from the block you're editing, notes past its end land in the blocks after it.
+  - **Left as before:** the QUANTIZE, SWING, RANDOMIZE and velocity sliders, and SELECT's commands, still work on the
+    block being edited.
+- **THE GRID EDITOR: an edit in one repeat changes only that repeat.** In a block whose groove repeats, a note drawn,
+  moved, deleted or nudged in its third repeat now changes the third repeat only. The block's repeats are written out
+  first, which sounds exactly the same, and undo goes back to the block as it was.
+  - **OPTIONS > Edit Each Repeat On Its Own** (on by default): switch it off to edit the loop, so every repeat
+    changes, as before.
+- **SYNCED TO DAW** (a new button on the song strip, beside FOLLOW DAW). With it on, the space bar on the song strip
+  and in the GRID EDITOR, in the plugin or in its own window, starts and stops your DAW, and the song plays with the DAW
+  (FOLLOW DAW comes on with it). Off: SPACE in the GRID EDITOR plays the song track on its own, as before.
+  - **How it works:** a VST3 plugin isn't allowed to press the DAW's play itself. So PR7-D passes the space bar on to
+    the DAW's window, the same way a key the plugin doesn't use goes to the DAW. That means it relies on the DAW
+    playing or stopping when its own window gets SPACE.
+  - **Not checked here:** whether that works inside PR7-S on Windows. If it doesn't, PR7-S can be given a direct way
+    for PR7-D to start and stop it.
+
+## 0.91.1
+
+- **Undo works in the GRID EDITOR's and GROOVES' own windows.** Popped out (OWN WINDOW), they're windows of their
+  own, so CTRL + Z / CTRL + Y never reached the plugin's undo, and the undo arrows were back in the plugin's window.
+  Now CTRL + Z undoes and CTRL + Y or CTRL + SHIFT + Z redoes there too, and the popped-out GRID EDITOR has its own
+  UNDO and REDO buttons beside BACK IN PLUGIN.
+- **Loading a sound onto a drum is always its own undo step.** Undo compared each drum's settings but not which
+  sound it loads, so loading another folder, SFZ or pack onto a drum already set to play samples (nothing else
+  changing) wasn't a step: CTRL + Z skipped past it. Now it takes the drum back to the sound it had.
+- Left out of undo, as before (your setup rather than the sound): the note map, MIDI channel, outputs, the master
+  OUTPUT and BYPASS, note names, hi-hat pedal steps, MIDI In curves and zones, the drum machine's pad layout and groove
+  favourites.
+
 ## 0.91.0
 
 - **Put the MIXER's strips in your own order.** To keep all the cymbal channels side by side, for example:

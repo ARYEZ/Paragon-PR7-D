@@ -1,4 +1,5 @@
 #include "MainView.h"
+#include "ui/DawKeys.h"
 #include "NoteNames.h"
 
 #include "Parameters.h"
@@ -169,7 +170,14 @@ MainView::MainView (ParagonX1AudioProcessor& processorToShow)
     playStyle.onGridEditor = [this] (int block) { openGridEditor (block); };
     blockEditor.onPlayStyle = [this] (int block) { if (gridWindow != nullptr) setGridEditorInOwnWindow (false); openPlayStyle (block); };
     blockEditor.onToggleWindow = [this] { setGridEditorInOwnWindow (gridWindow == nullptr); };
-    blockEditor.onPlayStop = [this] { songTrack.togglePlay(); };
+    // 0.92.0: SYNCED TO DAW: SPACE in the GRID EDITOR starts / stops the DAW (passed on to its window), else the song track.
+    blockEditor.onPlayStop = [this]
+    {
+        if (audioProcessor.getSong().syncedToDaw)
+            sendSpaceToDaw();
+        else
+            songTrack.togglePlay();
+    };
     blockEditor.onBlockChanged = [this] (int block) { songTrack.choose (block); };   // 0.81.0: the strip follows
     blockEditor.onClose = [this]
     {
@@ -301,6 +309,17 @@ struct MainView::GroovesWindow final : public juce::DocumentWindow
             setSize (pageArea.getWidth(), pageArea.getHeight());
         setAlwaysOnTop (true);
     }
+    // 0.91.1: CTRL + Z / Y here too (a key the page doesn't use comes up to its window).
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        // 0.92.0: SYNCED TO DAW: SPACE (the page didn't use it) to the DAW, as from the plugin's own window.
+        if (key == juce::KeyPress (juce::KeyPress::spaceKey) && view.audioProcessor.getSong().syncedToDaw)
+        {
+            view.sendSpaceToDaw();
+            return true;
+        }
+        return view.handleUndoKeys (key) || juce::DocumentWindow::keyPressed (key);
+    }
     ~GroovesWindow() override
     {
         clearContentComponent();   // the page isn't ours: MainView takes it back
@@ -337,6 +356,17 @@ struct MainView::GridWindow final : public juce::DocumentWindow
         else
             setSize (pageArea.getWidth(), pageArea.getHeight());
         setAlwaysOnTop (true);
+    }
+    // 0.91.1: CTRL + Z / Y here too (a key the page doesn't use comes up to its window).
+    bool keyPressed (const juce::KeyPress& key) override
+    {
+        // 0.92.0: SYNCED TO DAW: SPACE (the page didn't use it) to the DAW, as from the plugin's own window.
+        if (key == juce::KeyPress (juce::KeyPress::spaceKey) && view.audioProcessor.getSong().syncedToDaw)
+        {
+            view.sendSpaceToDaw();
+            return true;
+        }
+        return view.handleUndoKeys (key) || juce::DocumentWindow::keyPressed (key);
     }
     ~GridWindow() override
     {
@@ -578,11 +608,28 @@ bool MainView::keyPressed (const juce::KeyPress& key)
     const auto modifiers = key.getModifiers();
     // 0.66.0: SPACE plays / stops the song while the GRID EDITOR shows in the plugin (focus elsewhere in the window).
     if (key.getKeyCode() == juce::KeyPress::spaceKey && ! modifiers.isAnyModifierKeyDown()
-        && blockEditor.isVisible() && gridWindow == nullptr)
+        && blockEditor.isVisible() && gridWindow == nullptr && ! audioProcessor.getSong().syncedToDaw)
     {
         songTrack.togglePlay();
         return true;
     }
+    return handleUndoKeys (key);
+}
+
+void MainView::sendSpaceToDaw()
+{
+    // 0.92.0: as JUCE passes a key the plugin doesn't use on to the DAW's window: posted to the window the plugin sits
+    // in (Windows; elsewhere the DAW gets SPACE only when the plugin's own window has the keyboard and doesn't use it).
+    ++spacesSentToDaw;
+    if (auto* peer = getPeer())
+        dawkeys::postSpaceToParent (peer->getNativeHandle());
+}
+
+bool MainView::handleUndoKeys (const juce::KeyPress& key)
+{
+    // CTRL / CMD + Z undoes, + SHIFT + Z or + Y redoes. 0.91.1: the GRID EDITOR's and GROOVES' own windows send
+    // their keys here too (they're windows of their own, so their keys never reached the plugin's).
+    const auto modifiers = key.getModifiers();
     if (! modifiers.isCommandDown())
         return false;
 

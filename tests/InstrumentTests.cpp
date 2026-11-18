@@ -350,3 +350,34 @@ TEST_CASE ("SAMPLE ENGINE: VELOCITY TO VOLUME, VOICES, and presets / projects / 
     CHECK (s.processor.getDrumInstrument (9) == nullptr);
     CHECK_FALSE (s.processor.getInstrumentProblems().isEmpty());
 }
+
+TEST_CASE ("UNDO 0.91.1: loading a sound onto a drum is its own step, even when nothing else about the drum changes", "[instrument][undo]")
+{
+    TempFolder temp;
+    const auto first = temp.folder.getChildFile ("Tom A"), second = temp.folder.getChildFile ("Tom B");
+    for (int i = 0; i < 2; ++i)
+    {
+        writeHit (first.getChildFile ("tom_v1_rr" + juce::String (i + 1) + ".wav"), 150.0, 0.5f);
+        writeHit (second.getChildFile ("tom_v1_rr" + juce::String (i + 1) + ".wav"), 300.0, 0.5f);
+    }
+    Plugin p (temp.folder.getChildFile ("Presets"));
+    p.processor.loadInstrumentFolder (9, first);
+    REQUIRE (p.processor.waitForInstruments());
+    p.processor.flushUndoStep();
+    const auto firstRef = p.processor.getInstrumentRef (9);
+    REQUIRE (firstRef.isNotEmpty());
+
+    // A second folder onto the same drum: the drum's settings are the same (already SAMPLE), only its sound differs.
+    p.processor.loadInstrumentFolder (9, second);
+    REQUIRE (p.processor.waitForInstruments());
+    p.processor.flushUndoStep();
+    const auto secondRef = p.processor.getInstrumentRef (9);
+    REQUIRE (secondRef != firstRef);
+
+    p.processor.undo();
+    REQUIRE (p.processor.waitForInstruments());
+    CHECK (p.processor.getInstrumentRef (9) == firstRef);
+    p.processor.redo();
+    REQUIRE (p.processor.waitForInstruments());
+    CHECK (p.processor.getInstrumentRef (9) == secondRef);
+}

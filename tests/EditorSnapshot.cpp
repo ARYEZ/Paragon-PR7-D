@@ -906,6 +906,9 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 view->getBlockEditor().open (2);
                 view->getBlockEditor().selectRow (view->getBlockEditor().rowOf (2), false);
             }
+            // 0.91.1: PARAGON_SNAPSHOT_GRIDOWN=1 the editor as it is in its own window (its UNDO / REDO shown).
+            if (env ("PARAGON_SNAPSHOT_GRIDOWN") == "1")
+                view->getBlockEditor().setInOwnWindow (true);
             // 0.47.0: THE GRID EDITOR at work: the chorus zoomed in, the snare unfolded into its articulations, the hats
             // chosen and swung at 1/8, the kick muted.
             if (env ("PARAGON_SNAPSHOT_GRID") == "1")
@@ -927,6 +930,19 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 ed.setZoom (ed.getGrid().getWidth() / 40.0);
                 ed.setViewStart (-14.0);
                 ed.setTool (BlockEditor::Tool::pencil);
+            }
+            // 0.92.0: notes chosen across blocks (a lasso over two blocks' kicks and snares), SYNCED TO DAW on.
+            if (env ("PARAGON_SNAPSHOT_GRID") == "4")
+            {
+                auto& ed = view->getBlockEditor();
+                ed.open (2);
+                ed.setZoom (ed.getGrid().getWidth() / 24.0);
+                ed.setViewStart (-10.0);
+                const auto start = processor.getSong().blocks[2].start;
+                ed.lassoBeats (start - 6.0, start + 5.0, ed.rowOf (0), ed.rowOf (2), false);
+                auto synced = processor.getSong();
+                synced.syncedToDaw = true;
+                processor.setSong (synced);
             }
             // 0.48.0: the snare's NOTE LENGTHS shown, each held half a beat (the first a beat).
             if (env ("PARAGON_SNAPSHOT_GRID") == "2")

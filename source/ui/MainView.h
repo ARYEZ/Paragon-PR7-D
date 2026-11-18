@@ -89,6 +89,11 @@ public:
     static inline bool groovesWindowOnDesktop = true;
     bool areGroovesInOwnWindow() const noexcept { return groovesWindow != nullptr; }
     juce::Component* getGroovesWindow() const noexcept;
+    // 0.91.1: CTRL / CMD + Z, + SHIFT + Z, + Y (undo / redo), from the plugin's window or the GRID EDITOR's and GROOVES' own.
+    bool handleUndoKeys (const juce::KeyPress&);
+    // 0.92.0: SYNCED TO DAW: SPACE passed on to the DAW's window (its play / stop); how many times (tests).
+    void sendSpaceToDaw();
+    int getSpacesSentToDaw() const noexcept { return spacesSentToDaw; }
     MixerPage& getMixerPage() noexcept { return mixerPage; }
     SettingsPage& getSettingsPage() noexcept { return settingsPage; }
     SongTrack& getSongTrack() noexcept { return songTrack; }
@@ -149,6 +154,7 @@ private:
     void updateMachine();
 
     ParagonX1AudioProcessor& audioProcessor;
+    int spacesSentToDaw = 0;   // 0.92.0
 
     // Header
     IconButton drumsTab { "The drums: a kit of 20, the drum sequencer", Icons::Type::drums, "DRUMS" },

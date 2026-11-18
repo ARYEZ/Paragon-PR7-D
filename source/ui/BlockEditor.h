@@ -23,6 +23,7 @@
 #pragma once
 
 #include "PluginProcessor.h"
+#include <map>
 
 class BlockEditor final : public juce::Component,
                           private juce::ChangeListener,
@@ -86,6 +87,16 @@ public:
     void setAutoScroll (bool);
 
     std::vector<song::Hit> getSelection() const;          // the chosen notes, in time order
+    // 0.92.0: notes chosen in other blocks too (SHIFT-click one, or a lasso across blocks): moves, nudges, velocity
+    // drags, delete, copy / cut and paste take them all (one undo step). Their beats are their own block's.
+    std::vector<song::Hit> getSelectionIn (int block) const;
+    int getChosenCount() const;                           // in every block
+    void selectIn (int block, int slot, double beat, bool add);   // as SHIFT-clicking it (another block: kept with these)
+    void lassoBeats (double fromSongBeat, double toSongBeat, int fromRow, int toRow, bool add);   // as a lasso over them
+    // 0.92.0: EACH REPEAT (OPTIONS; on by default): an edit in one repeat of a repeating block changes only that repeat
+    // (the block's repeats are written out first, which sounds the same); off: an edit changes the loop (every repeat).
+    void setEachRepeat (bool on) { eachRepeat = on; }
+    bool isEachRepeat() const noexcept { return eachRepeat; }
     void select (int slot, double beat, bool add);
     void selectRow (int row, bool add);
     void selectAll();
@@ -138,6 +149,8 @@ public:
     juce::ScrollBar& getTimeScrollBar() noexcept { return hScroll; }
     void setInOwnWindow (bool);
     juce::TextButton& getWindowButton() noexcept { return windowButton; }
+    juce::TextButton& getUndoButton() noexcept { return undoButton; }
+    juce::TextButton& getRedoButton() noexcept { return redoButton; }
     juce::PopupMenu selectMenu();
     juce::PopupMenu optionsMenu();
     juce::PopupMenu rowsMenu();
@@ -178,6 +191,12 @@ public:
 private:
     struct Key { int slot; double beat; };
     bool isSelected (const song::Hit&) const;
+    bool isSelectedIn (int block, const song::Hit&) const;   // (the edited block: `selection`; others: `elsewhere`)
+    const song::Song& songNow() const;                       // the song as edited (mid-way through acrossBlocks)
+    void acrossBlocks (const std::function<void()>& op);     // op once per block with chosen notes, as one undo step
+    bool unroll (int block);                                  // EACH REPEAT: its repeats written out (true: they were)
+    void keepElsewhereAndSwitch (int block);                  // edit another block, the chosen notes everywhere kept
+    int hitIn (int block, juce::Point<float>, double* offset = nullptr) const;
     int hitAt (juce::Point<float>, double* offset = nullptr) const;   // index in the block's hits (-1), and which pass
     int velocityHitAt (juce::Point<float>) const;
     void previewSlot (int slot);
@@ -202,6 +221,11 @@ private:
     double pxPerBeat = 0.0, viewBeat = 0.0;               // 0: fit the block
     int rowScroll = 0;                                    // the first row shown
     std::vector<Key> selection;
+    std::map<int, std::vector<Key>> elsewhere;            // 0.92.0: chosen notes in other blocks
+    std::optional<song::Song> batch;                      // acrossBlocks' song while it runs
+    bool eachRepeat = true;
+    float velocityDelta = 0.0f;                           // a dragged stalk's change, for the other blocks' chosen notes
+    std::vector<std::pair<double, song::Hit>> clipNotes;  // 0.92.0: the copy (beats from the first block's start)
 
     // The sliders work from the chosen notes as they were when chosen (`base`: their indices in `baseBlock`'s hits).
     std::optional<song::Block> baseBlock, lastMade;
@@ -223,6 +247,7 @@ private:
     juce::Rectangle<int> names, grid, ruler, lane, laneControls, toolbar;
 
     juce::TextButton windowButton { "OWN WINDOW" };
+    juce::TextButton undoButton { "UNDO" }, redoButton { "REDO" };   // 0.91.1: shown in its own window
     juce::TextButton playStyleTab { "EDIT PLAY STYLE" }, gridTab { "GRID EDITOR" }, closeButton { "X" },
                      pointerButton { "POINTER" }, pencilButton { "PENCIL" }, snapButton { "SNAP" }, maxButton { "MAX" },
                      nudgeLeft { "<" }, nudgeRight { ">" }, selectButton { "SELECT" }, optionsButton { "OPTIONS" },
