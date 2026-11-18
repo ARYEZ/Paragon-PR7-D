@@ -775,6 +775,7 @@ private:
         bool operator== (const Snapshot& other) const
         {
             return rig.parameters == other.rig.parameters && rig.drumSamples == other.rig.drumSamples
+                && rig.drumInstruments == other.rig.drumInstruments   // 0.91.1: which sound each drum loads (a load is a step)
                 && rig.modulation == other.rig.modulation && current == other.current
                 && (song == other.song || (song != nullptr && other.song != nullptr && *song == *other.song));
         }

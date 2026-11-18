@@ -2,6 +2,19 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.91.1
+
+- **Undo works in the GRID EDITOR's and GROOVES' own windows.** Popped out (OWN WINDOW), they're windows of their
+  own, so CTRL + Z / CTRL + Y never reached the plugin's undo, and the undo arrows were back in the plugin's window.
+  Now CTRL + Z undoes and CTRL + Y or CTRL + SHIFT + Z redoes there too, and the popped-out GRID EDITOR has its own
+  UNDO and REDO buttons beside BACK IN PLUGIN.
+- **Loading a sound onto a drum is always its own undo step.** Undo compared each drum's settings but not which
+  sound it loads, so loading another folder, SFZ or pack onto a drum already set to play samples (nothing else
+  changing) wasn't a step: CTRL + Z skipped past it. Now it takes the drum back to the sound it had.
+- Left out of undo, as before (your setup rather than the sound): the note map, MIDI channel, outputs, the master
+  OUTPUT and BYPASS, note names, hi-hat pedal steps, MIDI In curves and zones, the drum machine's pad layout and groove
+  favourites.
+
 ## 0.91.0
 
 - **Put the MIXER's strips in your own order.** To keep all the cymbal channels side by side, for example:

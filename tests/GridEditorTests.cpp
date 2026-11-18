@@ -825,3 +825,63 @@ TEST_CASE ("GRID EDITOR 0.81.0: the page is drawn once and copied; the playhead 
     ed.createComponentSnapshot (ed.getLocalBounds());
     CHECK (ed.getRepaintsOfContent() == made + 1);
 }
+
+TEST_CASE ("UNDO 0.91.1: CTRL + Z / Y in the GRID EDITOR's and GROOVES' own windows, and the editor's UNDO / REDO", "[grideditor][ui][undo]")
+{
+    Plugin t;
+    t.p.setSong (oneBar());
+    t.p.flushUndoStep();
+    MainView::groovesWindowOnDesktop = false;
+    std::unique_ptr<juce::AudioProcessorEditor> editor (t.p.createEditor());
+    editor->setSize (1600, 900);
+    auto* view = dynamic_cast<MainView*> (editor->getChildComponent (0));
+    REQUIRE (view != nullptr);
+    auto& ed = view->getBlockEditor();
+    view->openGridEditor (0);
+    const auto before = t.p.getSong();
+    const auto edit = [&t]
+    {
+        auto s = t.p.getSong();
+        s.blocks[0].hits.push_back ({ 1.5, SD, 0.7f });
+        t.p.setSong (s);
+        t.p.flushUndoStep();
+    };
+    const auto ctrl = juce::ModifierKeys::commandModifier, shift = juce::ModifierKeys::shiftModifier;
+    const juce::KeyPress undoKey ('z', ctrl, 0), redoKey ('y', ctrl, 0), redoShift ('z', ctrl | shift, 0);
+
+    // In the plugin: no UNDO / REDO of its own (the header has them).
+    CHECK_FALSE (ed.getUndoButton().isVisible());
+
+    // Out in its own window: the keys reach the undo through the window, and its own UNDO / REDO show.
+    view->setGridEditorInOwnWindow (true);
+    auto* window = view->getGridEditorWindow();
+    REQUIRE (window != nullptr);
+    CHECK (ed.getUndoButton().isVisible());
+    CHECK (ed.getRedoButton().isVisible());
+    edit();
+    REQUIRE_FALSE (t.p.getSong() == before);
+    CHECK_FALSE (ed.keyPressed (undoKey));   // the editor passes it up...
+    CHECK (window->keyPressed (undoKey));    // ...to its window, which undoes
+    CHECK (t.p.getSong() == before);
+    CHECK (window->keyPressed (redoKey));
+    CHECK_FALSE (t.p.getSong() == before);
+    ed.getUndoButton().onClick();
+    CHECK (t.p.getSong() == before);
+    ed.getRedoButton().onClick();
+    CHECK_FALSE (t.p.getSong() == before);
+    CHECK (window->keyPressed (undoKey));
+    CHECK (window->keyPressed (redoShift));
+    CHECK_FALSE (t.p.getSong() == before);
+    view->setGridEditorInOwnWindow (false);
+    CHECK_FALSE (ed.getUndoButton().isVisible());
+
+    // GROOVES' own window too.
+    view->setGroovesInOwnWindow (true);
+    auto* grooves = view->getGroovesWindow();
+    REQUIRE (grooves != nullptr);
+    CHECK (grooves->keyPressed (undoKey));
+    CHECK (t.p.getSong() == before);
+    CHECK (grooves->keyPressed (redoKey));
+    CHECK_FALSE (t.p.getSong() == before);
+    view->setGroovesInOwnWindow (false);
+}

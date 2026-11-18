@@ -301,6 +301,8 @@ struct MainView::GroovesWindow final : public juce::DocumentWindow
             setSize (pageArea.getWidth(), pageArea.getHeight());
         setAlwaysOnTop (true);
     }
+    // 0.91.1: CTRL + Z / Y here too (a key the page doesn't use comes up to its window).
+    bool keyPressed (const juce::KeyPress& key) override { return view.handleUndoKeys (key) || juce::DocumentWindow::keyPressed (key); }
     ~GroovesWindow() override
     {
         clearContentComponent();   // the page isn't ours: MainView takes it back
@@ -338,6 +340,8 @@ struct MainView::GridWindow final : public juce::DocumentWindow
             setSize (pageArea.getWidth(), pageArea.getHeight());
         setAlwaysOnTop (true);
     }
+    // 0.91.1: CTRL + Z / Y here too (a key the page doesn't use comes up to its window).
+    bool keyPressed (const juce::KeyPress& key) override { return view.handleUndoKeys (key) || juce::DocumentWindow::keyPressed (key); }
     ~GridWindow() override
     {
         clearContentComponent();
@@ -583,6 +587,14 @@ bool MainView::keyPressed (const juce::KeyPress& key)
         songTrack.togglePlay();
         return true;
     }
+    return handleUndoKeys (key);
+}
+
+bool MainView::handleUndoKeys (const juce::KeyPress& key)
+{
+    // CTRL / CMD + Z undoes, + SHIFT + Z or + Y redoes. 0.91.1: the GRID EDITOR's and GROOVES' own windows send
+    // their keys here too (they're windows of their own, so their keys never reached the plugin's).
+    const auto modifiers = key.getModifiers();
     if (! modifiers.isCommandDown())
         return false;
 

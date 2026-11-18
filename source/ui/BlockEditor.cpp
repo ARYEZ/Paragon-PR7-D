@@ -59,6 +59,11 @@ BlockEditor::BlockEditor (ParagonX1AudioProcessor& p) : processor (p)
     gridTab.setToggleState (true, juce::dontSendNotification);
     windowButton.setTooltip ("The GRID EDITOR in a window of its own (on a second screen, say), or back in the plugin.");
     windowButton.onClick = [this] { if (onToggleWindow != nullptr) onToggleWindow(); };
+    // 0.91.1: in a window of its own, the plugin's undo arrows aren't at hand: these are.
+    undoButton.setTooltip ("Undo the last change (CTRL + Z).");
+    redoButton.setTooltip ("Redo it (CTRL + Y or CTRL + SHIFT + Z).");
+    undoButton.onClick = [this] { processor.undo(); };
+    redoButton.onClick = [this] { processor.redo(); };
     closeButton.setTooltip ("Close the GRID EDITOR (the song plays on).");
     closeButton.onClick = [this]
     {
@@ -177,6 +182,13 @@ BlockEditor::BlockEditor (ParagonX1AudioProcessor& p) : processor (p)
                                                              &nudgeLabel, &hint, &hScroll, &vScroll })
         addAndMakeVisible (c);
     addChildComponent (soloMuteButton);
+    addChildComponent (undoButton);
+    addChildComponent (redoButton);
+    for (auto* b : { &undoButton, &redoButton })
+    {
+        b->setWantsKeyboardFocus (false);
+        b->setMouseClickGrabsKeyboardFocus (false);
+    }
     // 0.66.0: the toggles lit (orange lettering) while on, as the song strip's; and no button takes the keyboard,
     // so the space bar reaches keyPressed (a focused JUCE button takes space as a click on itself).
     for (auto* b : { &pointerButton, &pencilButton, &snapButton, &autoScrollButton })
@@ -522,6 +534,9 @@ double BlockEditor::resolutionBeats() const noexcept
 void BlockEditor::setInOwnWindow (bool own)
 {
     windowButton.setButtonText (own ? "BACK IN PLUGIN" : "OWN WINDOW");
+    undoButton.setVisible (own);
+    redoButton.setVisible (own);
+    resized();
 }
 
 void BlockEditor::setShowLength (int piece, bool on)
@@ -1887,6 +1902,12 @@ void BlockEditor::resized()
     top.removeFromRight (6);
     windowButton.setBounds (top.removeFromRight (124).reduced (2, 4));
     top.removeFromRight (6);
+    if (undoButton.isVisible())
+    {
+        redoButton.setBounds (top.removeFromRight (58).reduced (2, 4));
+        undoButton.setBounds (top.removeFromRight (58).reduced (2, 4));
+        top.removeFromRight (6);
+    }
     autoScrollButton.setBounds (top.removeFromRight (104).reduced (2, 4));
     zoom.setBounds (top.removeFromRight (120).reduced (2, 6));
     zoomLabel.setBounds (top.removeFromRight (42));

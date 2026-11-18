@@ -906,6 +906,9 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
                 view->getBlockEditor().open (2);
                 view->getBlockEditor().selectRow (view->getBlockEditor().rowOf (2), false);
             }
+            // 0.91.1: PARAGON_SNAPSHOT_GRIDOWN=1 the editor as it is in its own window (its UNDO / REDO shown).
+            if (env ("PARAGON_SNAPSHOT_GRIDOWN") == "1")
+                view->getBlockEditor().setInOwnWindow (true);
             // 0.47.0: THE GRID EDITOR at work: the chorus zoomed in, the snare unfolded into its articulations, the hats
             // chosen and swung at 1/8, the kick muted.
             if (env ("PARAGON_SNAPSHOT_GRID") == "1")

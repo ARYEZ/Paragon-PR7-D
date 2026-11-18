@@ -138,6 +138,8 @@ public:
     juce::ScrollBar& getTimeScrollBar() noexcept { return hScroll; }
     void setInOwnWindow (bool);
     juce::TextButton& getWindowButton() noexcept { return windowButton; }
+    juce::TextButton& getUndoButton() noexcept { return undoButton; }
+    juce::TextButton& getRedoButton() noexcept { return redoButton; }
     juce::PopupMenu selectMenu();
     juce::PopupMenu optionsMenu();
     juce::PopupMenu rowsMenu();
@@ -223,6 +225,7 @@ private:
     juce::Rectangle<int> names, grid, ruler, lane, laneControls, toolbar;
 
     juce::TextButton windowButton { "OWN WINDOW" };
+    juce::TextButton undoButton { "UNDO" }, redoButton { "REDO" };   // 0.91.1: shown in its own window
     juce::TextButton playStyleTab { "EDIT PLAY STYLE" }, gridTab { "GRID EDITOR" }, closeButton { "X" },
                      pointerButton { "POINTER" }, pencilButton { "PENCIL" }, snapButton { "SNAP" }, maxButton { "MAX" },
                      nudgeLeft { "<" }, nudgeRight { ">" }, selectButton { "SELECT" }, optionsButton { "OPTIONS" },
