@@ -2,6 +2,21 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.89.1
+
+- **A drum brought in from a sample pack no longer loses its spot mic when the MIXER is full.** You saw "no USER channel
+  left for its close mic (only its overheads come in)" when you brought a stack onto CRASH 6. Bringing a drum in this way
+  gives its spot mic a USER channel of its own, and all 16 were already in use (the Djent kit's extra mics, the
+  cymbals' own spot mics, earlier imports and layers). With none free, the spot mic was simply left out, so the stack
+  came in with its overheads only.
+  - **The channels of the drum being replaced count as free again.** Bringing something onto CRASH 6 twice reuses the
+    channel the first one had, instead of taking another (or failing).
+  - **When there's truly no USER channel left, the spot mic plays in the drum's own channel** (CYMBALS for a crash),
+    with its overheads in OVERHEADS as before, and the summary says so. You'll hear the whole drum; it just shares
+    its fader with the kit's other cymbals' spot mics.
+- To give it its own fader again later, free a USER channel in the MIXER (for example a layer or an earlier import you
+  no longer use) and bring the drum in again.
+
 ## 0.89.0
 
 - **The cymbals placed closer to the reference kit**, as you chose from the mock-ups:

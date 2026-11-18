@@ -1766,7 +1766,14 @@ ParagonX1AudioProcessor::SamplePackOntoImport ParagonX1AudioProcessor::importSam
     SamplePackOntoImport result;
     std::vector<std::pair<int, juce::String>> refs;
     std::set<int> targeted, piecesHit;
-    auto taken = getUserChannelsInUse();
+    // 0.89.1: the USER channels only the drums being replaced use are free again (importing onto the same drum twice
+    // used to take a second channel, and a full mixer dropped the close mic).
+    std::set<int> replaced;
+    for (const auto& [folder, toPiece] : onto)
+        if (toPiece >= 0 && toPiece < numPieces)
+            for (int a = 0; a < pieces[(size_t) toPiece].count; ++a)
+                replaced.insert (pieces[(size_t) toPiece].articulations[(size_t) a].slot);
+    auto taken = getUserChannelsInUse (replaced);
     auto m = matrix;
     for (const auto& [folder, toPiece] : onto)
     {
@@ -1785,7 +1792,12 @@ ParagonX1AudioProcessor::SamplePackOntoImport ParagonX1AudioProcessor::importSam
             if (const auto channel = synth::mixer::numChannels + u; ! taken.contains (channel))
                 spot = channel;
         if (spot < 0)
-            result.problems.add (folder.getFileName() + ": no USER channel left for its close mic (only its overheads come in)");
+        {
+            // 0.89.1: no USER channel free: its close mic plays in the drum's own channel (CYMBALS for a crash), not lost.
+            spot = homeChannel (pieces[(size_t) toPiece].articulations[0].slot);
+            result.problems.add (folder.getFileName() + ": every USER channel is in use, so its close mic plays in "
+                                 + juce::String (synth::mixer::channelNames[spot]) + " with its overheads in OVERHEADS");
+        }
         else
         {
             taken.add (spot);
@@ -2422,23 +2434,28 @@ void ParagonX1AudioProcessor::setMicRoute (int piece, int mic, int to)
 
 juce::Array<int> ParagonX1AudioProcessor::getUserChannelsInUse() const
 {
+    return getUserChannelsInUse (std::set<int> {});
+}
+
+juce::Array<int> ParagonX1AudioProcessor::getUserChannelsInUse (const std::set<int>& ignoringSlots) const
+{
     juce::Array<int> used;
     for (const auto to : matrix.micRoutes)
         if (synth::mixer::isUserChannel (to))
             used.addIfNotAlreadyThere (to);
     // 0.33.0: and the USER channels a drum's own sounds use (a sample pack's extra mics).
     for (int k = 0; k < ParamIDs::numDrums; ++k)
-        if (const auto& instrument = drumInstruments[(size_t) k]; instrument != nullptr)
+        if (const auto& instrument = drumInstruments[(size_t) k]; instrument != nullptr && ignoringSlots.count (k) == 0)
             for (const auto c : instrument->micChannels())
                 if (synth::mixer::isUserChannel (c))
                     used.addIfNotAlreadyThere (c);
     // 0.70.0: and the drums' MIXER CHANNELs.
     for (int k = 0; k < ParamIDs::numDrums; ++k)
-        if (const auto channel = getDrumMixChannel (k); synth::mixer::isUserChannel (channel))
+        if (const auto channel = getDrumMixChannel (k); synth::mixer::isUserChannel (channel) && ignoringSlots.count (k) == 0)
             used.addIfNotAlreadyThere (channel);
     // 0.29.0: and the drums' layers' channels (and a multi-mic layer's own USER mics).
     for (int k = 0; k < ParamIDs::numDrums; ++k)
-        for (int n = 0; n < ParamIDs::numLayers; ++n)
+        for (int n = 0; n < ParamIDs::numLayers && ignoringSlots.count (k) == 0; ++n)
         {
             if (auto* out = parameters.getRawParameterValue (ParamIDs::drum (k, ParamIDs::layerOut (n))))
                 if (const auto channel = juce::roundToInt (out->load()) - 1; synth::mixer::isUserChannel (channel))
