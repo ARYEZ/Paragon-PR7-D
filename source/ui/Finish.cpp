@@ -6,7 +6,7 @@ namespace Finish
 {
     namespace
     {
-        constexpr auto settingKey = "chassisFinish", machineKey = "machineFinish";
+        constexpr auto settingKey = "chassisFinish", machineKey = "machineFinish", hologramsKey = "kitHolograms";
 
         juce::PropertiesFile::Options settingsOptions()
         {
@@ -28,9 +28,11 @@ namespace Finish
                 // retired Pearl White, the old Pearl Black) Obsidian, the default. The same for the machine's.
                 type = fromSaved (file.getIntValue (settingKey, (int) Type::obsidian));
                 machine = fromSaved (file.getIntValue (machineKey, (int) Type::obsidian));
+                holograms = file.getBoolValue (hologramsKey, true);
             }
 
             Type type = Type::obsidian, machine = Type::obsidian;
+            bool holograms = true;
             std::optional<Type> painting;   // a component's own finish while it and its controls paint
             juce::ChangeBroadcaster broadcaster;
         };
@@ -77,6 +79,23 @@ namespace Finish
         if (state().machine != type)
         {
             state().machine = type;
+            state().broadcaster.sendSynchronousChangeMessage();
+        }
+    }
+
+    bool getHolograms() { return state().holograms; }
+
+    void setHolograms (bool shown, bool remember)
+    {
+        if (remember)
+        {
+            juce::PropertiesFile file (settingsOptions());
+            file.setValue (hologramsKey, shown);
+            file.saveIfNeeded();
+        }
+        if (state().holograms != shown)
+        {
+            state().holograms = shown;
             state().broadcaster.sendSynchronousChangeMessage();
         }
     }

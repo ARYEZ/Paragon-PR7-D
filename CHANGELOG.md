@@ -2,6 +2,19 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.93.0
+
+- **THE GRID EDITOR: the sliders work across blocks too.** With notes chosen in several blocks (SHIFT-click or a
+  lasso over them), QUANTIZE, SWING, RANDOMIZE, VELOCITY, DYNAMICS, RANDOM VELOCITY and SLOPE now change all of them,
+  each in its own block, and each slider you let go of is one undo step.
+  - **DYNAMICS** spreads them around the average loudness of every chosen note, not just the edited block's.
+  - **SLOPE** runs from the first chosen note in the song to the last, so a crescendo can build across several blocks.
+  - **Still on its own block:** SELECT's commands (they choose notes in the block you're editing).
+- **HOLOGRAMS on the KIT VIEW.** A new HOLOGRAMS key on the KIT VIEW's title line (left of the MACHINE tab) shows or
+  hides the glowing 7D holograms on the floor at each side of the kit. PR7-D remembers it, in every project and every
+  PR7-D window. When they're hidden they aren't drawn at all, which also saves the small redraws they made on each
+  kick and as their scanlines moved.
+
 ## 0.92.0
 
 - **THE GRID EDITOR: notes chosen across blocks.** SHIFT-click notes in other blocks, or drag a lasso over several

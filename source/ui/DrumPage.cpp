@@ -8,6 +8,7 @@
 #include "dsp/synth/Instrument.h"
 
 #include "ui/DockPanels.h"
+#include "ui/Finish.h"
 #include "ui/ParagonLookAndFeel.h"
 #include "ui/SynthDisplays.h"
 
@@ -815,6 +816,19 @@ DrumPage::DrumPage (ParagonX1AudioProcessor& p) : processor (p), display (p), en
     linkButton.setClickingTogglesState (true);
     linkButton.setToggleState (processor.drumLink.load(), juce::dontSendNotification);
     linkButton.onClick = [this] { processor.drumLink = linkButton.getToggleState(); };
+    // 0.93.0: HOLOGRAMS on the KIT VIEW's title line: the 7D holograms at the kit's sides shown or hidden, remembered
+    // in the settings file (every PR7-D window, every project).
+    DrumSeqPanel::style (hologramsButton);
+    addChildComponent (hologramsButton);
+    hologramsButton.setClickingTogglesState (true);
+    hologramsButton.setColour (juce::TextButton::textColourOnId, ParagonColours::accent);
+    hologramsButton.setToggleState (Finish::getHolograms(), juce::dontSendNotification);
+    hologramsButton.setTooltip ("Show or hide the glowing 7D holograms on the floor at each side of the kit.");
+    hologramsButton.onClick = [this]
+    {
+        Finish::setHolograms (hologramsButton.getToggleState());
+        kitView.repaint();
+    };
     kitsButton.onClick = [this] { showKitMenu (false); };
     sequencesButton.onClick = [this] { showKitMenu (true); };
 
@@ -868,6 +882,7 @@ void DrumPage::showView (View v)
     for (auto& c : kitControls)
         c->setVisible (v != View::kit);
     kitView.setVisible (v == View::kit);
+    hologramsButton.setVisible (v == View::kit);
     articulations.setVisible (v == View::kit);
     (v == View::machine ? machineTab : v == View::kit ? kitTab : drum ? drumTab : sequencerTab).setToggleState (true, juce::dontSendNotification);
     machineTab.toFront (false);
@@ -1880,6 +1895,7 @@ void DrumPage::resized()
     machineTab.setBounds (tabs.removeFromRight (94).withSizeKeepingCentre (90, 24));
     // The DRUM view's own pair (0.18.0): ENVELOPE / VELOCITY, left of the view tabs.
     tabs.removeFromRight (18);
+    hologramsButton.setBounds (tabs.withTrimmedLeft (tabs.getWidth() - 114).withSizeKeepingCentre (110, 24));   // (the KIT VIEW only)
     layersTab.setBounds (tabs.removeFromRight (84).withSizeKeepingCentre (80, 24));
     velocityTab.setBounds (tabs.removeFromRight (94).withSizeKeepingCentre (90, 24));
     envelopeTab.setBounds (tabs.removeFromRight (94).withSizeKeepingCentre (90, 24));

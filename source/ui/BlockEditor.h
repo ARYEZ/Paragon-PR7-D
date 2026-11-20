@@ -227,9 +227,11 @@ private:
     float velocityDelta = 0.0f;                           // a dragged stalk's change, for the other blocks' chosen notes
     std::vector<std::pair<double, song::Hit>> clipNotes;  // 0.92.0: the copy (beats from the first block's start)
 
-    // The sliders work from the chosen notes as they were when chosen (`base`: their indices in `baseBlock`'s hits).
-    std::optional<song::Block> baseBlock, lastMade;
-    std::vector<size_t> baseNotes;
+    // The sliders work from the chosen notes as they were when chosen: per block with chosen notes (0.93.0: every
+    // block, not only the edited one), the block then, the chosen notes' indices in its hits, and what the sliders
+    // last made of it.
+    struct Base { song::Block block; std::vector<size_t> notes; std::optional<song::Block> made; };
+    std::map<int, Base> bases;
     std::array<double, 7> sliderValues {};
     bool sliderDragging = false;
 

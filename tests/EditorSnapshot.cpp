@@ -159,6 +159,8 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         return f == "aurora" || f == "neon" || f == "white" || f == "2" ? Finish::Type::aurora : Finish::Type::obsidian;
     };
     Finish::set (finishFrom (env ("PARAGON_SNAPSHOT_FINISH")), false);
+    // 0.93.0: PARAGON_SNAPSHOT_HOLOGRAMS=0: the KIT VIEW with its holograms hidden (HOLOGRAMS off; not saved).
+    Finish::setHolograms (env ("PARAGON_SNAPSHOT_HOLOGRAMS") != "0", false);
     std::unique_ptr<juce::AudioProcessorEditor> editor (processor.createEditor());
     auto* view = dynamic_cast<MainView*> (editor->getChildComponent (0));
     REQUIRE (view != nullptr);

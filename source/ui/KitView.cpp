@@ -5,6 +5,7 @@
 #include "dsp/synth/NoteMap.h"
 #include "ui/Logo.h"
 #include "ui/ParagonLookAndFeel.h"
+#include "ui/Finish.h"
 
 namespace
 {
@@ -497,6 +498,15 @@ void KitView::updateLights()
     // every quarter second, the glitch and the rolling band (0.60.0). Repainted only when something changes.
     if (highlight.on)
         return;
+    // 0.93.0: HOLOGRAMS off (the DRUMS page's key, in any PR7-D window): nothing of them to redraw.
+    if (const auto shown = Finish::getHolograms(); shown != hologramsSetting)
+    {
+        hologramsSetting = shown;
+        for (int side = 0; side < numHolograms; ++side)
+            repaint (hologramArea (side));
+    }
+    if (! hologramsSetting)
+        return;
     auto kick = 0.0f;
     for (int slot = 0; slot < synth::drums::numSlots; ++slot)
         if (pieceOf (slot) == 0)
@@ -623,7 +633,7 @@ void KitView::paint (juce::Graphics& g)
         g.drawImageTransformed (lit, place (shownAt.litAt[(size_t) k]));
     }
     g.setOpacity (1.0f);
-    if (! highlight.on && hologramsShown)
+    if (! highlight.on && hologramsShown && Finish::getHolograms())
         paintHolograms (g, place, scale);
 
 

@@ -6,6 +6,7 @@
 #include "PluginTestUtils.h"
 #include "ui/DrumPage.h"
 #include "ui/KitView.h"
+#include "ui/Finish.h"
 
 namespace
 {
@@ -495,4 +496,43 @@ TEST_CASE ("KIT VIEW 0.60.0: the holograms glitch now and then: strips shifted, 
         for (int x = icon.getX(); x < icon.getRight(); ++x)
             differ += glitched.getPixelAt (x, y) != calm.getPixelAt (x, y) ? 1 : 0;
     CHECK (differ > icon.getWidth() * icon.getHeight() / 50);
+}
+
+TEST_CASE ("KIT VIEW 0.93.0: HOLOGRAMS off hides the holograms, the kit drawn as without them", "[kitview][hologram]")
+{
+    TempFolder temp;
+    Plugin p (temp.folder);
+    DrumPage page (p.processor);
+    page.setSize (1476, 672);
+    auto& view = page.getKitView();
+    view.setHologramTime (1.0);
+    page.updateLights();
+    // The key is on the KIT VIEW's title line only, on at first.
+    CHECK (page.getHologramsButton().isVisible());
+    CHECK (page.getHologramsButton().getToggleState() == Finish::getHolograms());
+    page.showView (DrumPage::View::drum);
+    CHECK (! page.getHologramsButton().isVisible());
+    page.showView (DrumPage::View::kit);
+
+    const auto snap = [&view] { return view.createComponentSnapshot (view.getLocalBounds(), true, 1.0f); };
+    view.setHologramsShown (false);
+    const auto bare = snap();
+    view.setHologramsShown (true);
+    Finish::setHolograms (true, false);
+    page.updateLights();
+    const auto shown = snap();
+    Finish::setHolograms (false, false);   // (not saved: the test leaves the settings file alone)
+    page.updateLights();
+    const auto hidden = snap();
+    Finish::setHolograms (true, false);
+    const auto icon = view.hologramIconArea (0);
+    int differsShown = 0, differsHidden = 0;
+    for (int y = icon.getY(); y < icon.getBottom(); ++y)
+        for (int x = icon.getX(); x < icon.getRight(); ++x)
+        {
+            differsShown += shown.getPixelAt (x, y) != bare.getPixelAt (x, y) ? 1 : 0;
+            differsHidden += hidden.getPixelAt (x, y) != bare.getPixelAt (x, y) ? 1 : 0;
+        }
+    CHECK (differsShown > 100);
+    CHECK (differsHidden == 0);
 }

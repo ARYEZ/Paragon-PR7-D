@@ -40,6 +40,10 @@ namespace Finish
     // in the same settings file. Told through changes() too.
     Type getMachine();
     void setMachine (Type, bool remember = true);
+    // 0.93.0: the KIT VIEW's holograms shown or hidden (its HOLOGRAMS key; shown at first), kept in the same settings
+    // file, for every PR7-D window. Told through changes() too.
+    bool getHolograms();
+    void setHolograms (bool shown, bool remember = true);
     inline bool isBlack() { return get() != Type::aurora; }              // the chassis colour (Obsidian)
 
     // Told whenever the finish changes, to repaint.

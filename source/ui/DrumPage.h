@@ -104,6 +104,7 @@ class DrumPage final : public juce::Component,
                        private juce::AudioProcessorParameter::Listener
 {
 public:
+    juce::TextButton& getHologramsButton() noexcept { return hologramsButton; }   // (tests)
     explicit DrumPage (ParagonX1AudioProcessor&);
     ~DrumPage() override;
 
@@ -208,5 +209,6 @@ private:   // 0.27.0
     bool layersMode = false;
     void updateDrumPanels();
     void placeArticulations();
+    juce::TextButton hologramsButton { "HOLOGRAMS" };   // 0.93.0: the KIT VIEW's holograms on / off
     juce::TextButton kitTab { "KIT VIEW" }, drumTab { "DRUM" }, sequencerTab { "SEQUENCER" }, machineTab { "MACHINE" };
 };

@@ -1101,3 +1101,73 @@ TEST_CASE ("SONG 0.92.0: SYNCED TO DAW: SPACE in the GRID EDITOR goes to the DAW
     off.followDaw = false;
     CHECK_FALSE (song::Song::fromXml (*off.toXml()).syncedToDaw);
 }
+
+TEST_CASE ("GRID EDITOR 0.93.0: the sliders work on the notes chosen in every block, as one undo step", "[grideditor][ui]")
+{
+    Plugin t;
+    t.p.setSong (twoBlocks());
+    t.p.flushUndoStep();
+    BlockEditor ed (t.p);
+    ed.setBounds (0, 0, 1476, 672);
+    ed.open (1);
+    const auto before = t.p.getSong();
+    const auto velocityAt = [&t] (int block, int slot, double beat)
+    {
+        for (const auto& h : t.p.getSong().blocks[(size_t) block].hits)
+            if (h.slot == slot && std::abs (h.beat - beat) < 1.0e-6)
+                return (double) h.velocity;
+        return -1.0;
+    };
+    using S = BlockEditor::Slider;
+
+    // B's snare (the edited block) and A's snare (another block) chosen: VELOCITY -100% halves both, the kicks kept.
+    ed.selectIn (1, SD, 2.0, false);
+    ed.selectIn (0, SD, 4.0, true);
+    REQUIRE (ed.getChosenCount() == 2);
+    ed.setSliderValue (S::velocity, -100.0);
+    t.p.flushUndoStep();
+    CHECK (velocityAt (0, SD, 4.0) == Catch::Approx (0.45).margin (1.0e-4));
+    CHECK (velocityAt (1, SD, 2.0) == Catch::Approx (0.35).margin (1.0e-4));
+    CHECK (velocityAt (0, BD, 0.0) == Catch::Approx (1.0));
+    CHECK (velocityAt (1, BD, 0.0) == Catch::Approx (0.8));
+    CHECK (ed.getChosenCount() == 2);   // still chosen in both
+    // Back to 0 from the notes as they were chosen (not halved again).
+    ed.setSliderValue (S::velocity, 0.0);
+    t.p.flushUndoStep();
+    CHECK (velocityAt (0, SD, 4.0) == Catch::Approx (0.9).margin (1.0e-4));
+    CHECK (velocityAt (1, SD, 2.0) == Catch::Approx (0.7).margin (1.0e-4));
+
+    // SLOPE runs across the blocks: from A's snare (song beat 4, quieter) to B's (song beat 10, louder).
+    ed.setSliderValue (S::slope, 100.0);
+    t.p.flushUndoStep();
+    CHECK (velocityAt (0, SD, 4.0) == Catch::Approx (0.9 * 0.4).margin (1.0e-4));
+    CHECK (velocityAt (1, SD, 2.0) == Catch::Approx (1.0).margin (1.0e-4));   // (0.7 x 1.6, kept to full)
+
+    // Each slider let go is one undo step: three back to the start.
+    t.p.undo();
+    t.p.undo();
+    t.p.undo();
+    CHECK (t.p.getSong() == before);
+}
+
+TEST_CASE ("GRID EDITOR 0.93.0: QUANTIZE pulls the chosen notes onto the grid in every block", "[grideditor][ui]")
+{
+    Plugin t;
+    auto s = twoBlocks();
+    s.blocks[0].hits[1].beat = 4.1;   // A's snare a little late
+    s.blocks[1].hits[1].beat = 1.9;   // B's a little early
+    t.p.setSong (s);
+    t.p.flushUndoStep();
+    BlockEditor ed (t.p);
+    ed.setBounds (0, 0, 1476, 672);
+    ed.open (1);
+    ed.setResolution (3);
+    ed.selectIn (1, SD, 1.9, false);
+    ed.selectIn (0, SD, 4.1, true);
+    ed.setSliderValue (BlockEditor::Slider::quantize, 100.0);
+    t.p.flushUndoStep();
+    CHECK (countAt (t.p.getSong().blocks[0], SD, 4.0) == 1);
+    CHECK (countAt (t.p.getSong().blocks[1], SD, 2.0) == 1);
+    t.p.undo();
+    CHECK (t.p.getSong() == s);
+}

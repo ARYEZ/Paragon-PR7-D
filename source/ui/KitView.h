@@ -113,6 +113,7 @@ private:
     double holoTime = 0.0, fixedHoloTime = -1.0;
     std::array<int, numHolograms> shownGlitch { -2, -2 };
     bool hologramsShown = true;
+    bool hologramsSetting = true;   // Finish::getHolograms() as last drawn
 
     ParagonX1AudioProcessor& processor;
     Highlight highlight;

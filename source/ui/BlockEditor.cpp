@@ -214,8 +214,7 @@ void BlockEditor::open (int b)
     blockIndex = b;
     selection.clear();
     elsewhere.clear();
-    baseBlock.reset();
-    lastMade.reset();
+    bases.clear();
     sliderValues = {};
     if (fresh)
     {
@@ -307,8 +306,7 @@ void BlockEditor::switchTo (int index, double oldOrigin)
         shownPlayhead += moved;
     selection.clear();
     elsewhere.clear();
-    baseBlock.reset();
-    lastMade.reset();
+    bases.clear();
     sliderValues = {};
     refresh();
     if (onBlockChanged != nullptr)
@@ -381,8 +379,7 @@ void BlockEditor::edit (const std::function<void (song::Block&)>& f)
     f (s.blocks[(size_t) blockIndex]);
     if (! (s == processor.getSong()))
         processor.setSong (std::move (s));
-    baseBlock.reset();
-    lastMade.reset();
+    bases.clear();
     sliderValues = {};
     refresh();   // at once (the song's change message comes later)
 }
@@ -399,13 +396,21 @@ void BlockEditor::scrollBarMoved (juce::ScrollBar* bar, double start)
 void BlockEditor::changeListenerCallback (juce::ChangeBroadcaster*)
 {
     // The sliders' starting notes are only good while the block is as they left it (not after an undo, say).
-    if (baseBlock.has_value() && ! sliderDragging)
-        if (const auto* b = block(); b == nullptr || ! (*b == (lastMade.has_value() ? *lastMade : *baseBlock)))
+    if (! bases.empty() && ! sliderDragging)
+    {
+        const auto& song = processor.getSong();
+        const auto changed = std::any_of (bases.begin(), bases.end(), [&song] (const auto& entry)
         {
-            baseBlock.reset();
-            lastMade.reset();
+            const auto& [index, base] = entry;
+            return index < 0 || index >= (int) song.blocks.size()
+                || ! (song.blocks[(size_t) index] == (base.made.has_value() ? *base.made : base.block));
+        });
+        if (changed)
+        {
+            bases.clear();
             sliderValues = {};
         }
+    }
     // Undo, or an edit on the strip: the block may be gone (or another one at its place: shown as it is).
     if (block() == nullptr && isVisible())
     {
@@ -752,8 +757,7 @@ void BlockEditor::acrossBlocks (const std::function<void()>& op)
             elsewhere[index] = std::move (keys);
     if (! (made == processor.getSong()))
         processor.setSong (std::move (made));
-    baseBlock.reset();
-    lastMade.reset();
+    bases.clear();
     sliderValues = {};
     refresh();
 }
@@ -787,8 +791,7 @@ bool BlockEditor::unroll (int index)
         spread (selection);
     else if (const auto it = elsewhere.find (index); it != elsewhere.end())
         spread (it->second);
-    baseBlock.reset();
-    lastMade.reset();
+    bases.clear();
     sliderValues = {};
     layoutRows();
     redraw();
@@ -810,8 +813,7 @@ void BlockEditor::keepElsewhereAndSwitch (int index)
     if (shownPlayhead > -1.0e8)
         shownPlayhead += moved;
     selection = std::move (taken);
-    baseBlock.reset();
-    lastMade.reset();
+    bases.clear();
     sliderValues = {};
     syncSliderLabels();
     redraw();
@@ -859,8 +861,7 @@ void BlockEditor::selectIn (int index, int slot, double beat, bool add)
         keys.push_back ({ slot, beat });
     if (keys.empty())
         elsewhere.erase (index);
-    baseBlock.reset();
-    lastMade.reset();
+    bases.clear();
     sliderValues = {};
     syncSliderLabels();
     redraw();
@@ -899,7 +900,7 @@ void BlockEditor::lassoBeats (double fromSongBeat, double toSongBeat, int fromRo
                     elsewhere[i].push_back ({ h.slot, h.beat });
             }
     }
-    baseBlock.reset();
+    bases.clear();
     sliderValues = {};
     syncSliderLabels();
     redraw();
@@ -1003,8 +1004,7 @@ void BlockEditor::select (int slot, double beat, bool add)
     }
     else
         selection.push_back ({ slot, beat });
-    baseBlock.reset();
-    lastMade.reset();
+    bases.clear();
     sliderValues = {};
     syncSliderLabels();
     redraw();
@@ -1024,8 +1024,7 @@ void BlockEditor::selectRow (int row, bool add)
         for (const auto& h : b->hits)
             if ((mask & song::slotBit (h.slot)) != 0 && ! isSelected (h))
                 selection.push_back ({ h.slot, h.beat });
-    baseBlock.reset();
-    lastMade.reset();
+    bases.clear();
     sliderValues = {};
     syncSliderLabels();
     redraw();
@@ -1039,8 +1038,7 @@ void BlockEditor::selectAll()
         for (const auto& h : b->hits)
             if (rowOf (h.slot) >= 0)
                 selection.push_back ({ h.slot, h.beat });
-    baseBlock.reset();
-    lastMade.reset();
+    bases.clear();
     sliderValues = {};
     syncSliderLabels();
     redraw();
@@ -1050,8 +1048,7 @@ void BlockEditor::selectNone()
 {
     selection.clear();
     elsewhere.clear();
-    baseBlock.reset();
-    lastMade.reset();
+    bases.clear();
     sliderValues = {};
     syncSliderLabels();
     redraw();
@@ -1065,8 +1062,7 @@ void BlockEditor::invertSelection()
             if (rowOf (h.slot) >= 0 && ! isSelected (h))
                 inverted.push_back ({ h.slot, h.beat });
     selection = std::move (inverted);
-    baseBlock.reset();
-    lastMade.reset();
+    bases.clear();
     sliderValues = {};
     syncSliderLabels();
     redraw();
@@ -1093,8 +1089,7 @@ void BlockEditor::exclude (bool onBeats)
         const auto even = (llabs (std::llround (k.beat / step)) % 2) == 0;
         return onBeats ? even : ! even;
     });
-    baseBlock.reset();
-    lastMade.reset();
+    bases.clear();
     sliderValues = {};
     redraw();
 }
@@ -1109,8 +1104,7 @@ void BlockEditor::selectNoteValue (double beats)
             if ((from ? rowOf (h.slot) >= 0 : isSelected (h)) && std::abs (h.beat / beats - std::round (h.beat / beats)) < 1.0e-4)
                 kept.push_back ({ h.slot, h.beat });
     selection = std::move (kept);
-    baseBlock.reset();
-    lastMade.reset();
+    bases.clear();
     sliderValues = {};
     redraw();
 }
@@ -1254,8 +1248,7 @@ void BlockEditor::paste()
     selection = pasted[blockIndex];
     pasted.erase (blockIndex);
     elsewhere = std::move (pasted);
-    baseBlock.reset();
-    lastMade.reset();
+    bases.clear();
     sliderValues = {};
     refresh();
 }
@@ -1307,23 +1300,41 @@ void BlockEditor::stretch (grooves::TempoFactor factor)
 //==============================================================================
 void BlockEditor::capture()
 {
-    const auto* b = block();
-    if (b == nullptr)
+    // 0.93.0: every block with chosen notes (the edited one's `selection`, the others' `elsewhere`). None chosen
+    // anywhere: the edited block's shown notes, as before.
+    bases.clear();
+    const auto& song = processor.getSong();
+    const auto noneChosen = selection.empty() && elsewhere.empty();
+    const auto take = [&] (int index, const std::function<bool (const song::Hit&)>& chosen)
+    {
+        if (index < 0 || index >= (int) song.blocks.size())
+            return;
+        Base base { song.blocks[(size_t) index], {}, std::nullopt };
+        for (size_t i = 0; i < base.block.hits.size(); ++i)
+            if (chosen (base.block.hits[i]))
+                base.notes.push_back (i);
+        if (! base.notes.empty())
+            bases[index] = std::move (base);
+    };
+    if (noneChosen)
+    {
+        take (blockIndex, [this] (const song::Hit& h) { return rowOf (h.slot) >= 0; });
+        if (bases.empty() && blockIndex >= 0 && blockIndex < (int) song.blocks.size())
+            bases[blockIndex] = { song.blocks[(size_t) blockIndex], {}, std::nullopt };
         return;
-    baseBlock = *b;
-    baseNotes.clear();
-    for (size_t i = 0; i < b->hits.size(); ++i)
-        if (selection.empty() ? rowOf (b->hits[i].slot) >= 0 : isSelected (b->hits[i]))
-            baseNotes.push_back (i);
+    }
+    take (blockIndex, [this] (const song::Hit& h) { return isSelected (h); });
+    for (const auto& [index, keys] : elsewhere)
+        if (index != blockIndex)
+            take (index, [this, i = index] (const song::Hit& h) { return isSelectedIn (i, h); });
 }
 
 void BlockEditor::applySliders (bool asUndoStep)
 {
-    if (! baseBlock.has_value())
+    if (bases.empty())
         capture();
-    if (! baseBlock.has_value() || blockIndex < 0)
+    if (bases.empty() || blockIndex < 0)
         return;
-    auto blk = *baseBlock;
     const auto r = resolutionBeats();
     const auto q = sliderValues[(size_t) Slider::quantize] / 100.0;
     const auto sw = sliderValues[(size_t) Slider::swing] / 100.0;
@@ -1332,56 +1343,70 @@ void BlockEditor::applySliders (bool asUndoStep)
     const auto dyn = sliderValues[(size_t) Slider::dynamics] / 100.0;
     const auto rv = sliderValues[(size_t) Slider::randomVelocity] / 100.0;
     const auto sl = sliderValues[(size_t) Slider::slope] / 100.0;
-    // The chosen notes' loudness on average, and where they start and end (for DYNAMICS and SLOPE).
-    auto mean = 0.0, first = 1.0e9, last = -1.0e9;
-    for (const auto i : baseNotes)
-    {
-        mean += blk.hits[i].velocity;
-        first = juce::jmin (first, blk.hits[i].beat);
-        last = juce::jmax (last, blk.hits[i].beat);
-    }
-    mean /= juce::jmax ((size_t) 1, baseNotes.size());
-    std::vector<song::Hit> changed;
-    for (const auto i : baseNotes)
-    {
-        const auto& h = blk.hits[i];
-        // Timing: towards the grid, every second step swung (100: a third of the step later: the triplet swing of
-        // two even steps), loosened at random.
-        const auto onGrid = std::round (h.beat / r) * r;
-        auto beat = h.beat + (onGrid - h.beat) * q;
-        if ((llabs (std::llround (onGrid / r)) % 2) == 1)
-            beat += sw * r / 3.0;
-        beat += scatter (h, 1) * rt * r / 3.0;
-        beat = std::fmod (beat, blk.loopLength);
-        if (beat < 0.0)
-            beat += blk.loopLength;
-        if (beat > blk.loopLength - 1.0e-6)
-            beat = 0.0;
-        // Velocity: the spread around the average, the level, a random wobble, the slope across the notes.
-        auto v = mean + (h.velocity - mean) * (1.0 + dyn);
-        v *= std::pow (2.0, vel);
-        v += scatter (h, 2) * rv * 0.25;
-        if (last > first)
-            v *= 1.0 + sl * ((h.beat - first) / (last - first) - 0.5) * 1.2;
-        changed.push_back ({ beat, h.slot, (float) juce::jlimit (1.0 / 127.0, 1.0, v), h.length });
-    }
-    std::vector<song::Hit> kept;
-    for (size_t i = 0; i < blk.hits.size(); ++i)
-        if (std::find (baseNotes.begin(), baseNotes.end(), i) == baseNotes.end())
-            kept.push_back (blk.hits[i]);
-    kept.insert (kept.end(), changed.begin(), changed.end());
-    blk.hits = std::move (kept);
-    song::tidyHits (blk);
-    const auto hadSelection = ! selection.empty();
-    selection.clear();
-    if (hadSelection)
-        for (const auto& c : changed)
-            selection.push_back ({ c.slot, c.beat });
+    // The chosen notes' loudness on average, and where they start and end in the song (for DYNAMICS and SLOPE: a
+    // slope runs across every chosen block, from the first chosen note to the last).
+    auto mean = 0.0, first = 1.0e18, last = -1.0e18;
+    size_t count = 0;
+    for (const auto& [index, base] : bases)
+        for (const auto i : base.notes)
+        {
+            const auto& h = base.block.hits[i];
+            mean += h.velocity;
+            first = juce::jmin (first, base.block.start + h.beat);
+            last = juce::jmax (last, base.block.start + h.beat);
+            ++count;
+        }
+    mean /= (double) juce::jmax ((size_t) 1, count);
     auto s = processor.getSong();
-    if (blockIndex >= (int) s.blocks.size())
-        return;
-    s.blocks[(size_t) blockIndex] = blk;
-    lastMade = blk;
+    const auto hadSelection = ! selection.empty() || ! elsewhere.empty();
+    selection.clear();
+    std::map<int, std::vector<Key>> chosenElsewhere;
+    for (auto& [index, base] : bases)
+    {
+        if (index >= (int) s.blocks.size())
+            continue;
+        auto blk = base.block;
+        std::vector<song::Hit> changed;
+        for (const auto i : base.notes)
+        {
+            const auto& h = blk.hits[i];
+            // Timing: towards the grid, every second step swung (100: a third of the step later: the triplet swing
+            // of two even steps), loosened at random. (Blocks start on bar lines: the grid is the song's in each.)
+            const auto onGrid = std::round (h.beat / r) * r;
+            auto beat = h.beat + (onGrid - h.beat) * q;
+            if ((llabs (std::llround (onGrid / r)) % 2) == 1)
+                beat += sw * r / 3.0;
+            beat += scatter (h, 1) * rt * r / 3.0;
+            beat = std::fmod (beat, blk.loopLength);
+            if (beat < 0.0)
+                beat += blk.loopLength;
+            if (beat > blk.loopLength - 1.0e-6)
+                beat = 0.0;
+            // Velocity: the spread around the average, the level, a random wobble, the slope across the notes.
+            auto v = mean + (h.velocity - mean) * (1.0 + dyn);
+            v *= std::pow (2.0, vel);
+            v += scatter (h, 2) * rv * 0.25;
+            if (last > first)
+                v *= 1.0 + sl * ((blk.start + h.beat - first) / (last - first) - 0.5) * 1.2;
+            changed.push_back ({ beat, h.slot, (float) juce::jlimit (1.0 / 127.0, 1.0, v), h.length });
+        }
+        std::vector<song::Hit> kept;
+        for (size_t i = 0; i < blk.hits.size(); ++i)
+            if (std::find (base.notes.begin(), base.notes.end(), i) == base.notes.end())
+                kept.push_back (blk.hits[i]);
+        kept.insert (kept.end(), changed.begin(), changed.end());
+        blk.hits = std::move (kept);
+        song::tidyHits (blk);
+        if (hadSelection)
+        {
+            auto& keys = index == blockIndex ? selection : chosenElsewhere[index];
+            for (const auto& c : changed)
+                keys.push_back ({ c.slot, c.beat });
+        }
+        s.blocks[(size_t) index] = blk;
+        base.made = blk;
+    }
+    elsewhere = std::move (chosenElsewhere);
     if (asUndoStep)
     {
         if (! (s == processor.getSong()))
@@ -2053,7 +2078,7 @@ void BlockEditor::mouseUp (const juce::MouseEvent& e)
                                 elsewhere[i].push_back ({ h.slot, h.beat });
                         }
             }
-            baseBlock.reset();
+            bases.clear();
             sliderValues = {};
             syncSliderLabels();
             break;
