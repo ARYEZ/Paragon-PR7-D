@@ -28,7 +28,8 @@ namespace
         if (p.getInstrumentRef (slot).isNotEmpty())
         {
             const auto instrument = p.getDrumInstrument (slot);
-            return instrument != nullptr ? instrument->name.toUpperCase() : juce::String ("LOADING...");
+            return instrument != nullptr ? instrument->name.toUpperCase()
+                   : p.isLoadingInstruments() ? juce::String ("LOADING...") : juce::String ("COULDN'T LOAD IT");   // (0.93.1)
         }
         const auto sample = p.getDrumSample (slot);
         return sample != nullptr ? sample->name : juce::String ("SAMPLE (EMPTY)");
@@ -436,14 +437,17 @@ void DrumHitDisplay::paint (juce::Graphics& g)
         ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
         if (instrument == nullptr)
         {
-            const auto problems = processor.getInstrumentProblems();
+            // 0.93.1: this drum's own load: the folder or file it really read, and its own reasons.
+            const auto load = processor.getSlotLoad (slot);
+            const auto& problems = load.problems;
             ParagonColours::setTextFill (g, ParagonColours::accent, ParagonColours::textSpan (g.getCurrentFont(), processor.isLoadingInstruments() ? "LOADING..." : "COULDN'T LOAD IT", area.withHeight (18.0f).toFloat(), juce::Justification::topLeft));
             g.drawText (processor.isLoadingInstruments() ? "LOADING..." : "COULDN'T LOAD IT", area.removeFromTop (18.0f), juce::Justification::topLeft, false);
             ParagonColours::setFill (g, ParagonColours::accent, getLocalBounds());
             g.setFont (juce::FontOptions (11.0f));
             g.setColour (ParagonColours::textDim);
-            g.drawFittedText (ref.fromLastOccurrenceOf ("|", false, false) + (problems.isEmpty() ? juce::String() : "\n" + problems.joinIntoString ("\n")),
-                              area.toNearestInt(), juce::Justification::topLeft, 6);
+            g.drawFittedText ("FROM: " + (load.path.isNotEmpty() ? load.path : ref.fromLastOccurrenceOf ("|", false, false))
+                                  + (problems.isEmpty() ? juce::String() : "\n" + problems.joinIntoString ("\n")),
+                              area.toNearestInt(), juce::Justification::topLeft, 8);
             return;
         }
         auto title = instrument->name + "   " + juce::String ((int) instrument->layers.size()) + " LAYERS, " + juce::String (instrument->numHits()) + " HITS";

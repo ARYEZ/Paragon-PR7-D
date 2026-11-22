@@ -2,6 +2,19 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.93.1
+
+- **A drum that can't load now says where it looked and why.** Under COULDN'T LOAD IT, the DRUM view shows FROM:
+  and the real folder or file it tried. A drum brought from a sample pack used to show only the preset's shorthand,
+  such as `{kit:PAISTE CHINA}/.`.
+  - **A pack folder moved since the import:** it names the folder it was imported from, says it isn't there any more
+    (moved, renamed, or on a drive that isn't connected), and tells you to import it again from where it is now.
+  - **The folder is there but holds nothing for that drum:** it says so, including when only room mics are there
+    (bringing a drum onto another leaves those out).
+- **Each drum keeps its own reasons.** Before, the panel showed whatever the last load across the whole kit
+  reported. A later load of another drum wiped a drum's reason, and you saw COULDN'T LOAD IT with nothing under it.
+- **The drum list says COULDN'T LOAD IT** for such a drum once loading has finished, instead of LOADING... for ever.
+
 ## 0.93.0
 
 - **THE GRID EDITOR: the sliders work across blocks too.** With notes chosen in several blocks (SHIFT-click or a

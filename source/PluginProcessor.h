@@ -337,6 +337,11 @@ public:
     ReferenceHit getLayerHitForAlign (int slot, int n, int velocity = 100) const;
     static Alignment findAlignment (const ReferenceHit& drum, const ReferenceHit& layer);
     juce::StringArray getInstrumentProblems() const;
+    // 0.93.1: one slot's last load (a drum's or a layer's, by instrument number): the folder or file it really read
+    // (a "{kit:<name>}" place worked out through "Sample Kits.xml"; empty before any load) and that slot's own reasons
+    // when it found nothing (other slots' loads no longer replace them).
+    struct SlotLoad { juce::String path; juce::StringArray problems; };
+    SlotLoad getSlotLoad (int slot) const;
     bool waitForInstruments (int timeoutMs = 60000);   // the loads finished and installed (tests; snapshots)
     // Which hit an instrument slot played last (layer, hit), for the page; -1, -1: none.
     std::pair<int, int> getLastHit (int slot) const noexcept { return drumKit.getLastChoice (slot); }
@@ -822,6 +827,7 @@ private:
     mutable std::mutex loadedLock;
     std::vector<std::pair<int, std::shared_ptr<const synth::drums::Instrument>>> loadedInstruments;
     juce::StringArray loadProblems;
+    std::vector<SlotLoad> slotLoads = std::vector<SlotLoad> ((size_t) ParamIDs::numInstruments);   // 0.93.1: under loadedLock (on the heap: Windows' stack)
     std::atomic<int> pendingLoads { 0 }, loadGeneration { 0 }, loadsTotal { 0 }, loadsDone { 0 };
     // 0.50.0: the load each slot is waiting for: a newer load of the same slot replaces an older one, a load of other
     // slots leaves it be (loading layer 1 then layer 2 at once lost layer 1: every load stopped the one before).
@@ -837,6 +843,7 @@ private:
     void makeSlotPlaySample (int slot);   // SAMPLE, its shaping neutral (if it wasn't already SAMPLE)
     static juce::String refFor (const synth::drums::Instrument&);
     juce::File knownKitsFile() const;
+    juce::File rememberedKitFolder (const juce::String& name) const;   // 0.93.1: as remembered, there or not
     mutable std::mutex kitsLock;
 
     // THE GROOVE PLAYER: the preview, made on the message thread (its notes already drums), played by the audio

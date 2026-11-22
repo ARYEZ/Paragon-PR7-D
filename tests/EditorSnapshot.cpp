@@ -45,6 +45,7 @@
 //   PARAGON_SNAPSHOT_DGKIT=<kit file> a DrumGizmo kit (0.27.0) loaded LIGHT from your computer (none ships with the
 //                                    tests): DRUMS shows the snare's layers; with PAGE=mixer its channels after a hit;
 //                                    PARAGON_SNAPSHOT_LAYER=<audio file>: that sample as the kick's LAYER (0.29.0)
+//   PARAGON_SNAPSHOT_MISSING=1     the CHINA from a pack folder that's gone: where it looked and why (0.93.1)
 //   PARAGON_SNAPSHOT_NOTES=1         the kick, snare and closed hat's keys held on the keyboard (they light)
 //   PARAGON_SNAPSHOT_MIDI=1          demo MIDI links and a knob learning (with PAGE=settings: the links list)
 TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
@@ -441,7 +442,7 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
         }
         if (env ("PARAGON_SNAPSHOT_DRUMS") != "2" && env ("PARAGON_SNAPSHOT_KIT").isEmpty() && env ("PARAGON_SNAPSHOT_ARTIC").isEmpty()
             && env ("PARAGON_SNAPSHOT_VELOCITY").isEmpty() && env ("PARAGON_SNAPSHOT_INSTRUMENT").isEmpty()
-            && env ("PARAGON_SNAPSHOT_LAYERS").isEmpty())
+            && env ("PARAGON_SNAPSHOT_LAYERS").isEmpty() && env ("PARAGON_SNAPSHOT_MISSING").isEmpty())
             drums.select (juce::jmax (1, env ("PARAGON_SNAPSHOT_DRUM").getIntValue()) - 1);
         if (env ("PARAGON_SNAPSHOT_DRUMS") == "1")
         {
@@ -484,6 +485,23 @@ TEST_CASE ("Render the editor to a PNG", "[.][snapshot]")
             juce::MidiBuffer midi;
             midi.addEvent (juce::MidiMessage::noteOn (1, 38, (juce::uint8) 90), 0);
             processor.processBlock (buffer, midi);
+            drums.resized();
+            drums.refreshPictures();
+        }
+        // 0.93.1: PARAGON_SNAPSHOT_MISSING=1: the CHINA brought from a pack whose folder has since moved: the DRUM view
+        // saying where it looked and why.
+        if (env ("PARAGON_SNAPSHOT_MISSING") == "1")
+        {
+            const auto gone = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("ParagonX1SnapshotGone/PAISTE CHINA");
+            gone.getParentDirectory().deleteRecursively();
+            processor.rememberKit ("PAISTE CHINA", gone);
+            const auto chn = (int) synth::drums::notemap::CHN;
+            if (auto* model = processor.getParameters().getParameter (ParamIDs::drum (chn, "Model")))
+                model->setValueNotifyingHost (model->convertTo0to1 ((float) synth::drums::Model::sample));
+            processor.loadInstrumentRef (chn, "packon|" + juce::String (chn) + ",33|{kit:PAISTE CHINA}/.");
+            processor.waitForInstruments();
+            drums.showView (DrumPage::View::drum);
+            drums.select (chn);
             drums.resized();
             drums.refreshPictures();
         }

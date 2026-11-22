@@ -792,3 +792,55 @@ TEST_CASE ("SAMPLE PACK 0.90.1: a cymbal with no spot mic gets its overheads on 
     p.soloOnly (overheads);
     CHECK (levelAt (p.play (C6, 127, 0.3), 1300.0, 0, 4800) > 0.02);
 }
+
+TEST_CASE ("SAMPLE PACK 0.93.1: a drum that can't load says where it looked and why, kept apart from other drums' loads", "[samplepack][onto]")
+{
+    Plugin p;
+    p.processor->importSamplePack (makePack (p.temp.folder));
+    REQUIRE (p.processor->waitForInstruments());
+
+    // The owner's way: the piece's own folder chosen as the pack ("{kit:PAISTE CHINA}/.").
+    const auto china = p.temp.folder.getChildFile ("PAISTE CHINA");
+    for (const auto* mic : { "OH", "SPOT" })
+        for (int v = 1; v <= 2; ++v)
+            writeHit (china.getChildFile ("JAD_PAISTE_CHINA_" + juce::String (mic) + "_V0" + juce::String (v) + "_RR1.wav"), 400.0, 0.1f * (float) v, 0.3);
+    const auto result = p.processor->importSamplePackOnto (china, { { china, synth::drums::pieceOfSlot (CHN) } });
+    REQUIRE (p.processor->waitForInstruments());
+    REQUIRE (result.slots.size() == 1);
+    const auto ref = p.processor->getInstrumentRef (CHN);
+    CHECK (ref.endsWith ("{kit:PAISTE CHINA}/."));
+    REQUIRE (p.processor->getDrumInstrument (CHN) != nullptr);
+    CHECK (p.processor->getSlotLoad (CHN).path == china.getFullPathName());   // the real folder, not the shorthand
+    CHECK (p.processor->getSlotLoad (CHN).problems.isEmpty());
+
+    // Moved away: CHINA says the folder it looked in and that it isn't there.
+    const auto moved = p.temp.folder.getChildFile ("MOVED");
+    REQUIRE (china.moveFileTo (moved));
+    p.processor->loadInstrumentRef (CHN, ref);
+    REQUIRE (p.processor->waitForInstruments());
+    CHECK (p.processor->getDrumInstrument (CHN) == nullptr);
+    const auto load = p.processor->getSlotLoad (CHN);
+    INFO (load.path << " / " << load.problems.joinIntoString (" | "));
+    CHECK (load.path.startsWith (china.getFullPathName()));   // where it was
+    CHECK (load.path.contains ("Sample Kits.xml"));
+    CHECK (load.problems.joinIntoString (" ").contains ("isn't where it was imported from"));
+
+    // Another drum loaded afterwards (fine) leaves CHINA's reasons as they were (0.93.0 showed the last load's).
+    p.processor->loadInstrumentRef (CY, p.processor->getInstrumentRef (CY));
+    REQUIRE (p.processor->waitForInstruments());
+    CHECK (p.processor->getSlotLoad (CHN).problems.joinIntoString (" ").contains ("PAISTE CHINA"));
+    CHECK (p.processor->getSlotLoad (CY).problems.isEmpty());
+
+    // Remembered, but the folder inside it isn't there: the full path and "it isn't there".
+    REQUIRE (moved.moveFileTo (china));
+    p.processor->loadInstrumentRef (CHN, ref.replace ("{kit:PAISTE CHINA}/.", "{kit:PAISTE CHINA}/NOT HERE"));
+    REQUIRE (p.processor->waitForInstruments());
+    CHECK (p.processor->getSlotLoad (CHN).path == china.getChildFile ("NOT HERE").getFullPathName());
+    CHECK (p.processor->getSlotLoad (CHN).problems.joinIntoString (" ").contains ("isn't there"));
+
+    // Found but holding nothing for it: said so (the kick asked of the china's folder).
+    p.processor->loadInstrumentRef (CHN, ref.replace ("packon|" + ref.fromFirstOccurrenceOf ("packon|", false, false).upToFirstOccurrenceOf (",", false, false),
+                                                       "packon|" + juce::String (BD)));
+    REQUIRE (p.processor->waitForInstruments());
+    CHECK (p.processor->getSlotLoad (CHN).problems.joinIntoString (" ").contains ("no BD hits found"));
+}

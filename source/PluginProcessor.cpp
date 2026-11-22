@@ -1259,6 +1259,7 @@ void ParagonX1AudioProcessor::startLoading (std::vector<std::pair<int, juce::Str
         std::map<juce::String, synth::drums::instruments::Sfz> files;
         std::map<juce::String, synth::drums::samplepack::PackInfo> packs;
         std::vector<std::pair<int, std::shared_ptr<const synth::drums::Instrument>>> done;
+        std::map<int, SlotLoad> loads;   // 0.93.1: each slot's path and reasons
         juce::StringArray problems;
         loadsTotal = (int) refs.size();   // (0.40.0: for the progress box)
         loadsDone = 0;
@@ -1273,6 +1274,15 @@ void ParagonX1AudioProcessor::startLoading (std::vector<std::pair<int, juce::Str
             const auto parts = juce::StringArray::fromTokens (ref, "|", {});
             if (parts.size() < 3)
                 continue;
+            const auto problemsBefore = problems.size();
+            const auto finish = [&] (std::shared_ptr<const synth::drums::Instrument> made, const juce::String& where)
+            {
+                auto& load = loads[slot];
+                load.path = where;
+                for (int k = problemsBefore; k < problems.size(); ++k)
+                    load.problems.addIfNotAlreadyThere (problems[k]);
+                done.emplace_back (slot, std::move (made));
+            };
             // 0.27.0: a kit's place may be "{kit:<name>}/..." (a factory preset's), where this computer keeps that kit.
             auto path = ref.fromFirstOccurrenceOf ("|", false, false).fromFirstOccurrenceOf ("|", false, false);
             if (path.startsWith ("{kit:"))
@@ -1283,13 +1293,27 @@ void ParagonX1AudioProcessor::startLoading (std::vector<std::pair<int, juce::Str
                 {
                     problems.add (parts[0].startsWith ("pack") ? "the " + kitName + " sample pack isn't on this computer yet (or was moved): DRUMS > LOAD... > A SAMPLE PACK..."
                                                      : "the " + kitName + " kit isn't on this computer yet: DRUMS > LOAD... > GET FREE KITS..., then LOAD... > A DRUMGIZMO KIT...");
-                    done.emplace_back (slot, nullptr);
+                    const auto was = rememberedKitFolder (kitName);
+                    if (was != juce::File())
+                        problems.set (problems.size() - 1, "the " + kitName + " folder isn't where it was imported from (moved, renamed, or a drive not connected?): "
+                                                               "import it again from where it is now");
+                    finish (nullptr, was != juce::File() ? was.getFullPathName() + "  (" + kitName + ", remembered in " + knownKitsFile().getFullPathName() + ")"
+                                                         : "{kit:" + kitName + "}: no folder remembered by that name (in " + knownKitsFile().getFullPathName() + ")");
                     continue;
                 }
-                path = known.getChildFile (path.fromFirstOccurrenceOf ("}/", false, false)).getFullPathName();
+                // ("{kit:<name>}/." is the kit's folder itself: a piece's folder chosen as the pack, 0.75.0.)
+                const auto inside = path.fromFirstOccurrenceOf ("}/", false, false);
+                path = (inside.isEmpty() || inside == "." ? known : known.getChildFile (inside)).getFullPathName();
             }
             const juce::File source (path);
             std::shared_ptr<const synth::drums::Instrument> instrument;
+            if (! source.exists())
+            {
+                // 0.93.1: said plainly (the readers below just find nothing).
+                problems.add ("it isn't there: " + source.getFullPathName() + " (moved, renamed or on a drive that isn't connected?)");
+                finish (nullptr, source.getFullPathName());
+                continue;
+            }
             if (parts[0] == "dg")
             {
                 // A DrumGizmo kit's instrument(s): "dg|<names, by commas>;<light | full>|<kit file>".
@@ -1337,7 +1361,19 @@ void ParagonX1AudioProcessor::startLoading (std::vector<std::pair<int, juce::Str
                             f.channel = spot;
                         only.slots[from].push_back (f);
                     }
-                instrument = synth::drums::samplepack::load (only, from, problems);
+                if (only.slots[from].empty())
+                {
+                    // 0.93.1: nothing of that drum in the folder (or only room mics, which this way leaves out).
+                    juce::StringArray mics;
+                    if (const auto found = it->second.slots.find (from); found != it->second.slots.end())
+                        for (const auto& f : found->second)
+                            mics.addIfNotAlreadyThere (f.mic.isEmpty() ? juce::String ("(none)") : f.mic);
+                    problems.add (mics.isEmpty() ? "no " + juce::String (synth::drums::slotDefaults[(size_t) juce::jlimit (0, synth::drums::numSlots - 1, from)].key)
+                                                       + " hits found in " + source.getFullPathName() + " (" + juce::String (it->second.slots.size()) + " drums found there)"
+                                                 : "only room mics (" + mics.joinIntoString (", ") + ") in " + source.getFullPathName() + ", which a drum brought onto another leaves out");
+                }
+                else
+                    instrument = synth::drums::samplepack::load (only, from, problems);
             }
             else if (parts[0] == "folder")
                 instrument = synth::drums::instruments::fromFolder (source);
@@ -1357,9 +1393,9 @@ void ParagonX1AudioProcessor::startLoading (std::vector<std::pair<int, juce::Str
                 else if (! it->second.notes.empty())
                     instrument = it->second.notes.begin()->second;
             }
-            if (instrument == nullptr)
+            if (instrument == nullptr && problems.size() == problemsBefore)
                 problems.add ("couldn't load " + source.getFullPathName() + (parts[1].isNotEmpty() ? " (note " + parts[1] + ")" : juce::String()));
-            done.emplace_back (slot, instrument);
+            finish (instrument, source.getFullPathName());
         }
         {
             const std::scoped_lock lock (loadedLock);
@@ -1367,6 +1403,8 @@ void ParagonX1AudioProcessor::startLoading (std::vector<std::pair<int, juce::Str
             for (const auto& item : done)
                 if (slotLoadGeneration[(size_t) item.first].load() == generation)
                 {
+                    if (const auto found = loads.find (item.first); found != loads.end())
+                        slotLoads[(size_t) item.first] = found->second;
                     loadedInstruments.push_back (item);
                     loadedGenerations.push_back (generation);
                     any = true;
@@ -1391,6 +1429,8 @@ void ParagonX1AudioProcessor::forgetLoad (int slot)
     // Taken away: no load still running for it puts anything there (and the loader skips it).
     instrumentRefs[(size_t) slot] = {};
     slotLoadGeneration[(size_t) slot] = ++loadGeneration;
+    const std::scoped_lock lock (loadedLock);
+    slotLoads[(size_t) slot] = {};
 }
 
 void ParagonX1AudioProcessor::installLoadedInstruments()
@@ -1406,6 +1446,12 @@ void ParagonX1AudioProcessor::installLoadedInstruments()
     for (size_t i = 0; i < ready.size(); ++i)
         if (const auto slot = ready[i].first; slotLoadGeneration[(size_t) slot].load() == generations[i] && instrumentRefs[(size_t) slot].isNotEmpty())
             setDrumInstrument (slot, ready[i].second);
+}
+
+ParagonX1AudioProcessor::SlotLoad ParagonX1AudioProcessor::getSlotLoad (int slot) const
+{
+    const std::scoped_lock lock (loadedLock);
+    return slotLoads[(size_t) juce::jlimit (0, ParamIDs::numInstruments - 1, slot)];
 }
 
 juce::StringArray ParagonX1AudioProcessor::getInstrumentProblems() const
@@ -2360,6 +2406,17 @@ void ParagonX1AudioProcessor::rememberKit (const juce::String& name, const juce:
     k->setAttribute ("folder", folder.getFullPathName());
     knownKitsFile().getParentDirectory().createDirectory();
     xml->writeTo (knownKitsFile());
+}
+
+juce::File ParagonX1AudioProcessor::rememberedKitFolder (const juce::String& name) const
+{
+    // 0.93.1: where "Sample Kits.xml" says it was, there or not (to say so when it's gone).
+    const std::scoped_lock lock (kitsLock);
+    if (const auto xml = juce::XmlDocument::parse (knownKitsFile()))
+        for (const auto* k : xml->getChildWithTagNameIterator ("Kit"))
+            if (k->getStringAttribute ("name") == name)
+                return juce::File (k->getStringAttribute ("folder"));
+    return {};
 }
 
 juce::File ParagonX1AudioProcessor::knownKitFolder (const juce::String& name) const
