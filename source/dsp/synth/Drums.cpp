@@ -64,7 +64,7 @@ namespace synth::drums
         }
 
         // A square wave with its jumps smoothed (polyBLEP), so the metal doesn't fold back down as aliasing.
-        float blep (double t, double dt) noexcept
+        forcedinline float blep (double t, double dt) noexcept   // 0.94.0: inlined (see square)
         {
             if (t < dt)
             {
@@ -79,7 +79,9 @@ namespace synth::drums
             return 0.0f;
         }
 
-        float square (double phase, double increment) noexcept
+        // 0.94.0: forced inline: the compiler kept it a call, six a sample per metal voice (15% of a synth beat's work); the
+        // same arithmetic in the same order.
+        forcedinline float square (double phase, double increment) noexcept
         {
             auto value = phase < 0.5 ? 1.0f : -1.0f;
             value += blep (phase, increment);

@@ -66,7 +66,8 @@ namespace eq
             && slopeFor (a.shape, a.slope) == slopeFor (b.shape, b.slope);
     }
 
-    double ParametricEq::tick (const Design& design, State& state, double x) noexcept
+    // 0.94.0: forced inline (used only in this file): it was a call per sample per band per channel. The same arithmetic.
+    forcedinline double ParametricEq::tick (const Design& design, State& state, double x) noexcept
     {
         // Transposed direct form II, in double precision: low, narrow bands
         // stay accurate and quiet.

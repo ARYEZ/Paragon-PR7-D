@@ -887,6 +887,8 @@ void MachineView::paint (juce::Graphics& g)
     {
         shownFinish = Finish::getMachine();
         faceCache.invalidate();
+        screenBack.invalidate();
+        screenGlass.invalidate();
         grain = {};
     }
     faceCache.draw (g, getLocalBounds(), [this] (juce::Graphics& fg) { paintFace (fg); });
@@ -977,7 +979,12 @@ void MachineView::paintScreen (juce::Graphics& g, juce::Rectangle<float> area) c
 {
     const auto parts = juce::StringArray::fromTokens (shownScreen.isEmpty() ? getScreenText() : shownScreen, "|", {});
     const auto size = juce::jlimit (0.8f, 1.6f, area.getHeight() / 120.0f);
-    const auto glass = LedDisplay::paintScreen (g, area, size);
+    // 0.94.0: the frame, bezel and glass drawn once (`screenBack` / `screenGlass`), as the rack units' screens are
+    // (0.40.0); only the readout each time. The frame's drop shadow, blurred afresh, was most of THE DRUM MACHINE's
+    // drawing while a beat played (the screen redraws on every step).
+    screenBack.draw (g, area.expanded (14.0f * size).toNearestInt(),
+                     [this, area, size] (juce::Graphics& sg) { screenGlassArea = LedDisplay::paintScreen (sg, area, size); });
+    const auto glass = screenGlassArea;
     const auto orange = LedDisplay::ledOrange;
     auto content = glass.reduced (glass.getWidth() * 0.04f, glass.getHeight() * 0.1f);
 
@@ -1020,5 +1027,6 @@ void MachineView::paintScreen (juce::Graphics& g, juce::Rectangle<float> area) c
     g.drawText (parts[5], juce::Rectangle<float> (x + 6.0f, content.getY(), 160.0f, digitH), juce::Justification::centredLeft, false);
     g.drawText (parts[6], content, juce::Justification::centredRight, false);
 
-    LedDisplay::paintGlassOverlay (g, glass, size);
+    screenGlass.draw (g, glass.expanded (6.0f * size).toNearestInt(),
+                      [glass, size] (juce::Graphics& sg) { LedDisplay::paintGlassOverlay (sg, glass, size); });
 }

@@ -84,6 +84,8 @@ private:
     // The screen's frame and glass, drawn once at this size and the screen's scale (0.40.0: its drop shadow and
     // gradients were most of the 30 Hz redraw); the live readout goes between them.
     PaintCache screenBack, screenGlass;
+    PaintCache footBack, footGlass;   // 0.94.0: the small screen under EDIT
+    juce::Rectangle<float> footGlassArea;
     juce::Rectangle<float> glassArea;
     std::array<bool, 3> keyLit {};
 };

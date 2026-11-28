@@ -52,6 +52,7 @@ public:
 
 private:
     void timerCallback() override;
+    juce::String keyNow() const;
     ParagonX1AudioProcessor& processor;
     int bus;
     juce::String shownKey;

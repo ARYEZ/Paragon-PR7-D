@@ -99,6 +99,8 @@ private:
 
     ParagonX1AudioProcessor& processor;
     PaintCache faceCache { true };
+    mutable PaintCache screenBack, screenGlass;   // 0.94.0: the screen's frame and glass (paintScreen)
+    mutable juce::Rectangle<float> screenGlassArea;
     juce::Image grain;
     float scale = 1.0f;
     juce::Point<float> origin;

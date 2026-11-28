@@ -207,11 +207,17 @@ void RackUnit::paint (juce::Graphics& g)
     {
         g.setFont (juce::FontOptions (8.5f * scale, juce::Font::bold));
         ParagonLookAndFeel::drawStampedText (g, spec.footTitle, at (1224.0f, 60.0f, 86.0f, 12.0f), juce::Justification::centred, red);
-        const auto glass = LedDisplay::paintScreen (g, at (1222.0f, 74.0f, 90.0f, 34.0f), 0.4f * scale);
+        // 0.94.0: its frame and glass drawn once (as the big screen's), only the text each time: the frame's drop shadow
+        // was blurred afresh on every repaint of the unit, whatever part of it was being redrawn.
+        const auto bounds = at (1222.0f, 74.0f, 90.0f, 34.0f);
+        footBack.draw (g, bounds.expanded (8.0f * scale).toNearestInt(),
+                       [this, bounds, scale] (juce::Graphics& sg) { footGlassArea = LedDisplay::paintScreen (sg, bounds, 0.4f * scale); });
+        const auto glass = footGlassArea;
         g.setColour (LedDisplay::ledOrange);
         g.setFont (juce::FontOptions (glass.getHeight() * 0.5f));
         g.drawFittedText (spec.footText ? spec.footText().toUpperCase() : juce::String(), glass.reduced (4.0f * scale, 0.0f).toNearestInt(),
                           juce::Justification::centred, 1, 0.7f);
-        LedDisplay::paintGlassOverlay (g, glass, 0.4f * scale);
+        footGlass.draw (g, glass.expanded (4.0f * scale).toNearestInt(),
+                        [glass, scale] (juce::Graphics& sg) { LedDisplay::paintGlassOverlay (sg, glass, 0.4f * scale); });
     }
 }

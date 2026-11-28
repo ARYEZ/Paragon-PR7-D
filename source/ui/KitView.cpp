@@ -555,6 +555,11 @@ void KitView::paint (juce::Graphics& g)
     if (! shownAt.kit.isValid())
         return;
     const auto area = shownAt.area;
+    // 0.94.0: every picture below is drawn at the screen's own pixel size, so the transform is a translation only; at
+    // low quality JUCE copies it to the nearest whole pixel. At the default (high) quality a translation with a fraction
+    // of a pixel in it (the window scaled to fit the screen puts the view between pixels) resampled every pixel of the
+    // kit on each repaint: half the window's CPU while a beat played on the KIT VIEW.
+    g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
 
     // Screen pixels -> the view: copied, not resampled. The context's own scale cancels this one, and the picture's
     // corner sits on a whole screen pixel (between two, every pixel would be smoothed again).

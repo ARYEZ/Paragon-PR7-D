@@ -2361,6 +2361,7 @@ void BlockEditor::paint (juce::Graphics& g)
         }
         juce::Graphics::ScopedSaveState state (g);
         g.setOpacity (1.0f);
+        g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);   // 0.94.0: copied, never resampled (PaintCache.h)
         g.drawImageTransformed (content, juce::AffineTransform::scale (1.0f / scale));
     }
     // The playhead.

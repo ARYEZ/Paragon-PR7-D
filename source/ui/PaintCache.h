@@ -35,6 +35,9 @@ public:
         // cached pads vanished under their own glow), the caller's state as it was after.
         juce::Graphics::ScopedSaveState state (g);
         g.setOpacity (1.0f);
+        // 0.94.0: low quality = a plain copy to the nearest whole pixel (the default resampled the whole picture when the
+        // component sits a fraction of a pixel off the screen's grid, as it does in a window scaled to fit).
+        g.setImageResamplingQuality (juce::Graphics::lowResamplingQuality);
         g.drawImageTransformed (image, juce::AffineTransform::translation ((float) origin.x, (float) origin.y).scaled (1.0f / scale));
     }
     void invalidate() noexcept { image = {}; }

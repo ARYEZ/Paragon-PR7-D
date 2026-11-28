@@ -37,7 +37,8 @@ DrivePreview::DrivePreview (ParagonX1AudioProcessor& p, int b) : processor (p), 
     setTooltip ("What the DRIVE does at these settings: a copy of it run on a 120 Hz sine at half level. Left, one cycle in "
                 "(dim) and out (bright); right, the harmonics it adds, in dB below the note. A real chord distorts with more "
                 "going on (the notes mix), so this is a guide, not the whole story.");
-    render();
+    // 0.94.0: worked out when first drawn, not here: eight previews (DRIVE and GLITCH on four buses) were run while the
+    // window opened, whether or not their pages were ever looked at.
     startTimerHz (5);
 }
 
@@ -93,6 +94,8 @@ void DrivePreview::render()
 
 void DrivePreview::paint (juce::Graphics& g)
 {
+    if (shownKey.isEmpty())
+        render();
     DisplayStyle::drawScreen (g, getLocalBounds().toFloat());
     auto area = getLocalBounds().toFloat().reduced (24.0f, 20.0f);
     auto bars = area.removeFromRight (area.getWidth() * 0.38f);
@@ -175,28 +178,31 @@ GlitchPreview::GlitchPreview (ParagonX1AudioProcessor& p, int b) : processor (p)
 {
     setTooltip ("What GLITCH does at these settings: a copy of it (with its own fixed dice, so the same each time) on a plain riff, "
                 "eighth-note plucks at the song's tempo for two bars. The level in (dim) and out (bright) over time; the beats marked.");
-    render();
-    startTimerHz (5);
+    startTimerHz (5);   // 0.94.0: rendered when first drawn (DrivePreview's constructor says why)
 }
 
 void GlitchPreview::timerCallback()
 {
     if (! isShowing())   // 0.30.0: a hidden page's timer does nothing
         return;
-    const auto s = processor.getInsertGlitchSettings (bus);
-    const auto key = juce::String ((int) s.mode) + ":" + juce::String ((int) s.sync) + ":" + juce::String (s.lengthMs) + ":" + juce::String (s.division)
-                   + ":" + juce::String (s.density) + ":" + juce::String (s.pitch) + ":" + juce::String (s.chaos) + ":" + juce::String (s.mix)
-                   + ":" + juce::String (processor.getHostBpm());
-    if (isShowing() && key != shownKey)
+    if (isShowing() && keyNow() != shownKey)
     {
         render();
-        shownKey = key;
         repaint();
     }
 }
 
+juce::String GlitchPreview::keyNow() const
+{
+    const auto s = processor.getInsertGlitchSettings (bus);
+    return juce::String ((int) s.mode) + ":" + juce::String ((int) s.sync) + ":" + juce::String (s.lengthMs) + ":" + juce::String (s.division)
+                   + ":" + juce::String (s.density) + ":" + juce::String (s.pitch) + ":" + juce::String (s.chaos) + ":" + juce::String (s.mix)
+                   + ":" + juce::String (processor.getHostBpm());
+}
+
 void GlitchPreview::render()
 {
+    shownKey = keyNow();
     constexpr double sampleRate = 48000.0;
     constexpr int block = 512;
     auto settings = processor.getInsertGlitchSettings (bus);
@@ -226,6 +232,8 @@ void GlitchPreview::render()
 
 void GlitchPreview::paint (juce::Graphics& g)
 {
+    if (shownKey.isEmpty())
+        render();
     DisplayStyle::drawScreen (g, getLocalBounds().toFloat());
     const auto area = getLocalBounds().toFloat().reduced (24.0f, 20.0f).withTrimmedBottom (14.0f);
     g.setFont (juce::FontOptions (9.5f, juce::Font::bold));

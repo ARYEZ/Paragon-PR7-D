@@ -2,6 +2,36 @@
 
 Each version's notes appear on its GitHub Release page.
 
+## 0.94.0
+
+A full optimization pass. Measured with the plugin's window open while a 180 BPM beat played, on each page, at 100%
+and 150% screen scaling, and on three kits' audio (a generated pack shaped like Djent Drums streamed from disk with
+the Crocell Metal mix, the Djent Kit, Room Beat). The sound is bit-for-bit the same as 0.93.1's.
+
+- **The KIT VIEW uses a third of the CPU it did.** The kit picture is drawn at the screen's own size and meant to be
+  copied pixel for pixel. But when the window is scaled to fit the screen (nearly always on a real monitor), the view
+  lands a fraction of a pixel off the screen's grid. The drawing then smoothed (resampled) the whole picture on every
+  redraw, about 30 times a second while drums played. Now it's always a plain copy. The window's thread while a beat
+  plays on the KIT VIEW: 48% -> 16% of a core at 100% scaling, 76% -> 30% at 150%.
+- **The same fix for every other cached drawing** (the window's background, the GROOVES panels, the GRID EDITOR's
+  notes): they had the same smoothing whenever the window was scaled.
+- **THE DRUM MACHINE: the screen's frame drawn once.** Its chrome frame's drop shadow was blurred again every time the
+  screen changed (every step of a running beat). Now only the readout is drawn each time: 24% -> 10% of a core at
+  100%, 35% -> 15% at 150%.
+- **The FX page: the small screens under EDIT drawn once.** Each rack unit's small screen redrew its frame and shadow on
+  every repaint of the unit (its meter ladder, its readout). FX page with a beat playing: 30% -> 18% at 100%, 69% ->
+  28% at 150%.
+- **Opening the window is quicker.** The DRIVE and GLITCH previews on the FX page's insert buses (eight of them) were
+  worked out while the window opened, whether or not anyone looked at them. Now each is worked out the first time it's
+  drawn.
+- **The audio: a little lighter.** The synth drums' metal (hats, cymbals, cowbell, tambourine) and filters, and the
+  EQ's filter step (mixer and FX page EQs), were left as a function call on every sample. They're now built into the
+  loop, with the same arithmetic in the same order. Instructions counted: Room Beat -6%, the Djent Kit -4%, the sample
+  pack -1%. The sample pack's cost is mostly real sound work now: the mixer's compressors (oversampled on the FET
+  character), EQs and the LIMITER.
+- **Not checked here:** a real Windows window. JUCE's Windows drawing (Direct2D) may smooth differently, but the
+  copy-not-resample rule is the same there. The numbers above are from Linux's software renderer.
+
 ## 0.93.1
 
 - **A drum that can't load now says where it looked and why.** Under COULDN'T LOAD IT, the DRUM view shows FROM:

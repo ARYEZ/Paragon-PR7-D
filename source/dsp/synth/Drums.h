@@ -523,7 +523,7 @@ namespace synth::drums
         float lp = 0.0f, bp = 0.0f, hp = 0.0f;
 
         void set (double hz, double q, double sampleRate) noexcept;
-        void process (float x) noexcept
+        forcedinline void process (float x) noexcept   // 0.94.0: always inlined (it was left a call per sample)
         {
             const auto v3 = x - ic2;
             const auto v1 = a1 * ic1 + a2 * v3;
